@@ -1,0 +1,12 @@
+node_modules/
+data/
+logs/
+backups/
+attic/
+.env
+*.db
+*.db-shm
+*.db-wal
+*.log
+data/models/
+src/gateway/whisper_transcribe.py
