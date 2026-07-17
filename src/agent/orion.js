@@ -1,4 +1,5 @@
 import { execa } from 'execa'
+import { join } from 'path'
 import { getDb } from '../db/index.js'
 import { getProactiveMemories, processExchange, createSessionSnapshot, feedbackMemory } from '../memory/index.js'
 import { compressSessionIfNeeded } from '../memory/compressor.js'
@@ -6,8 +7,8 @@ import { SYSTEM_PROMPT, buildMemoryContext } from './prompt.js'
 import { generateSkillIfWorthy } from './skill-generator.js'
 import { updateUserProfile } from './user-profile.js'
 import { buildFullContext, serializeContext } from '../api/context.js'
-import { listSessions } from '../sessions/indexer.js'
-import { parseSession } from '../sessions/reader.js'
+import { listSessions, getLastRoleLive } from '../sessions/indexer.js'
+import { SESSIONS_DIR } from '../sessions/reader.js'
 import { getOrCreate, updateClaudeSessionId as updateRegistrySessionId, projectSessionName } from '../sessions/registry.js'
 
 import { createLogger } from '../logger.js'
@@ -41,6 +42,9 @@ function isTrivialMessage(m) {
 function getModeIndicator(claudeSessionId, bridgeMode = false) {
   if (!claudeSessionId) return '*Orion*'
 
+  // Só usa título LIMPO (custom_title definido pelo usuário ou ai_title gerado).
+  // NUNCA usa first_user_msg — ele é a mensagem AUMENTADA (com <resumo_sessao>,
+  // <sessoes_claude_code> etc.) e poluiria o prefixo.
   let sessionName = null
   try {
     const db = getDb()
@@ -50,7 +54,7 @@ function getModeIndicator(claudeSessionId, bridgeMode = false) {
     sessionName = cs?.custom_title ?? cs?.ai_title ?? null
   } catch {}
 
-  // Ignora títulos poluídos (tags, quebras de linha, longos demais)
+  // Defesa extra: ignora títulos poluídos (tags, quebras de linha, longos demais)
   if (sessionName && (/[<\n>]/.test(sessionName) || sessionName.length > 40)) {
     sessionName = null
   }
@@ -75,13 +79,9 @@ async function buildSessionsSnapshot() {
     } else {
       for (const s of active) {
         const name = s.custom_title ?? s.ai_title ?? s.first_user_msg?.slice(0, 40) ?? s.id.slice(0, 8)
-        // Detectar Working vs Aguardando pelo último role no .jsonl
-        let estado = 'Aguardando'
-        try {
-          const { messages } = await parseSession(s.path)
-          const last = messages.filter(m => m.role === 'user' || m.role === 'assistant').at(-1)
-          if (last?.role === 'user') estado = 'Working'
-        } catch {}
+        // Detectar Working vs Aguardando: lê só os últimos 60KB (rápido, sem parseSession full)
+        const lastRole = getLastRoleLive(join(SESSIONS_DIR, `${s.id}.jsonl`))
+        const estado = lastRole === 'user' ? 'Working' : 'Aguardando'
         lines.push(`  - ${name} (${estado})`)
       }
     }
@@ -97,6 +97,9 @@ async function buildSessionsSnapshot() {
 const activeSessions = new Map()
 
 // ── Feedback implícito de memória ─────────────────────────────────────────────
+// Rastreia as memórias injetadas na ÚLTIMA resposta de cada sessão. Se o próximo
+// turno do usuário for uma correção, elas são penalizadas; se for confirmação
+// forte, reforçadas. O uso real dá a nota — sem custo de LLM.
 const _lastInjectedMems = new Map()  // session.id → [memory ids]
 const CORRECTION_RE = /^(n[ãa]o[,.!\s]|errado|n[ãa]o [ée] (isso|assim)|na verdade|corrig|(es)?t[áa] errado|nada a ver)/i
 const AFFIRMATION_RE = /^(exato|isso mesmo|isso a[íi]|perfeito|correto|certinho|[ée] isso)/i
@@ -149,25 +152,30 @@ function updateClaudeSessionId(sessionId, claudeSessionId) {
 
 export async function runOrion({ jid, message, channel = 'whatsapp', sessionChannel = null }) {
   const _startMs = Date.now()
+  // sessionChannel: canais diferentes podem compartilhar a MESMA sessão/contexto
+  // (chat web entra na sessão do WhatsApp — um cérebro só; origem fica em messages.channel)
   const session = getOrCreateSession(jid, sessionChannel || channel)
 
   // U5: snapshot do estado de memórias no início da sessão (idempotente, background)
   setImmediate(() => { try { createSessionSnapshot(session.id) } catch {} })
 
   // ── Caminho LEVE para mensagens triviais (saudações etc.) ──────────────────
+  // Sem compressão, sem contexto, sem snapshot de sessões, sem resume, sem MCPs.
+  // Responde rápido e conversacional, sem "ir trabalhar" numa tarefa antiga.
   const trivial = isTrivialMessage(message)
 
-  // Comprimir contexto da sessão se necessário (pula no caminho leve)
+  // Comprimir contexto da sessão se necessário (pula no caminho leve — é uma chamada Haiku)
   const contextSummary = trivial ? null : await compressSessionIfNeeded(session.id)
 
-  // Contexto completo via pipeline unificado
+  // Contexto completo via pipeline unificado (mesmo que WhatsApp e plugin usam)
   const isCasual = trivial || message.trim().length < 25
   const [fullCtx, proactive] = await Promise.all([
     isCasual ? Promise.resolve(null) : buildFullContext(message, { limit: 6 }),
     Promise.resolve(isCasual ? [] : getProactiveMemories(message)),
   ])
 
-  // Feedback implícito: avalia ANTES de sobrescrever o rastro
+  // Feedback implícito: avalia ANTES de sobrescrever o rastro (a correção se
+  // refere às memórias da resposta anterior)
   applyImplicitFeedback(session.id, message)
   const injectedIds = (fullCtx?.memories ?? []).map(m => m.id).filter(Boolean)
   if (injectedIds.length) _lastInjectedMems.set(session.id, injectedIds)
@@ -177,10 +185,12 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
     ? '\n\n<memoria_proativa>\n' + proactive.map(m => m.content).join('\n') + '\n</memoria_proativa>'
     : ''
 
+  // Histórico comprimido (omitido no caminho leve)
   const summarySection = contextSummary
     ? `\n\n<resumo_sessao>\n${contextSummary}\n</resumo_sessao>`
     : ''
 
+  // Snapshot de sessões só quando NÃO é trivial (senão o modelo "fala de sessões" sem pedir)
   const sessionsSnapshot = trivial ? '' : await buildSessionsSnapshot()
   const augmentedMessage = trivial ? message : (message + summarySection + ctxStr + proactiveStr + sessionsSnapshot)
 
@@ -195,25 +205,38 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
     registryEntry = getOrCreate(sessionLabel, { project, role: 'executor' })
   }
 
+  // Prioridade: session do registry > session da conversa > nova sessão com system prompt.
+  // No caminho trivial: NUNCA resume (evita continuar tarefa antiga) → sempre sessão fresca.
   const resumeId = trivial ? null : (registryEntry?.claude_session_id ?? session.claude_session_id)
 
-  const ownerName = process.env.OWNER_DISPLAY_NAME || 'usuário'
-  const TRIVIAL_PROMPT = `Você é o Orion, assistente pessoal do ${ownerName} no WhatsApp. Responda de forma curta, direta e conversacional, em português brasileiro. Não liste tarefas nem sessões a menos que perguntem.`
+  // Prompt de sistema conversacional curto no caminho trivial
+  const TRIVIAL_PROMPT = 'Você é o Orion, assistente pessoal do Danilo no WhatsApp. Responda de forma curta, direta e conversacional, em português brasileiro. Não liste tarefas nem sessões a menos que perguntem.'
 
-  const buildArgs = (withResume) => {
-    const a = ['-p', augmentedMessage, '--output-format', 'json', '--dangerously-skip-permissions']
+  // Prompts grandes (imagem base64, sessões longas) estouram ARG_MAX (2MB) como arg -p.
+  // Limiar conservador: 200KB. Acima disso, passa via stdin (execa.input) sem -p.
+  const BIG_PROMPT = 200_000
+
+  // Monta args; quando withResume=false, ignora o resume e começa sessão nova
+  const buildArgs = (withResume, useStdin) => {
+    const a = useStdin
+      ? ['--output-format', 'json', '--dangerously-skip-permissions']
+      : ['-p', augmentedMessage, '--output-format', 'json', '--dangerously-skip-permissions']
     if (withResume && resumeId) a.push('--resume', resumeId)
     else a.push('--system-prompt', trivial ? TRIVIAL_PROMPT : SYSTEM_PROMPT)
     return a
   }
 
-  const workspaceDir = process.env.WORKSPACE_DIR ?? '/config/workspace'
-  const callClaude = (withResume) => execa('claude', buildArgs(withResume), {
-    timeout: trivial ? 45_000 : 150_000,
-    cwd: workspaceDir,   // workspace principal → sessão visível no sidebar
-    env: trivial ? { ...process.env, CLAUDE_CODE_DISABLE_MCP: '1' } : { ...process.env },
-  })
+  const callClaude = (withResume) => {
+    const useStdin = augmentedMessage.length > BIG_PROMPT
+    return execa('claude', buildArgs(withResume, useStdin), {
+      timeout: trivial ? 45_000 : 150_000,
+      cwd: '/config/workspace',
+      env: trivial ? { ...process.env, CLAUDE_CODE_DISABLE_MCP: '1' } : { ...process.env },
+      ...(useStdin ? { input: augmentedMessage } : {}),
+    })
+  }
 
+  // Resume inválido (sessão sumiu) OU travou (timeout) → vale recomeçar do zero
   const isStaleResume = (err) => {
     const blob = `${err?.stderr ?? ''} ${err?.stdout ?? ''} ${err?.message ?? ''}`
     return /No conversation found|session ID|not found|--resume/i.test(blob)
@@ -228,6 +251,7 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
     try {
       result = await callClaude(true)
     } catch (err) {
+      // Fallback: resume inexistente OU travado (timeout) → recomeça limpando o id
       if (resumeId && (isStaleResume(err) || isTimeout(err))) {
         const motivo = isTimeout(err) ? 'resume travou (timeout)' : 'resume inválido'
         log.warn({ resumeId, motivo, err: err.message }, '[orion] recomeçando sessão nova')
@@ -243,6 +267,9 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
     output = parsed.result ?? parsed.content ?? ''
     claudeSessionId = parsed.session_id ?? claudeSessionId
 
+    // Só persiste a thread quando NÃO é trivial. Saudações rodam numa sessão de
+    // rascunho descartável e NÃO devem virar o "fio eterno" da conversa — senão
+    // um "oi" reseta a thread e a próxima mensagem real perde a continuidade.
     if (!trivial && claudeSessionId && claudeSessionId !== session.claude_session_id) {
       updateClaudeSessionId(session.id, claudeSessionId)
     }
@@ -268,7 +295,10 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
     durationMs: Date.now() - _startMs,
   })
 
-  // Gate de trivialidade — saudações NÃO disparam processamento background
+  // ── Gate de trivialidade ────────────────────────────────────────────────────
+  // Saudações/mensagens triviais NÃO disparam o enxame de Haiku em background
+  // (extração, skill, perfil, causal, review). Evita "esforço sem ser pedido"
+  // e tira a contenção de CPU que deixava o reply principal lento.
   if (!isTrivialMessage(message)) {
     generateSkillIfWorthy(message, output).catch(() => {})
     updateUserProfile(message, output).catch(() => {})
@@ -282,7 +312,7 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
     log.debug({ msg: message.slice(0, 30) }, '[orion] mensagem trivial — sem processamento background')
   }
 
-  // Prefixa o indicador de modo apenas no canal WhatsApp
+  // Prefixa o indicador de modo apenas no canal WhatsApp (no plugin fica limpo)
   if (channel === 'whatsapp' && output) {
     const indicator = getModeIndicator(claudeSessionId)
     return `${indicator}\n${output}`

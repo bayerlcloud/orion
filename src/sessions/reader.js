@@ -1,6 +1,8 @@
-import { createReadStream, statSync } from 'fs'
+import { createReadStream, statSync, openSync, readSync, closeSync } from 'fs'
 import { createInterface } from 'readline'
 
+// Decodifica o diretório do projeto a partir do path das sessões
+// Ex: /config/.claude/projects/-config-workspace/ → /config/workspace
 export function cwdFromSessionsDir(dir) {
   const name = dir.split('/projects/')[1]?.replace(/\/$/, '') ?? ''
   return name.replace(/-/g, '/') || '/config/workspace'
@@ -9,68 +11,115 @@ export function cwdFromSessionsDir(dir) {
 export const SESSIONS_DIR = '/config/.claude/projects/-config-workspace'
 export const SESSION_CWD  = '/config/workspace'
 
+// Extrai texto de um content item (string | array | object)
 function extractText(content) {
   if (typeof content === 'string') return content
-  if (Array.isArray(content)) return content.filter(c => c?.type === 'text').map(c => c.text ?? '').join('')
+  if (Array.isArray(content)) {
+    return content
+      .filter(c => c?.type === 'text')
+      .map(c => c.text ?? '')
+      .join('')
+  }
   return ''
 }
 
+// Parseia um arquivo .jsonl e retorna array de mensagens + metadata
 export async function parseSession(filepath) {
-  const messages = []; let customTitle = null; let aiTitle = null; let firstUserMsg = null
-  let stat; try { stat = statSync(filepath) } catch { return { messages, customTitle, aiTitle, firstUserMsg, size: 0 } }
+  const messages = []
+  let customTitle = null
+  let aiTitle     = null
+  let firstUserMsg = null
+
+  let stat
+  try { stat = statSync(filepath) } catch { return { messages, customTitle, aiTitle, firstUserMsg, size: 0 } }
+
   const stream = createReadStream(filepath)
-  const rl = createInterface({ input: stream, crlfDelay: Infinity })
+  const rl     = createInterface({ input: stream, crlfDelay: Infinity })
+
   for await (const raw of rl) {
     if (!raw.trim()) continue
-    let obj; try { obj = JSON.parse(raw) } catch { continue }
+    let obj
+    try { obj = JSON.parse(raw) } catch { continue }
+
     const type = obj.type
+
     if (type === 'user') {
       const text = extractText(obj.message?.content)
-      if (text && !firstUserMsg && !text.startsWith('Continue from where')) firstUserMsg = text.slice(0, 120)
+      if (text && !firstUserMsg && !text.startsWith('Continue from where')) {
+        firstUserMsg = text.slice(0, 120)
+      }
       if (text) messages.push({ role: 'user', text, ts: obj.timestamp ?? null })
     }
+
     if (type === 'assistant') {
       const text = extractText(obj.message?.content)
-      const tools = (obj.message?.content ?? []).filter(c => c?.type === 'tool_use').map(c => ({ name: c.name, input: c.input }))
-      if (text || tools.length) messages.push({ role: 'assistant', text: text || '', tools, ts: obj.timestamp ?? null })
+      const tools = (obj.message?.content ?? [])
+        .filter(c => c?.type === 'tool_use')
+        .map(c => ({ name: c.name, input: c.input }))
+      if (text || tools.length) {
+        messages.push({ role: 'assistant', text: text || '', tools, ts: obj.timestamp ?? null })
+      }
     }
-    if (type === 'summary') messages.push({ role: 'summary', text: obj.summary ?? '', ts: obj.timestamp ?? null })
-    const cm = raw.match(/"customTitle":"([^"]+)"/); if (cm) customTitle = cm[1]
-    const am = raw.match(/"aiTitle":"([^"]+)"/); if (am) aiTitle = am[1]
+
+    if (type === 'summary') {
+      messages.push({ role: 'summary', text: obj.summary ?? '', ts: obj.timestamp ?? null })
+    }
+
+    // Título custom (escrito pelo rename na sidebar)
+    const raw_str = raw
+    const cm = raw_str.match(/"customTitle":"([^"]+)"/)
+    if (cm) customTitle = cm[1]
+
+    const am = raw_str.match(/"aiTitle":"([^"]+)"/)
+    if (am) aiTitle = am[1]
   }
+
   return { messages, customTitle, aiTitle, firstUserMsg, size: stat.size }
 }
 
+// Resume o input de uma tool para a linha "IN" (estilo plugin)
 function summarizeToolInput(name, input = {}) {
   if (!input || typeof input !== 'object') return ''
   switch (name) {
-    case 'Bash': return input.command ?? ''
-    case 'Read': return `${input.file_path ?? ''}${input.offset ? ` (linhas ${input.offset}-${(input.offset + (input.limit ?? 0))})` : ''}`
-    case 'Edit': return `${input.file_path ?? ''}`
-    case 'Write': return `${input.file_path ?? ''}`
-    case 'Grep': return `${input.pattern ?? ''}${input.path ? ` em ${input.path}` : ''}`
-    case 'Glob': return input.pattern ?? ''
-    case 'TodoWrite': return `${(input.todos ?? []).length} itens`
-    default: { try { return JSON.stringify(input).slice(0, 300) } catch { return '' } }
+    case 'Bash':            return input.command ?? ''
+    case 'Read':            return `${input.file_path ?? ''}${input.offset ? ` (linhas ${input.offset}-${(input.offset + (input.limit ?? 0))})` : ''}`
+    case 'Edit':            return `${input.file_path ?? ''}`
+    case 'Write':           return `${input.file_path ?? ''}`
+    case 'Grep':            return `${input.pattern ?? ''}${input.path ? ` em ${input.path}` : ''}`
+    case 'Glob':            return input.pattern ?? ''
+    case 'TodoWrite':       return `${(input.todos ?? []).length} itens`
+    case 'Task':            return input.description ?? input.prompt?.slice(0, 100) ?? ''
+    default:                { try { return JSON.stringify(input).slice(0, 300) } catch { return '' } }
   }
 }
 
+// Timeline rica (estilo plugin): texto, thinking, tools com IN/OUT pareados.
 export async function parseSessionTimeline(filepath) {
-  let stat; try { stat = statSync(filepath) } catch { return { timeline: [] } }
+  let stat
+  try { stat = statSync(filepath) } catch { return { timeline: [] } }
+
   const rl = createInterface({ input: createReadStream(filepath), crlfDelay: Infinity })
-  const timeline = []; const toolResults = new Map(); const toolItems = new Map()
+  const timeline = []
+  const toolResults = new Map()   // tool_use_id → texto de saída
+  const toolItems   = new Map()   // tool_use_id → item (para anexar a saída depois)
+
   for await (const raw of rl) {
     if (!raw.trim()) continue
     let obj; try { obj = JSON.parse(raw) } catch { continue }
-    const content = obj.message?.content; const ts = obj.timestamp ?? null
+    const content = obj.message?.content
+    const ts = obj.timestamp ?? null
+
     if (obj.type === 'summary') { timeline.push({ kind: 'summary', text: obj.summary ?? '', ts }); continue }
+
     if (obj.type === 'user') {
+      // tool_result vem como user-role; anexa à tool correspondente
       if (Array.isArray(content)) {
         let hadResult = false
         for (const c of content) {
           if (c?.type === 'tool_result') {
             hadResult = true
-            const out = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map(x => x?.text ?? '').join('\n') : ''
+            const out = typeof c.content === 'string' ? c.content
+              : Array.isArray(c.content) ? c.content.map(x => x?.text ?? '').join('\n') : ''
             toolResults.set(c.tool_use_id, out)
             if (toolItems.has(c.tool_use_id)) toolItems.get(c.tool_use_id).output = out.slice(0, 4000)
           }
@@ -81,13 +130,15 @@ export async function parseSessionTimeline(filepath) {
       if (text && !text.startsWith('Continue from where')) timeline.push({ kind: 'user', text, ts })
       continue
     }
+
     if (obj.type === 'assistant' && Array.isArray(content)) {
       for (const c of content) {
-        if (c?.type === 'text' && c.text?.trim()) timeline.push({ kind: 'say', text: c.text, ts })
+        if (c?.type === 'text' && c.text?.trim() && c.text.trim() !== 'No response requested.')       timeline.push({ kind: 'say', text: c.text, ts })
         else if (c?.type === 'thinking' && c.thinking?.trim()) timeline.push({ kind: 'thinking', text: c.thinking, ts })
         else if (c?.type === 'tool_use') {
           const item = { kind: 'tool', name: c.name, input: summarizeToolInput(c.name, c.input), output: toolResults.get(c.id) ?? null, ts, todos: c.name === 'TodoWrite' ? (c.input?.todos || []).map(t => ({ c: t.content, s: t.status })) : undefined }
-          toolItems.set(c.id, item); timeline.push(item)
+          toolItems.set(c.id, item)
+          timeline.push(item)
         }
       }
     }
@@ -95,6 +146,7 @@ export async function parseSessionTimeline(filepath) {
   return { timeline: dedupConsecutive(timeline), size: stat.size }
 }
 
+// Remove say/tool consecutivos com mesmo texto (retentativas de rate-limit etc.)
 function dedupConsecutive(timeline) {
   const out = []
   for (const item of timeline) {
@@ -105,78 +157,188 @@ function dedupConsecutive(timeline) {
   return out
 }
 
-const TAIL_BYTES = 600_000
+// Parse rápido lendo só as últimas TAIL_BYTES do arquivo.
+// Para arquivos grandes (>1MB), reduz de minutos para <100ms.
+// Retorna partial:true quando o arquivo foi truncado (há histórico anterior).
+const TAIL_BYTES = 600_000  // 600KB suficiente para 60+ items mesmo com tool outputs grandes
 export async function tailParseTimeline(filepath, maxItems = 80) {
-  let stat; try { stat = statSync(filepath) } catch { return { timeline: [], size: 0, partial: false } }
-  const startByte = Math.max(0, stat.size - TAIL_BYTES); const partial = startByte > 0
+  let stat
+  try { stat = statSync(filepath) } catch { return { timeline: [], size: 0, partial: false } }
+
+  const startByte = Math.max(0, stat.size - TAIL_BYTES)
+  const partial = startByte > 0
+
+  // Lê da posição calculada; primeira linha pode estar incompleta → descarta
   const stream = createReadStream(filepath, { start: startByte })
   const rl = createInterface({ input: stream, crlfDelay: Infinity })
-  const rawLines = []; for await (const line of rl) { if (line.trim()) rawLines.push(line) }
+  const rawLines = []
+  for await (const line of rl) { if (line.trim()) rawLines.push(line) }
+
+  // Se truncado, pula primeira linha (pode estar pela metade)
   const lines = partial ? rawLines.slice(1) : rawLines
-  const toolResults = new Map(); const toolItems = new Map(); const timeline = []
+
+  const toolResults = new Map()
+  const toolItems   = new Map()
+  const timeline    = []
+
   for (const raw of lines) {
     let obj; try { obj = JSON.parse(raw) } catch { continue }
-    const content = obj.message?.content; const ts = obj.timestamp ?? null
+    const content = obj.message?.content
+    const ts = obj.timestamp ?? null
+
     if (obj.type === 'summary') { timeline.push({ kind: 'summary', text: obj.summary ?? '', ts }); continue }
+
     if (obj.type === 'user') {
       if (Array.isArray(content)) {
         let hadResult = false
         for (const c of content) {
           if (c?.type === 'tool_result') {
             hadResult = true
-            const out = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map(x => x?.text ?? '').join('\n') : ''
+            const out = typeof c.content === 'string' ? c.content
+              : Array.isArray(c.content) ? c.content.map(x => x?.text ?? '').join('\n') : ''
             toolResults.set(c.tool_use_id, out)
             if (toolItems.has(c.tool_use_id)) toolItems.get(c.tool_use_id).output = out.slice(0, 4000)
           }
         }
         if (hadResult) continue
       }
-      const txt = extractText(content)
+      const txt = typeof content === 'string' ? content.trim()
+        : Array.isArray(content) ? content.map(c => (typeof c === 'string' ? c : c?.text ?? '')).join('').trim() : ''
       if (txt && !txt.startsWith('Continue from where')) timeline.push({ kind: 'user', text: txt, ts })
       continue
     }
+
     if (obj.type === 'assistant' && Array.isArray(content)) {
       for (const c of content) {
-        if (c?.type === 'text' && c.text?.trim()) timeline.push({ kind: 'say', text: c.text, ts })
+        if (c?.type === 'text' && c.text?.trim() && c.text.trim() !== 'No response requested.')            timeline.push({ kind: 'say', text: c.text, ts })
         else if (c?.type === 'thinking' && c.thinking?.trim()) timeline.push({ kind: 'thinking', text: c.thinking, ts })
         else if (c?.type === 'tool_use') {
           const item = { kind: 'tool', name: c.name, input: summarizeToolInput(c.name, c.input), output: toolResults.get(c.id) ?? null, ts, todos: c.name === 'TodoWrite' ? (c.input?.todos || []).map(t => ({ c: t.content, s: t.status })) : undefined }
-          toolItems.set(c.id, item); timeline.push(item)
+          toolItems.set(c.id, item)
+          timeline.push(item)
         }
       }
     }
   }
+
   const deduped = dedupConsecutive(timeline)
-  return { timeline: deduped.length > maxItems ? deduped.slice(-maxItems) : deduped, size: stat.size, partial }
+  const sliced = deduped.length > maxItems ? deduped.slice(-maxItems) : deduped
+  return { timeline: sliced, size: stat.size, partial }
 }
 
+// Lê apenas novas linhas a partir de uma posição byte
 export async function readNewLines(filepath, fromByte) {
-  let stat; try { stat = statSync(filepath) } catch { return { lines: [], newPos: fromByte } }
+  let stat
+  try { stat = statSync(filepath) } catch { return { lines: [], newPos: fromByte } }
   if (stat.size <= fromByte) return { lines: [], newPos: fromByte }
+
   const stream = createReadStream(filepath, { start: fromByte })
   const rl = createInterface({ input: stream, crlfDelay: Infinity })
-  const lines = []; for await (const line of rl) { if (line.trim()) lines.push(line) }
+  const lines = []
+  for await (const line of rl) {
+    if (line.trim()) lines.push(line)
+  }
   return { lines, newPos: stat.size }
 }
 
+// Parse rápido de metadados para arquivos grandes (> 2MB).
+// Lê só os primeiros 2KB (firstUserMsg) e os últimos 4KB (customTitle/aiTitle).
+// NÃO conta mensagens — retorna message_count = -1 (sinal para manter valor do banco).
+export function fastParseSessionMeta(filepath) {
+  let stat
+  try { stat = statSync(filepath) } catch { return null }
+
+  const HEAD = 2000
+  const TAIL = 4000
+  let firstUserMsg = null
+  let customTitle  = null
+  let aiTitle      = null
+
+  const fd = openSync(filepath, 'r')
+  try {
+    // ── cabeça: extrai firstUserMsg ──────────────────────────────────────────
+    const headSize = Math.min(HEAD, stat.size)
+    const headBuf  = Buffer.alloc(headSize)
+    readSync(fd, headBuf, 0, headSize, 0)
+    for (const line of headBuf.toString('utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const obj = JSON.parse(line)
+        if (obj.type === 'user') {
+          const c = obj.message?.content
+          const text = typeof c === 'string' ? c
+            : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text ?? '').join('') : ''
+          if (text && !text.startsWith('Continue from where')) {
+            firstUserMsg = text.slice(0, 120)
+            break
+          }
+        }
+      } catch {}
+    }
+
+    // ── cauda: extrai títulos ────────────────────────────────────────────────
+    const tailStart = Math.max(0, stat.size - TAIL)
+    const tailSize  = stat.size - tailStart
+    const tailBuf   = Buffer.alloc(tailSize)
+    readSync(fd, tailBuf, 0, tailSize, tailStart)
+    const tailStr = tailBuf.toString('utf8')
+    const cm = tailStr.match(/"customTitle":"([^"]+)"/)
+    if (cm) customTitle = cm[1]
+    const am = tailStr.match(/"aiTitle":"([^"]+)"/)
+    if (am) aiTitle = am[1]
+  } finally {
+    closeSync(fd)
+  }
+
+  return { firstUserMsg, customTitle, aiTitle, size: stat.size, message_count: -1 }
+}
+
+// Converte uma linha raw do .jsonl em mensagem legível (para SSE)
 export function parseLine(raw) {
-  let obj; try { obj = JSON.parse(raw) } catch { return null }
-  if (obj.type === 'user') { const text = extractText(obj.message?.content); if (!text) return null; return { role: 'user', text, ts: obj.timestamp ?? null } }
-  if (obj.type === 'assistant') { const text = extractText(obj.message?.content); const tools = (obj.message?.content ?? []).filter(c => c?.type === 'tool_use').map(c => ({ name: c.name })); if (!text && !tools.length) return null; return { role: 'assistant', text: text || '', tools, ts: obj.timestamp ?? null } }
-  if (obj.type === 'summary') return { role: 'summary', text: obj.summary ?? '', ts: obj.timestamp ?? null }
+  let obj
+  try { obj = JSON.parse(raw) } catch { return null }
+
+  if (obj.type === 'user') {
+    const text = extractText(obj.message?.content)
+    if (!text) return null
+    return { role: 'user', text, ts: obj.timestamp ?? null }
+  }
+  if (obj.type === 'assistant') {
+    const text = extractText(obj.message?.content)
+    const tools = (obj.message?.content ?? [])
+      .filter(c => c?.type === 'tool_use')
+      .map(c => ({ name: c.name }))
+    if (!text && !tools.length) return null
+    return { role: 'assistant', text: text || '', tools, ts: obj.timestamp ?? null }
+  }
+  if (obj.type === 'summary') {
+    return { role: 'summary', text: obj.summary ?? '', ts: obj.timestamp ?? null }
+  }
   return null
 }
 
+// Converte UMA linha raw em itens de timeline (estilo plugin) para SSE ao vivo.
+// Emite say/thinking/tool (com input) e tool_output (saída, pareada por id).
 export function parseLineItems(raw) {
-  let obj; try { obj = JSON.parse(raw) } catch { return [] }
-  const ts = obj.timestamp ?? null; const out = []
+  let obj
+  try { obj = JSON.parse(raw) } catch { return [] }
+  const ts = obj.timestamp ?? null
+  const out = []
+
   if (obj.type === 'summary') return [{ kind: 'summary', ts }]
+
   const content = obj.message?.content
+
   if (obj.type === 'user') {
     if (Array.isArray(content)) {
       let hadResult = false
       for (const c of content) {
-        if (c?.type === 'tool_result') { hadResult = true; const o = typeof c.content === 'string' ? c.content : Array.isArray(c.content) ? c.content.map(x => x?.text ?? '').join('\n') : ''; out.push({ kind: 'tool_output', id: c.tool_use_id, output: String(o).slice(0, 4000) }) }
+        if (c?.type === 'tool_result') {
+          hadResult = true
+          const o = typeof c.content === 'string' ? c.content
+            : Array.isArray(c.content) ? c.content.map(x => x?.text ?? '').join('\n') : ''
+          out.push({ kind: 'tool_output', id: c.tool_use_id, output: String(o).slice(0, 4000) })
+        }
       }
       if (hadResult) return out
     }
@@ -184,11 +346,12 @@ export function parseLineItems(raw) {
     if (text && !text.startsWith('Continue from where')) out.push({ kind: 'user', text, ts })
     return out
   }
+
   if (obj.type === 'assistant' && Array.isArray(content)) {
     for (const c of content) {
-      if (c?.type === 'text' && c.text?.trim()) out.push({ kind: 'say', text: c.text, ts })
+      if (c?.type === 'text' && c.text?.trim() && c.text.trim() !== 'No response requested.')            out.push({ kind: 'say', text: c.text, ts })
       else if (c?.type === 'thinking' && c.thinking?.trim()) out.push({ kind: 'thinking', text: c.thinking, ts })
-      else if (c?.type === 'tool_use') out.push({ kind: 'tool', id: c.id, name: c.name, input: summarizeToolInput(c.name, c.input), output: null, ts, todos: c.name === 'TodoWrite' ? (c.input?.todos || []).map(t => ({ c: t.content, s: t.status })) : undefined })
+      else if (c?.type === 'tool_use')                      out.push({ kind: 'tool', id: c.id, name: c.name, input: summarizeToolInput(c.name, c.input), output: null, ts, todos: c.name === 'TodoWrite' ? (c.input?.todos || []).map(t => ({ c: t.content, s: t.status })) : undefined })
     }
   }
   return out
