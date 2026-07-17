@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orion — Painel</title>
+<style>
+  :root{
+    --bg:#0a0d13; --side:#0e1320; --panel:#141a27; --panel2:#1b2333; --line:#242d40;
+    --txt:#e7ecf3; --mut:#8493a9; --accent:#6366f1; --accent2:#818cf8;
+    --green:#3fd07a; --yellow:#f5c451; --red:#ff5d5d; --blue:#5b9dff; --purple:#a78bfa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;min-height:100vh}
+  a{color:inherit;text-decoration:none}
+  ::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+  /* sidebar */
+  .side{width:230px;background:var(--side);border-right:1px solid var(--line);padding:1.1rem .8rem;position:fixed;height:100vh;overflow-y:auto;display:flex;flex-direction:column;gap:.2rem}
+  .brand{display:flex;align-items:center;gap:.6rem;padding:.3rem .5rem 1.1rem}
+  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-weight:800}
+  .brand h1{font-size:1rem;font-weight:750}.brand .s{font-size:.68rem;color:var(--mut);font-family:monospace}
+  .nav{display:flex;align-items:center;gap:.7rem;padding:.6rem .7rem;border-radius:9px;cursor:pointer;font-size:.9rem;font-weight:550;color:var(--mut);transition:.15s}
+  .nav:hover{background:var(--panel);color:var(--txt)}
+  .nav.active{background:linear-gradient(90deg,rgba(255,122,69,.18),transparent);color:var(--txt);box-shadow:inset 2px 0 0 var(--accent)}
+  .nav .ic{font-size:1.05rem;width:20px;text-align:center}
+  .nav .badge{margin-left:auto;font-size:.66rem;background:var(--panel2);color:var(--mut);padding:.05rem .4rem;border-radius:10px}
+  .side-foot{margin-top:auto;font-size:.68rem;color:var(--mut);padding:.5rem;border-top:1px solid var(--line)}
+  /* main */
+  .main{margin-left:230px;flex:1;padding:1.4rem 1.7rem;max-width:1180px}
+  .head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.3rem;flex-wrap:wrap}
+  .head h2{font-size:1.25rem;font-weight:750}
+  .head .meta{font-size:.76rem;color:var(--mut);display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+  .countdown{color:var(--accent);font-weight:700}
+  .sec{display:none}.sec.show{display:block;animation:fade .25s}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  /* cards */
+  .grid{display:grid;gap:.85rem}
+  .cards{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:1.2rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:.95rem 1.05rem}
+  .card .l{font-size:.7rem;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:.4rem}
+  .card .v{font-size:1.55rem;font-weight:750;letter-spacing:-.5px}
+  .card .sub{font-size:.72rem;color:var(--mut);margin-top:.2rem}
+  .bar{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:.55rem}
+  .bar>i{display:block;height:100%;border-radius:4px;transition:.5s}
+  .loads{grid-template-columns:repeat(3,1fr);margin-bottom:1.2rem}
+  .lc{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:.8rem 1rem;text-align:center}
+  .lc .n{font-size:1.7rem;font-weight:750}
+  /* box/table */
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:13px;overflow:hidden;margin-bottom:1.2rem}
+  .box-h{padding:.7rem 1rem;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--mut);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  table{width:100%;border-collapse:collapse;font-size:.86rem}
+  th,td{text-align:left;padding:.58rem .9rem;border-bottom:1px solid var(--line)}
+  th{font-size:.68rem;text-transform:uppercase;letter-spacing:.5px;color:var(--mut);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td.mono,.mono{font-family:ui-monospace,monospace;font-size:.82rem}
+  .pill{display:inline-block;padding:.12rem .55rem;border-radius:20px;font-size:.71rem;font-weight:600;white-space:nowrap}
+  .pill.on{background:rgba(63,208,122,.15);color:var(--green)}.pill.off{background:rgba(255,93,93,.15);color:var(--red)}
+  .pill.stop{background:rgba(132,147,169,.15);color:var(--mut)}.pill.warn{background:rgba(245,196,81,.15);color:var(--yellow)}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+  /* buttons */
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:.32rem .7rem;border-radius:8px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.15s}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.g:hover{border-color:var(--green);color:var(--green)}.btn.r:hover{border-color:var(--red);color:var(--red)}
+  .btn.solid{background:var(--accent);border-color:var(--accent);color:#160a05}
+  .btn.danger{background:rgba(255,93,93,.12);border-color:rgba(255,93,93,.3);color:var(--red)}
+  .btn:disabled{opacity:.5;cursor:wait}
+  .row{display:flex;gap:.4rem;align-items:center}
+  /* generic grids */
+  .tiles{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:.9rem 1rem;transition:.15s}
+  .tile:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .tile .t{font-weight:650;font-size:.92rem;display:flex;align-items:center;gap:.45rem}
+  .tile .d{font-size:.74rem;color:var(--mut);margin-top:.25rem;line-height:1.35}
+  .search{width:100%;background:var(--panel);border:1px solid var(--line);color:var(--txt);padding:.55rem .85rem;border-radius:10px;font-size:.86rem;margin-bottom:.9rem}
+  .search:focus{outline:none;border-color:var(--accent)}
+  .chip{display:inline-block;font-size:.66rem;padding:.08rem .45rem;border-radius:8px;background:var(--panel2);color:var(--mut);margin-left:.4rem}
+  .md{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:1.2rem 1.4rem;line-height:1.6;font-size:.88rem;max-height:75vh;overflow:auto}
+  .md h1,.md h2,.md h3{margin:1rem 0 .5rem;font-weight:700}.md h1{font-size:1.2rem;color:var(--accent)}.md h2{font-size:1.05rem}.md h3{font-size:.95rem;color:var(--blue)}
+  .md code{background:var(--panel2);padding:.1rem .35rem;border-radius:5px;font-family:monospace;font-size:.82rem}
+  .md table{margin:.6rem 0}.md hr{border:none;border-top:1px solid var(--line);margin:1rem 0}
+  .md ul{margin:.4rem 0 .4rem 1.2rem}.md a{color:var(--blue)}
+  /* graph */
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:1rem}
+  .legend{display:flex;gap:1.2rem;font-size:.78rem;margin-bottom:.6rem}
+  .legend span{display:flex;align-items:center;gap:.4rem;color:var(--mut)}
+  /* projetos + checklist */
+  .alertbar{background:linear-gradient(90deg,rgba(255,93,93,.16),transparent);border:1px solid rgba(255,93,93,.4);color:#ffd2d2;padding:.7rem 1rem;border-radius:11px;margin-bottom:1.1rem;font-size:.85rem;font-weight:600;display:none}
+  .alertbar.show{display:block;animation:fade .3s}
+  .proj{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:.95rem 1.1rem;margin-bottom:.7rem}
+  .proj-h{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}.proj-h b{font-size:.98rem}
+  .checklist{display:flex;gap:.4rem;flex-wrap:wrap;margin:.65rem 0 .4rem}
+  .ck{display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;font-weight:600;padding:.2rem .6rem;border-radius:8px}
+  .ck.on{background:rgba(63,208,122,.13);color:var(--green)}.ck.off{background:rgba(255,93,93,.12);color:var(--red)}
+  .proj-sub{font-size:.76rem;color:var(--mut)}
+  .b100{background:linear-gradient(135deg,var(--green),#2fa861);color:#06210f;font-size:.68rem;font-weight:800;padding:.13rem .5rem;border-radius:8px}
+  .bpend{background:rgba(245,196,81,.15);color:var(--yellow);font-size:.68rem;font-weight:700;padding:.13rem .5rem;border-radius:8px}
+  .nest{margin-top:.55rem;padding-top:.55rem;border-top:1px dashed var(--line);font-size:.78rem;color:var(--mut)}
+  /* toast */
+  #toast{position:fixed;bottom:1.2rem;right:1.2rem;background:var(--panel2);border:1px solid var(--line);padding:.7rem 1.1rem;border-radius:10px;font-size:.85rem;opacity:0;transform:translateY(10px);transition:.25s;max-width:380px;z-index:99;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+  #toast.show{opacity:1;transform:none}
+  @media(max-width:760px){.side{width:60px;padding:1rem .4rem}.brand h1,.brand .s,.nav span.lbl,.nav .badge,.side-foot{display:none}.main{margin-left:60px;padding:1rem}}
+</style>
+</head>
+<body>
+  <nav class="side">
+    <div class="brand"><div class="logo">O</div><div><h1>Orion</h1><div class="s" id="bHost">Painel do Servidor</div></div></div>
+    <a href="/" class="nav" style="margin-bottom:.4rem;border-bottom:1px solid var(--line);padding-bottom:.7rem;border-radius:0"><span class="ic">←</span><span class="lbl">Voltar ao Orion</span></a>
+    <div class="nav active" data-t="geral"><span class="ic">📊</span><span class="lbl">Visão Geral</span></div>
+    <div class="nav" data-t="projetos"><span class="ic">🗂️</span><span class="lbl">Projetos</span><span class="badge" id="nbProj"></span></div>
+    <div class="nav" data-t="memoria"><span class="ic">🧠</span><span class="lbl">Memória</span><span class="badge" id="nbNotes"></span></div>
+    <div class="nav" data-t="cerebro"><span class="ic">⚡</span><span class="lbl">Skills & MCP</span><span class="badge" id="nbSkills"></span></div>
+    <div class="nav" data-t="claudemd"><span class="ic">📜</span><span class="lbl">CLAUDE.md</span></div>
+    <div class="nav" data-t="dns"><span class="ic">🌐</span><span class="lbl">DNS</span><span class="badge" id="nbDns"></span></div>
+    <div class="nav" data-t="whatsapp"><span class="ic">💬</span><span class="lbl">WhatsApp</span></div>
+    <div class="nav" data-t="bancos"><span class="ic">🗄️</span><span class="lbl">Bancos</span></div>
+    <div class="nav" data-t="historico"><span class="ic">📈</span><span class="lbl">Histórico</span></div>
+    <div class="side-foot" id="sideFoot">—</div>
+  </nav>
+
+  <main class="main">
+    <div class="head">
+      <h2 id="secTitle">Visão Geral</h2>
+      <div class="meta">
+        <span id="hUpdated"></span>
+        <span>↻ <span class="countdown" id="cd">30</span>s</span>
+        <button class="btn" onclick="refreshNow()">Atualizar agora</button>
+      </div>
+    </div>
+
+    <!-- VISÃO GERAL -->
+    <section class="sec show" id="s-geral">
+      <div class="alertbar" id="alertBar"></div>
+      <div class="grid cards" id="ovCards"></div>
+      <div class="grid loads" id="ovLoads"></div>
+      <div class="box"><div class="box-h">🔥 Top processos por CPU</div><table id="procT"><thead><tr><th>Processo</th><th>CPU</th><th>MEM</th></tr></thead><tbody></tbody></table></div>
+      <div class="box-h" style="border:none;padding-left:0">🌐 Serviços & atalhos</div>
+      <div class="grid tiles" id="ovSvc"></div>
+    </section>
+
+    <!-- PROJETOS -->
+    <section class="sec" id="s-projetos">
+      <div class="row" style="margin-bottom:1rem;gap:.6rem"><button class="btn solid" onclick="act('pm2_startall')">▶️ Ligar todos</button><button class="btn danger" onclick="act('pm2_stopall')">⏹️ Modo pânico (parar todos)</button></div>
+      <div class="box"><div class="box-h">▶️ Dev servers (pm2)<span id="devSum"></span></div><table id="devT"><thead><tr><th>Projeto</th><th>Status</th><th>RAM</th><th>CPU</th><th>Ações</th></tr></thead><tbody></tbody></table></div>
+      <div class="box-h" style="border:none;padding-left:0">📦 Projetos & credenciais <span style="font-weight:500;text-transform:none;color:var(--mut);font-size:.72rem">— cada projeto deve ter Supabase + Cloudflare próprios</span></div>
+      <div id="projWrap"></div>
+      <div class="box-h" style="border:none;padding-left:0;margin-top:1.2rem">🔧 Tools <span style="font-weight:500;text-transform:none;color:var(--mut);font-size:.72rem">— utilitários (sem infra própria)</span></div>
+      <div class="grid tiles" id="toolsWrap"></div>
+    </section>
+
+    <!-- MEMÓRIA -->
+    <section class="sec" id="s-memoria">
+      <p style="color:var(--mut);font-size:.84rem;margin-bottom:1rem">Notas do <a href="https://notas.bayerl.cloud" target="_blank" style="color:var(--accent)">SilverBullet</a> (o "obsidian" do Claude) — clique pra abrir.</p>
+      <div id="notesWrap"></div>
+    </section>
+
+    <!-- SKILLS & MCP -->
+    <section class="sec" id="s-cerebro">
+      <div class="box"><div class="box-h">🔌 MCPs configurados<span id="mcpSum"></span></div><table id="mcpT"><thead><tr><th>MCP</th><th>Tipo</th><th>Comando</th></tr></thead><tbody></tbody></table></div>
+      <div class="box"><div class="box-h">⌨️ Comandos custom</div><table id="cmdT"><tbody></tbody></table></div>
+      <div class="box-h" style="border:none;padding-left:0">⚡ Skills disponíveis <span id="skSum"></span></div>
+      <input class="search" id="skSearch" placeholder="🔍 filtrar skills…" oninput="renderSkills()">
+      <div class="grid tiles" id="skGrid"></div>
+    </section>
+
+    <!-- CLAUDE.md -->
+    <section class="sec" id="s-claudemd"><div class="md" id="cmdMd">carregando…</div></section>
+
+    <!-- DNS -->
+    <section class="sec" id="s-dns">
+      <div class="grid cards" id="dnsCards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+      <div class="box"><div class="box-h">🌐 Registros DNS — zona bayerl.cloud</div><table id="dnsT"><thead><tr><th>Subdomínio</th><th>Tipo</th><th>Aponta para</th><th>Destino</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <!-- WHATSAPP -->
+    <section class="sec" id="s-whatsapp"><div class="grid cards" id="waCards"></div></section>
+
+    <!-- BANCOS -->
+    <section class="sec" id="s-bancos"><div class="box"><div class="box-h">🗄️ Projetos Supabase</div><table id="dbT"><thead><tr><th>Projeto</th><th>Região</th><th>Status</th><th>Criado</th></tr></thead><tbody></tbody></table></div></section>
+
+    <!-- HISTÓRICO -->
+    <section class="sec" id="s-historico">
+      <div class="legend"><span><span class="dot" style="background:var(--accent)"></span>Load</span><span><span class="dot" style="background:var(--blue)"></span>CPU %</span><span><span class="dot" style="background:var(--purple)"></span>RAM %</span></div>
+      <div class="chart"><svg id="chart" viewBox="0 0 1000 320" style="width:100%;height:320px"></svg></div>
+      <p style="color:var(--mut);font-size:.76rem;margin-top:.6rem" id="histInfo"></p>
+    </section>
+  </main>
+
+  <div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
+const cls=(v,g,y)=>v<g?'var(--green)':v<y?'var(--yellow)':'var(--red)';
+let STATS={}, KNOW={}, HIST=[];
+
+// ---- nav ----
+const titles={geral:'Visão Geral',projetos:'Projetos',memoria:'Memória',cerebro:'Skills & MCP',claudemd:'CLAUDE.md',dns:'DNS & Domínios',whatsapp:'WhatsApp',bancos:'Bancos de dados',historico:'Histórico (12h)'};
+$$('.nav').forEach(n=>n.onclick=()=>{
+  $$('.nav').forEach(x=>x.classList.remove('active')); n.classList.add('active');
+  const t=n.dataset.t; $$('.sec').forEach(s=>s.classList.remove('show')); $('#s-'+t).classList.add('show');
+  $('#secTitle').textContent=titles[t];
+  if(t==='historico') drawChart();
+});
+
+// ---- toast ----
+let tT; function toast(msg,ok=true){ const e=$('#toast'); e.textContent=msg; e.style.borderColor=ok?'var(--green)':'var(--red)'; e.classList.add('show'); clearTimeout(tT); tT=setTimeout(()=>e.classList.remove('show'),4000); }
+
+// ---- actions ----
+async function act(action,params={},btn){
+  if(btn){btn.disabled=true;} toast('⏳ '+action+'…');
+  try{ const qs=new URLSearchParams({action,...params}).toString();
+    const r=await fetch('/panel/api/?'+qs,{method:'POST'}); const d=await r.json();
+    toast((d.ok?'✅ ':'❌ ')+(d.out?d.out.slice(0,120):(d.ok?'feito':'erro')), d.ok);
+    setTimeout(loadStats,1800);
+  }catch(e){ toast('❌ '+e.message,false); } finally{ if(btn)setTimeout(()=>btn.disabled=false,1800); }
+}
+function refreshNow(){ act('refresh'); act('knowledge'); setTimeout(()=>{loadStats();loadKnow();},2500); }
+
+// ---- render: visão geral ----
+function card(l,v,sub,pct,color){return `<div class="card"><div class="l">${l}</div><div class="v">${v}</div>${pct!=null?`<div class="bar"><i style="width:${Math.min(pct,100)}%;background:${color}"></i></div>`:''}<div class="sub">${sub}</div></div>`;}
+function renderStats(){
+  const d=STATS; if(!d.vps)return; const v=d.vps, cores=v.cpu_cores;
+  $('#bHost').textContent=v.hostname; $('#sideFoot').innerHTML=`🟢 Contabo · ${v.public_ip}<br>uptime ${v.uptime_hours}h${v.uptime_minutes}m`;
+  $('#hUpdated').textContent=d.updated_local;
+  const sw=v.swap||{percent:0,used_mb:0,total_mb:0};
+  $('#ovCards').innerHTML=
+    card('CPU',v.cpu_usage+'%','uso atual',v.cpu_usage,cls(v.cpu_usage,60,85))+
+    card('Memória',v.memory.percent+'%',`${(v.memory.used_mb/1024).toFixed(1)}/${(v.memory.total_mb/1024).toFixed(1)} GB`,v.memory.percent,cls(v.memory.percent,75,90))+
+    card('Swap',sw.percent+'%',`${(sw.used_mb/1024).toFixed(1)}/${(sw.total_mb/1024).toFixed(0)} GB`,sw.percent,cls(sw.percent,5,40))+
+    card('Disco',v.disk.percent+'%',`${v.disk.used}/${v.disk.total} · ${v.disk.free} livre`,v.disk.percent,cls(v.disk.percent,75,90))+
+    card('Containers',d.docker.running,`${d.claude.sessions} Claude · ${d.claude.mcp_procs} MCPs`,null)+
+    card('CPU cores',cores,'núcleos',null);
+  // alerta de RAM/swap/load
+  const msgs=[]; if(v.memory.percent>90)msgs.push('RAM em '+v.memory.percent+'%');
+  if(sw.percent>40)msgs.push('swap em '+sw.percent+'% (RAM transbordando p/ disco → lento)');
+  if(parseFloat(v.load_avg['1m'])>cores)msgs.push('load '+v.load_avg['1m']+' acima dos '+cores+' núcleos');
+  const ab=$('#alertBar'); if(msgs.length){ab.classList.add('show');ab.innerHTML='⚠️ '+msgs.join(' · ')+' — desligue dev servers ociosos (aba Projetos) ou feche abas Claude.';}else ab.classList.remove('show');
+  const g=cores*.7, lc=x=>cls(parseFloat(x),g,cores);
+  $('#ovLoads').innerHTML=[['1 min',v.load_avg['1m']],['5 min',v.load_avg['5m']],['15 min',v.load_avg['15m']]].map(([k,x])=>`<div class="lc"><div class="l">Load — ${k}</div><div class="n" style="color:${lc(x)}">${x}</div></div>`).join('');
+  $('#procT tbody').innerHTML=(d.top_proc||[]).map(p=>`<tr><td class="mono">${p.cmd}</td><td style="color:${cls(p.cpu,30,70)};font-weight:700">${p.cpu}%</td><td>${p.mem}%</td></tr>`).join('');
+  const ic={'code-server':'💻','SilverBullet':'📓','n8n':'🔀','Evolution API':'💬','Landing pages':'🌍','Painel':'📊'};
+  $('#ovSvc').innerHTML=(d.services||[]).map(s=>`<a class="tile" href="${s.url}" target="_blank"><div class="t">${ic[s.name]||'🔗'} ${s.name} <span class="dot" style="background:${s.status==='online'?'var(--green)':'var(--red)'};margin-left:auto"></span></div><div class="d">${s.desc}</div></a>`).join('');
+  // dev servers
+  const ds=d.dev_servers||[];
+  $('#devSum').textContent=ds.filter(p=>p.status==='online').length+'/'+ds.length+' on';
+  $('#nbProj').textContent=ds.length;
+  $('#devT tbody').innerHTML=ds.map(p=>{const on=p.status==='online';
+    return `<tr><td><b>${p.name}</b></td><td><span class="pill ${on?'on':'stop'}">${p.status}</span></td><td>${p.mem} MB</td><td>${p.cpu}%</td>
+    <td class="row">${on?`<button class="btn r" onclick="act('pm2_stop',{name:'${p.name}'},this)">parar</button><button class="btn" onclick="act('pm2_restart',{name:'${p.name}'},this)">restart</button>`:`<button class="btn g" onclick="act('pm2_start',{name:'${p.name}'},this)">ligar</button>`}</td></tr>`;}).join('')||'<tr><td colspan=5 style="color:var(--mut)">nenhum dev server</td></tr>';
+}
+// ---- render: knowledge ----
+function renderKnow(){
+  const k=KNOW;
+  // projetos & credenciais (taxonomia)
+  const tax=k.taxonomy||{projects:[],tools:[]};
+  const ck=(ok,l)=>`<span class="ck ${ok?'on':'off'}">${ok?'✓':'✗'} ${l}</span>`;
+  $('#projWrap').innerHTML=(tax.projects||[]).map(p=>{
+    const items=[['Supabase MCP',p.supabase_mcp],['Cloudflare (token)',p.cloudflare_token],['.env',p.env],['Git',p.git]];
+    const done=items.filter(i=>i[1]).length, full=done===items.length;
+    return `<div class="proj"><div class="proj-h"><b>${p.label}</b>${p.code?'<span class="chip">node</span>':''}<span class="chip">${p.size}</span>${p.branch?`<span class="chip">⎇ ${p.branch}</span>`:''}<span style="margin-left:auto">${full?'<span class="b100">100% ✓</span>':`<span class="bpend">${done}/${items.length} credenciais</span>`}</span></div>
+      <div class="checklist">${items.map(i=>ck(i[1],i[0])).join('')}</div>
+      <div class="proj-sub">${p.commit||'sem commits ainda'}</div>
+      ${(p.tools&&p.tools.length)?`<div class="nest">🔧 tools deste projeto: ${p.tools.map(t=>`<b style="color:var(--txt)">${t.id}</b> <span style="opacity:.6">(${t.size})</span>`).join(' · ')}</div>`:''}</div>`;
+  }).join('')||'<p style="color:var(--mut)">defina projetos em .config/registry.json</p>';
+  $('#toolsWrap').innerHTML=(tax.tools||[]).map(t=>`<div class="tile"><div class="t">🔧 ${t.id}</div><div class="d">${t.exists?t.size:'—'}${t.git?' · git':''}${t.code?' · node':''}</div></div>`).join('');
+  // notas
+  $('#nbNotes').textContent=(k.notes||[]).length;
+  const byF={}; (k.notes||[]).forEach(n=>{(byF[n.folder]=byF[n.folder]||[]).push(n);});
+  $('#notesWrap').innerHTML=Object.entries(byF).map(([f,ns])=>`<div class="box"><div class="box-h">📁 ${f} <span>${ns.length}</span></div><table><tbody>${ns.map(n=>`<tr><td style="width:200px"><a href="${n.url}" target="_blank" style="color:var(--blue);font-weight:600">📝 ${n.name}</a></td><td style="color:var(--mut);font-size:.8rem">${(n.excerpt||'').replace(/\n/g,' ')}</td></tr>`).join('')}</tbody></table></div>`).join('');
+  // mcps
+  $('#mcpSum').textContent=(k.mcps||[]).length;
+  $('#mcpT tbody').innerHTML=(k.mcps||[]).map(m=>`<tr><td><b>${m.name}</b></td><td><span class="chip">${m.type}</span></td><td class="mono" style="color:var(--mut)">${m.cmd}</td></tr>`).join('');
+  // comandos
+  $('#cmdT tbody').innerHTML=(k.commands||[]).map(c=>`<tr><td class="mono" style="color:var(--accent);width:200px">${c.name}</td><td style="color:var(--mut);font-size:.82rem">${c.desc||''}</td></tr>`).join('');
+  $('#nbSkills').textContent=(k.skills||[]).length;
+  $('#skSum').textContent='('+(k.skills||[]).length+')';
+  renderSkills();
+  // claude.md
+  $('#cmdMd').innerHTML=mdRender(k.claude_md||'(vazio)');
+  // dns
+  $('#nbDns').textContent=(k.dns||[]).length;
+  const cont=(k.dns||[]).filter(r=>r.target==='contabo').length, host=(k.dns||[]).filter(r=>r.target==='hostinger').length;
+  $('#dnsCards').innerHTML=card('🟢 No Contabo',cont,'subdomínios ativos',null)+card('🟠 No Hostinger',host,'legado',null)+card('Outros',(k.dns||[]).length-cont-host,'externos',null);
+  const tc={contabo:'var(--green)',hostinger:'var(--yellow)',outro:'var(--mut)'};
+  $('#dnsT tbody').innerHTML=(k.dns||[]).map(r=>`<tr><td><b>${r.name}</b>.bayerl.cloud</td><td><span class="chip">${r.type}</span></td><td class="mono">${r.content}</td><td><span class="pill" style="color:${tc[r.target]}">${r.target}</span></td></tr>`).join('');
+  // whatsapp
+  const w=k.whatsapp||{}; const open=w.state==='open';
+  $('#waCards').innerHTML=card('Instância',w.instance||'—','Evolution API',null)+card('Estado',`<span style="color:${open?'var(--green)':'var(--yellow)'}">${w.state||'?'}</span>`,open?'conectado ✓':'verifique conexão/QR',null)+`<a class="card" href="https://evo.bayerl.cloud" target="_blank"><div class="l">Painel</div><div class="v" style="font-size:1rem;color:var(--blue)">abrir Evolution →</div></a>`;
+  // bancos
+  $('#dbT tbody').innerHTML=(k.supabase||[]).map(p=>`<tr><td><b>${p.name}</b></td><td>${p.region}</td><td><span class="pill ${/HEALTHY/.test(p.status)?'on':'warn'}">${p.status}</span></td><td>${p.created}</td></tr>`).join('')||'<tr><td colspan=4 style="color:var(--mut)">—</td></tr>';
+  if(k.updated_local) $('#sideFoot').innerHTML+='<br><span style="opacity:.6">conhec. '+k.updated_local.split(' ')[1]+'</span>';
+}
+function renderSkills(){
+  const q=($('#skSearch').value||'').toLowerCase();
+  const sk=(KNOW.skills||[]).filter(s=>!q||s.name.toLowerCase().includes(q)||(s.desc||'').toLowerCase().includes(q));
+  $('#skGrid').innerHTML=sk.slice(0,200).map(s=>`<div class="tile"><div class="t">⚡ ${s.name}<span class="chip">${s.plugin}</span></div><div class="d">${s.desc||''}</div></div>`).join('');
+}
+// ---- mini markdown ----
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function mdRender(md){
+  const lines=md.split('\n'); let h='',inTbl=false,inUl=false,inCode=false;
+  const inl=t=>esc(t).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank">$1</a>');
+  const closeTbl=()=>{if(inTbl){h+='</tbody></table>';inTbl=false;}}; const closeUl=()=>{if(inUl){h+='</ul>';inUl=false;}};
+  for(let ln of lines){
+    if(/^```/.test(ln)){inCode=!inCode;h+=inCode?'<pre style="background:var(--panel2);padding:.7rem;border-radius:8px;overflow:auto;font-size:.8rem"><code>':'</code></pre>';continue;}
+    if(inCode){h+=esc(ln)+'\n';continue;}
+    if(/^\|(.+)\|/.test(ln)){ if(/^\|[\s:|-]+\|$/.test(ln))continue; const cells=ln.split('|').slice(1,-1).map(c=>c.trim());
+      if(!inTbl){h+='<table><tbody>';inTbl=true;} h+='<tr>'+cells.map(c=>'<td>'+inl(c)+'</td>').join('')+'</tr>'; continue;} else closeTbl();
+    if(/^### /.test(ln)){closeUl();h+='<h3>'+inl(ln.slice(4))+'</h3>';continue;}
+    if(/^## /.test(ln)){closeUl();h+='<h2>'+inl(ln.slice(3))+'</h2>';continue;}
+    if(/^# /.test(ln)){closeUl();h+='<h1>'+inl(ln.slice(2))+'</h1>';continue;}
+    if(/^---/.test(ln)){closeUl();h+='<hr>';continue;}
+    if(/^[-*] /.test(ln)){if(!inUl){h+='<ul>';inUl=true;}h+='<li>'+inl(ln.slice(2))+'</li>';continue;} else closeUl();
+    if(ln.trim()==='')continue;
+    h+='<p>'+inl(ln)+'</p>';
+  }
+  closeTbl();closeUl(); return h;
+}
+// ---- chart ----
+function drawChart(){
+  const W=1000,H=320,pad=34; const svg=$('#chart'); if(!HIST.length){svg.innerHTML='<text x="500" y="160" fill="#8493a9" text-anchor="middle">coletando dados…</text>';return;}
+  const pts=HIST.slice(-360); const n=pts.length; const cores=pts[pts.length-1].cores||6;
+  const X=i=>pad+(i/(n-1||1))*(W-pad*2);
+  const series=[['load',pts.map(p=>p.load),cores*1.5,'var(--accent)'],['cpu',pts.map(p=>p.cpu),100,'var(--blue)'],['ram',pts.map(p=>p.ram),100,'var(--purple)']];
+  let g='';
+  for(let i=0;i<=4;i++){const y=pad+(i/4)*(H-pad*2);g+=`<line x1="${pad}" y1="${y}" x2="${W-pad}" y2="${y}" stroke="#242d40"/>`}
+  series.forEach(([nm,vals,max,col])=>{const Y=v=>H-pad-(Math.min(v,max)/max)*(H-pad*2);
+    g+=`<polyline fill="none" stroke="${col}" stroke-width="2" points="${vals.map((v,i)=>X(i)+','+Y(v)).join(' ')}"/>`;});
+  const first=pts[0], last=pts[n-1];
+  g+=`<text x="${pad}" y="${H-8}" fill="#8493a9" font-size="12">${new Date(first.t*1000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</text>`;
+  g+=`<text x="${W-pad}" y="${H-8}" fill="#8493a9" font-size="12" text-anchor="end">${new Date(last.t*1000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</text>`;
+  svg.innerHTML=g;
+  $('#histInfo').textContent=`${n} pontos · load ${last.load} · cpu ${last.cpu}% · ram ${last.ram}% · agora`;
+}
+// ---- loaders ----
+async function loadStats(){ try{ STATS=await (await fetch('/panel/stats.json?t='+Date.now())).json(); renderStats(); }catch(e){} }
+async function loadKnow(){ try{ KNOW=await (await fetch('/panel/knowledge.json?t='+Date.now())).json(); renderKnow(); }catch(e){} }
+async function loadHist(){ try{ HIST=await (await fetch('/panel/history.json?t='+Date.now())).json(); if($('#s-historico').classList.contains('show'))drawChart(); }catch(e){} }
+let cd=30; function tick(){cd--;if(cd<=0){loadStats();loadHist();cd=30;}$('#cd').textContent=cd;}
+loadStats();loadKnow();loadHist(); setInterval(tick,1000); setInterval(loadKnow,600000);
+</script>
+</body>
+</html>

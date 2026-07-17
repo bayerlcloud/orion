@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+<title>Cérebro do Orion</title>
+<style>
+  :root {
+    --bg:#0a0a0f; --side:#0d0d14; --panel:#111118; --panel2:#1a1a28; --line:#1e1e2e;
+    --txt:#e5e7eb; --mut:#6b7280; --accent:#6366f1; --accent2:#8b5cf6;
+    --green:#22c55e; --yellow:#f59e0b; --red:#ef4444; --blue:#5b9dff; --purple:#a78bfa; --orange:#fb923c;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; height:100vh; overflow:hidden; display:flex; }
+  .page { flex:1; min-width:0; height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+  /* sidebar: estilo único do SIDEBAR_CSS injetado (server.js) — não redefinir aqui */
+  .sb-brand{padding:18px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+  .sb-ic{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:17px}
+  .sb-name{font-size:15px;font-weight:700;color:#fff;line-height:1}.sb-sub{font-size:11px;color:var(--mut);margin-top:2px}
+  .sb-nav{flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+  .sb-lbl{font-size:10px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:.06em;padding:10px 8px 4px}
+  .sb-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;color:#9ca3af;font-size:13px;font-weight:500;text-decoration:none}
+  .sb-item:hover{background:#1a1a2e;color:var(--txt)}
+  .sb-item.active{background:#1e1e3a;color:#a5b4fc}
+  .sb-item .i{width:20px;text-align:center}
+  .sb-bottom{padding:8px;border-top:1px solid var(--line)}
+  a { color:inherit; text-decoration:none; }
+  ::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+
+  /* Top bar */
+  .top { height:52px; flex-shrink:0; background:var(--side); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; padding:0 16px; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand-icon { width:30px; height:30px; border-radius:8px; background:linear-gradient(135deg,var(--accent),var(--accent2)); display:flex; align-items:center; justify-content:center; font-size:16px; }
+  .brand b { font-size:14px; color:#fff; } .brand span { font-size:11px; color:var(--mut); display:block; }
+  .top .back { font-size:12px; color:var(--mut); padding:6px 10px; border:1px solid var(--line); border-radius:7px; }
+  .top .back:hover { background:var(--panel2); color:var(--txt); }
+  .top-stats { margin-left:auto; display:flex; gap:16px; font-size:12px; color:var(--mut); }
+  .top-stats b { color:var(--txt); }
+  .live { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--mut); }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--mut); }
+  .dot.on { background:var(--green); box-shadow:0 0 6px var(--green); animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* Layout */
+  .wrap { flex:1; display:flex; min-height:0; }
+  .graph-pane { flex:1; position:relative; min-width:0; }
+  canvas { display:block; width:100%; height:100%; cursor:grab; }
+  canvas:active { cursor:grabbing; }
+  .legend { position:absolute; bottom:12px; left:12px; background:rgba(17,17,24,.85); border:1px solid var(--line); border-radius:9px; padding:9px 12px; font-size:11px; display:flex; flex-direction:column; gap:5px; backdrop-filter:blur(6px); }
+  .legend .row { display:flex; align-items:center; gap:7px; color:var(--mut); }
+  .legend .swatch { width:10px; height:10px; border-radius:50%; }
+  .legend .line-s { width:14px; height:2px; }
+  .graph-hint { position:absolute; top:12px; left:12px; font-size:11px; color:var(--mut); background:rgba(17,17,24,.7); padding:5px 9px; border-radius:7px; }
+  .node-detail { position:absolute; top:12px; right:12px; width:250px; background:rgba(17,17,24,.95); border:1px solid var(--accent); border-radius:10px; padding:13px; font-size:12px; display:none; backdrop-filter:blur(8px); }
+  .node-detail.show { display:block; }
+  .node-detail h4 { font-size:13px; color:#fff; margin-bottom:6px; word-break:break-word; }
+  .node-detail .meta { color:var(--mut); font-size:11px; line-height:1.6; }
+  .node-detail .tag { display:inline-block; background:var(--panel2); padding:1px 7px; border-radius:6px; margin-top:4px; }
+  .node-detail .close { position:absolute; top:8px; right:10px; cursor:pointer; color:var(--mut); }
+
+  /* Side panel */
+  .side { width:380px; flex-shrink:0; background:var(--panel); border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
+  .tabs { display:flex; border-bottom:1px solid var(--line); flex-shrink:0; }
+  .tab { flex:1; padding:12px 8px; text-align:center; font-size:12px; font-weight:600; color:var(--mut); cursor:pointer; border-bottom:2px solid transparent; }
+  .tab:hover { color:var(--txt); }
+  .tab.active { color:#a5b4fc; border-bottom-color:var(--accent); }
+  .tab-body { flex:1; overflow-y:auto; min-height:0; }
+  .pane { display:none; padding:12px; } .pane.active { display:block; }
+
+  /* Activity feed */
+  .feed-filters { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:10px; }
+  .chip { font-size:10px; padding:3px 9px; border-radius:12px; border:1px solid var(--line); color:var(--mut); cursor:pointer; user-select:none; }
+  .chip.on { background:#1e1e3a; color:#a5b4fc; border-color:var(--accent); }
+  .evt { display:flex; gap:9px; padding:8px 4px; border-bottom:1px solid var(--line); font-size:12px; animation:slidein .3s ease; }
+  @keyframes slidein { from{opacity:0;transform:translateX(8px)} to{opacity:1;transform:none} }
+  .evt .ico { width:22px; text-align:center; flex-shrink:0; }
+  .evt .body { flex:1; min-width:0; }
+  .evt .txt { color:var(--txt); word-break:break-word; line-height:1.4; }
+  .evt .sub { color:var(--mut); font-size:10px; margin-top:2px; }
+  .evt .time { color:#4b5563; font-size:10px; flex-shrink:0; }
+
+  /* Skills */
+  .skill-card { background:var(--panel2); border:1px solid var(--line); border-radius:9px; padding:11px; margin-bottom:9px; }
+  .skill-card .name { font-size:13px; font-weight:600; color:#fff; display:flex; align-items:center; gap:6px; }
+  .skill-card .auto { font-size:9px; background:#1e3a2e; color:#86efac; padding:1px 6px; border-radius:5px; }
+  .skill-card .desc { font-size:11px; color:var(--mut); margin:5px 0; line-height:1.4; }
+  .skill-card .stats { font-size:10px; color:#4b5563; display:flex; gap:12px; }
+  .skill-card .rej { color:var(--red); }
+  .group-label { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:#374151; font-weight:700; margin:14px 0 8px; }
+
+  /* Files */
+  .crumbs { display:flex; gap:5px; flex-wrap:wrap; font-size:11px; margin-bottom:9px; align-items:center; }
+  .root-sel { display:flex; gap:5px; margin-bottom:10px; }
+  .root-btn { font-size:11px; padding:5px 10px; border-radius:7px; border:1px solid var(--line); background:none; color:var(--mut); cursor:pointer; }
+  .root-btn.on { background:#1e1e3a; color:#a5b4fc; border-color:var(--accent); }
+  .fitem { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:7px; cursor:pointer; font-size:12px; color:var(--txt); }
+  .fitem:hover { background:var(--panel2); }
+  .fitem .fico { width:18px; text-align:center; }
+  .fitem .fsize { margin-left:auto; font-size:10px; color:#4b5563; }
+  .viewer { position:fixed; inset:0; background:rgba(5,5,9,.85); display:none; align-items:center; justify-content:center; z-index:50; backdrop-filter:blur(4px); }
+  .viewer.show { display:flex; }
+  .viewer-box { width:min(900px,92vw); height:88vh; background:var(--panel); border:1px solid var(--line); border-radius:12px; display:flex; flex-direction:column; overflow:hidden; }
+  .viewer-head { padding:13px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px; flex-shrink:0; }
+  .viewer-head .vname { font-size:13px; font-weight:600; color:#fff; }
+  .viewer-head .vmeta { font-size:11px; color:var(--mut); margin-left:auto; }
+  .viewer-head .x { cursor:pointer; color:var(--mut); font-size:18px; padding:0 4px; }
+  .viewer-content { flex:1; overflow:auto; padding:18px 22px; font-size:13px; line-height:1.6; }
+  .viewer-content pre { font-family:'SF Mono',Menlo,monospace; font-size:12px; white-space:pre-wrap; word-break:break-word; color:#cbd5e1; }
+  .md h1{font-size:1.5em;margin:.6em 0 .3em;color:#fff} .md h2{font-size:1.25em;margin:.6em 0 .3em;color:#fff;border-bottom:1px solid var(--line);padding-bottom:3px} .md h3{font-size:1.1em;margin:.5em 0;color:#e5e7eb}
+  .md p{margin:.5em 0} .md ul,.md ol{margin:.5em 0 .5em 1.4em} .md li{margin:.2em 0} .md code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-family:monospace;font-size:.9em;color:#a5b4fc}
+  .md pre{background:#0d0d14;border:1px solid var(--line);border-radius:8px;padding:12px;overflow-x:auto;margin:.6em 0} .md pre code{background:none;padding:0;color:#cbd5e1}
+  .md strong{color:#fff} .md a{color:#a5b4fc;text-decoration:underline} .md table{border-collapse:collapse;margin:.6em 0} .md td,.md th{border:1px solid var(--line);padding:5px 9px}
+  .md blockquote{border-left:3px solid var(--accent);padding-left:12px;color:var(--mut);margin:.5em 0}
+  .empty { color:#4b5563; font-size:12px; text-align:center; padding:30px 10px; }
+</style>
+</head>
+<body>
+  <!--SIDEBAR-->
+  <div class="page">
+  <div class="top">
+    <div class="brand">
+      <div class="brand-icon">🧠</div>
+      <div><b>Cérebro do Orion</b><span>mapa vivo · memória · auto-aprendizado</span></div>
+    </div>
+    <div class="top-stats">
+      <div>memórias <b id="stMem">—</b></div>
+      <div>nós <b id="stNodes">—</b></div>
+      <div>co-acesso <b id="stAssoc">—</b></div>
+      <div>causais <b id="stCausal">—</b></div>
+      <div>⚠ <b id="stContra">—</b></div>
+      <div class="live"><span class="dot" id="liveDot"></span><span id="liveText">conectando…</span></div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- GRAFO -->
+    <div class="graph-pane">
+      <canvas id="graph"></canvas>
+      <div class="graph-hint">arraste para mover · scroll para zoom · clique num nó</div>
+      <div class="legend">
+        <div class="row"><span class="swatch" style="background:#f472b6"></span> pessoa</div>
+        <div class="row"><span class="swatch" style="background:#818cf8"></span> projeto</div>
+        <div class="row"><span class="swatch" style="background:#34d399"></span> ferramenta</div>
+        <div class="row"><span class="swatch" style="background:#a78bfa"></span> conceito</div>
+        <div class="row"><span class="swatch" style="background:#fbbf24"></span> decisão</div>
+        <div class="row"><span class="line-s" style="background:#22d3ee"></span> co-acesso (associação)</div>
+        <div class="row"><span class="line-s" style="background:#fb923c"></span> causal</div>
+        <div class="row"><span class="line-s" style="background:#ef4444"></span> contradição</div>
+      </div>
+      <div class="node-detail" id="nodeDetail">
+        <span class="close" onclick="hideDetail()">✕</span>
+        <h4 id="ndTitle"></h4>
+        <div class="meta" id="ndMeta"></div>
+      </div>
+    </div>
+
+    <!-- PAINEL LATERAL -->
+    <div class="side">
+      <div class="tabs">
+        <div class="tab active" data-pane="activity">⚡ Atividade</div>
+        <div class="tab" data-pane="skills">🧩 Skills</div>
+        <div class="tab" data-pane="files">📁 Arquivos</div>
+      </div>
+      <div class="tab-body">
+        <!-- ATIVIDADE -->
+        <div class="pane active" id="pane-activity">
+          <div class="feed-filters" id="feedFilters">
+            <span class="chip on" data-f="all">tudo</span>
+            <span class="chip on" data-f="memory">💾 memória</span>
+            <span class="chip on" data-f="skill">🧠 skill</span>
+            <span class="chip on" data-f="causal">🔗 causal</span>
+            <span class="chip on" data-f="contradiction">⚠ contradição</span>
+            <span class="chip on" data-f="phase">⚙ fase</span>
+          </div>
+          <div id="feed"></div>
+        </div>
+        <!-- SKILLS -->
+        <div class="pane" id="pane-skills"><div class="empty">carregando…</div></div>
+        <!-- ARQUIVOS -->
+        <div class="pane" id="pane-files">
+          <div class="root-sel" id="rootSel"></div>
+          <div class="crumbs" id="crumbs"></div>
+          <div id="fileList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Viewer de arquivo -->
+  <div class="viewer" id="viewer">
+    <div class="viewer-box">
+      <div class="viewer-head">
+        <span class="vname" id="vName"></span>
+        <span class="vmeta" id="vMeta"></span>
+        <span class="x" onclick="closeViewer()">✕</span>
+      </div>
+      <div class="viewer-content" id="vContent"></div>
+    </div>
+  </div>
+  </div>
+
+<script>
+const ICONS = { memory:'💾', skill:'🧠', causal:'🔗', contradiction:'⚠️', phase:'⚙️', cron:'⏰', drift:'🌀', dedup:'🔍', alert:'🚨', info:'ℹ️' };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GRAFO — force-directed em canvas puro
+// ─────────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('graph');
+const ctx = canvas.getContext('2d');
+let G = { nodes:[], edges:[] };
+let view = { x:0, y:0, scale:1 };
+let dragNode=null, panning=false, lastMouse={x:0,y:0}, hoverNode=null;
+
+function resize(){ const r=canvas.parentElement.getBoundingClientRect(); canvas.width=r.width*devicePixelRatio; canvas.height=r.height*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+window.addEventListener('resize', resize); resize();
+
+async function loadGraph(){
+  const r = await fetch('/api/brain/graph').then(x=>x.json());
+  const W = canvas.width/devicePixelRatio, H = canvas.height/devicePixelRatio;
+  G.nodes = r.nodes.map((n,i)=>({ ...n,
+    x: W/2 + Math.cos(i/r.nodes.length*6.28)*Math.min(W,H)*0.32 + (Math.random()-.5)*40,
+    y: H/2 + Math.sin(i/r.nodes.length*6.28)*Math.min(W,H)*0.32 + (Math.random()-.5)*40,
+    vx:0, vy:0, r: 5 + Math.min(8, (n.weight||1)*1.6) }));
+  const idx = new Map(G.nodes.map((n,i)=>[n.id,i]));
+  G.edges = r.edges.filter(e=>idx.has(e.source)&&idx.has(e.target)).map(e=>({ ...e, s:idx.get(e.source), t:idx.get(e.target) }));
+  document.getElementById('stMem').textContent = r.stats.memories ?? '—';
+  document.getElementById('stNodes').textContent = r.stats.nodes;
+  document.getElementById('stAssoc').textContent = r.stats.assoc ?? '—';
+  document.getElementById('stCausal').textContent = r.stats.causal;
+  document.getElementById('stContra').textContent = r.stats.contradictions;
+  if(!G.nodes.length){ ctx.fillStyle='#4b5563'; ctx.font='13px sans-serif'; ctx.fillText('Sem dados no grafo ainda — converse com o Orion para popular memórias e relações.', 30, 60); }
+}
+
+function tick(){
+  // física simples: repulsão entre nós + atração nas arestas + centro
+  const W = canvas.width/devicePixelRatio, H = canvas.height/devicePixelRatio;
+  for(let i=0;i<G.nodes.length;i++){
+    const a=G.nodes[i];
+    for(let j=i+1;j<G.nodes.length;j++){
+      const b=G.nodes[j]; let dx=a.x-b.x, dy=a.y-b.y; let d=Math.sqrt(dx*dx+dy*dy)||1;
+      const rep = 1400/(d*d); const fx=dx/d*rep, fy=dy/d*rep;
+      a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
+    }
+    a.vx += (W/2-a.x)*0.0008; a.vy += (H/2-a.y)*0.0008;
+  }
+  for(const e of G.edges){
+    const a=G.nodes[e.s], b=G.nodes[e.t]; let dx=b.x-a.x, dy=b.y-a.y; let d=Math.sqrt(dx*dx+dy*dy)||1;
+    const f=(d-90)*0.008; const fx=dx/d*f, fy=dy/d*f;
+    a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
+  }
+  for(const n of G.nodes){ if(n===dragNode)continue; n.vx*=0.85; n.vy*=0.85; n.x+=n.vx; n.y+=n.vy; }
+}
+
+function draw(){
+  const W=canvas.width/devicePixelRatio, H=canvas.height/devicePixelRatio;
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); ctx.translate(view.x,view.y); ctx.scale(view.scale,view.scale);
+  // arestas
+  for(const e of G.edges){
+    const a=G.nodes[e.s], b=G.nodes[e.t];
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle = e.type==='contradiction' ? 'rgba(239,68,68,.55)' : e.type==='causal' ? 'rgba(251,146,60,.5)' : e.type==='assoc' ? 'rgba(34,211,238,.16)' : 'rgba(99,102,241,.3)';
+    ctx.lineWidth = e.type==='contradiction'?1.8:1; if(e.type==='contradiction'){ctx.setLineDash([4,3])} ctx.stroke(); ctx.setLineDash([]);
+  }
+  // nós
+  for(const n of G.nodes){
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,6.29);
+    ctx.fillStyle=n.color; ctx.globalAlpha = (hoverNode&&hoverNode!==n)?.55:1; ctx.fill(); ctx.globalAlpha=1;
+    if(n===hoverNode){ ctx.lineWidth=2; ctx.strokeStyle='#fff'; ctx.stroke(); }
+    if(view.scale>0.6 || n===hoverNode){
+      ctx.fillStyle = n===hoverNode?'#fff':'#9ca3af'; ctx.font=`${n===hoverNode?12:10}px sans-serif`; ctx.textAlign='center';
+      ctx.fillText(n.label, n.x, n.y - n.r - 4);
+    }
+  }
+  ctx.restore();
+}
+function loop(){ tick(); draw(); requestAnimationFrame(loop); }
+loadGraph().then(loop);
+
+// interação
+function toWorld(mx,my){ return { x:(mx-view.x)/view.scale, y:(my-view.y)/view.scale }; }
+function nodeAt(mx,my){ const w=toWorld(mx,my); for(const n of G.nodes){ if((n.x-w.x)**2+(n.y-w.y)**2 < (n.r+4)**2) return n; } return null; }
+canvas.addEventListener('mousedown', e=>{ const n=nodeAt(e.offsetX,e.offsetY); if(n){dragNode=n;} else {panning=true;} lastMouse={x:e.offsetX,y:e.offsetY}; });
+canvas.addEventListener('mousemove', e=>{
+  hoverNode = dragNode || nodeAt(e.offsetX,e.offsetY);
+  if(dragNode){ const w=toWorld(e.offsetX,e.offsetY); dragNode.x=w.x; dragNode.y=w.y; dragNode.vx=0; dragNode.vy=0; }
+  else if(panning){ view.x+=e.offsetX-lastMouse.x; view.y+=e.offsetY-lastMouse.y; lastMouse={x:e.offsetX,y:e.offsetY}; }
+});
+canvas.addEventListener('mouseup', e=>{ if(dragNode && Math.abs(e.offsetX-lastMouse.x)<3 && Math.abs(e.offsetY-lastMouse.y)<3) showDetail(dragNode); dragNode=null; panning=false; });
+canvas.addEventListener('click', e=>{ const n=nodeAt(e.offsetX,e.offsetY); if(n) showDetail(n); else hideDetail(); });
+canvas.addEventListener('wheel', e=>{ e.preventDefault(); const f=e.deltaY<0?1.12:0.89; const w=toWorld(e.offsetX,e.offsetY); view.scale=Math.max(0.2,Math.min(3,view.scale*f)); view.x=e.offsetX-w.x*view.scale; view.y=e.offsetY-w.y*view.scale; }, {passive:false});
+
+function showDetail(n){
+  const conns = G.edges.filter(e=>G.nodes[e.s]===n||G.nodes[e.t]===n);
+  document.getElementById('ndTitle').textContent = n.label;
+  document.getElementById('ndMeta').innerHTML =
+    `<span class="tag">${n.type}</span> peso ${n.weight}<br>` +
+    `${conns.length} conexão(ões)<br>` +
+    conns.slice(0,6).map(e=>{ const other = G.nodes[e.s]===n?G.nodes[e.t]:G.nodes[e.s]; const arrow = e.type==='causal'?'→':e.type==='contradiction'?'⚡':'—'; return `<div style="margin-top:3px">${arrow} ${e.label||''}: <b>${other.label}</b></div>`; }).join('');
+  document.getElementById('nodeDetail').classList.add('show');
+}
+function hideDetail(){ document.getElementById('nodeDetail').classList.remove('show'); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ABAS
+// ─────────────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); document.getElementById('pane-'+t.dataset.pane).classList.add('active');
+  if(t.dataset.pane==='skills') loadSkills();
+  if(t.dataset.pane==='files' && !filesInit) initFiles();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATIVIDADE (SSE)
+// ─────────────────────────────────────────────────────────────────────────────
+const feed = document.getElementById('feed');
+const activeFilters = new Set(['memory','skill','causal','contradiction','phase','cron','drift','dedup','alert','info']);
+document.querySelectorAll('#feedFilters .chip').forEach(c=>c.onclick=()=>{
+  const f=c.dataset.f;
+  if(f==='all'){ const turnOn=!c.classList.contains('on'); document.querySelectorAll('#feedFilters .chip').forEach(x=>{ x.classList.toggle('on',turnOn); if(x.dataset.f!=='all'){ turnOn?activeFilters.add(x.dataset.f):activeFilters.delete(x.dataset.f); } }); return; }
+  c.classList.toggle('on'); c.classList.contains('on')?activeFilters.add(f):activeFilters.delete(f);
+  document.querySelectorAll('.evt').forEach(applyFilter);
+});
+function applyFilter(el){ el.style.display = activeFilters.has(el.dataset.type)?'flex':'none'; }
+function fmtTime(ts){ const d=new Date(ts*1000); return d.toTimeString().slice(0,8); }
+function addEvent(evt, prepend=true){
+  const el=document.createElement('div'); el.className='evt'; el.dataset.type=evt.type;
+  el.innerHTML = `<div class="ico">${ICONS[evt.type]||'•'}</div>`+
+    `<div class="body"><div class="txt">${esc(evt.text||evt.type)}</div>`+
+    `${evt.category||evt.confidence!=null||evt.detail?`<div class="sub">${[evt.category,evt.confidence!=null?'c'+evt.confidence:'',evt.detail?esc(evt.detail):''].filter(Boolean).join(' · ')}</div>`:''}</div>`+
+    `<div class="time">${fmtTime(evt.ts)}</div>`;
+  applyFilter(el);
+  if(prepend) feed.prepend(el); else feed.appendChild(el);
+  while(feed.children.length>150) feed.lastChild.remove();
+}
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+const liveDot=document.getElementById('liveDot'), liveText=document.getElementById('liveText');
+let hydrated=false;
+const es = new EventSource('/api/brain/stream');
+es.onopen=()=>{ liveDot.classList.add('on'); liveText.textContent='ao vivo'; };
+es.onerror=()=>{ liveDot.classList.remove('on'); liveText.textContent='reconectando…'; };
+es.onmessage=e=>{ try{ const evt=JSON.parse(e.data); addEvent(evt, hydrated); }catch{} };
+// primeiros eventos (hidratação) vêm em ordem antiga→nova: anexa no fim; depois prepend
+setTimeout(()=>{ hydrated=true; }, 800);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SKILLS
+// ─────────────────────────────────────────────────────────────────────────────
+async function loadSkills(){
+  const pane=document.getElementById('pane-skills');
+  const r=await fetch('/api/brain/skills').then(x=>x.json());
+  if(!r.skills||!r.skills.length){ pane.innerHTML='<div class="empty">Nenhuma skill ainda.</div>'; return; }
+  const auto=r.skills.filter(s=>s.autoGenerated), manual=r.skills.filter(s=>!s.autoGenerated);
+  let html=`<div style="font-size:11px;color:var(--mut);margin-bottom:4px">${r.counts.total} skills · ${r.counts.autoGenerated} auto-geradas · ${r.counts.patched} patches</div>`;
+  const card=s=>`<div class="skill-card"><div class="name">${esc(s.name)} ${s.autoGenerated?'<span class="auto">AUTO</span>':''}</div>`+
+    `${s.description?`<div class="desc">${esc(s.description)}</div>`:''}`+
+    `<div class="stats"><span>usos: ${s.usage_count||0}</span><span>conf: ${(s.confidence||0).toFixed(2)}</span>${s.rejection_pct>0?`<span class="rej">rejeição: ${s.rejection_pct}%</span>`:''}</div></div>`;
+  if(auto.length){ html+=`<div class="group-label">🧠 Auto-geradas (aprendidas sozinho)</div>`+auto.map(card).join(''); }
+  if(manual.length){ html+=`<div class="group-label">📦 Demais skills</div>`+manual.map(card).join(''); }
+  if(r.patches&&r.patches.length){ html+=`<div class="group-label">🔧 Patches recentes (critic loop)</div>`+r.patches.map(p=>`<div class="skill-card"><div class="name" style="font-size:12px">${esc(p.skill_name)}</div><div class="desc">${esc(p.failure_pattern||'')}</div></div>`).join(''); }
+  pane.innerHTML=html;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ARQUIVOS
+// ─────────────────────────────────────────────────────────────────────────────
+let filesInit=false, curRoot='motor', curDir='';
+async function initFiles(){
+  filesInit=true;
+  const r=await fetch('/api/brain/roots').then(x=>x.json());
+  const sel=document.getElementById('rootSel');
+  sel.innerHTML=r.roots.map(rt=>`<button class="root-btn ${rt.key===curRoot?'on':''}" data-root="${rt.key}">${rt.label}</button>`).join('');
+  sel.querySelectorAll('.root-btn').forEach(b=>b.onclick=()=>{ curRoot=b.dataset.root; curDir=''; sel.querySelectorAll('.root-btn').forEach(x=>x.classList.toggle('on',x===b)); loadFiles(); });
+  loadFiles();
+}
+async function loadFiles(){
+  const r=await fetch(`/api/brain/files?root=${curRoot}&dir=${encodeURIComponent(curDir)}`).then(x=>x.json());
+  const crumbs=document.getElementById('crumbs');
+  const parts=curDir?curDir.split('/').filter(Boolean):[];
+  crumbs.innerHTML=`<span class="chip ${!curDir?'on':''}" onclick="navDir('')">raiz</span>`+parts.map((p,i)=>`<span style="color:#4b5563">/</span><span class="chip" onclick="navDir('${parts.slice(0,i+1).join('/')}')">  ${esc(p)}</span>`).join('');
+  const list=document.getElementById('fileList');
+  let html='';
+  for(const d of (r.dirs||[])) html+=`<div class="fitem" onclick="navDir('${esc(d.path)}')" ><span class="fico">📂</span>${esc(d.name)}</div>`;
+  for(const f of (r.files||[])){ const ic=f.ext==='.md'?'📝':f.ext==='.js'?'📜':f.ext==='.json'?'🔧':f.ext==='.py'?'🐍':'📄'; html+=`<div class="fitem" onclick="openFile('${esc(f.path)}')" ><span class="fico">${ic}</span>${esc(f.name)}<span class="fsize">${(f.size/1024).toFixed(1)}kb</span></div>`; }
+  list.innerHTML=html||'<div class="empty">vazio</div>';
+}
+function navDir(d){ curDir=d; loadFiles(); }
+async function openFile(path){
+  const r=await fetch(`/api/brain/file?root=${curRoot}&path=${encodeURIComponent(path)}`).then(x=>x.json());
+  if(r.error){ alert(r.error); return; }
+  document.getElementById('vName').textContent=path;
+  document.getElementById('vMeta').textContent=`${(r.size/1024).toFixed(1)}kb · ${new Date(r.modified*1000).toLocaleString('pt-BR')}`;
+  const c=document.getElementById('vContent');
+  if(r.ext==='.md'){ c.className='viewer-content md'; c.innerHTML=mdToHtml(r.content); }
+  else { c.className='viewer-content'; c.innerHTML='<pre>'+esc(r.content)+'</pre>'; }
+  document.getElementById('viewer').classList.add('show');
+}
+function closeViewer(){ document.getElementById('viewer').classList.remove('show'); }
+document.getElementById('viewer').onclick=e=>{ if(e.target.id==='viewer') closeViewer(); };
+
+// markdown mínimo
+function mdToHtml(md){
+  const lines=md.split('\n'); let html='', inCode=false, inList=false;
+  const inl=s=>esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`(.+?)`/g,'<code>$1</code>').replace(/\[(.+?)\]\((.+?)\)/g,'<a href="$2" target="_blank">$1</a>');
+  for(let ln of lines){
+    if(ln.trim().startsWith('```')){ if(inCode){html+='</code></pre>';inCode=false}else{html+='<pre><code>';inCode=true} continue; }
+    if(inCode){ html+=esc(ln)+'\n'; continue; }
+    if(/^#{1,3}\s/.test(ln)){ if(inList){html+='</ul>';inList=false} const l=ln.match(/^#+/)[0].length; html+=`<h${l}>${inl(ln.slice(l+1))}</h${l}>`; continue; }
+    if(/^\s*[-*]\s/.test(ln)){ if(!inList){html+='<ul>';inList=true} html+=`<li>${inl(ln.replace(/^\s*[-*]\s/,''))}</li>`; continue; }
+    if(inList){html+='</ul>';inList=false}
+    if(ln.trim()==='') html+=''; else html+=`<p>${inl(ln)}</p>`;
+  }
+  if(inList)html+='</ul>'; if(inCode)html+='</code></pre>';
+  return html;
+}
+</script>
+</body>
+</html>
