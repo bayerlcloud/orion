@@ -1,4 +1,4 @@
-import { createReadStream, statSync } from 'fs'
+import { createReadStream, statSync, openSync, readSync, closeSync } from 'fs'
 import { createInterface } from 'readline'
 
 // Decodifica o diretório do projeto a partir do path das sessões
@@ -239,6 +239,58 @@ export async function readNewLines(filepath, fromByte) {
     if (line.trim()) lines.push(line)
   }
   return { lines, newPos: stat.size }
+}
+
+// Parse rápido de metadados para arquivos grandes (> 2MB).
+// Lê só os primeiros 2KB (firstUserMsg) e os últimos 4KB (customTitle/aiTitle).
+// NÃO conta mensagens — retorna message_count = -1 (sinal para manter valor do banco).
+export function fastParseSessionMeta(filepath) {
+  let stat
+  try { stat = statSync(filepath) } catch { return null }
+
+  const HEAD = 2000
+  const TAIL = 4000
+  let firstUserMsg = null
+  let customTitle  = null
+  let aiTitle      = null
+
+  const fd = openSync(filepath, 'r')
+  try {
+    // ── cabeça: extrai firstUserMsg ──────────────────────────────────────────
+    const headSize = Math.min(HEAD, stat.size)
+    const headBuf  = Buffer.alloc(headSize)
+    readSync(fd, headBuf, 0, headSize, 0)
+    for (const line of headBuf.toString('utf8').split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const obj = JSON.parse(line)
+        if (obj.type === 'user') {
+          const c = obj.message?.content
+          const text = typeof c === 'string' ? c
+            : Array.isArray(c) ? c.filter(x => x?.type === 'text').map(x => x.text ?? '').join('') : ''
+          if (text && !text.startsWith('Continue from where')) {
+            firstUserMsg = text.slice(0, 120)
+            break
+          }
+        }
+      } catch {}
+    }
+
+    // ── cauda: extrai títulos ────────────────────────────────────────────────
+    const tailStart = Math.max(0, stat.size - TAIL)
+    const tailSize  = stat.size - tailStart
+    const tailBuf   = Buffer.alloc(tailSize)
+    readSync(fd, tailBuf, 0, tailSize, tailStart)
+    const tailStr = tailBuf.toString('utf8')
+    const cm = tailStr.match(/"customTitle":"([^"]+)"/)
+    if (cm) customTitle = cm[1]
+    const am = tailStr.match(/"aiTitle":"([^"]+)"/)
+    if (am) aiTitle = am[1]
+  } finally {
+    closeSync(fd)
+  }
+
+  return { firstUserMsg, customTitle, aiTitle, size: stat.size, message_count: -1 }
 }
 
 // Converte uma linha raw do .jsonl em mensagem legível (para SSE)

@@ -54,11 +54,19 @@ app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 app.use(cookieParser())
 
-// Favicon ⚡ (raio em gradiente) — antes do auth para carregar sem login e furar o cache do Hermes
+// Favicon — serve o ícone PNG do Orion (fallback SVG se o arquivo não existir)
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#g)"/><path d="M18.5 3.5 L8 18.5 h6 l-2.5 10 L24 13 h-6.2 z" fill="#fff"/></svg>`
-app.get(['/favicon.ico', '/favicon.svg'], (req, res) => {
+const PUBLIC_DIR = join(__dirname, 'public')
+app.get('/favicon.ico', (req, res) => {
+  const f = join(PUBLIC_DIR, 'orion_dark_icon.png')
+  if (existsSync(f)) res.set('Cache-Control', 'public, max-age=86400').type('image/png').sendFile(f)
+  else res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').send(FAVICON_SVG)
+})
+app.get('/favicon.svg', (req, res) => {
   res.set('Cache-Control', 'public, max-age=86400').type('image/svg+xml').send(FAVICON_SVG)
 })
+// Logos públicos (antes do auth — necessário para carregar na tela de login e em favicons)
+app.use('/public', express.static(PUBLIC_DIR, { maxAge: '1d' }))
 
 app.use(authMiddleware)
 
@@ -116,9 +124,10 @@ app.use(OWNER_PREFIXES, requireOwner)
 
 // ── Rotas de plataforma fechadas por padrão (lapidação 2026-07-09) ────────────
 // exec/fs/computer-use/lsp/profiles/checkpoints/acp: superfície experimental sem
-// consumidor conhecido — shell/filesystem/desktop não devem ficar expostos à toa.
+// Rotas de plataforma perigosas (shell, LSP, desktop) — bloqueadas por padrão.
 // Reabrir: ORION_PLATFORM_ROUTES=on no ambiente do pm2.
-const PLATFORM_PREFIXES = ['/api/exec', '/api/fs', '/api/computer-use', '/api/lsp', '/api/profiles', '/api/checkpoints', '/api/acp', '/v1']
+// Nota: /api/fs (filesystem) foi separado e fica disponível para qualquer usuário autenticado.
+const PLATFORM_PREFIXES = ['/api/exec', '/api/computer-use', '/api/lsp', '/api/profiles', '/api/checkpoints', '/api/acp', '/v1']
 app.use(PLATFORM_PREFIXES, (req, res, next) => {
   if (process.env.ORION_PLATFORM_ROUTES === 'on') return next()
   res.status(403).json({ error: 'rota de plataforma desativada (ORION_PLATFORM_ROUTES=on para habilitar)' })
@@ -169,7 +178,8 @@ const SIDEBAR_CSS = `
 #sb-resize-handle{position:absolute;top:0;right:-4px;width:8px;height:100%;cursor:col-resize;z-index:100;background:transparent}
 #sb-resize-handle:hover::after,#sb-resize-handle.dragging::after{content:'';position:absolute;left:3px;top:0;width:2px;height:100%;background:rgba(99,102,241,.5);border-radius:2px}
 .sidebar-brand{padding:16px 14px 12px;border-bottom:1px solid var(--line,#1e1e2e);display:flex;align-items:center;gap:10px}
-.sidebar .brand-icon{width:34px;height:34px;border-radius:10px;flex-shrink:0;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:17px}
+.sidebar .brand-icon{width:38px;height:38px;border-radius:10px;flex-shrink:0;background:transparent;display:flex;align-items:center;justify-content:center;font-size:17px;overflow:hidden}
+.sidebar .brand-icon img{width:38px;height:38px;object-fit:contain;display:block}
 .sidebar .brand-txt{flex:1;min-width:0}
 .sidebar .brand-name{font-size:15px;font-weight:700;color:#fff;line-height:1}
 .sidebar .brand-sub{font-size:11px;color:#6b7280;margin-top:2px}
@@ -243,9 +253,9 @@ const SIDEBAR_CSS = `
 .sb-trash svg{width:13px;height:13px;pointer-events:none;stroke-width:1.8}
 .sb-sess:hover .sb-trash{opacity:1}
 .sb-sess-empty{color:#2d2d45;font-size:12px;padding:10px 6px}
-.sb-badge{flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:.06em;color:#374151;background:#13131d;border:1px solid #1e1e2e;border-radius:4px;padding:1px 4px;margin-right:3px;white-space:nowrap;max-width:72px;overflow:hidden;text-overflow:ellipsis}
+.sb-badge{flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:.06em;color:#374151;background:#13131d;border:1px solid #1e1e2e;border-radius:4px;padding:1px 4px;margin-right:3px;white-space:nowrap;max-width:140px;overflow:hidden;text-overflow:ellipsis}
 .sb-sess.active .sb-badge{color:#4f46e5;border-color:#312e81;background:#1a1a3a}
-.sb-div{height:1px;background:#1a1a2e;margin:4px 6px}
+.sb-div{height:1px;background:#2d2d44;margin:4px 6px}
 .sb-trash-hdr{display:flex;align-items:center;gap:6px;padding:10px 8px 5px;font-size:10px;font-weight:700;color:#2d2d45;text-transform:uppercase;letter-spacing:.08em;cursor:pointer;user-select:none;transition:color .12s;border-top:1px solid #13131d;margin-top:4px}
 .sb-trash-hdr:hover{color:#4b5563}
 .sb-trash-hdr svg{width:11px;height:11px;flex-shrink:0}
@@ -338,6 +348,8 @@ body.light-mode .sidebar{
   box-shadow:2px 0 24px rgba(0,0,0,.08)!important;
   backdrop-filter:blur(20px)!important}
 body.light-mode .sidebar-brand{border-color:rgba(0,0,0,.07)!important}
+body.light-mode .brand-icon{background:transparent!important}
+body.light-mode .brand-icon img{content:url(/public/orion_light_avatar.png)}
 body.light-mode .sidebar .brand-name{color:#1a1a2e!important}
 body.light-mode .sidebar .brand-sub{color:#7c8ca0!important}
 body.light-mode .sidebar .sb-toggle{background:rgba(0,0,0,.06)!important;border-color:rgba(0,0,0,.1)!important;color:#7c8ca0!important}
@@ -589,9 +601,11 @@ function renderSidebar(active, user = {}) {
     ? `${navItem('/admin', 'shield', 'Admin', active)}
         ${navItem('/colaboradores', 'users', 'Colaboradores', active)}`
     : ''
+  // Links disponíveis para todos os usuários autenticados
+  const sharedLinks = `
+        ${navItem('/brain', 'brain', 'Cérebro Vetorial', active)}
+        ${navItem('/academia', 'cap', 'Academia da Memória', active)}`
   const ownerLinks = isOwner ? `
-        ${navItem('/brain', 'brain', 'Cérebro (ao vivo)', active)}
-        ${navItem('/academia', 'cap', 'Academia da Memória', active)}
         <div class="nav-section-label" style="margin-top:6px">Documentação</div>
         ${navItem('/d/doc-visao', 'compass', 'Visão &amp; Estratégia', active)}
         ${navItem('/d/doc-arquitetura', 'blocks', 'Arquitetura', active)}
@@ -615,7 +629,7 @@ function renderSidebar(active, user = {}) {
   <button id="mob-ham" aria-label="Menu">☰</button>
   <aside class="sidebar${isSess ? ' sess-mode' : ''}" id="sbMain" style="transition:none">
     <div class="sidebar-brand">
-      <div class="brand-icon">⚡</div>
+      <div class="brand-icon"><img src="/public/orion_dark_icon.png" alt="Orion"/></div>
       <div class="brand-txt"><div class="brand-name">Orion</div><div class="brand-sub">agente autônomo</div></div>
       <button class="sb-toggle" onclick="sbToggle()" title="Recolher menu">${ICONS.panel}</button>
     </div>
@@ -626,6 +640,7 @@ function renderSidebar(active, user = {}) {
         ${isOwner ? navItem('/d/agent', 'agent', 'Orion', active) : ''}
         <a href="/sessions" class="nav-item${active==='/sessions'||active?.startsWith('/sessions/')?' active':''}" title="Sessões Claude"><span class="ic">${ICONS.chat||''}</span><span class="lbl">Sessões Claude</span></a>
         <a href="#" class="nav-item" title="Arquivos" onclick="return sbFiles(event)"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span class="lbl">Arquivos</span></a>
+        ${sharedLinks}
         ${ownerLinks}
       </nav>
       <div class="sidebar-bottom">
@@ -1788,6 +1803,29 @@ app.patch('/api/claude-sessions/:id/visibility', (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+// Configurações gerais da sessão (projeto, dono, limites, webhook, etc.)
+app.patch('/api/claude-sessions/:id/config', (req, res) => {
+  try {
+    const { visibility, config_meta } = req.body
+    const db = getDb()
+    const updates = []
+    const params = []
+    if (visibility !== undefined) {
+      if (!['personal','team','public'].includes(visibility)) return res.status(400).json({ error: 'invalid visibility' })
+      updates.push('visibility=?'); params.push(visibility)
+    }
+    if (config_meta !== undefined) {
+      // valida JSON antes de persistir
+      try { JSON.parse(config_meta) } catch { return res.status(400).json({ error: 'config_meta must be valid JSON' }) }
+      updates.push('config_meta=?'); params.push(config_meta)
+    }
+    if (!updates.length) return res.status(400).json({ error: 'nothing to update' })
+    params.push(req.params.id)
+    db.prepare(`UPDATE claude_sessions SET ${updates.join(',')} WHERE id=?`).run(...params)
+    res.json({ ok: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // Fork conversation: copia o JSONL até a linha N, cria nova sessão
 app.post('/api/claude-sessions/:id/fork', (req, res) => {
   try {
@@ -2101,6 +2139,14 @@ app.get('/api/colaboradores/:id/budget', requireOwner, (req, res) => {
 app.put('/api/colaboradores/:id/budget', requireOwner, (req, res) => {
   try { setBudget(Number(req.params.id), req.body.monthly_tokens); res.json({ ok: true }) }
   catch (e) { res.status(400).json({ error: e.message }) }
+})
+
+// Lista pública de usuários (apenas autenticado) — para seletor de dono em configurações
+app.get('/api/users', (req, res) => {
+  const users = getDb().prepare(
+    'SELECT id, username, display_name, avatar_color FROM users WHERE is_active = 1 ORDER BY display_name'
+  ).all()
+  res.json({ users })
 })
 
 app.get('/api/admin/users', requireOwner, (req, res) => {
@@ -2870,6 +2916,11 @@ app.post('/api/orion/send', async (req, res) => {
   res.json({ ok: true })  // respond immediately; processing is async
   emitOrionEvent('typing', { on: true })
 
+  // Feedback de progresso intermediário após 8s (usuário sabe que está processando)
+  const progressTimer = setTimeout(() => {
+    emitOrionEvent('system_event', { text: '⏳ Processando — pode levar alguns segundos...', ts: Date.now() })
+  }, 8000)
+
   // Cronologia completa no WhatsApp: espelha a mensagem digitada na web
   // (prefixada pra distinguir; fromMe é filtrado no webhook, não cria loop)
   if (jid) {
@@ -2892,6 +2943,7 @@ app.post('/api/orion/send', async (req, res) => {
   } catch (e) {
     emitOrionEvent('assistant_message', { content: `❌ Erro: ${e.message}`, ts: Date.now() })
   } finally {
+    clearTimeout(progressTimer)
     emitOrionEvent('typing', { on: false })
   }
 })
@@ -3079,43 +3131,47 @@ app.listen(PORT, () => {
   })
   cron.schedule('0 * * * *', runIngest, { timezone: 'America/Sao_Paulo' })
 
-  // Pré-aquece o modelo de embeddings em background (não bloqueia o start)
-  warmup().catch(() => {})
+  // Indexa sessões Claude Code em background; após concluir:
+  //   1. aquece o modelo de embeddings (não compete com leitura de 142MB)
+  //   2. pré-aquece HTML das ≤5 sessões mais recentes das últimas 48h
+  initSessionIndex()
+    .catch(e => console.error('[sessions] init error:', e.message))
+    .finally(() => {
+      // Embeddings: carregar DEPOIS que o index termina (evita competição de CPU)
+      warmup().catch(() => {})
 
-  // Indexa sessões Claude Code em background
-  initSessionIndex().catch(e => console.error('[sessions] init error:', e.message))
-
-  // Pré-aquece timeline + HTML das sessões abertas E top-20 mais recentes
-  // Roda depois de 5s para não concorrer com o indexer na inicialização
-  setTimeout(async () => {
-    try {
-      const db = (await import('./db/index.js')).getDb()
-      // Sessões abertas + 20 mais recentes (união, sem duplicatas)
-      const open = db.prepare(
-        `SELECT id, path FROM claude_sessions WHERE deleted_at IS NULL AND hidden = 0
-         ORDER BY CASE WHEN opened_at IS NOT NULL THEN 0 ELSE 1 END, last_modified DESC LIMIT 20`
-      ).all()
-      console.log(`[sessions] pré-aquecendo cache de ${open.length} sessões…`)
-      for (const s of open) {
+      // Pre-warm: só sessões abertas/recentes nas últimas 48h, máx 5
+      setTimeout(async () => {
         try {
-          const timeline = await getCachedTimeline(s.id, s.path)
-          // Pré-builda o HTML também (elimina 2-3s na primeira visita)
-          const size = statSync(s.path).size
-          if (!_htmlRespCache.has(s.id) || _htmlRespCache.get(s.id).size !== size) {
-            const session = getSession(s.id)
-            const total = timeline.length
-            const sliced = total > 60 ? timeline.slice(-60) : timeline
-            const partial = getCachedPartial(s.id)
-            const data = { session, timeline: sliced, total, active: false, partial }
-            const json = JSON.stringify(data).replace(/<\/script>/gi, '<\\/script>')
-            const baseHtml = chatHtml.replace('</head>', `<script>window.__INITIAL_DATA__=${json}</script></head>`)
-            _htmlRespCache.set(s.id, { baseHtml, size })
+          const db = (await import('./db/index.js')).getDb()
+          const cutoff = Math.floor(Date.now() / 1000) - 48 * 3600
+          const open = db.prepare(
+            `SELECT id, path FROM claude_sessions WHERE deleted_at IS NULL AND hidden = 0
+             AND last_modified > ?
+             ORDER BY CASE WHEN opened_at IS NOT NULL THEN 0 ELSE 1 END, last_modified DESC LIMIT 5`
+          ).all(cutoff)
+          if (!open.length) return
+          console.log(`[sessions] pré-aquecendo cache de ${open.length} sessões recentes…`)
+          for (const s of open) {
+            try {
+              const timeline = await getCachedTimeline(s.id, s.path)
+              const size = statSync(s.path).size
+              if (!_htmlRespCache.has(s.id) || _htmlRespCache.get(s.id).size !== size) {
+                const session = getSession(s.id)
+                const total = timeline.length
+                const sliced = total > 60 ? timeline.slice(-60) : timeline
+                const partial = getCachedPartial(s.id)
+                const data = { session, timeline: sliced, total, active: false, partial }
+                const json = JSON.stringify(data).replace(/<\/script>/gi, '<\\/script>')
+                const baseHtml = chatHtml.replace('</head>', `<script>window.__INITIAL_DATA__=${json}</script></head>`)
+                _htmlRespCache.set(s.id, { baseHtml, size })
+              }
+            } catch {}
           }
-        } catch {}
-      }
-      console.log(`[sessions] cache de HTML aquecido para ${open.length} sessões`)
-    } catch (e) { console.error('[sessions] warmup erro:', e.message) }
-  }, 5000)
+          console.log(`[sessions] HTML aquecido para ${open.length} sessões`)
+        } catch (e) { console.error('[sessions] warmup erro:', e.message) }
+      }, 1000)
+    })
 
   // Retoma missões e orquestrações que estavam rodando antes do restart
   setTimeout(() => resumeRunningMissions(), 3000)

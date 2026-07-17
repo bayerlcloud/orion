@@ -2,7 +2,9 @@ import { readdirSync, statSync, readFileSync, writeFileSync, watch, existsSync, 
 import { join } from 'path'
 import { execSync } from 'child_process'
 import { getDb } from '../db/index.js'
-import { SESSIONS_DIR, SESSION_CWD, parseSession, readNewLines, parseLine, parseLineItems } from './reader.js'
+import { SESSIONS_DIR, SESSION_CWD, parseSession, fastParseSessionMeta, readNewLines, parseLine, parseLineItems } from './reader.js'
+
+const LARGE_FILE_BYTES = 2 * 1024 * 1024  // 2MB: usa fast parse acima disso
 
 // SSE clients: sessionId → Set<res>
 const sseClients = new Map()
@@ -71,7 +73,7 @@ function hasChildProcesses(pid) {
 
 export function getActiveSessions() {
   const now = Date.now()
-  if (now - _activeCache.ts < 800) return _activeCache.val
+  if (now - _activeCache.ts < 3000) return _activeCache.val
   try {
     const out = execSync('pgrep -af -- --resume 2>/dev/null || true', { encoding: 'utf8', timeout: 2000 })
     const active = new Set()
@@ -129,9 +131,25 @@ async function indexFile(filepath) {
   let stat
   try { stat = statSync(filepath) } catch { return }
 
-  const { messages, customTitle, aiTitle, firstUserMsg } = await parseSession(filepath)
+  let customTitle, aiTitle, firstUserMsg, msgCount
 
-  const msgCount = messages.filter(m => m.role === 'user' || m.role === 'assistant').length
+  if (stat.size > LARGE_FILE_BYTES) {
+    // Arquivo grande (>2MB): lê só head+tail — milissegundos em vez de segundos
+    const meta = fastParseSessionMeta(filepath)
+    if (!meta) return
+    customTitle  = meta.customTitle
+    aiTitle      = meta.aiTitle
+    firstUserMsg = meta.firstUserMsg
+    // Preserva message_count existente (não reconta 142MB por update incremental)
+    const existing = db.prepare('SELECT message_count FROM claude_sessions WHERE id = ?').get(id)
+    msgCount = existing?.message_count ?? 0
+  } else {
+    const parsed = await parseSession(filepath)
+    customTitle  = parsed.customTitle
+    aiTitle      = parsed.aiTitle
+    firstUserMsg = parsed.firstUserMsg
+    msgCount     = parsed.messages.filter(m => m.role === 'user' || m.role === 'assistant').length
+  }
 
   db.prepare(`
     INSERT INTO claude_sessions (id, path, cwd, custom_title, ai_title, last_modified, message_count, first_user_msg, deleted_at)
@@ -357,7 +375,7 @@ function startPolling() {
         }
       }
     } catch {}
-  }, 5_000)
+  }, 30_000)
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -367,31 +385,64 @@ export async function initSessionIndex() {
   try { files = readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.jsonl')) }
   catch { console.error('[sessions] diretório não encontrado:', SESSIONS_DIR); return }
 
-  console.log(`[sessions] indexando ${files.length} sessões...`)
+  const db = getDb()
 
-  // Index in batches to avoid blocking
+  // Carrega mapa id → last_modified do banco para detectar sessões sem mudança
+  const inDbMap = new Map()
+  for (const row of db.prepare('SELECT id, last_modified FROM claude_sessions WHERE deleted_at IS NULL').all()) {
+    inDbMap.set(row.id, row.last_modified)
+  }
+
+  let skipped = 0, reindexed = 0
+  const toReindex = []
+
+  for (const f of files) {
+    const id = f.replace('.jsonl', '')
+    const filepath = join(SESSIONS_DIR, f)
+    let stat
+    try { stat = statSync(filepath) } catch { continue }
+    const mtimeSec = Math.floor(stat.mtimeMs / 1000)
+
+    if (inDbMap.has(id) && inDbMap.get(id) === mtimeSec) {
+      // Sem mudança: apenas registra posição conhecida no mapa de leitura incremental
+      filePositions.set(filepath, stat.size)
+      skipped++
+    } else {
+      toReindex.push(filepath)
+    }
+  }
+
+  console.log(`[sessions] ${files.length} sessões: ${skipped} inalteradas (skip), ${toReindex.length} para indexar`)
+
+  // Reindexar apenas as sessões novas/modificadas, em batches de 10
   const batchSize = 10
-  for (let i = 0; i < files.length; i += batchSize) {
-    const batch = files.slice(i, i + batchSize)
-    await Promise.all(batch.map(f => indexFile(join(SESSIONS_DIR, f))))
+  for (let i = 0; i < toReindex.length; i += batchSize) {
+    const batch = toReindex.slice(i, i + batchSize)
+    await Promise.all(batch.map(f => indexFile(f)))
+    reindexed += batch.length
   }
 
   // Marca como deletadas as sessões no banco que não têm mais arquivo no disco
-  const db = getDb()
-  const inDb = db.prepare('SELECT id, path FROM claude_sessions WHERE deleted_at IS NULL').all()
   const onDisk = new Set(files.map(f => f.replace('.jsonl', '')))
-  for (const row of inDb) {
-    if (!onDisk.has(row.id)) markDeleted(row.id)
+  for (const [id] of inDbMap) {
+    if (!onDisk.has(id)) markDeleted(id)
   }
 
-  // Watch all files
-  for (const f of files) watchFile(join(SESSIONS_DIR, f))
+  // Watchers individuais apenas para sessões ATIVAS (processo claude em execução).
+  // As demais são cobertas pelo polling de 30s e pelo watchDirectory().
+  // Isso evita abrir 191+ inotify watches desnecessários na inicialização.
+  const activePids = getActiveSessions()
+  for (const id of activePids) {
+    const filepath = join(SESSIONS_DIR, `${id}.jsonl`)
+    watchFile(filepath)
+  }
+
   watchDirectory()
   watchVsCodeGlobalState()
   startPolling()
   startActiveMonitor()
 
-  console.log(`[sessions] índice pronto`)
+  console.log(`[sessions] índice pronto (${reindexed} reindexadas, ${skipped} puladas)`)
 }
 
 // ── List sessions com status (active | paused | deleted) ─────────────────────

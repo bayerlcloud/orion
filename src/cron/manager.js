@@ -399,12 +399,16 @@ async function executeJob(job) {
 
     // ── 4. claude CLI ─────────────────────────────────────────────────────────
     const model = job.model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6'
-    const claudeArgs = ['-p', prompt, '--output-format', 'json', '--dangerously-skip-permissions', '--model', model]
+    const useStdin = prompt.length > 200_000
+    const claudeArgs = useStdin
+      ? ['--output-format', 'json', '--dangerously-skip-permissions', '--model', model]
+      : ['-p', prompt, '--output-format', 'json', '--dangerously-skip-permissions', '--model', model]
     const execOpts = {
       cwd: job.workdir ?? '/config/workspace',
       env: job.workdir
         ? { ...process.env, TERMINAL_CWD: job.workdir }
         : process.env,
+      ...(useStdin ? { input: prompt } : {}),
     }
 
     const claudeProc = execa('claude', claudeArgs, execOpts)

@@ -1,4 +1,5 @@
 import { execa } from 'execa'
+import { join } from 'path'
 import { getDb } from '../db/index.js'
 import { getProactiveMemories, processExchange, createSessionSnapshot, feedbackMemory } from '../memory/index.js'
 import { compressSessionIfNeeded } from '../memory/compressor.js'
@@ -6,8 +7,8 @@ import { SYSTEM_PROMPT, buildMemoryContext } from './prompt.js'
 import { generateSkillIfWorthy } from './skill-generator.js'
 import { updateUserProfile } from './user-profile.js'
 import { buildFullContext, serializeContext } from '../api/context.js'
-import { listSessions } from '../sessions/indexer.js'
-import { parseSession } from '../sessions/reader.js'
+import { listSessions, getLastRoleLive } from '../sessions/indexer.js'
+import { SESSIONS_DIR } from '../sessions/reader.js'
 import { getOrCreate, updateClaudeSessionId as updateRegistrySessionId, projectSessionName } from '../sessions/registry.js'
 
 import { createLogger } from '../logger.js'
@@ -78,13 +79,9 @@ async function buildSessionsSnapshot() {
     } else {
       for (const s of active) {
         const name = s.custom_title ?? s.ai_title ?? s.first_user_msg?.slice(0, 40) ?? s.id.slice(0, 8)
-        // Detectar Working vs Aguardando pelo último role no .jsonl
-        let estado = 'Aguardando'
-        try {
-          const { messages } = await parseSession(s.path)
-          const last = messages.filter(m => m.role === 'user' || m.role === 'assistant').at(-1)
-          if (last?.role === 'user') estado = 'Working'
-        } catch {}
+        // Detectar Working vs Aguardando: lê só os últimos 60KB (rápido, sem parseSession full)
+        const lastRole = getLastRoleLive(join(SESSIONS_DIR, `${s.id}.jsonl`))
+        const estado = lastRole === 'user' ? 'Working' : 'Aguardando'
         lines.push(`  - ${name} (${estado})`)
       }
     }
@@ -215,20 +212,29 @@ export async function runOrion({ jid, message, channel = 'whatsapp', sessionChan
   // Prompt de sistema conversacional curto no caminho trivial
   const TRIVIAL_PROMPT = 'Você é o Orion, assistente pessoal do Danilo no WhatsApp. Responda de forma curta, direta e conversacional, em português brasileiro. Não liste tarefas nem sessões a menos que perguntem.'
 
+  // Prompts grandes (imagem base64, sessões longas) estouram ARG_MAX (2MB) como arg -p.
+  // Limiar conservador: 200KB. Acima disso, passa via stdin (execa.input) sem -p.
+  const BIG_PROMPT = 200_000
+
   // Monta args; quando withResume=false, ignora o resume e começa sessão nova
-  const buildArgs = (withResume) => {
-    const a = ['-p', augmentedMessage, '--output-format', 'json', '--dangerously-skip-permissions']
+  const buildArgs = (withResume, useStdin) => {
+    const a = useStdin
+      ? ['--output-format', 'json', '--dangerously-skip-permissions']
+      : ['-p', augmentedMessage, '--output-format', 'json', '--dangerously-skip-permissions']
     if (withResume && resumeId) a.push('--resume', resumeId)
     else a.push('--system-prompt', trivial ? TRIVIAL_PROMPT : SYSTEM_PROMPT)
     return a
   }
 
-  const callClaude = (withResume) => execa('claude', buildArgs(withResume), {
-    timeout: trivial ? 45_000 : 150_000,  // trivial é rápido; resume pesado tem mais folga
-    cwd: '/config/workspace',   // workspace principal → sessão visível no sidebar
-    // Caminho trivial não precisa de ferramentas/MCPs → muito mais rápido de iniciar
-    env: trivial ? { ...process.env, CLAUDE_CODE_DISABLE_MCP: '1' } : { ...process.env },
-  })
+  const callClaude = (withResume) => {
+    const useStdin = augmentedMessage.length > BIG_PROMPT
+    return execa('claude', buildArgs(withResume, useStdin), {
+      timeout: trivial ? 45_000 : 150_000,
+      cwd: '/config/workspace',
+      env: trivial ? { ...process.env, CLAUDE_CODE_DISABLE_MCP: '1' } : { ...process.env },
+      ...(useStdin ? { input: augmentedMessage } : {}),
+    })
+  }
 
   // Resume inválido (sessão sumiu) OU travou (timeout) → vale recomeçar do zero
   const isStaleResume = (err) => {
