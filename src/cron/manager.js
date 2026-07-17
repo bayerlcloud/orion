@@ -21,9 +21,8 @@ import { sendToSession } from '../sessions/sender.js'
 
 const execFileAsync = promisify(execFile)
 
-const WORKSPACE_DIR = process.env.WORKSPACE_DIR ?? '/config/workspace/orion'
-const SCRIPTS_DIR   = path.resolve(WORKSPACE_DIR, 'scripts')
-const HEARTBEAT     = path.resolve(WORKSPACE_DIR, 'data/cron-heartbeat')
+const SCRIPTS_DIR  = path.resolve('/config/workspace/orion/scripts')
+const HEARTBEAT    = path.resolve('/config/workspace/orion/data/cron-heartbeat')
 const SILENT_MARKER = '[SILENT]'
 const SCRIPT_TIMEOUT_MS = 60_000
 const JOB_TIMEOUT_MS    = 180_000  // 3 min hard limit (Hermes parity)
@@ -365,6 +364,9 @@ async function executeJob(job) {
     }
 
     // ── 2.5. Sessão-alvo: INJETA na sessão Claude Code (não spawna claude pelado) ─
+    // A inteligência já está DENTRO da sessão-alvo (tem todo o contexto dela).
+    // Só precisamos entregar a "tecla" — sendToSession faz claude --resume <uuid>.
+    // É isso que faz "automação que cutuca a sessão X" funcionar de verdade.
     if (job.target_session) {
       let injectMsg = job.task_prompt
       if (scriptOutput) {
@@ -374,6 +376,7 @@ async function executeJob(job) {
       finalOutput = await sendToSession(job.target_session, injectMsg, job.model)
       status = 'ok'
       _saveOutput(db, job.id, status, finalOutput, null, job.model)
+      // Entrega opcional do que a sessão respondeu (se deliver != none)
       if (finalOutput && job.deliver && job.deliver !== 'none') {
         const targets = resolveTargets(job.deliver, origin)
         deliveryErr = await deliverResult(targets, job.name, job.id, finalOutput)
@@ -396,12 +399,16 @@ async function executeJob(job) {
 
     // ── 4. claude CLI ─────────────────────────────────────────────────────────
     const model = job.model ?? process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6'
-    const claudeArgs = ['-p', prompt, '--output-format', 'json', '--dangerously-skip-permissions', '--model', model]
+    const useStdin = prompt.length > 200_000
+    const claudeArgs = useStdin
+      ? ['--output-format', 'json', '--dangerously-skip-permissions', '--model', model]
+      : ['-p', prompt, '--output-format', 'json', '--dangerously-skip-permissions', '--model', model]
     const execOpts = {
-      cwd: job.workdir ?? (process.env.WORKSPACE_DIR ?? '/config/workspace'),
+      cwd: job.workdir ?? '/config/workspace',
       env: job.workdir
         ? { ...process.env, TERMINAL_CWD: job.workdir }
         : process.env,
+      ...(useStdin ? { input: prompt } : {}),
     }
 
     const claudeProc = execa('claude', claudeArgs, execOpts)
