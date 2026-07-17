@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orion — Colaboradores</title>
+<style>@view-transition{navigation:auto}</style>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e5e7eb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;height:100vh;overflow:hidden}
+.main{flex:1;overflow-y:auto;display:flex;flex-direction:column;min-width:0}
+.topbar{padding:16px 24px;border-bottom:1px solid #1e1e2e;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.topbar h1{font-size:16px;font-weight:700}
+.topbar-sub{font-size:12px;color:#6b7280;margin-top:2px}
+.topbar-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.back-btn{display:flex;align-items:center;gap:6px;font-size:13px;color:#6b7280;cursor:pointer;background:none;border:none;padding:0;transition:color .15s}
+.back-btn:hover{color:#e5e7eb}
+.content{padding:24px;flex:1}
+
+/* Lista */
+.collab-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:32px}
+.collab-card{background:#111118;border:1px solid #1e1e2e;border-radius:14px;padding:20px;cursor:pointer;transition:all .15s;position:relative}
+.collab-card:hover{border-color:#6366f1;transform:translateY(-2px)}
+.collab-card-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0}
+.collab-name{font-size:14px;font-weight:700}
+.collab-user{font-size:11px;color:#6b7280;margin-top:2px}
+.collab-active{position:absolute;top:14px;right:14px;font-size:10px;color:#6b7280}
+.collab-active.online{color:#22c55e}
+.stats-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat-mini{background:#0f0f1a;border-radius:8px;padding:8px 10px}
+.stat-mini-n{font-size:16px;font-weight:700;color:#fff}
+.stat-mini-l{font-size:10px;color:#6b7280;margin-top:1px}
+.empty-state{text-align:center;padding:60px;color:#4b5563;font-size:13px}
+.budget-bar-wrap{margin-top:10px}
+.budget-bar-track{height:4px;background:#1e1e2e;border-radius:2px;overflow:hidden}
+.budget-bar-fill{height:100%;border-radius:2px;transition:width .4s}
+.budget-pct{font-size:10px;color:#6b7280;margin-top:3px}
+
+/* Comparação */
+.compare-section{margin-bottom:28px}
+.compare-section h3{font-size:13px;font-weight:700;margin-bottom:12px;color:#9ca3af}
+.compare-grid{display:grid;gap:12px}
+.compare-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.compare-name{font-size:11px;color:#9ca3af;width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.compare-bars{flex:1;display:flex;gap:4px}
+.compare-bar{height:16px;border-radius:3px;min-width:2px;transition:width .4s;cursor:default}
+.compare-val{font-size:10px;color:#6b7280;width:40px;text-align:right;flex-shrink:0}
+
+/* Detalhe */
+#detail-view{display:none}
+.detail-header{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.avatar-big{width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;flex-shrink:0}
+.detail-name{font-size:20px;font-weight:700}
+.detail-meta{font-size:12px;color:#6b7280;margin-top:3px}
+.detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.dstat{background:#111118;border:1px solid #1e1e2e;border-radius:10px;padding:14px 16px}
+.dstat-n{font-size:22px;font-weight:700;color:#fff}
+.dstat-l{font-size:11px;color:#6b7280;margin-top:3px}
+.section-title{font-size:13px;font-weight:700;color:#e5e7eb;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.panel{background:#111118;border:1px solid #1e1e2e;border-radius:12px;padding:16px}
+.panel-full{background:#111118;border:1px solid #1e1e2e;border-radius:12px;padding:16px;margin-bottom:16px}
+
+/* Heatmap */
+.hour-heat{display:flex;gap:3px;flex-wrap:wrap}
+.hour-cell{width:28px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#6b7280;transition:transform .1s;cursor:default}
+.hour-cell:hover{transform:scale(1.1)}
+
+/* Barras */
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.bar-label{font-size:11px;color:#9ca3af;width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.bar-track{flex:1;height:6px;background:#1e1e2e;border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;background:#6366f1;transition:width .4s}
+.bar-count{font-size:10px;color:#6b7280;width:30px;text-align:right;flex-shrink:0}
+
+/* Log table */
+.log-mini{font-size:11px;width:100%;border-collapse:collapse}
+.log-mini th{font-size:10px;color:#6b7280;font-weight:600;padding:6px 8px;text-align:left;border-bottom:1px solid #1e1e2e}
+.log-mini td{padding:5px 8px;border-bottom:1px solid #0f0f1a;vertical-align:middle}
+.log-mini tr:last-child td{border-bottom:none}
+.method-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
+.GET{background:#1a2520;color:#34d399}.POST{background:#1e1b4b;color:#818cf8}
+.PATCH,.PUT{background:#1c1a10;color:#fbbf24}.DELETE{background:#1f1010;color:#f87171}
+.status-ok{color:#34d399}.status-err{color:#f87171}.status-warn{color:#fbbf24}
+.path-cell{font-family:monospace;color:#c4b5fd;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Sessions */
+.sess-item{padding:10px 12px;border-bottom:1px solid #0f0f1a;transition:background .12s;cursor:default}
+.sess-item:last-child{border-bottom:none}
+.sess-item:hover{background:#0f0f1a}
+.sess-title{font-size:12px;font-weight:600;color:#e5e7eb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess-preview{font-size:11px;color:#6b7280;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess-meta{font-size:10px;color:#4b5563;margin-top:3px}
+
+/* Token chart */
+.tok-chart{display:flex;align-items:flex-end;gap:4px;height:60px;margin-top:8px}
+.tok-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+.tok-bar{width:100%;border-radius:2px 2px 0 0;min-height:2px;transition:height .3s}
+.tok-date{font-size:8px;color:#4b5563;transform:rotate(-45deg);transform-origin:top left;white-space:nowrap;margin-top:4px}
+
+/* Timesheet chart */
+.time-chart{display:flex;align-items:flex-end;gap:3px;height:60px;margin-top:8px}
+.time-bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px}
+.time-bar{width:100%;border-radius:2px 2px 0 0;min-height:2px;background:#10b981;transition:height .3s}
+.time-date{font-size:8px;color:#4b5563;transform:rotate(-45deg);transform-origin:top left;white-space:nowrap;margin-top:4px}
+
+/* Assessment */
+.assessment-box{background:#0f0f1a;border:1px solid #1e1e2e;border-radius:10px;padding:14px;font-size:13px;line-height:1.7;color:#d1d5db;white-space:pre-wrap;min-height:60px}
+.assessment-empty{color:#4b5563;font-style:italic;font-size:12px}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:#6366f1;color:#fff}.btn-primary:hover{background:#4f52d3}
+.btn-ghost{background:none;border:1px solid #2a2a40;color:#9ca3af}.btn-ghost:hover{color:#e5e7eb;border-color:#4b5563}
+.btn-danger{background:none;border:1px solid #3f1010;color:#f87171}.btn-danger:hover{background:#3f1010}
+.btn-success{background:#065f46;color:#34d399;border:none}.btn-success:hover{background:#047857}
+.btn-sm{padding:4px 10px;font-size:11px}
+.spin{animation:spin 1s linear infinite}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+
+/* Tasks */
+.task-list{display:flex;flex-direction:column;gap:6px}
+.task-item{background:#0f0f1a;border:1px solid #1e1e2e;border-radius:8px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px;transition:opacity .2s}
+.task-item.done{opacity:.5}
+.task-check{width:16px;height:16px;border:2px solid #4b5563;border-radius:4px;cursor:pointer;flex-shrink:0;margin-top:1px;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.task-check.checked{background:#6366f1;border-color:#6366f1}
+.task-body{flex:1;min-width:0}
+.task-title{font-size:12px;font-weight:600;color:#e5e7eb}
+.task-desc{font-size:11px;color:#6b7280;margin-top:2px}
+.task-meta{font-size:10px;color:#4b5563;margin-top:3px;display:flex;gap:8px}
+.priority-high{color:#f87171}.priority-normal{color:#6b7280}.priority-low{color:#374151}
+.task-del{opacity:0;cursor:pointer;color:#f87171;font-size:11px;transition:opacity .15s;flex-shrink:0}
+.task-item:hover .task-del{opacity:1}
+.task-add-row{display:flex;gap:8px;margin-top:10px}
+.task-add-row input{flex:1;background:#1a1a2e;border:1px solid #2a2a40;border-radius:6px;padding:6px 10px;color:#f3f4f6;font-size:12px;outline:none}
+.task-add-row input:focus{border-color:#6366f1}
+
+/* Spy view */
+.spy-log{background:#0a0a12;border:1px solid #1a1a2e;border-radius:8px;padding:10px 12px;height:180px;overflow-y:auto;font-family:monospace;font-size:11px}
+.spy-entry{padding:2px 0;border-bottom:1px solid #0f0f1a}
+.spy-time{color:#4b5563;margin-right:8px}
+.spy-method{margin-right:6px}
+.spy-path{color:#c4b5fd}
+.spy-status{margin-left:6px}
+.spy-status.ok{color:#34d399}.spy-status.err{color:#f87171}
+.spy-empty{color:#4b5563;font-style:italic;text-align:center;margin-top:60px}
+
+/* Budget */
+.budget-section{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.budget-input{background:#1a1a2e;border:1px solid #2a2a40;border-radius:6px;padding:5px 10px;color:#f3f4f6;font-size:12px;outline:none;width:120px}
+.budget-input:focus{border-color:#6366f1}
+.budget-progress{flex:1;min-width:160px}
+.budget-pct-big{font-size:20px;font-weight:700;margin-bottom:4px}
+.budget-bar-big{height:8px;background:#1e1e2e;border-radius:4px;overflow:hidden;margin-bottom:4px}
+.budget-bar-big-fill{height:100%;border-radius:4px;transition:width .4s}
+.budget-label{font-size:11px;color:#6b7280}
+
+/* Permissions */
+.perm-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.perm-item{display:flex;align-items:center;justify-content:space-between;background:#0f0f1a;border-radius:6px;padding:8px 10px}
+.perm-name{font-size:11px;color:#9ca3af;font-family:monospace}
+.toggle{position:relative;width:36px;height:20px;cursor:pointer;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:#2a2a40;border-radius:10px;transition:.2s}
+.toggle-slider:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked+.toggle-slider{background:#6366f1}
+.toggle input:checked+.toggle-slider:before{transform:translateX(16px)}
+
+/* Notes */
+textarea{width:100%;background:#1a1a2e;border:1px solid #2a2a40;border-radius:8px;padding:10px 12px;color:#f3f4f6;font-size:12px;outline:none;resize:vertical;font-family:inherit;line-height:1.6;transition:border-color .2s}
+textarea:focus{border-color:#6366f1}
+
+/* Print */
+@media print{
+  body{background:#fff;color:#000;display:block}
+  .main{overflow:visible;height:auto}
+  #list-view,button,.back-btn,.topbar-actions,.spy-log,.task-add-row,.toggle,#detail-actions{display:none!important}
+  #detail-view{display:block!important}
+  .panel,.panel-full{border:1px solid #ccc;break-inside:avoid}
+  .dstat{border:1px solid #ccc}
+  .assessment-box,.log-mini,.task-item{color:#000;background:#f9f9f9}
+  .collab-name,.detail-name{color:#000}
+  *{box-shadow:none!important}
+}
+
+@media(max-width:900px){.detail-grid{grid-template-columns:1fr 1fr}.panels{grid-template-columns:1fr}}
+@media(max-width:600px){.detail-grid{grid-template-columns:1fr}.perm-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<!--SIDEBAR-->
+<main class="main">
+  <div class="topbar" id="topbar">
+    <div>
+      <h1>Colaboradores</h1>
+      <div class="topbar-sub" id="topbar-sub">Equipe</div>
+    </div>
+    <div class="topbar-actions" id="topbar-actions"></div>
+  </div>
+  <div class="content">
+
+    <!-- Lista -->
+    <div id="list-view">
+      <div id="compare-section" style="display:none" class="compare-section"></div>
+      <div class="collab-grid" id="collab-grid">
+        <div class="empty-state">Carregando…</div>
+      </div>
+    </div>
+
+    <!-- Detalhe -->
+    <div id="detail-view">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+        <button class="back-btn" onclick="showList()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M15 18l-6-6 6-6"/></svg>
+          Todos os colaboradores
+        </button>
+        <div id="budget-badge" style="display:none;font-size:11px;padding:3px 8px;border-radius:4px;background:#1e1e2e;color:#6b7280"></div>
+      </div>
+
+      <div class="detail-header">
+        <div class="avatar-big" id="d-avatar"></div>
+        <div>
+          <div class="detail-name" id="d-name"></div>
+          <div class="detail-meta" id="d-meta"></div>
+        </div>
+        <div id="detail-actions" style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="toggleSpy()" id="spy-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="3"/><path d="M20.188 10.934C21.343 11.986 22 13 22 13s-3 5-10 5-10-5-10-5 .657-1.014 1.812-2.066"/><path d="M2 2l20 20"/></svg>
+            Spy ao vivo
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="requestAssessment()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            Avaliar com Orion
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="window.print()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            Exportar PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats principais -->
+      <div class="detail-grid">
+        <div class="dstat"><div class="dstat-n" id="d-requests">—</div><div class="dstat-l">Requests totais</div></div>
+        <div class="dstat"><div class="dstat-n" id="d-sessions">—</div><div class="dstat-l">Sessões de chat</div></div>
+        <div class="dstat"><div class="dstat-n" id="d-tokens">—</div><div class="dstat-l">Tokens gastos</div></div>
+        <div class="dstat"><div class="dstat-n" id="d-cost" style="color:#34d399">—</div><div class="dstat-l">Custo estimado</div></div>
+      </div>
+
+      <!-- Budget de tokens -->
+      <div class="panel-full" id="budget-panel">
+        <div class="section-title">
+          Orçamento de Tokens
+          <button class="btn btn-ghost btn-sm" onclick="saveBudget()">Salvar</button>
+        </div>
+        <div class="budget-section">
+          <div>
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px">Limite mensal</div>
+            <input class="budget-input" id="budget-input" type="number" min="0" step="10000" placeholder="ex: 500000">
+          </div>
+          <div class="budget-progress" id="budget-progress" style="display:none">
+            <div class="budget-pct-big" id="budget-pct">0%</div>
+            <div class="budget-bar-big"><div class="budget-bar-big-fill" id="budget-fill"></div></div>
+            <div class="budget-label" id="budget-label"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Avaliação -->
+      <div class="panel-full">
+        <div class="section-title">
+          Avaliação do Orion
+          <span id="assessment-date" style="font-size:10px;color:#4b5563;font-weight:400"></span>
+        </div>
+        <div class="assessment-box" id="assessment-box"><span class="assessment-empty">Nenhuma avaliação ainda.</span></div>
+      </div>
+
+      <!-- Spy view -->
+      <div class="panel-full" id="spy-panel" style="display:none">
+        <div class="section-title">
+          Atividade ao vivo
+          <span id="spy-status" style="font-size:10px;color:#22c55e;font-weight:400">● conectado</span>
+        </div>
+        <div class="spy-log" id="spy-log"><div class="spy-empty">Aguardando atividade…</div></div>
+      </div>
+
+      <!-- Painéis lado a lado: páginas + hora -->
+      <div class="panels">
+        <div class="panel">
+          <div class="section-title">Páginas mais visitadas</div>
+          <div id="top-pages"></div>
+        </div>
+        <div class="panel">
+          <div class="section-title">Atividade por hora</div>
+          <div class="hour-heat" id="hour-heat"></div>
+        </div>
+      </div>
+
+      <!-- Timesheet + tokens -->
+      <div class="panels">
+        <div class="panel">
+          <div class="section-title">Timesheet automático
+            <span style="font-size:10px;font-weight:400;color:#4b5563">30 dias</span>
+          </div>
+          <div id="timesheet-summary" style="font-size:12px;color:#6b7280;margin-bottom:6px"></div>
+          <div class="time-chart" id="time-chart"></div>
+        </div>
+        <div class="panel">
+          <div class="section-title">Tokens por dia
+            <span style="font-size:10px;font-weight:400;color:#4b5563">14 dias</span>
+          </div>
+          <div class="tok-chart" id="tok-chart"></div>
+        </div>
+      </div>
+
+      <!-- Sessions + log -->
+      <div class="panels">
+        <div class="panel">
+          <div class="section-title">Sessões de chat recentes</div>
+          <div id="sessions-list"></div>
+        </div>
+        <div class="panel">
+          <div class="section-title">Log recente</div>
+          <div style="overflow-x:auto;max-height:220px;overflow-y:auto">
+            <table class="log-mini">
+              <thead><tr><th>Método</th><th>Rota</th><th>Status</th><th>ms</th><th>Quando</th></tr></thead>
+              <tbody id="log-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tarefas atribuídas -->
+      <div class="panel-full">
+        <div class="section-title">
+          Tarefas atribuídas
+          <span id="tasks-badge" style="font-size:10px;color:#6b7280;font-weight:400"></span>
+        </div>
+        <div class="task-list" id="task-list"></div>
+        <div class="task-add-row">
+          <input id="task-input" placeholder="Nova tarefa…" onkeydown="if(event.key==='Enter')addTask()">
+          <select id="task-prio" style="background:#1a1a2e;border:1px solid #2a2a40;border-radius:6px;padding:6px 8px;color:#f3f4f6;font-size:11px;outline:none">
+            <option value="normal">Normal</option>
+            <option value="high">Alta</option>
+            <option value="low">Baixa</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="addTask()">+ Adicionar</button>
+        </div>
+      </div>
+
+      <!-- Permissões granulares -->
+      <div class="panel-full">
+        <div class="section-title">
+          Permissões de acesso
+          <button class="btn btn-ghost btn-sm" onclick="savePermissions()">Salvar</button>
+        </div>
+        <div class="perm-grid" id="perm-grid"></div>
+      </div>
+
+      <!-- Notas -->
+      <div class="panel-full">
+        <div class="section-title">Notas internas</div>
+        <textarea id="collab-notes" rows="4" placeholder="Anotações, feedback, observações…"></textarea>
+        <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveNotes()">Salvar notas</button>
+        <span id="notes-saved" style="font-size:11px;color:#34d399;margin-left:8px;display:none">✓ Salvo</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const MODEL_PRICES = { haiku: {i:.25,o:.75}, sonnet: {i:3,o:15}, opus: {i:15,o:75} }
+
+function calcCost(it, ot, model='sonnet') {
+  const p = MODEL_PRICES[model] || MODEL_PRICES.sonnet
+  return (it||0)/1e6*p.i + (ot||0)/1e6*p.o
+}
+
+let all = [], current = null, spyEs = null
+
+function fmt(n) {
+  if (!n) return '0'
+  if (n >= 1e6) return (n/1e6).toFixed(1)+'M'
+  if (n >= 1000) return (n/1000).toFixed(1)+'k'
+  return String(n)
+}
+function fmtMin(m) {
+  if (!m) return '0min'
+  if (m >= 60) return Math.floor(m/60)+'h '+(m%60)+'min'
+  return m+'min'
+}
+function relTime(ts) {
+  if (!ts) return 'nunca'
+  const d = Math.floor(Date.now()/1000) - ts
+  if (d < 60) return 'agora'
+  if (d < 3600) return Math.floor(d/60)+'m'
+  if (d < 86400) return Math.floor(d/3600)+'h'
+  return new Date(ts*1000).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})
+}
+function esc(s) { return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+const AVAILABLE_PERMS = [
+  '/api/memories', '/api/brain', '/api/cron', '/api/mission',
+  '/api/kanban', '/api/skills', '/api/dedup', '/api/snapshot',
+  '/api/token-usage', '/api/claude-usage',
+]
+
+// ── Lista ─────────────────────────────────────────────────────────────────────
+async function loadList() {
+  const r = await fetch('/api/colaboradores')
+  const { colaboradores } = await r.json()
+  all = colaboradores || []
+  renderList()
+  if (all.length >= 2) renderCompare()
+  else document.getElementById('compare-section').style.display = 'none'
+}
+
+function renderList() {
+  const grid = document.getElementById('collab-grid')
+  if (!all.length) {
+    grid.innerHTML = '<div class="empty-state">Nenhum colaborador cadastrado.<br><small>Adicione em <a href="/admin" style="color:#6366f1">Admin → Usuários</a></small></div>'
+    return
+  }
+  document.getElementById('topbar-sub').textContent = `${all.length} colaborador${all.length>1?'es':''}`
+  grid.innerHTML = all.map(u => {
+    const lastActive = u.last_active
+    const isOnline = lastActive && (Date.now()/1000 - lastActive) < 300
+    const totalTok = (u.input_tokens||0) + (u.output_tokens||0)
+    const cost = calcCost(u.input_tokens, u.output_tokens)
+    const init = (u.display_name||u.username||'?').charAt(0).toUpperCase()
+    const budgetPct = u.token_budget_monthly && totalTok ? Math.min(100, Math.round(totalTok/u.token_budget_monthly*100)) : null
+    const budgetColor = budgetPct >= 80 ? '#f87171' : budgetPct >= 50 ? '#fbbf24' : '#6366f1'
+    return `<div class="collab-card" onclick="openDetail(${u.id})">
+      <div class="collab-active${isOnline?' online':''}">${isOnline ? '● online' : 'visto '+relTime(lastActive)}</div>
+      <div class="collab-card-header">
+        <div class="avatar" style="background:${u.avatar_color||'#6366f1'}">${init}</div>
+        <div>
+          <div class="collab-name">${esc(u.display_name||u.username)}</div>
+          <div class="collab-user">@${esc(u.username)}${!u.is_active?' · inativo':''}</div>
+        </div>
+      </div>
+      <div class="stats-mini">
+        <div class="stat-mini"><div class="stat-mini-n">${fmt(u.total_requests)}</div><div class="stat-mini-l">Requests</div></div>
+        <div class="stat-mini"><div class="stat-mini-n">${fmt((u.input_tokens||0)+(u.output_tokens||0))}</div><div class="stat-mini-l">Tokens</div></div>
+        <div class="stat-mini"><div class="stat-mini-n">$${cost.toFixed(3)}</div><div class="stat-mini-l">Custo (est.)</div></div>
+        <div class="stat-mini"><div class="stat-mini-n">${fmt(u.messages_count)}</div><div class="stat-mini-l">Msgs</div></div>
+      </div>
+      ${budgetPct !== null ? `<div class="budget-bar-wrap">
+        <div class="budget-bar-track"><div class="budget-bar-fill" style="width:${budgetPct}%;background:${budgetColor}"></div></div>
+        <div class="budget-pct" style="color:${budgetColor}">Budget: ${budgetPct}%</div>
+      </div>` : ''}
+    </div>`
+  }).join('')
+}
+
+async function renderCompare() {
+  const ids = all.map(u => u.id).join(',')
+  const r = await fetch(`/api/colaboradores/compare?ids=${ids}`)
+  const { compare } = await r.json()
+  if (!compare || compare.length < 2) return
+  const sec = document.getElementById('compare-section')
+  sec.style.display = 'block'
+  const metrics = [
+    { key: 'requests_30d', label: 'Requests (30d)', color: '#6366f1' },
+    { key: 'messages_30d', label: 'Msgs (30d)',      color: '#10b981' },
+    { key: 'tokens_in',    label: 'Tokens in (30d)', color: '#f59e0b' },
+  ]
+  sec.innerHTML = `<h3>Comparação — últimos 30 dias</h3>` + metrics.map(m => {
+    const max = Math.max(...compare.map(c => c[m.key] || 0), 1)
+    const rows = compare.map(c => {
+      const val = c[m.key] || 0
+      const pct = Math.round(val / max * 100)
+      const init = (c.user.display_name||c.user.username||'?').charAt(0).toUpperCase()
+      return `<div class="compare-row">
+        <div style="display:flex;align-items:center;gap:6px;width:120px;flex-shrink:0">
+          <div style="width:18px;height:18px;border-radius:50%;background:${c.user.avatar_color||'#6366f1'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff">${init}</div>
+          <div class="compare-name">${esc(c.user.display_name||c.user.username)}</div>
+        </div>
+        <div class="bar-track" style="flex:1"><div class="bar-fill" style="width:${pct}%;background:${m.color}"></div></div>
+        <div class="bar-count">${fmt(val)}</div>
+      </div>`
+    }).join('')
+    return `<div style="margin-bottom:14px"><div style="font-size:11px;color:#6b7280;margin-bottom:6px">${m.label}</div>${rows}</div>`
+  }).join('')
+}
+
+// ── Detalhe ───────────────────────────────────────────────────────────────────
+async function openDetail(id) {
+  const [detailR, timesheetR, tasksR, budgetR, permsR] = await Promise.all([
+    fetch(`/api/colaboradores/${id}`),
+    fetch(`/api/colaboradores/${id}/timesheet`),
+    fetch(`/api/colaboradores/${id}/tasks`),
+    fetch(`/api/colaboradores/${id}/budget`),
+    fetch(`/api/colaboradores/${id}/permissions`),
+  ])
+  const data = await detailR.json()
+  const { timesheet } = await timesheetR.json()
+  const { tasks }     = await tasksR.json()
+  const budget        = await budgetR.json()
+  const { permissions } = await permsR.json()
+  current = { ...data, timesheet, tasks, budget, permissions }
+  renderDetail(current)
+  document.getElementById('list-view').style.display = 'none'
+  document.getElementById('detail-view').style.display = 'block'
+}
+
+function showList() {
+  stopSpy()
+  document.getElementById('detail-view').style.display = 'none'
+  document.getElementById('list-view').style.display = 'block'
+  loadList()
+}
+
+function renderDetail(data) {
+  const { user, activity7d, hourMap, topPages, recentLogs, sessions, tokensByDay, timesheet, tasks, budget, permissions } = data
+  const totalTok = (user.input_tokens||0) + (user.output_tokens||0)
+  const cost = calcCost(user.input_tokens, user.output_tokens)
+
+  // Header
+  const init = (user.display_name||user.username||'?').charAt(0).toUpperCase()
+  document.getElementById('d-avatar').style.cssText = `background:${user.avatar_color||'#6366f1'};font-size:22px;font-weight:700;color:#fff`
+  document.getElementById('d-avatar').textContent = init
+  document.getElementById('d-name').textContent = user.display_name||user.username
+  document.getElementById('d-meta').textContent = `@${user.username} · ${user.is_active?'ativo':'inativo'} · desde ${new Date(user.created_at*1000).toLocaleDateString('pt-BR')}`
+
+  // Stats
+  document.getElementById('d-requests').textContent = fmt(user.total_requests||0)
+  document.getElementById('d-sessions').textContent = fmt(user.sessions_count||0)
+  document.getElementById('d-tokens').textContent = fmt(totalTok)
+  document.getElementById('d-cost').textContent = `$${cost.toFixed(4)}`
+
+  // Budget
+  const budInput = document.getElementById('budget-input')
+  budInput.value = budget.token_budget_monthly || ''
+  const prog = document.getElementById('budget-progress')
+  if (budget.token_budget_monthly) {
+    const used = budget.tokens_this_month || 0
+    const pct  = Math.min(100, Math.round(used / budget.token_budget_monthly * 100))
+    const color = pct >= 80 ? '#f87171' : pct >= 50 ? '#fbbf24' : '#34d399'
+    document.getElementById('budget-pct').textContent = pct + '%'
+    document.getElementById('budget-pct').style.color = color
+    document.getElementById('budget-fill').style.cssText = `width:${pct}%;background:${color}`
+    document.getElementById('budget-label').textContent = `${fmt(used)} / ${fmt(budget.token_budget_monthly)} tokens este mês`
+    prog.style.display = 'block'
+    const badge = document.getElementById('budget-badge')
+    badge.textContent = `Budget: ${pct}%`
+    badge.style.color = color
+    badge.style.display = 'block'
+  } else {
+    prog.style.display = 'none'
+    document.getElementById('budget-badge').style.display = 'none'
+  }
+
+  // Assessment
+  const abox = document.getElementById('assessment-box')
+  if (user.last_assessment) {
+    abox.textContent = user.last_assessment
+    document.getElementById('assessment-date').textContent = relTime(user.last_assessment_at) + ' atrás'
+  } else {
+    abox.innerHTML = '<span class="assessment-empty">Nenhuma avaliação ainda.</span>'
+    document.getElementById('assessment-date').textContent = ''
+  }
+
+  // Top pages
+  const tp = document.getElementById('top-pages')
+  if (!topPages.length) { tp.innerHTML = '<div style="color:#4b5563;font-size:12px">Sem dados</div>' }
+  else {
+    const max = topPages[0].c
+    tp.innerHTML = topPages.map(p => `<div class="bar-row">
+      <div class="bar-label" title="${esc(p.path)}">${esc(p.path)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(p.c/max*100)}%"></div></div>
+      <div class="bar-count">${p.c}</div>
+    </div>`).join('')
+  }
+
+  // Hour heatmap
+  const hourData = {}; hourMap.forEach(h => { hourData[h.h] = h.c })
+  const maxH = Math.max(...Object.values(hourData), 1)
+  document.getElementById('hour-heat').innerHTML = Array.from({length:24},(_,i)=>{
+    const h = String(i).padStart(2,'0'), c = hourData[h]||0
+    const alpha = c ? Math.max(.15, c/maxH) : 0
+    const bg = c ? `rgba(99,102,241,${alpha})` : '#1a1a2e'
+    return `<div class="hour-cell" style="background:${bg}" title="${h}h: ${c}"><span>${h}</span></div>`
+  }).join('')
+
+  // Timesheet
+  if (timesheet && timesheet.length) {
+    const totalMin = timesheet.reduce((s, d) => s + d.minutes, 0)
+    document.getElementById('timesheet-summary').textContent = `Total: ${fmtMin(totalMin)} em ${timesheet.length} dias`
+    const days14 = timesheet.slice(-14)
+    const maxM = Math.max(...days14.map(d => d.minutes), 1)
+    document.getElementById('time-chart').innerHTML = days14.map(d => {
+      const h = Math.max(2, Math.round(d.minutes / maxM * 56))
+      return `<div class="time-bar-wrap" title="${d.date}: ${fmtMin(d.minutes)}">
+        <div class="time-bar" style="height:${h}px"></div>
+        <div class="time-date">${d.date.slice(5)}</div>
+      </div>`
+    }).join('')
+  } else {
+    document.getElementById('timesheet-summary').textContent = 'Sem dados de timesheet'
+    document.getElementById('time-chart').innerHTML = '<div style="color:#4b5563;font-size:11px;align-self:center">Sem dados</div>'
+  }
+
+  // Sessions
+  const sl = document.getElementById('sessions-list')
+  if (!sessions.length) { sl.innerHTML = '<div style="color:#4b5563;font-size:12px;padding:8px">Sem sessões</div>' }
+  else sl.innerHTML = sessions.map(s => `<div class="sess-item">
+    <div class="sess-title">${esc(s.title||'Sessão sem título')}</div>
+    ${s.first_msg ? `<div class="sess-preview">${esc(s.first_msg.slice(0,80))}</div>` : ''}
+    <div class="sess-meta">${s.message_count} msgs · ${relTime(s.last_active)}</div>
+  </div>`).join('')
+
+  // Token chart
+  const days = tokensByDay.slice().reverse()
+  const maxT = Math.max(...days.map(d=>d.it+d.ot), 1)
+  document.getElementById('tok-chart').innerHTML = !days.length
+    ? '<div style="color:#4b5563;font-size:11px;align-self:center">Sem dados</div>'
+    : days.map(d => {
+        const tot = d.it+d.ot, h = Math.max(2, Math.round(tot/maxT*56))
+        return `<div class="tok-bar-wrap" title="${d.d.slice(5)}: ${fmt(tot)} tokens">
+          <div class="tok-bar" style="height:${h}px;background:#6366f1"></div>
+          <div class="tok-date">${d.d.slice(5)}</div>
+        </div>`
+      }).join('')
+
+  // Log
+  const tbody = document.getElementById('log-tbody')
+  if (!recentLogs.length) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4b5563;padding:14px">Sem logs</td></tr>'
+  else tbody.innerHTML = recentLogs.slice(0,50).map(l => {
+    const sc = l.status_code, scClass = !sc?'':(sc<300?'status-ok':sc<400?'status-warn':'status-err')
+    return `<tr>
+      <td><span class="method-badge ${l.method}">${l.method}</span></td>
+      <td><span class="path-cell" title="${esc(l.path)}">${esc(l.path)}</span></td>
+      <td class="${scClass}">${l.status_code||'—'}</td>
+      <td style="color:#6b7280">${l.duration_ms!=null?l.duration_ms:'—'}</td>
+      <td style="color:#4b5563;white-space:nowrap">${relTime(l.created_at)}</td>
+    </tr>`
+  }).join('')
+
+  // Tasks
+  renderTasks(tasks || [])
+
+  // Permissions
+  renderPermissions(permissions || [])
+
+  // Notes
+  document.getElementById('collab-notes').value = user.notes || ''
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+function renderTasks(tasks) {
+  const list = document.getElementById('task-list')
+  const badge = document.getElementById('tasks-badge')
+  const todo = tasks.filter(t => t.status !== 'done').length
+  badge.textContent = `${tasks.length} total · ${todo} pendentes`
+  if (!tasks.length) {
+    list.innerHTML = '<div style="color:#4b5563;font-size:12px;padding:8px 0">Nenhuma tarefa atribuída.</div>'
+    return
+  }
+  list.innerHTML = tasks.map(t => {
+    const done = t.status === 'done'
+    const checkIcon = done ? '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" width="10" height="10"><polyline points="20 6 9 17 4 12"/></svg>' : ''
+    const prioColor = t.priority === 'high' ? '#f87171' : t.priority === 'low' ? '#374151' : '#6b7280'
+    const dueTxt = t.due_date ? `vence ${new Date(t.due_date*1000).toLocaleDateString('pt-BR')}` : ''
+    return `<div class="task-item${done?' done':''}" data-tid="${t.id}">
+      <div class="task-check${done?' checked':''}" onclick="toggleTask(${t.id},${done?0:1})">${checkIcon}</div>
+      <div class="task-body">
+        <div class="task-title">${esc(t.title)}</div>
+        ${t.description ? `<div class="task-desc">${esc(t.description)}</div>` : ''}
+        <div class="task-meta">
+          <span style="color:${prioColor}">${t.priority}</span>
+          ${dueTxt ? `<span>${dueTxt}</span>` : ''}
+        </div>
+      </div>
+      <span class="task-del" onclick="delTask(${t.id})" title="Remover">✕</span>
+    </div>`
+  }).join('')
+}
+
+async function addTask() {
+  if (!current) return
+  const input = document.getElementById('task-input')
+  const prio  = document.getElementById('task-prio').value
+  const title = input.value.trim()
+  if (!title) return
+  input.value = ''
+  await fetch(`/api/colaboradores/${current.user.id}/tasks`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ title, priority: prio })
+  })
+  const { tasks } = await (await fetch(`/api/colaboradores/${current.user.id}/tasks`)).json()
+  current.tasks = tasks
+  renderTasks(tasks)
+}
+
+async function toggleTask(tid, done) {
+  if (!current) return
+  await fetch(`/api/colaboradores/${current.user.id}/tasks/${tid}`, {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ status: done ? 'done' : 'todo' })
+  })
+  const { tasks } = await (await fetch(`/api/colaboradores/${current.user.id}/tasks`)).json()
+  current.tasks = tasks
+  renderTasks(tasks)
+}
+
+async function delTask(tid) {
+  if (!current) return
+  await fetch(`/api/colaboradores/${current.user.id}/tasks/${tid}`, { method: 'DELETE' })
+  const { tasks } = await (await fetch(`/api/colaboradores/${current.user.id}/tasks`)).json()
+  current.tasks = tasks
+  renderTasks(tasks)
+}
+
+// ── Permissões ────────────────────────────────────────────────────────────────
+function renderPermissions(permissions) {
+  const permMap = {}; permissions.forEach(p => { permMap[p.resource] = p.allowed })
+  document.getElementById('perm-grid').innerHTML = AVAILABLE_PERMS.map(r => {
+    const allowed = permMap[r] !== undefined ? permMap[r] : 1
+    const id = 'perm_' + r.replace(/\//g,'_')
+    return `<div class="perm-item">
+      <span class="perm-name">${r}</span>
+      <label class="toggle"><input type="checkbox" id="${id}" ${allowed?'checked':''}><span class="toggle-slider"></span></label>
+    </div>`
+  }).join('')
+}
+
+async function savePermissions() {
+  if (!current) return
+  const perms = {}
+  AVAILABLE_PERMS.forEach(r => {
+    const el = document.getElementById('perm_' + r.replace(/\//g,'_'))
+    if (el) perms[r] = el.checked ? 1 : 0
+  })
+  await fetch(`/api/colaboradores/${current.user.id}/permissions`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ permissions: perms })
+  })
+  const saved = document.getElementById('notes-saved')
+  saved.textContent = '✓ Permissões salvas'
+  saved.style.display = 'inline'
+  setTimeout(() => { saved.style.display = 'none'; saved.textContent = '✓ Salvo' }, 2000)
+}
+
+// ── Budget ────────────────────────────────────────────────────────────────────
+async function saveBudget() {
+  if (!current) return
+  const val = Number(document.getElementById('budget-input').value) || null
+  await fetch(`/api/colaboradores/${current.user.id}/budget`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ monthly_tokens: val })
+  })
+  openDetail(current.user.id)
+}
+
+// ── Spy view ─────────────────────────────────────────────────────────────────
+function toggleSpy() {
+  if (spyEs) { stopSpy(); return }
+  if (!current) return
+  document.getElementById('spy-panel').style.display = 'block'
+  document.getElementById('spy-btn').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="3"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/></svg> Parar spy`
+  const log = document.getElementById('spy-log')
+  log.innerHTML = ''
+  spyEs = new EventSource(`/api/colaboradores/${current.user.id}/spy`)
+  spyEs.onmessage = e => {
+    const d = JSON.parse(e.data)
+    if (d.type === 'connected') return
+    if (log.querySelector('.spy-empty')) log.innerHTML = ''
+    const sc = d.status_code
+    const scClass = !sc ? '' : sc < 300 ? 'ok' : 'err'
+    const time = new Date(d.created_at*1000).toLocaleTimeString('pt-BR')
+    log.insertAdjacentHTML('afterbegin', `<div class="spy-entry">
+      <span class="spy-time">${time}</span>
+      <span class="spy-method method-badge ${d.method||''}">${d.method||'—'}</span>
+      <span class="spy-path">${esc(d.path||'')}</span>
+      <span class="spy-status ${scClass}">${sc||''}</span>
+    </div>`)
+  }
+  spyEs.onerror = () => {
+    document.getElementById('spy-status').textContent = '● desconectado'
+    document.getElementById('spy-status').style.color = '#f87171'
+  }
+}
+
+function stopSpy() {
+  if (spyEs) { spyEs.close(); spyEs = null }
+  document.getElementById('spy-panel').style.display = 'none'
+  document.getElementById('spy-btn').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="3"/><path d="M20.188 10.934C21.343 11.986 22 13 22 13s-3 5-10 5-10-5-10-5 .657-1.014 1.812-2.066"/><path d="M2 2l20 20"/></svg> Spy ao vivo`
+}
+
+// ── Avaliação ─────────────────────────────────────────────────────────────────
+async function requestAssessment() {
+  if (!current) return
+  const btn = document.querySelector('[onclick="requestAssessment()"]')
+  const orig = btn.innerHTML
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" class="spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Analisando…'
+  btn.disabled = true
+  const box = document.getElementById('assessment-box')
+  box.textContent = 'O Orion está analisando…'
+  try {
+    const r = await fetch(`/api/colaboradores/${current.user.id}/assessment`, { method: 'POST' })
+    const { assessment, error } = await r.json()
+    if (error) throw new Error(error)
+    box.textContent = assessment
+    document.getElementById('assessment-date').textContent = 'agora'
+  } catch(e) {
+    box.textContent = 'Erro: ' + e.message
+  }
+  btn.innerHTML = orig
+  btn.disabled = false
+}
+
+// ── Notas ─────────────────────────────────────────────────────────────────────
+async function saveNotes() {
+  if (!current) return
+  const notes = document.getElementById('collab-notes').value
+  await fetch(`/api/admin/users/${current.user.id}`, {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ notes })
+  })
+  const saved = document.getElementById('notes-saved')
+  saved.textContent = '✓ Salvo'
+  saved.style.display = 'inline'
+  setTimeout(() => saved.style.display = 'none', 2000)
+}
+
+loadList()
+</script>
+</body>
+</html>

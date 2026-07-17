@@ -1,0 +1,1728 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orion — Dashboard</title>
+<style>
+  :root {
+    --bg:#0a0a0f; --side:#0d0d14; --panel:#111118; --panel2:#1a1a28; --line:#1e1e2e;
+    --txt:#e5e7eb; --mut:#6b7280; --accent:#6366f1; --accent2:#8b5cf6;
+    --green:#22c55e; --yellow:#f59e0b; --red:#ef4444; --blue:#5b9dff; --purple:#a78bfa;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; display:flex; height:100vh; overflow:hidden; }
+  a { color:inherit; text-decoration:none; }
+  ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-thumb{background:var(--line)}
+
+  /* Sidebar: estilo único vem do SIDEBAR_CSS injetado pelo server.js (renderSidebar).
+     Não redefinir .sidebar/.nav-item aqui — causava menus divergentes entre páginas. */
+
+  /* ── Main ── */
+  .main { flex:1; overflow-y:auto; display:flex; flex-direction:column; min-height:0; }
+  .view { display:none; flex:1; flex-direction:column; min-height:0; }
+  .view.active { display:flex; }
+  .topbar { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+  .topbar-title { font-size:16px; font-weight:700; }
+  .topbar-sub   { font-size:12px; color:var(--mut); margin-top:2px; }
+  .usage-group { display:flex; gap:16px; align-items:center; }
+  .usage-item { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+  .usage-item .u-label { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); }
+  .usage-item .u-row { display:flex; align-items:center; gap:6px; }
+  .usage-item .u-bar { width:72px; height:4px; background:var(--line); border-radius:2px; overflow:hidden; }
+  .usage-item .u-fill { height:100%; border-radius:2px; transition:width .6s; }
+  .usage-item .u-pct { font-size:12px; font-weight:700; color:#e2e8f0; min-width:30px; text-align:right; }
+  .usage-item .u-reset { font-size:10px; color:var(--mut); }
+  .content { padding:24px; flex:1; overflow-y:auto; }
+  .content::-webkit-scrollbar{width:4px} .content::-webkit-scrollbar-thumb{background:var(--line)}
+
+  /* ── Orion cards ── */
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:24px; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
+  .stat-label { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+  .stat-value { font-size:26px; font-weight:700; color:#fff; }
+  .stat-sub   { font-size:11px; color:var(--mut); margin-top:4px; }
+  .section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:18px; }
+  .section h2 { font-size:12px; font-weight:600; color:var(--mut); margin-bottom:14px; letter-spacing:.06em; text-transform:uppercase; }
+  .wa-status { display:flex; align-items:center; gap:10px; }
+  .dot { width:9px; height:9px; border-radius:50%; }
+  .dot.green  { background:var(--green); box-shadow:0 0 7px var(--green); }
+  .dot.red    { background:var(--red); box-shadow:0 0 7px var(--red); }
+  .dot.yellow { background:var(--yellow); animation:blink 1.2s infinite; }
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+  .qr-wrap { text-align:center; padding:20px 0; }
+  .qr-wrap img { border-radius:12px; max-width:220px; border:4px solid #fff; }
+  .qr-hint { font-size:12px; color:var(--mut); margin-top:10px; }
+  .badge-pill { display:inline-flex; align-items:center; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; }
+  .badge-pill.online     { background:#14532d; color:#86efac; }
+  .badge-pill.offline    { background:#450a0a; color:#fca5a5; }
+  .badge-pill.connecting { background:#451a03; color:#fcd34d; }
+  .msg-list { display:flex; flex-direction:column; gap:6px; }
+  .msg { background:#0f0f1a; border-radius:8px; padding:10px 12px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+  .msg-role { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; min-width:60px; }
+  .msg-role.user      { color:var(--accent); }
+  .msg-role.assistant { color:var(--green); }
+  .msg-content { font-size:12px; color:#d1d5db; flex:1; word-break:break-word; }
+  .msg-time    { font-size:10px; color:#4b5563; white-space:nowrap; }
+  .empty { color:#4b5563; font-size:13px; text-align:center; padding:24px; }
+
+  /* ── Panel styles ── */
+  .p-content { padding:1.4rem 1.7rem; overflow-y:auto; flex:1; }
+  .p-content::-webkit-scrollbar{width:4px} .p-content::-webkit-scrollbar-thumb{background:var(--line)}
+  .p-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.3rem; flex-wrap:wrap; }
+  .p-head h2 { font-size:1.25rem; font-weight:750; }
+  .p-head .meta { font-size:.76rem; color:var(--mut); display:flex; gap:1rem; align-items:center; flex-wrap:wrap; }
+  .countdown { color:var(--accent); font-weight:700; }
+  .p-sec { display:none; } .p-sec.show { display:block; animation:fade .2s; }
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  .alertbar { display:none; background:rgba(245,196,81,.12); border:1px solid var(--yellow); border-radius:10px; padding:.65rem 1rem; font-size:.82rem; color:var(--yellow); margin-bottom:1rem; }
+  .alertbar.show { display:block; }
+  .p-grid { display:grid; gap:.85rem; }
+  .p-cards { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); margin-bottom:1.2rem; }
+  .p-card { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:.95rem 1.05rem; }
+  .p-card .l { font-size:.7rem; color:var(--mut); text-transform:uppercase; letter-spacing:.5px; font-weight:600; margin-bottom:.4rem; }
+  .p-card .v { font-size:1.55rem; font-weight:750; letter-spacing:-.5px; }
+  .p-card .sub { font-size:.72rem; color:var(--mut); margin-top:.2rem; }
+  .pbar { height:6px; background:var(--panel2); border-radius:4px; overflow:hidden; margin-top:.55rem; }
+  .pbar>i { display:block; height:100%; border-radius:4px; transition:.5s; }
+  .loads { grid-template-columns:repeat(3,1fr); margin-bottom:1.2rem; }
+  .lc { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:.8rem 1rem; text-align:center; }
+  .lc .n { font-size:1.7rem; font-weight:750; }
+  .box { background:var(--panel); border:1px solid var(--line); border-radius:13px; overflow:hidden; margin-bottom:1.2rem; }
+  .box-h { padding:.7rem 1rem; font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--mut); border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+  table { width:100%; border-collapse:collapse; }
+  th { font-size:.7rem; font-weight:700; color:var(--mut); text-align:left; padding:.55rem 1rem; border-bottom:1px solid var(--line); text-transform:uppercase; letter-spacing:.6px; }
+  td { font-size:.82rem; padding:.6rem 1rem; border-bottom:1px solid rgba(30,30,46,.6); }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:rgba(255,255,255,.02); }
+  .mono { font-family:monospace; font-size:.79rem; }
+  .btn { display:inline-flex; align-items:center; gap:.35rem; padding:.35rem .85rem; border-radius:8px; font-size:.78rem; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--panel2); color:var(--txt); transition:.15s; }
+  .btn:hover { border-color:var(--accent); color:var(--accent); }
+  .btn.solid { background:var(--accent); color:#fff; border-color:transparent; }
+  .btn.solid:hover { opacity:.88; }
+  .btn.danger { background:#7f1d1d; color:#fca5a5; border-color:transparent; }
+  .btn.danger:hover { opacity:.85; }
+  .btn.g { background:#14532d; color:#86efac; border-color:transparent; }
+  .btn.r { background:#450a0a; color:#fca5a5; border-color:transparent; }
+  .btn:disabled { opacity:.45; cursor:not-allowed; }
+  .row { display:flex; gap:.4rem; align-items:center; }
+  .pill { font-size:.7rem; font-weight:700; padding:.15rem .55rem; border-radius:20px; background:var(--panel2); }
+  .pill.on  { color:var(--green); } .pill.stop { color:var(--red); } .pill.warn { color:var(--yellow); }
+  .chip { font-size:.64rem; background:var(--panel2); border:1px solid var(--line); color:var(--mut); padding:.1rem .4rem; border-radius:5px; margin-left:.3rem; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:.85rem 1rem; cursor:default; text-decoration:none; display:block; }
+  .tile:hover { border-color:var(--accent); }
+  .tile .t { font-size:.82rem; font-weight:700; display:flex; align-items:center; margin-bottom:.3rem; }
+  .tile .d { font-size:.72rem; color:var(--mut); line-height:1.4; }
+  .tiles { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); margin-bottom:1.2rem; }
+  .ct-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.65rem; margin-bottom:1.4rem; }
+  .ct-card { background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:.85rem 1rem; }
+  .ct-head { display:flex; align-items:center; gap:.4rem; margin-bottom:.65rem; }
+  .ct-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .ct-name { font-size:.82rem; font-weight:700; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ct-img { font-size:.62rem; color:var(--mut); max-width:90px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ct-row { display:flex; align-items:center; gap:.4rem; margin-bottom:.28rem; }
+  .ct-label { font-size:.64rem; color:var(--mut); width:28px; flex-shrink:0; text-transform:uppercase; letter-spacing:.3px; }
+  .ct-bar { flex:1; height:5px; background:rgba(255,255,255,.07); border-radius:3px; overflow:hidden; }
+  .ct-bar i { display:block; height:100%; border-radius:3px; transition:width .5s; }
+  .ct-val { font-size:.7rem; font-weight:600; width:56px; text-align:right; }
+  .proj { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:1rem 1.1rem; margin-bottom:.85rem; }
+  .proj-h { display:flex; align-items:center; flex-wrap:wrap; gap:.4rem; margin-bottom:.7rem; font-weight:700; }
+  .checklist { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem; }
+  .ck { font-size:.7rem; padding:.15rem .55rem; border-radius:20px; }
+  .ck.on  { background:#14532d; color:#86efac; } .ck.off { background:#450a0a; color:#fca5a5; }
+  .proj-sub { font-size:.72rem; color:var(--mut); } .nest { font-size:.72rem; color:var(--mut); margin-top:.4rem; }
+  .b100 { font-size:.72rem; color:var(--green); font-weight:700; } .bpend { font-size:.72rem; color:var(--yellow); }
+  .search { width:100%; background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.6rem 1rem; color:var(--txt); font-size:.82rem; outline:none; margin-bottom:.9rem; }
+  .search:focus { border-color:var(--accent); }
+  .md { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:1.5rem 1.8rem; line-height:1.75; font-size:.88rem; }
+  .md h1,.md h2,.md h3 { margin:1.2rem 0 .5rem; }
+  .md h1 { font-size:1.3rem; } .md h2 { font-size:1.05rem; } .md h3 { font-size:.9rem; color:var(--accent); }
+  .md p { margin-bottom:.6rem; } .md ul { margin:.4rem 0 .8rem 1.5rem; } .md li { margin-bottom:.3rem; }
+  .md hr { border:none; border-top:1px solid var(--line); margin:1rem 0; }
+  .md table { margin:1rem 0; } .md code { background:var(--panel2); padding:.1rem .4rem; border-radius:5px; font-size:.8rem; }
+  .md pre { background:var(--panel2); padding:.85rem; border-radius:9px; overflow-x:auto; margin:.8rem 0; }
+  .md a { color:var(--blue); text-decoration:underline; }
+  .legend { display:flex; gap:1.2rem; margin-bottom:.75rem; font-size:.75rem; color:var(--mut); }
+  .legend .dot-s { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:.4rem; }
+  .chart-wrap { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:1rem 1.2rem; margin-bottom:1rem; }
+  .side-foot { margin-top:auto; font-size:.68rem; color:var(--mut); }
+  #toast { position:fixed; bottom:1.5rem; right:1.5rem; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem 1.1rem; font-size:.83rem; font-weight:600; display:none; z-index:999; }
+  #toast.show { display:block; }
+
+  /* ── Documentação ── */
+  .doc-sec { display:none; } .doc-sec.show { display:block; animation:fade .2s; }
+  .flow-channel { background:#111118; border:1px solid #1e1e3a; border-radius:8px; padding:7px 14px; font-size:.75rem; color:#a5b4fc; font-weight:600; text-align:center; }
+  .flow-arrow-center { text-align:center; color:#374151; font-size:1.1rem; margin:.1rem 0; }
+  .flow-box { background:#0d0d1a; border:1px solid #1e1e3a; border-radius:12px; padding:14px 18px; text-align:center; margin:.2rem 0; }
+  .flow-box-main { border-color:#6366f1; background:#0e0e20; }
+  .flow-box-title { font-size:.9rem; font-weight:700; color:#e5e7eb; }
+  .flow-box-sub { font-size:.72rem; color:#6b7280; margin-top:.3rem; font-family:monospace; }
+  .flow-layer { background:#0d0d1a; border:1px solid; border-radius:10px; padding:12px 14px; display:flex; gap:10px; align-items:flex-start; }
+  .flow-layer-num { width:22px; height:22px; border-radius:50%; background:#1a1a2e; border:1px solid #2d2d4e; display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; color:#6b7280; flex-shrink:0; margin-top:1px; }
+  .flow-layer-title { font-size:.82rem; font-weight:700; color:#e5e7eb; margin-bottom:.25rem; }
+  .flow-layer-sub { font-size:.72rem; color:#9ca3af; line-height:1.45; margin-bottom:.3rem; }
+  .flow-layer-tag { font-size:.65rem; font-family:monospace; color:#4b5563; background:#111118; padding:2px 6px; border-radius:4px; display:inline-block; }
+
+  /* ── Home unificada: sub-nav + seções + widgets ── */
+  .subnav { position:sticky; top:0; z-index:20; display:flex; gap:.4rem; flex-wrap:wrap; padding:11px 24px; background:rgba(10,10,15,.93); backdrop-filter:blur(8px); border-bottom:1px solid var(--line); }
+  .subnav a { font-size:.73rem; font-weight:600; color:var(--mut); padding:5px 11px; border-radius:20px; border:1px solid var(--line); background:var(--panel); cursor:pointer; white-space:nowrap; transition:.12s; }
+  .subnav a:hover { color:var(--txt); border-color:var(--accent); }
+  .hsec { margin-bottom:2rem; scroll-margin-top:60px; }
+  .hsec-h { font-size:1rem; font-weight:750; margin:0 0 1rem; display:flex; align-items:center; gap:.55rem; color:#fff; }
+  .hsec-h .tag { font-size:.58rem; font-weight:700; background:#1a1a2e; color:var(--accent); padding:2px 7px; border-radius:5px; text-transform:uppercase; letter-spacing:.5px; }
+  .hgrid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:1rem; }
+  .hgrid3 { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:1rem; }
+  .wbox { background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:1rem 1.1rem; }
+  .wbox-h { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--mut); margin-bottom:.85rem; display:flex; align-items:center; gap:.4rem; }
+  .wbox-h .n { margin-left:auto; font-size:.7rem; color:var(--accent); font-weight:700; }
+  .pulse { display:flex; flex-direction:column; gap:.35rem; max-height:300px; overflow-y:auto; }
+  .pulse-item { display:flex; gap:.5rem; align-items:flex-start; font-size:.74rem; padding:.35rem .5rem; border-radius:7px; background:#0f0f1a; }
+  .pulse-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; margin-top:.32rem; }
+  .pulse-txt { flex:1; color:#cbd5e1; word-break:break-word; line-height:1.35; }
+  .pulse-t { color:#4b5563; font-size:.65rem; white-space:nowrap; }
+  .sig { display:flex; gap:.5rem; align-items:flex-start; font-size:.76rem; padding:.42rem .55rem; border-radius:7px; margin-bottom:.35rem; color:#d1d5db; line-height:1.4; }
+  .sig.ok { background:rgba(34,197,94,.08); } .sig.warn { background:rgba(245,158,11,.1); }
+  .sig.action { background:rgba(99,102,241,.13); } .sig.info { background:#0f0f1a; }
+  .sig .ic2 { flex-shrink:0; }
+  .gauge { display:flex; align-items:center; gap:1rem; margin-bottom:.8rem; }
+  .gauge .big { font-size:2.3rem; font-weight:800; line-height:1; }
+  .minirow { display:flex; align-items:center; gap:.5rem; font-size:.74rem; margin-bottom:.32rem; }
+  .minirow .ml { width:96px; color:var(--mut); flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .minirow .mb { flex:1; height:6px; background:var(--panel2); border-radius:4px; overflow:hidden; }
+  .minirow .mb i { display:block; height:100%; border-radius:4px; transition:.5s; }
+  .minirow .mv { width:46px; text-align:right; font-weight:700; font-size:.72rem; }
+  .klist { display:flex; flex-direction:column; gap:.3rem; max-height:300px; overflow-y:auto; }
+  .kitem { display:flex; gap:.5rem; align-items:center; font-size:.76rem; padding:.42rem .55rem; border-radius:7px; background:#0f0f1a; color:#cbd5e1; }
+  .kitem b { color:#e5e7eb; font-weight:600; }
+  .kmut { color:var(--mut); font-size:.7rem; white-space:nowrap; }
+</style>
+<style id="orion-redesign">
+/* ORION-REDESIGN-2026-06-29 */
+:root{
+  --bg:#08080e; --panel:#0f0f18; --panel2:#16161f; --line:#22223a;
+  --accent:#6366f1; --accent2:#8b5cf6; --mut:#7b8294;
+}
+/* fundo com profundidade (glow indigo/violeta) */
+body{
+  background:
+    radial-gradient(1100px 560px at 82% -12%, rgba(99,102,241,.13), transparent 60%),
+    radial-gradient(820px 460px at -5% 2%, rgba(139,92,246,.10), transparent 55%),
+    var(--bg) !important;
+}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:linear-gradient(var(--accent),var(--accent2));border-radius:9px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ── Topbar = command center ── */
+.topbar{
+  padding:22px 28px; flex-wrap:wrap; gap:14px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg, rgba(99,102,241,.07), transparent 90%);
+  backdrop-filter:blur(8px);
+}
+.topbar-title{
+  font-size:21px; font-weight:850; letter-spacing:-.02em;
+  background:linear-gradient(92deg,#ffffff,#c7d2fe 55%,#b39df9);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+}
+.topbar-sub{ font-size:12px; margin-top:5px; color:var(--mut); }
+.usage-group{ gap:22px; }
+.usage-item .u-label{ font-size:9.5px; }
+.usage-item .u-bar{ width:88px; height:5px; }
+.usage-item .u-pct{ font-size:13px; }
+.btn{
+  border-radius:11px; padding:.55rem 1.05rem; font-weight:650;
+  background:rgba(255,255,255,.05); border:1px solid var(--line);
+  transition:transform .16s, box-shadow .16s, border-color .16s, background .16s;
+}
+.btn:hover{ transform:translateY(-1px); border-color:transparent;
+  background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff;
+  box-shadow:0 6px 18px -4px rgba(99,102,241,.5); }
+
+/* ── Chips (subnav) ── */
+.subnav{ padding:13px 28px; gap:.5rem; background:rgba(8,8,14,.86); backdrop-filter:blur(10px); }
+.subnav a{
+  font-size:.76rem; font-weight:650; padding:6px 14px; border-radius:12px;
+  background:rgba(255,255,255,.035); border:1px solid var(--line); color:var(--mut);
+  transition:.18s;
+}
+.subnav a:hover{
+  color:#fff; border-color:transparent; transform:translateY(-1px);
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  box-shadow:0 6px 18px -5px rgba(99,102,241,.55);
+}
+
+/* ── Conteúdo centralizado ── */
+.content{ padding:26px 26px 60px; max-width:none; margin:0; width:100%; }
+
+/* ── Cabeçalho de seção com barra accent ── */
+.hsec{ margin-bottom:2.8rem; animation:orRise .45s ease both; }
+@keyframes orRise{ from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+.hsec-h{
+  font-size:1.18rem; font-weight:850; letter-spacing:-.01em; color:#fff;
+  padding-bottom:.75rem; margin-bottom:1.3rem; border-bottom:1px solid var(--line); position:relative;
+}
+.hsec-h::after{
+  content:''; position:absolute; left:0; bottom:-1px; width:58px; height:2.5px; border-radius:3px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+}
+.hsec-h .tag{
+  background:linear-gradient(135deg,rgba(99,102,241,.22),rgba(139,92,246,.22));
+  color:#c7d2fe; border:1px solid rgba(99,102,241,.25);
+}
+
+/* ── Cards: profundidade unificada ── */
+.wbox,.stat,.p-card,.box,.ct-card,.tile,.section,.chart-wrap,.lc,.proj,.md{
+  background:linear-gradient(180deg,rgba(255,255,255,.028),rgba(255,255,255,0)), var(--panel);
+  border:1px solid var(--line); border-radius:16px;
+  box-shadow:0 1px 2px rgba(0,0,0,.35), 0 14px 34px -22px rgba(0,0,0,.8);
+  transition:transform .18s, border-color .18s, box-shadow .18s;
+}
+/* lift nos cards pequenos */
+.wbox:hover,.stat:hover,.p-card:hover,.ct-card:hover,.tile:hover,.lc:hover{
+  transform:translateY(-3px); border-color:rgba(99,102,241,.55);
+  box-shadow:0 16px 38px -16px rgba(99,102,241,.45);
+}
+/* glow sem pulo nos grandes */
+.box:hover,.section:hover,.chart-wrap:hover{ border-color:rgba(99,102,241,.4); }
+
+/* números com gradiente (só os grandes "ao vivo") */
+.stat-value{
+  font-size:30px;
+  background:linear-gradient(135deg,#fff,#c7d2fe);
+  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+}
+.stat{ padding:20px 22px; }
+.stat-label,.wbox-h,.box-h{ color:#8b93a7; }
+
+/* tabelas */
+.box{ overflow:hidden; }
+th{ background:rgba(255,255,255,.025); }
+tr:hover td{ background:rgba(99,102,241,.06); }
+
+/* empty-state repaginado */
+.empty{
+  border:1px dashed var(--line); border-radius:13px; padding:22px;
+  color:#5b6478; font-size:.8rem; background:rgba(255,255,255,.012);
+}
+
+/* badges/pills mais vivas */
+.badge-pill.online{ box-shadow:0 0 0 1px rgba(34,197,94,.2) inset; }
+</style>
+<style id="orion-redesign-2">
+/* ── Skeleton (shimmer) p/ contadores enquanto carregam/se quebrarem ── */
+@keyframes orShimmer { 0%{background-position:-450px 0} 100%{background-position:450px 0} }
+.skel { background:linear-gradient(90deg,#14141f 25%,#20202f 50%,#14141f 75%); background-size:900px 100%; animation:orShimmer 1.4s infinite linear; border-radius:10px; opacity:.7; }
+.skel-card { height:84px; }
+.skel-load { height:66px; }
+.skel-ct   { height:96px; border-radius:12px; }
+.skel-row td { padding:0 !important; }
+.skel-row .skb { height:14px; margin:11px 14px; background:linear-gradient(90deg,#14141f 25%,#20202f 50%,#14141f 75%); background-size:900px 100%; animation:orShimmer 1.4s infinite linear; border-radius:6px; }
+
+  .mfsel { background:#14141f; border:1px solid var(--line); color:var(--txt); border-radius:9px; padding:.4rem .7rem; font-size:.78rem; outline:none; cursor:pointer; }
+  .mfsel:focus { border-color:var(--accent); }
+  .mfr { background:#14141f; border:1px solid var(--line); color:var(--mut); border-radius:8px; padding:.35rem .7rem; font-size:.74rem; font-weight:600; cursor:pointer; transition:.15s; }
+  .mfr:hover { color:#fff; border-color:var(--accent); }
+  .mfr.active { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; border-color:transparent; }
+
+  /* ── 100% largura + compacto no mobile ── */
+@media (max-width: 640px) {
+  .content { padding: 14px 10px 48px !important; max-width: 100% !important; margin: 0 !important; }
+  .topbar  { padding: 14px 14px !important; flex-wrap: wrap; gap: 10px !important; }
+  .topbar-title { font-size: 18px !important; }
+  .subnav  { padding: 9px 10px !important; gap: .35rem !important; }
+  .subnav a { padding: 5px 10px !important; font-size: .72rem !important; }
+  .hsec    { margin-bottom: 1.8rem !important; }
+  .hsec-h  { font-size: 1.05rem !important; }
+  .hgrid2, .hgrid3 { grid-template-columns: 1fr !important; gap: .75rem !important; }
+  .p-cards { grid-template-columns: repeat(2, 1fr) !important; gap: .6rem !important; }
+  .ct-grid { grid-template-columns: 1fr !important; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; gap: .6rem !important; }
+  .usage-group { gap: 14px !important; }
+  .wbox, .stat, .p-card, .box, .ct-card { border-radius: 14px !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<!--SIDEBAR-->
+
+<!-- Main content -->
+<main class="main">
+
+  <!-- ── Orion — Central (home unificada) ── -->
+  <div class="view active" id="view-orion-dash">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Orion — Central</div>
+        <div class="topbar-sub"><span id="uptime">carregando...</span> · servidor <span id="hUpdated">—</span> · ↻ <span class="countdown" id="cd">30</span>s</div>
+      </div>
+      <div style="display:flex;gap:1.1rem;align-items:center">
+        <div class="usage-group" id="salim-group" style="display:none">
+          <div class="usage-item">
+            <div class="u-label">Sessão (5h)</div>
+            <div class="u-row">
+              <div class="u-bar"><div class="u-fill" id="salim-sess-fill" style="width:0%"></div></div>
+              <div class="u-pct" id="salim-sess-pct">—</div>
+            </div>
+            <div class="u-reset" id="salim-sess-reset"></div>
+          </div>
+          <div class="usage-item">
+            <div class="u-label">Semana (7d)</div>
+            <div class="u-row">
+              <div class="u-bar"><div class="u-fill" id="salim-week-fill" style="width:0%"></div></div>
+              <div class="u-pct" id="salim-week-pct">—</div>
+            </div>
+            <div class="u-reset" id="salim-week-reset"></div>
+          </div>
+        </div>
+        <button class="btn" onclick="refreshNow()">↻ Atualizar</button>
+      </div>
+    </div>
+
+    <!-- sub-navegação por âncoras -->
+    <div class="subnav">
+      <a onclick="goSec('sec-servidor')">🖥️ Servidor</a>
+      <a onclick="goSec('sec-projetos')">📦 Projetos</a>
+      <a onclick="goSec('sec-metricas')">📊 Métricas</a>
+      <a onclick="goSec('sec-vivo')">⚡ Ao vivo</a>
+      <a onclick="goSec('sec-operacao')">🛠️ Operação</a>
+      <a onclick="goSec('sec-conhecimento')">🧠 Conhecimento</a>
+      <a onclick="goSec('sec-whatsapp')">📱 WhatsApp</a>
+      <a onclick="goSec('sec-dns')">🌐 DNS</a>
+      <a onclick="goSec('sec-bancos')">🗄️ Bancos</a>
+      <a onclick="goSec('sec-historico')">📈 Histórico</a>
+      <a onclick="goSec('sec-skills')">🔌 Skills & MCP</a>
+      <a onclick="goSec('sec-notas')">📝 Notas</a>
+      <a onclick="goSec('sec-claudemd')">📄 CLAUDE.md</a>
+    </div>
+
+    <div class="content">
+
+      <!-- ═══ SERVIDOR ═══ -->
+      <section class="hsec" id="sec-servidor">
+        <h2 class="hsec-h">🖥️ Servidor <span class="tag">contabo</span></h2>
+        <div class="alertbar" id="alertBar"></div>
+        <div class="p-grid p-cards" id="ovCards"><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div><div class="skel skel-card"></div></div>
+        <div class="p-grid loads" id="ovLoads"><div class="skel skel-load"></div><div class="skel skel-load"></div><div class="skel skel-load"></div></div>
+        <div class="box"><div class="box-h">🔥 Top processos por CPU</div><table id="procT"><thead><tr><th>Processo</th><th>CPU</th><th>MEM</th></tr></thead><tbody><tr class="skel-row"><td colspan="3"><div class="skb"></div></td></tr><tr class="skel-row"><td colspan="3"><div class="skb"></div></td></tr><tr class="skel-row"><td colspan="3"><div class="skb"></div></td></tr><tr class="skel-row"><td colspan="3"><div class="skb"></div></td></tr></tbody></table></div>
+        <div class="box-h" style="border:none;padding-left:0;margin-bottom:.75rem">🐳 Containers ativos</div>
+        <div class="ct-grid" id="containerGrid"><div class="skel skel-ct"></div><div class="skel skel-ct"></div><div class="skel skel-ct"></div><div class="skel skel-ct"></div></div>
+      </section>
+
+      <section class="hsec" id="sec-projetos">
+        <h2 class="hsec-h">📦 Projetos <span class="tag" id="nbProj">—</span></h2>
+        <div class="row" style="margin-bottom:1rem;gap:.6rem">
+          <button class="btn solid" onclick="act('pm2_startall')">▶️ Ligar todos</button>
+          <button class="btn danger" onclick="act('pm2_stopall')">⏹️ Modo pânico</button>
+        </div>
+        <div class="box"><div class="box-h">▶️ Dev servers (pm2)<span id="devSum"></span></div><table id="devT"><thead><tr><th>Projeto</th><th>Status</th><th>RAM</th><th>CPU</th><th>Ações</th></tr></thead><tbody></tbody></table></div>
+        <div class="box-h" style="border:none;padding-left:0">📦 Projetos & credenciais</div>
+        <div id="projWrap"></div>
+        <div class="box-h" style="border:none;padding-left:0;margin-top:1.2rem">🔧 Tools</div>
+        <div class="p-grid tiles" id="toolsWrap"></div>
+        <div class="box-h" style="border:none;padding-left:0;margin-top:1.2rem">🌐 Serviços & atalhos</div>
+        <div class="p-grid tiles" id="ovSvc"></div>
+      </section>
+
+      <!-- ═══ ORION AO VIVO ═══ -->
+      <section class="hsec" id="sec-metricas">
+        <h2 class="hsec-h">📊 Métricas — consumo histórico</h2>
+        <div class="wbox">
+          <div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:1rem">
+            <select id="mfKind" class="mfsel"><option value="container">🐳 Containers</option><option value="pm2">▶️ Dev servers (pm2)</option><option value="server">🖥️ Servidor</option></select>
+            <select id="mfName" class="mfsel"></select>
+            <select id="mfMetric" class="mfsel"></select>
+            <div style="display:flex;gap:.3rem;margin-left:auto">
+              <button class="mfr active" data-r="1h">1h</button>
+              <button class="mfr" data-r="1d">1 dia</button>
+              <button class="mfr" data-r="1w">1 sem</button>
+              <button class="mfr" data-r="1mo">1 mês</button>
+            </div>
+          </div>
+          <svg id="metricChart" viewBox="0 0 1000 300" preserveAspectRatio="none" style="width:100%;height:300px"></svg>
+          <p id="metricInfo" style="font-size:.74rem;color:var(--mut);margin-top:.5rem"></p>
+        </div>
+      </section>
+
+      <section class="hsec" id="sec-vivo">
+        <h2 class="hsec-h">⚡ Orion ao vivo</h2>
+        <div class="stat-grid">
+          <div class="stat"><div class="stat-label">Memórias</div><div class="stat-value" id="mem-count">—</div><div class="stat-sub" id="mem-types">—</div></div>
+          <div class="stat"><div class="stat-label">Sessões</div><div class="stat-value" id="sess-count">—</div><div class="stat-sub">conversas ativas</div></div>
+          <div class="stat"><div class="stat-label">Mensagens</div><div class="stat-value" id="msg-count">—</div><div class="stat-sub">total trocadas</div></div>
+          <div class="stat"><div class="stat-label">Cron Jobs</div><div class="stat-value" id="cron-count">—</div><div class="stat-sub">agendamentos ativos</div></div>
+        </div>
+        <div class="hgrid3">
+          <div class="wbox"><div class="wbox-h">🫀 Pulso do cérebro <span class="n" id="pulseN">live</span></div><div class="pulse" id="brainPulse"><div class="empty">conectando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">💚 Saúde da memória</div><div id="memHealth"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">🔔 Caixa de decisão <span class="n" id="inboxCount"></span></div><div id="decisionInbox"><div class="empty">carregando…</div></div></div>
+        </div>
+      </section>
+
+      <!-- ═══ OPERAÇÃO ═══ -->
+      <section class="hsec" id="sec-operacao">
+        <h2 class="hsec-h">🛠️ Operação</h2>
+        <div class="hgrid3">
+          <div class="wbox"><div class="wbox-h">🟢 Sessões Claude ativas <span class="n" id="activeCount"></span></div><div class="klist" id="activeSessions"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">⏰ Próximos crons <span class="n" id="cronCount"></span></div><div class="klist" id="cronTimeline"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">⚡ Top skills aprendidas <span class="n" id="skillsCount"></span></div><div class="klist" id="topSkills"><div class="empty">carregando…</div></div></div>
+        </div>
+      </section>
+
+      <!-- ═══ CONHECIMENTO ═══ -->
+      <section class="hsec" id="sec-conhecimento">
+        <h2 class="hsec-h">🧠 Conhecimento & memória</h2>
+        <div class="hgrid2">
+          <div class="wbox"><div class="wbox-h">📊 Composição da memória</div><div id="memGrowth"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">🕸️ Mini knowledge-graph</div><div id="miniGraph"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">📡 Atividade por canal</div><div id="channelActivity"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">💰 Uso & custo de IA</div><div id="aiCost"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">🔗 Cadeias causais</div><div class="klist" id="causalBox"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">🕰️ Índice temporal</div><div id="temporalBox"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">❓ Aprendizado ativo</div><div id="activeLearning"><div class="empty">carregando…</div></div></div>
+          <div class="wbox"><div class="wbox-h">🧮 Qualidade da memória</div><div class="ct-grid" id="memQualityGrid" style="grid-template-columns:1fr"></div></div>
+        </div>
+      </section>
+
+      <!-- ═══ WHATSAPP ═══ -->
+      <section class="hsec" id="sec-whatsapp">
+        <h2 class="hsec-h">📱 WhatsApp</h2>
+        <div class="hgrid2">
+          <div class="section" style="margin:0">
+            <h2>Status da conexão</h2>
+            <div class="wa-status">
+              <div class="dot yellow" id="wa-dot"></div>
+              <span id="wa-status-text">verificando...</span>
+              <span class="badge-pill connecting" id="wa-badge">conectando</span>
+            </div>
+            <div id="qr-container" style="display:none">
+              <div class="qr-wrap"><img id="qr-img" src="" alt="QR Code"><div class="qr-hint">Abra o WhatsApp → Dispositivos conectados → Conectar dispositivo</div></div>
+            </div>
+            <div class="p-grid p-cards" id="waCards" style="margin-top:1rem"></div>
+          </div>
+          <div class="section" style="margin:0">
+            <h2>Últimas mensagens</h2>
+            <div id="msg-list" class="msg-list"><div class="empty">Nenhuma mensagem ainda</div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ PROJETOS ═══ -->
+
+      <!-- ═══ DNS ═══ -->
+      <section class="hsec" id="sec-dns">
+        <h2 class="hsec-h">🌐 DNS & domínios <span class="tag" id="nbDns">—</span></h2>
+        <div class="p-grid p-cards" id="dnsCards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+        <div class="box"><div class="box-h">🌐 Registros DNS — zona bayerl.cloud</div><table id="dnsT"><thead><tr><th>Subdomínio</th><th>Tipo</th><th>Aponta para</th><th>Destino</th></tr></thead><tbody></tbody></table></div>
+      </section>
+
+      <!-- ═══ BANCOS ═══ -->
+      <section class="hsec" id="sec-bancos">
+        <h2 class="hsec-h">🗄️ Bancos de dados</h2>
+        <div class="box"><div class="box-h">🗄️ Projetos Supabase</div><table id="dbT"><thead><tr><th>Projeto</th><th>Região</th><th>Status</th><th>Criado</th></tr></thead><tbody></tbody></table></div>
+      </section>
+
+      <!-- ═══ HISTÓRICO ═══ -->
+      <section class="hsec" id="sec-historico">
+        <h2 class="hsec-h">📈 Histórico (12h)</h2>
+        <div class="legend"><span><span class="dot-s" style="background:var(--accent)"></span>Load</span><span><span class="dot-s" style="background:var(--blue)"></span>CPU %</span><span><span class="dot-s" style="background:var(--purple)"></span>RAM %</span></div>
+        <div class="chart-wrap"><svg id="chart" viewBox="0 0 1000 320" style="width:100%;height:320px"></svg></div>
+        <p style="color:var(--mut);font-size:.76rem;margin-top:.6rem" id="histInfo"></p>
+      </section>
+
+      <!-- ═══ SKILLS & MCP ═══ -->
+      <section class="hsec" id="sec-skills">
+        <h2 class="hsec-h">🔌 Skills & MCP <span class="tag" id="nbSkills">—</span></h2>
+        <div class="box"><div class="box-h">🔌 MCPs configurados<span id="mcpSum"></span></div><table id="mcpT"><thead><tr><th>MCP</th><th>Tipo</th><th>Comando</th></tr></thead><tbody></tbody></table></div>
+        <div class="box"><div class="box-h">⌨️ Comandos custom</div><table id="cmdT"><tbody></tbody></table></div>
+        <div class="box-h" style="border:none;padding-left:0">⚡ Skills disponíveis <span id="skSum"></span></div>
+        <input class="search" id="skSearch" placeholder="🔍 filtrar skills…" oninput="renderSkills()">
+        <div class="p-grid tiles" id="skGrid"></div>
+      </section>
+
+      <!-- ═══ NOTAS ═══ -->
+      <section class="hsec" id="sec-notas">
+        <h2 class="hsec-h">📝 Memória — notas <span class="tag" id="nbNotes">—</span></h2>
+        <p style="color:var(--mut);font-size:.84rem;margin-bottom:1rem">Notas do <a href="https://notas.bayerl.cloud" target="_blank" style="color:var(--accent)">SilverBullet</a> — clique pra abrir.</p>
+        <div id="notesWrap"></div>
+      </section>
+
+      <!-- ═══ CLAUDE.md ═══ -->
+      <section class="hsec" id="sec-claudemd">
+        <h2 class="hsec-h">📄 CLAUDE.md (workspace)</h2>
+        <div class="md" id="cmdMd">carregando…</div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ── Documentação ── -->
+  <div class="view" id="view-docs">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="doc-title">Documentação</div>
+        <div class="topbar-sub">conhecimento interno do Orion</div>
+      </div>
+    </div>
+    <div class="p-content">
+
+      <!-- VISÃO & ESTRATÉGIA -->
+      <div class="doc-sec show" id="doc-s-visao">
+        <div class="box">
+          <div class="box-h">🔭 Visão</div>
+          <p style="color:var(--txt);font-size:.9rem;line-height:1.7;margin-bottom:1.2rem">
+            Orion é o orquestrador autônomo pessoal do Danilo. Um único cérebro que:
+          </p>
+          <ul style="color:var(--mut);font-size:.86rem;line-height:1.8;padding-left:1.2rem">
+            <li>Recebe tarefas por <strong style="color:var(--txt)">qualquer canal</strong> — WhatsApp, plugin Claude Code, chat próprio</li>
+            <li>Tem <strong style="color:var(--txt)">memória unificada</strong> — fala no WhatsApp, lembra no plugin. Zero diferença de canal.</li>
+            <li>Delega código e infra via <strong style="color:var(--txt)">Delegate</strong> — sub-agentes que aparecem como sessões no plugin</li>
+            <li>Cria <strong style="color:var(--txt)">cron jobs</strong> por linguagem natural</li>
+            <li>Aprende continuamente: raw → episodic → semantic → skill → vault</li>
+          </ul>
+        </div>
+        <div class="box">
+          <div class="box-h">⚡ Princípio central</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:.5rem">
+            <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:10px;padding:16px;text-align:center">
+              <div style="font-size:1.8rem;margin-bottom:.4rem">🧠</div>
+              <div style="color:var(--accent);font-weight:700;font-size:.85rem">Orion</div>
+              <div style="color:var(--mut);font-size:.75rem;margin-top:.3rem">O cérebro — orquestra, decide, responde</div>
+            </div>
+            <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:10px;padding:16px;text-align:center">
+              <div style="font-size:1.8rem;margin-bottom:.4rem">🤲</div>
+              <div style="color:#f472b6;font-weight:700;font-size:.85rem">Claude Code Sessions</div>
+              <div style="color:var(--mut);font-size:.75rem;margin-top:.3rem">As mãos — executa, coda, configura</div>
+            </div>
+            <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:10px;padding:16px;text-align:center">
+              <div style="font-size:1.8rem;margin-bottom:.4rem">🗄️</div>
+              <div style="color:#34d399;font-weight:700;font-size:.85rem">SQLite Unificado</div>
+              <div style="color:var(--mut);font-size:.75rem;margin-top:.3rem">A memória — mesma para todos os canais</div>
+            </div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h">📡 Canais</div>
+          <table><thead><tr><th>Canal</th><th>Entrada</th><th>Contexto injetado</th><th>Sessão de ação</th></tr></thead><tbody>
+            <tr><td>📱 WhatsApp</td><td>Evolution webhook</td><td>✅ pipeline completo</td><td>Registry → plugin sidebar</td></tr>
+            <tr><td>💻 Plugin (aqui)</td><td>MCP orion_context</td><td>✅ mesmo pipeline</td><td>Sessão atual</td></tr>
+            <tr><td>🌐 Chat UI</td><td>POST /api/chat</td><td>✅ mesmo pipeline</td><td>Registry → plugin sidebar</td></tr>
+            <tr><td>⏰ Cron</td><td>node-cron</td><td>✅ mesmo pipeline</td><td>Nova sessão nomeada</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+      <!-- FLUXO DE MEMÓRIA -->
+      <div class="doc-sec" id="doc-s-memoria">
+
+        <!-- ── VISÃO GERAL ── -->
+        <div class="box">
+          <div class="box-h">🧠 O que é o sistema de memória do Orion</div>
+          <div style="padding:1rem 1.2rem;font-size:.84rem;color:var(--txt);line-height:1.8">
+            <p>O Orion não tem uma memória — ele tem <strong>seis pipelines de memória paralelos</strong> que operam em camadas de tempo diferentes:</p>
+            <ul style="margin:.6rem 0 1rem 1.4rem;color:var(--mut)">
+              <li><strong style="color:var(--txt)">Instantâneo (por turno):</strong> extração por regex + Haiku + background review → banco SQLite</li>
+              <li><strong style="color:var(--txt)">Curto prazo (30 min):</strong> Phase 2 — deduplicação BM25, decay de confiança, promoção raw→episodic</li>
+              <li><strong style="color:var(--txt)">Médio prazo (6h):</strong> Phase 3 — merge semântico Haiku, contradições, escrita no vault</li>
+              <li><strong style="color:var(--txt)">Diário (meia-noite):</strong> Phase 4 — arquivamento de memórias fracas, relatório WhatsApp</li>
+              <li><strong style="color:var(--txt)">Semanal (domingos 9h):</strong> Phase 5 — self-audit Haiku: avalia qualidade das memórias mais usadas</li>
+              <li><strong style="color:var(--txt)">Mensal (1º do mês):</strong> Phase 6 — ground-truth: verifica se fatos antigos ainda são verdade</li>
+            </ul>
+            <p style="color:var(--mut);font-size:.78rem">Cada memória tem: <code>type</code> · <code>category</code> · <code>confidence</code> · <code>source_channel</code> · <code>source_session_id</code> · <code>source_tool</code> · <code>helpful_votes</code> · <code>unhelpful_votes</code> · <code>access_count</code> · <code>tags</code> · vetor embedding 384 dims</p>
+          </div>
+        </div>
+
+        <!-- ── PIPELINE POR TURNO ── -->
+        <div class="box">
+          <div class="box-h">⚡ Pipeline por turno — o que acontece após cada resposta</div>
+          <div style="padding:1rem 1.2rem">
+            <p style="font-size:.8rem;color:var(--mut);margin-bottom:1rem">Tudo abaixo roda em <code>setImmediate</code> (background, sem bloquear a resposta).</p>
+            <div style="display:flex;flex-direction:column;gap:.5rem;max-width:700px">
+
+              <div style="display:grid;grid-template-columns:160px 1fr;gap:.8rem;align-items:start">
+                <div style="background:#0d1117;border:1px solid #1e3a1e;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="color:#34d399;font-size:.78rem;font-weight:700">extractFacts()</div>
+                  <div style="color:#4b5563;font-size:.65rem;margin-top:.2rem">extraction.js</div>
+                </div>
+                <div style="font-size:.78rem;color:var(--mut);padding-top:.5rem">
+                  <strong style="color:var(--txt)">Regex rápida, zero LLM.</strong> Detecta padrões como "meu projeto é X", "uso Y", nomes de pessoas, decisões explícitas. Salva como <code>type: raw</code>, <code>confidence: 0.5</code>. Roda em &lt;1ms.
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:160px 1fr;gap:.8rem;align-items:start">
+                <div style="background:#0d1117;border:1px solid #1e1e3a;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="color:#818cf8;font-size:.78rem;font-weight:700">extractEntities()</div>
+                  <div style="color:#4b5563;font-size:.65rem;margin-top:.2rem">extraction.js</div>
+                </div>
+                <div style="font-size:.78rem;color:var(--mut);padding-top:.5rem">
+                  <strong style="color:var(--txt)">Knowledge graph leve.</strong> Extrai entidades (pessoas, projetos, ferramentas) e relações ("usa", "trabalha em", "prefere") → tabelas <code>entities</code> e <code>relations</code>. Também zero LLM.
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:160px 1fr;gap:.8rem;align-items:start">
+                <div style="background:#0d1117;border:1px solid #2d1a00;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="color:#fb923c;font-size:.78rem;font-weight:700">extractWithHaiku()</div>
+                  <div style="color:#4b5563;font-size:.65rem;margin-top:.2rem">memory/index.js · Haiku</div>
+                </div>
+                <div style="font-size:.78rem;color:var(--mut);padding-top:.5rem">
+                  <strong style="color:var(--txt)">Extração semântica real.</strong> Haiku analisa a troca completa e retorna 0–3 fatos no formato <code>CATEGORIA|TAGS|fato</code>. Só roda se ambas as mensagens têm &gt;20 chars. Salva como <code>type: episodic</code>, <code>confidence: 0.65</code>, <code>sourceTool: haiku-extraction</code>.
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:160px 1fr;gap:.8rem;align-items:start">
+                <div style="background:#0d1117;border:1px solid #1a1a2e;border-radius:8px;padding:8px 10px;text-align:center">
+                  <div style="color:#a5b4fc;font-size:.78rem;font-weight:700">backgroundReview()</div>
+                  <div style="color:#4b5563;font-size:.65rem;margin-top:.2rem">background-reviewer.js · Haiku</div>
+                </div>
+                <div style="font-size:.78rem;color:var(--mut);padding-top:.5rem">
+                  <strong style="color:var(--txt)">Segundo olhar pós-turno.</strong> Haiku revisa a troca buscando o que a extração padrão pode ter perdido: fatos implícitos, candidatos a skill, hints de contradição. Retorna JSON <code>{ new_facts, skill_candidate, contradiction_hint }</code>. Salva com <code>sourceTool: background-review</code>, <code>confidence: 0.4</code> (mais conservador).
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- ── SCORE DE RETRIEVAL ── -->
+        <div class="box">
+          <div class="box-h">🎯 Como memórias são ranqueadas — fórmula de score</div>
+          <div style="padding:1rem 1.2rem">
+            <p style="font-size:.8rem;color:var(--mut);margin-bottom:.8rem">Quando o Orion busca memórias relevantes para uma mensagem, cada candidata recebe um score composto:</p>
+
+            <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:10px;padding:1rem 1.2rem;font-family:monospace;font-size:.8rem;color:#e5e7eb;margin-bottom:1rem">
+              score = 0.40 × BM25<span style="color:#818cf8">_norm</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ 0.30 × vector<span style="color:#818cf8">_similarity</span><br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ 0.15 × confidence × <span style="color:#fb923c">decay</span>(category, age)<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ 0.15 × recency<span style="color:#818cf8">_score</span>(created_at)<br>
+              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;+ <span style="color:#34d399">feedback_boost</span>(helpful_votes, unhelpful_votes)
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+              <div style="background:#0d1117;border:1px solid #1e1e3a;border-radius:8px;padding:.75rem 1rem">
+                <div style="font-size:.78rem;font-weight:700;color:#818cf8;margin-bottom:.4rem">BM25 (0.40)</div>
+                <div style="font-size:.72rem;color:var(--mut);line-height:1.5">Full-text search via FTS5. Normalizado: <code>|score| / (|score| + 1)</code>. Melhor para fatos explícitos mencionados na mensagem.</div>
+              </div>
+              <div style="background:#0d1117;border:1px solid #1e1e3a;border-radius:8px;padding:.75rem 1rem">
+                <div style="font-size:.78rem;font-weight:700;color:#a5b4fc;margin-bottom:.4rem">Vector similarity (0.30)</div>
+                <div style="font-size:.72rem;color:var(--mut);line-height:1.5">Cosseno no espaço <code>all-MiniLM-L6-v2</code> (384 dims, local). Melhor para conceitos relacionados mesmo sem palavras idênticas.</div>
+              </div>
+              <div style="background:#0d1117;border:1px solid #2d1a00;border-radius:8px;padding:.75rem 1rem">
+                <div style="font-size:.78rem;font-weight:700;color:#fb923c;margin-bottom:.4rem">Decay adaptativo (0.15)</div>
+                <div style="font-size:.72rem;color:var(--mut);line-height:1.5">
+                  <code>conf × e^(−rate × age_days)</code><br>
+                  Taxas por categoria:<br>
+                  <span style="color:#e5e7eb">decision</span> 0.015 · <span style="color:#e5e7eb">tool</span> 0.008 · <span style="color:#e5e7eb">general</span> 0.005 · <span style="color:#e5e7eb">project</span> 0.003 · <span style="color:#e5e7eb">user_pref</span> 0.002 · <span style="color:#e5e7eb">person</span> 0.001
+                </div>
+              </div>
+              <div style="background:#0d1117;border:1px solid #1e3a1e;border-radius:8px;padding:.75rem 1rem">
+                <div style="font-size:.78rem;font-weight:700;color:#34d399;margin-bottom:.4rem">Recência (0.15)</div>
+                <div style="font-size:.72rem;color:var(--mut);line-height:1.5"><code>e^(−λ × age_seconds)</code>. Decai ao longo de dias mas nunca zera. Garante que memórias recentes têm leve preferência.</div>
+              </div>
+              <div style="background:#0d1117;border:1px solid #1e3a1e;border-radius:8px;padding:.75rem 1rem;grid-column:span 2">
+                <div style="font-size:.78rem;font-weight:700;color:#34d399;margin-bottom:.4rem">Feedback boost (±0.08)</div>
+                <div style="font-size:.72rem;color:var(--mut);line-height:1.5">
+                  <code>(hv − uv×2) / (hv + uv×2 + 1) × 0.08</code><br>
+                  Assimétrico: voto negativo pesa 2× mais que positivo. Memórias com feedback ruim ficam para baixo. Memória com 1 positivo: +0.027. Com 1 negativo: −0.053. Sem votos: neutro.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CICLO DE VIDA DE UMA MEMÓRIA ── -->
+        <div class="box">
+          <div class="box-h">🔄 Ciclo de vida de uma memória — do raw ao archived</div>
+          <div style="padding:1rem 1.2rem">
+            <div style="display:flex;align-items:center;gap:0;flex-wrap:wrap;margin-bottom:1.2rem">
+              <div style="background:#1a1a00;border:1px solid #2d2d00;border-radius:8px;padding:8px 14px;text-align:center">
+                <div style="color:#fbbf24;font-size:.78rem;font-weight:700">raw</div>
+                <div style="color:#6b7280;font-size:.62rem">conf 0.1–0.5</div>
+              </div>
+              <div style="color:#374151;padding:0 .4rem;font-size:1.1rem">→</div>
+              <div style="background:#0d1117;border:1px solid #1e3a1e;border-radius:8px;padding:8px 14px;text-align:center">
+                <div style="color:#34d399;font-size:.78rem;font-weight:700">episodic</div>
+                <div style="color:#6b7280;font-size:.62rem">conf 0.5–0.7</div>
+              </div>
+              <div style="color:#374151;padding:0 .4rem;font-size:1.1rem">→</div>
+              <div style="background:#0d0d1a;border:1px solid #2d1a3a;border-radius:8px;padding:8px 14px;text-align:center">
+                <div style="color:#c084fc;font-size:.78rem;font-weight:700">semantic</div>
+                <div style="color:#6b7280;font-size:.62rem">conf 0.7–0.9</div>
+              </div>
+              <div style="color:#374151;padding:0 .4rem;font-size:1.1rem">→</div>
+              <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:8px;padding:8px 14px;text-align:center">
+                <div style="color:#818cf8;font-size:.78rem;font-weight:700">skill</div>
+                <div style="color:#6b7280;font-size:.62rem">conf &gt;0.85</div>
+              </div>
+              <div style="color:#374151;padding:0 .4rem;font-size:1.1rem">→</div>
+              <div style="background:#1a0d0d;border:1px solid #3a1e1e;border-radius:8px;padding:8px 14px;text-align:center">
+                <div style="color:#f87171;font-size:.78rem;font-weight:700">archived</div>
+                <div style="color:#6b7280;font-size:.62rem">soft delete</div>
+              </div>
+            </div>
+
+            <table><thead><tr><th>Fase</th><th>Frequência</th><th>O que faz</th><th>LLM?</th></tr></thead><tbody>
+              <tr>
+                <td><strong>Phase 2</strong></td><td>A cada 30 min</td>
+                <td>
+                  <strong>Deduplicação BM25:</strong> pairs de memórias similares → mantém a de maior confiança, arquiva a duplicata.<br>
+                  <strong>Decay de confiança:</strong> aplica <code>conf × e^(−rate × age)</code> por categoria. Memórias que chegam a conf &lt; 0.05 são arquivadas.<br>
+                  <strong>Promoção raw→episodic:</strong> memórias raw com conf ≥ 0.5 sobem de tipo.<br>
+                  <strong>Contradiction detection:</strong> busca memórias com conteúdo oposto pelo mesmo sujeito → registra o par, reduz confiança da mais antiga.
+                </td>
+                <td style="color:var(--green)">Não</td>
+              </tr>
+              <tr>
+                <td><strong>Phase 3</strong></td><td>A cada 6h</td>
+                <td>
+                  <strong>Merge de clusters:</strong> Haiku agrupa episodic similares em uma memória semantic mais rica.<br>
+                  <strong>Promoção semantic→skill:</strong> patterns recorrentes viram skills reutilizáveis na tabela <code>skills</code>.<br>
+                  <strong>Escrita no vault:</strong> insights consolidados são gravados em <code>notes/Orion/memoria/</code>.<br>
+                  <code>sourceTool: phase3-merge</code>
+                </td>
+                <td style="color:#fb923c">Haiku</td>
+              </tr>
+              <tr>
+                <td><strong>Phase 4</strong></td><td>Meia-noite</td>
+                <td>
+                  <strong>Arquivamento:</strong> memórias com confiança &lt; 0.05 ou sem acesso há 90+ dias → <code>archived = 1</code>.<br>
+                  <strong>Relatório diário:</strong> envia resumo de memórias adicionadas hoje por WhatsApp.
+                </td>
+                <td style="color:#fb923c">Haiku</td>
+              </tr>
+              <tr>
+                <td><strong>Phase 5</strong></td><td>Domingos 9h</td>
+                <td>
+                  <strong>Self-audit semanal:</strong> pega as top 20 memórias mais acessadas não auditadas nos últimos 30 dias.<br>
+                  Haiku avalia cada uma de 1–5 (1=irrelevante, 5=fato preciso e útil).<br>
+                  Score &lt; 2 → <code>confidence × 0.7</code> (punição). Salva <code>metadata.last_audit = { score, feedback, at }</code>.<br>
+                  Envia resumo por WhatsApp: "X avaliadas, Y penalizadas".
+                </td>
+                <td style="color:#fb923c">Haiku</td>
+              </tr>
+              <tr>
+                <td><strong>Phase 6</strong></td><td>1º do mês 9h</td>
+                <td>
+                  <strong>Ground-truth mensal:</strong> pega 10 memórias de categoria decision/person/project com confiança ≥ 0.5 não verificadas em 60+ dias.<br>
+                  Haiku responde: "este fato ainda é verdade hoje?"<br>
+                  Resposta "false" → <code>archived = 1</code> + <code>metadata.ground_truth = { reason, at }</code>.<br>
+                  Resposta "true" → data de verificação atualizada, confiança preservada.
+                </td>
+                <td style="color:#fb923c">Haiku</td>
+              </tr>
+            </tbody></table>
+          </div>
+        </div>
+
+        <!-- ── PROVENANCE ── -->
+        <div class="box">
+          <div class="box-h">🔍 Rastreabilidade — de onde veio cada memória</div>
+          <div style="padding:1rem 1.2rem">
+            <p style="font-size:.8rem;color:var(--mut);margin-bottom:.8rem">Cada memória tem 3 colunas de provenance além do campo <code>source</code> padrão:</p>
+            <table><thead><tr><th>Campo</th><th>O que armazena</th><th>Exemplos</th></tr></thead><tbody>
+              <tr><td><code>source_channel</code></td><td>Canal de origem da conversa</td><td><code>whatsapp</code> · <code>plugin</code> · <code>chat_ui</code></td></tr>
+              <tr><td><code>source_session_id</code></td><td>UUID da sessão Claude Code ou WhatsApp</td><td><code>4e352b4b-8a74-...</code></td></tr>
+              <tr><td><code>source_tool</code></td><td>Pipeline específico que criou a memória</td><td><code>haiku-extraction</code> · <code>background-review</code> · <code>pre-compress</code> · <code>delegate</code> · <code>phase3-merge</code> · <code>mcp-save</code></td></tr>
+            </tbody></table>
+          </div>
+        </div>
+
+        <!-- ── 4 MELHORIAS RECENTES ── -->
+        <div class="box">
+          <div class="box-h">🆕 4 melhorias recentes — paridade com Hermes + segurança</div>
+          <div style="padding:1rem 1.2rem;display:flex;flex-direction:column;gap:1rem">
+
+            <div style="background:#0d1117;border:1px solid #1e3a1e;border-radius:10px;padding:.9rem 1.1rem">
+              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
+                <span style="background:#14532d;color:#86efac;font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:20px">A</span>
+                <span style="font-size:.82rem;font-weight:700;color:#e5e7eb">on_pre_compress — extrai fatos antes de comprimir</span>
+                <span style="font-size:.65rem;color:#4b5563;margin-left:auto">memory/compressor.js</span>
+              </div>
+              <p style="font-size:.78rem;color:var(--mut);line-height:1.6;margin:0">
+                <strong style="color:var(--txt)">O problema:</strong> quando uma sessão com &gt;40 mensagens era comprimida, as mensagens descartadas iam para o lixo sem extração de fatos. Decisões tomadas, preferências mencionadas, projetos discutidos — tudo perdido.<br>
+                <strong style="color:var(--txt)">A solução:</strong> <em>antes</em> do soft-delete, um Haiku analisa o transcript completo das mensagens a serem descartadas e extrai até 5 fatos no formato <code>CATEGORIA|TAGS|fato</code>. Salvos com <code>sourceTool: pre-compress</code>. Roda em <code>setImmediate</code>, não atrasa a resposta.
+              </p>
+            </div>
+
+            <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:10px;padding:.9rem 1.1rem">
+              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
+                <span style="background:#312e81;color:#a5b4fc;font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:20px">B</span>
+                <span style="font-size:.82rem;font-weight:700;color:#e5e7eb">on_delegation — captura resultado do subagente</span>
+                <span style="font-size:.65rem;color:#4b5563;margin-left:auto">agent/delegate.js</span>
+              </div>
+              <p style="font-size:.78rem;color:var(--mut);line-height:1.6;margin:0">
+                <strong style="color:var(--txt)">O problema:</strong> quando o Orion delegava uma tarefa (ex: "analisa o Brandspace"), o subagente executava, produzia output — e esse output nunca entrava na memória. Na próxima sessão, o Orion não lembrava o que tinha feito.<br>
+                <strong style="color:var(--txt)">A solução:</strong> após cada delegação bem-sucedida, salva automaticamente: <code>"Tarefa delegada (role): [goal] → [snippet do resultado]"</code>. Tags incluem <code>delegate</code>, o role e o projeto. Categoria <code>decision</code>.
+              </p>
+            </div>
+
+            <div style="background:#0d1117;border:1px solid #1e2e1e;border-radius:10px;padding:.9rem 1.1rem">
+              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
+                <span style="background:#14532d;color:#86efac;font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:20px">C</span>
+                <span style="font-size:.82rem;font-weight:700;color:#e5e7eb">Feedback no score de retrieval</span>
+                <span style="font-size:.65rem;color:#4b5563;margin-left:auto">memory/index.js</span>
+              </div>
+              <p style="font-size:.78rem;color:var(--mut);line-height:1.6;margin:0">
+                <strong style="color:var(--txt)">O problema:</strong> os campos <code>helpful_votes</code> e <code>unhelpful_votes</code> existiam no banco mas eram ignorados no ranking. Feedback do usuário não tinha impacto nenhum.<br>
+                <strong style="color:var(--txt)">A solução:</strong> o score agora inclui <code>feedback_boost = (hv − uv×2) / (hv + uv×2 + 1) × 0.08</code>. Assimétrico: voto negativo penaliza 2× mais que positivo recompensa. Memórias marcadas como inúteis afundam no ranking progressivamente.
+              </p>
+            </div>
+
+            <div style="background:#1a0d0d;border:1px solid #3a1e1e;border-radius:10px;padding:.9rem 1.1rem">
+              <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem">
+                <span style="background:#7f1d1d;color:#fca5a5;font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:20px">D</span>
+                <span style="font-size:.82rem;font-weight:700;color:#e5e7eb">Threat detection — anti injeção de prompt</span>
+                <span style="font-size:.65rem;color:#4b5563;margin-left:auto">memory/threat-check.js</span>
+              </div>
+              <p style="font-size:.78rem;color:var(--mut);line-height:1.6;margin:0">
+                <strong style="color:var(--txt)">O problema:</strong> qualquer mensagem enviada pelo WhatsApp podia conter injeção de prompt que seria persistida no banco e servida como contexto em todas as respostas futuras.<br>
+                <strong style="color:var(--txt)">A solução:</strong> antes de qualquer <code>saveMemory()</code>, o conteúdo passa por <code>threatCheck()</code> com 16 regex patterns (ignore instructions, you are now, reveal system prompt, eval/exec, etc). Se match: salva com <code>confidence: 0.01</code> e tags <code>["blocked","threat"]</code> — preservado para auditoria, mas nunca surfaceado no retrieval.
+              </p>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── RETRIEVAL HRR ── -->
+        <div class="box">
+          <div class="box-h">🔮 HRR Composer — multi-entity queries algébricas</div>
+          <div style="padding:1rem 1.2rem">
+            <p style="font-size:.8rem;color:var(--mut);margin-bottom:.8rem">Quando você quer memórias que envolvem <em>múltiplas entidades ao mesmo tempo</em> (ex: "o que sei sobre Danilo E Orion"), o BM25 padrão faz duas buscas separadas. O HRR Composer combina as entidades em um único vetor de consulta via álgebra de espaço de fases:</p>
+            <div style="background:#0d0d1a;border:1px solid #1e1e3a;border-radius:8px;padding:.75rem 1rem;font-family:monospace;font-size:.78rem;color:#e5e7eb;margin-bottom:.8rem">
+              normalize(v) → ||v|| = 1, Float32Array<br>
+              bindVectors(a, b) → produto Hadamard + normalize<br>
+              superpose([v1, v2, ...]) → soma ponderada + normalize<br>
+              <br>
+              retrieveByComposedEntities(["Danilo", "Orion"], limit=10)<br>
+              &nbsp;&nbsp;→ embedding("Danilo") + embedding("Orion")<br>
+              &nbsp;&nbsp;→ superpose → KNN search no vec_memories
+            </div>
+            <p style="font-size:.78rem;color:var(--mut)">Endpoint: <code>GET /api/memories/entities-composed?names=A,B&limit=10</code></p>
+          </div>
+        </div>
+
+        <!-- ── SEGURANÇA ── -->
+        <div class="box">
+          <div class="box-h">📊 Pipeline de Contexto — o que é injetado antes de cada resposta</div>
+          <p style="color:var(--mut);font-size:.8rem;margin:.8rem 1.2rem .4rem">Montado por <code>buildFullContext()</code> em src/api/context.js — todas as camadas em paralelo.</p>
+          <div style="padding:.2rem 1.2rem 1rem">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem">
+              <div class="flow-layer" style="border-color:#818cf8"><div class="flow-layer-num">1</div><div><div class="flow-layer-title">user_profile.md</div><div class="flow-layer-sub">identidade, projetos, preferências do Danilo — atualizado por Haiku pós-turno</div><div class="flow-layer-tag">data/user_profile.md</div></div></div>
+              <div class="flow-layer" style="border-color:#f472b6"><div class="flow-layer-num">2</div><div><div class="flow-layer-title">CLAUDE.md do projeto</div><div class="flow-layer-sub">regras técnicas — detectado automaticamente pelo slug na mensagem</div><div class="flow-layer-tag">brandspace/CLAUDE.md etc.</div></div></div>
+              <div class="flow-layer" style="border-color:#34d399"><div class="flow-layer-num">3</div><div><div class="flow-layer-title">Vault Global</div><div class="flow-layer-sub">Padrões de Qualidade + Stack Técnica — sempre, em todo projeto</div><div class="flow-layer-tag">notes/Global/*.md</div></div></div>
+              <div class="flow-layer" style="border-color:#34d399"><div class="flow-layer-num">4</div><div><div class="flow-layer-title">Vault do Projeto</div><div class="flow-layer-sub">todas as notas da pasta — garantido, sem ranking</div><div class="flow-layer-tag">notes/Brandspace/*.md etc.</div></div></div>
+              <div class="flow-layer" style="border-color:#fb923c"><div class="flow-layer-num">5</div><div><div class="flow-layer-title">Memories híbridas</div><div class="flow-layer-sub">BM25 + vetor + decay + feedback → top-8 mais relevantes</div><div class="flow-layer-tag">SQLite · memories_fts + vec_memories</div></div></div>
+              <div class="flow-layer" style="border-color:#c084fc"><div class="flow-layer-num">6</div><div><div class="flow-layer-title">Skills relevantes</div><div class="flow-layer-sub">padrões reutilizáveis aprendidos — buscados por LIKE na query</div><div class="flow-layer-tag">SQLite · skills</div></div></div>
+            </div>
+            <div style="background:#0d1117;border:1px solid #1e1e3a;border-radius:8px;padding:.65rem .9rem;margin-top:.6rem;font-size:.75rem;color:#6b7280">
+              ⚠️ <strong style="color:#9ca3af">Invariante crítico:</strong> memória é sempre injetada na <em>mensagem do usuário</em> (via tag <code>&lt;memory&gt;</code>), NUNCA no system prompt. Isso preserva o prefix cache da Anthropic — respostas mais rápidas e baratas.
+            </div>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="box-h">📦 Fontes do banco de memórias</div>
+          <table id="mem-sources-table"><thead><tr><th>Fonte</th><th>Chunks</th><th>Atualização</th><th>O que contém</th></tr></thead>
+          <tbody>
+            <tr><td><span style="color:#34d399">vault</span></td><td id="ms-vault">—</td><td>A cada hora (cron)</td><td>Notas do SilverBullet</td></tr>
+            <tr><td><span style="color:#818cf8">claude_md</span></td><td id="ms-claudemd">—</td><td>A cada hora (cron)</td><td>CLAUDE.md global + regras</td></tr>
+            <tr><td><span style="color:#f472b6">claude_mem</span></td><td id="ms-claudemem">—</td><td>A cada hora (cron)</td><td>memory/*.md desta sessão</td></tr>
+            <tr><td><span style="color:#fb923c">whatsapp</span></td><td id="ms-whatsapp">—</td><td>Por turno</td><td>Fatos extraídos das conversas</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+      <!-- ARQUITETURA -->
+      <div class="doc-sec" id="doc-s-arquitetura">
+        <div class="box">
+          <div class="box-h">🏗️ Módulos do Orion</div>
+          <table><thead><tr><th>Módulo</th><th>Arquivo</th><th>Função</th></tr></thead><tbody>
+            <tr><td><code>orion.js</code></td><td>src/agent/</td><td>Loop principal — recebe mensagem, monta contexto, chama Claude, salva resposta</td></tr>
+            <tr><td><code>context.js</code></td><td>src/api/</td><td>Pipeline unificado — monta todas as 6 camadas de contexto</td></tr>
+            <tr><td><code>delegate.js</code></td><td>src/agent/</td><td>Delegate tool — cria sessões nomeadas visíveis no plugin para subtarefas</td></tr>
+            <tr><td><code>orchestrator.js</code></td><td>src/agent/</td><td>Planner → workers paralelos → synthesizer (via /multi)</td></tr>
+            <tr><td><code>registry.js</code></td><td>src/sessions/</td><td>Sessões nomeadas persistidas — garante continuidade entre conversas</td></tr>
+            <tr><td><code>memory/index.js</code></td><td>src/memory/</td><td>BM25 + vetor — busca híbrida de memórias</td></tr>
+            <tr><td><code>compressor.js</code></td><td>src/memory/</td><td>Turn protection — comprime histórico longo, preserva início e fim</td></tr>
+            <tr><td><code>skill-generator.js</code></td><td>src/agent/</td><td>Gera skills automáticas por turno via Haiku</td></tr>
+            <tr><td><code>user-profile.js</code></td><td>src/agent/</td><td>Perfil persistente do Danilo — atualizado em background</td></tr>
+            <tr><td><code>memory-server.js</code></td><td>src/mcp/</td><td>MCP stdio — orion_memory_context, orion_context, orion_delegate</td></tr>
+            <tr><td><code>ingest_knowledge.py</code></td><td>scripts/</td><td>Vault + CLAUDE.md → SQLite (roda a cada hora)</td></tr>
+          </tbody></table>
+        </div>
+        <div class="box">
+          <div class="box-h">🔄 Fases de memória (consolidação contínua)</div>
+          <table><thead><tr><th>Fase</th><th>Frequência</th><th>O que faz</th><th>LLM</th></tr></thead><tbody>
+            <tr><td><span style="color:#fb923c">Fase 1</span></td><td>Por turno</td><td>Extrai fatos, entidades, relações das conversas</td><td>Não</td></tr>
+            <tr><td><span style="color:#f472b6">Fase 2</span></td><td>30 min</td><td>Dedup BM25 · decay · raw→episodic · arquiva obsoletos</td><td>Não</td></tr>
+            <tr><td><span style="color:#818cf8">Fase 3</span></td><td>6 horas</td><td>Haiku mescla clusters · contradições · skills → vault</td><td>Haiku</td></tr>
+            <tr><td><span style="color:#34d399">Fase 4</span></td><td>Diária</td><td>Arquivo 90d · relatório WhatsApp</td><td>Não</td></tr>
+            <tr><td><span style="color:#c084fc">Knowledge</span></td><td>1 hora</td><td>Vault + CLAUDE.md + memory/ → SQLite (349 chunks)</td><td>Não</td></tr>
+          </tbody></table>
+        </div>
+        <div class="box">
+          <div class="box-h">🔌 Delegate — roles e ferramentas</div>
+          <table><thead><tr><th>Role</th><th>Ferramentas</th><th>Uso típico</th></tr></thead><tbody>
+            <tr><td><code>researcher</code></td><td>Read, Grep, Glob, WebFetch, WebSearch</td><td>Busca informações, lê documentação</td></tr>
+            <tr><td><code>coder</code></td><td>Read, Grep, Glob, Edit, Write, Bash</td><td>Escreve e modifica código</td></tr>
+            <tr><td><code>analyst</code></td><td>Read, Grep, Glob</td><td>Analisa código e dados</td></tr>
+            <tr><td><code>writer</code></td><td>Read, Write</td><td>Documenta, redige conteúdo</td></tr>
+            <tr><td><code>executor</code></td><td>* (all)</td><td>Tarefas completas de infra e deploy</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+      <!-- CLAUDE.MD FILES -->
+      <div class="doc-sec" id="doc-s-claudemds">
+        <div class="box" style="margin-bottom:1rem">
+          <div class="box-h">📄 Hierarquia de CLAUDE.md</div>
+          <div style="padding:1rem;font-size:.82rem;color:var(--mut);line-height:1.8">
+            <div style="display:grid;gap:.5rem">
+              <div style="background:#0d0d1a;border-left:3px solid #6366f1;padding:10px 14px;border-radius:0 8px 8px 0">
+                <span style="color:#a5b4fc;font-weight:700">1. Global</span>
+                <code style="margin-left:.6rem;font-size:.74rem">/config/.claude/CLAUDE.md</code>
+                <span style="float:right;font-size:.72rem;color:#4b5563">carregado em TODA sessão Claude Code</span>
+              </div>
+              <div style="background:#0d0d1a;border-left:3px solid #22c55e;padding:10px 14px;border-radius:0 8px 8px 0">
+                <span style="color:#86efac;font-weight:700">2. Workspace</span>
+                <code style="margin-left:.6rem;font-size:.74rem">/config/workspace/CLAUDE.md</code>
+                <span style="float:right;font-size:.72rem;color:#4b5563">carregado quando cwd = workspace (hoje não existe)</span>
+              </div>
+              <div style="background:#0d0d1a;border-left:3px solid #f472b6;padding:10px 14px;border-radius:0 8px 8px 0">
+                <span style="color:#f9a8d4;font-weight:700">3. Projeto</span>
+                <code style="margin-left:.6rem;font-size:.74rem">brandspace/CLAUDE.md, ralab/CLAUDE.md…</code>
+                <span style="float:right;font-size:.72rem;color:#4b5563">injetado via buildFullContext() no prompt + carregado se cwd = projeto</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="box">
+          <div class="box-h">📁 Arquivos conhecidos — clique para ler/editar</div>
+          <div id="cmd-file-list" style="padding:.5rem 0"></div>
+        </div>
+
+        <div id="cmd-editor-wrap" style="display:none;margin-top:1rem">
+          <div class="box">
+            <div class="box-h">
+              <span id="cmd-editor-title">editando…</span>
+              <div style="display:flex;gap:.5rem">
+                <button class="btn solid" onclick="saveCmdMd()">💾 Salvar</button>
+                <button class="btn" onclick="closeCmdEditor()">✕ Fechar</button>
+              </div>
+            </div>
+            <div style="padding:.8rem">
+              <textarea id="cmd-editor-ta" style="width:100%;height:480px;background:#0a0a0f;border:1px solid var(--line);border-radius:8px;padding:12px;color:var(--txt);font-family:monospace;font-size:.8rem;resize:vertical;outline:none;line-height:1.6"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROGRESSO -->
+      <div class="doc-sec" id="doc-s-progresso">
+        <div class="box">
+          <div class="box-h">📋 Build Status</div>
+          <table><thead><tr><th>#</th><th>Feature</th><th></th><th>Detalhe</th></tr></thead><tbody>
+            <tr><td>1</td><td>SQLite schema</td><td>✅</td><td>memories FTS5, entities, relations, skills, cron_jobs, sessions, session_registry, projects</td></tr>
+            <tr><td>2</td><td>Orion Memory MCP</td><td>✅</td><td>orion_memory_context · save · search · orion_context · orion_delegate</td></tr>
+            <tr><td>3</td><td>Loop principal</td><td>✅</td><td>session mgmt · context pipeline · claude -p multi-turn · session registry</td></tr>
+            <tr><td>4</td><td>Evolution webhook</td><td>✅</td><td>WhatsApp online · filtro JID · transcrição Whisper local</td></tr>
+            <tr><td>5</td><td>Fases de memória (1-4)</td><td>✅</td><td>extração por turno · dedup · Haiku merge · daily report</td></tr>
+            <tr><td>6</td><td>Cron manager</td><td>✅</td><td>linguagem natural → cron · executa via claude</td></tr>
+            <tr><td>7</td><td>Dashboard + Login</td><td>✅</td><td>tela de login · stats live · SALIM · sessões Claude</td></tr>
+            <tr><td>8</td><td>Context Pipeline</td><td>✅</td><td>6 camadas unificadas — mesmo fluxo WhatsApp e plugin</td></tr>
+            <tr><td>9</td><td>Vault explícito</td><td>✅</td><td>Global + projeto sempre no contexto, independente de ranking</td></tr>
+            <tr><td>10</td><td>Turn protection</td><td>✅</td><td>primeiros 5 + últimos 12 turnos preservados</td></tr>
+            <tr><td>11</td><td>Skills persistentes</td><td>✅</td><td>geradas por Haiku pós-turno · injetadas no contexto</td></tr>
+            <tr><td>12</td><td>USER.md automático</td><td>✅</td><td>perfil do Danilo atualizado em background</td></tr>
+            <tr><td>13</td><td>Delegate Tool</td><td>✅</td><td>sub-agentes com roles · sessões visíveis no plugin</td></tr>
+            <tr><td>14</td><td>Session Registry</td><td>✅</td><td>sessões nomeadas persistidas por projeto</td></tr>
+            <tr><td>15</td><td>Knowledge ingest</td><td>✅</td><td>vault + CLAUDE.md + memory/ → 349 chunks · cron 1h</td></tr>
+            <tr><td>16</td><td>Whisper local</td><td>✅</td><td>faster-whisper small · sem API externa · modelo em cache</td></tr>
+            <tr><td>17</td><td>SALIM</td><td>✅</td><td>monitor de tokens Claude · barras no dashboard + chat</td></tr>
+            <tr><td>18</td><td>Structured logging</td><td>✅</td><td>pino com módulos · dev colorido · prod JSON</td></tr>
+            <tr><td>19</td><td>Isolamento subagentes</td><td>✅</td><td>allowlist de ferramentas · CLAUDE_CODE_DISABLE_MCP · max depth 2</td></tr>
+            <tr><td>20</td><td>Documentação interna</td><td>✅</td><td>esta seção</td></tr>
+          </tbody></table>
+        </div>
+        <div class="box">
+          <div class="box-h">🔮 Próximos passos</div>
+          <table><thead><tr><th>Item</th><th>Descrição</th></tr></thead><tbody>
+            <tr><td>Chat UI próprio</td><td>Interface web dentro do Orion com mesmo contexto do WhatsApp</td></tr>
+            <tr><td>Canal plugin explícito</td><td>Endpoint que recebe mensagens do plugin e passa pelo mesmo pipeline</td></tr>
+            <tr><td>Automações UI</td><td>Interface para criar/gerenciar automações n8n dentro do Orion</td></tr>
+            <tr><td>Project switcher</td><td>Trocar de projeto ativo e carregar seu contexto automaticamente</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ── Navigation ────────────────────────────────────────────────────────────────
+const panelViews = ['p-geral','p-projetos','p-memoria','p-cerebro','p-claudemd','p-dns','p-whatsapp','p-bancos','p-historico']
+const panelTitles = {
+  'p-geral':'Visão Geral','p-projetos':'Projetos','p-memoria':'Memória (notas)',
+  'p-cerebro':'Skills & MCP','p-claudemd':'CLAUDE.md','p-dns':'DNS & Domínios',
+  'p-whatsapp':'WhatsApp','p-bancos':'Bancos de dados','p-historico':'Histórico (12h)'
+}
+const panelSections = {'p-geral':'geral','p-projetos':'projetos','p-memoria':'memoria','p-cerebro':'cerebro','p-claudemd':'claudemd','p-dns':'dns','p-whatsapp':'whatsapp','p-bancos':'bancos','p-historico':'historico'}
+
+let panelLoaded = false
+
+const docViews = ['doc-visao','doc-memoria','doc-arquitetura','doc-claudemds','doc-progresso']
+const docTitles = { 'doc-visao':'Visão & Estratégia','doc-memoria':'Fluxo de Memória','doc-arquitetura':'Arquitetura','doc-claudemds':'CLAUDE.md — Hierarquia','doc-progresso':'Progresso do Build' }
+
+// Mapa de deep-links de servidor (/d/p-*) → seção da home unificada (compat com bookmarks)
+const SEC_OF = { 'p-geral':'sec-servidor','p-projetos':'sec-projetos','p-memoria':'sec-notas','p-cerebro':'sec-skills','p-claudemd':'sec-claudemd','p-dns':'sec-dns','p-whatsapp':'sec-whatsapp','p-bancos':'sec-bancos','p-historico':'sec-historico' }
+function goSec(id){ const el=document.getElementById(id); if(el) el.scrollIntoView({behavior:'smooth',block:'start'}) }
+
+// Ativa uma view. push=true grava no histórico para F5/deep-link funcionarem.
+function activateView(view, push = true) {
+  const isDoc = docViews.includes(view)
+  const isHome = view === 'orion-dash' || panelViews.includes(view)
+  if (!isHome && !isDoc) view = 'orion-dash'
+
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
+  const btn = document.querySelector(`.nav-item[data-view="${view}"]`)
+  if (btn) btn.classList.add('active')
+
+  if (isDoc) {
+    document.getElementById('view-orion-dash').classList.remove('active')
+    document.getElementById('view-docs').classList.add('active')
+    document.querySelectorAll('.doc-sec').forEach(s => s.classList.remove('show'))
+    const ds = document.getElementById('doc-s-' + view.replace('doc-', '')); if (ds) ds.classList.add('show')
+    document.getElementById('doc-title').textContent = docTitles[view] || 'Documentação'
+  } else {
+    document.getElementById('view-docs').classList.remove('active')
+    document.getElementById('view-orion-dash').classList.add('active')
+    const homeBtn = document.querySelector('.nav-item[data-view="orion-dash"]'); if (homeBtn) homeBtn.classList.add('active')
+    // deep-link de servidor → rola até a seção correspondente
+    if (panelViews.includes(view)) { const sec = SEC_OF[view]; if (sec) setTimeout(() => goSec(sec), 80) }
+  }
+
+  if (push) {
+    try { history.pushState({ view }, '', view === 'orion-dash' ? '/' : '/d/' + view) } catch {}
+  }
+}
+
+document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => activateView(btn.dataset.view, true))
+})
+
+// Deep-linking: lê /d/<view> da URL no load e em back/forward (F5 não volta pra home)
+function viewFromPath() {
+  const m = location.pathname.match(/^\/d\/([\w-]+)/)
+  return m ? m[1] : 'orion-dash'
+}
+activateView(viewFromPath(), false)
+window.addEventListener('popstate', () => activateView(viewFromPath(), false))
+
+// ── Orion Dashboard ───────────────────────────────────────────────────────────
+const fmt = ts => new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' })
+
+async function loadOrionStats() {
+  try {
+    const [mRes, sRes, msgRes, cronRes, csRes] = await Promise.all([
+      fetch('/api/memories?limit=5'), fetch('/api/sessions'),
+      fetch('/api/messages?limit=8'), fetch('/api/cron'),
+      fetch('/api/claude-sessions?limit=1'),
+    ])
+    const [mData, sData, msgData, cronData, csData] = await Promise.all([
+      mRes.json(), sRes.json(), msgRes.json(), cronRes.json(), csRes.json()
+    ])
+    document.getElementById('mem-count').textContent  = mData.total ?? mData.memories?.length ?? '—'
+    const types = {}; mData.memories?.forEach(m => types[m.type] = (types[m.type]||0)+1)
+    document.getElementById('mem-types').textContent = Object.entries(types).map(([k,v])=>`${v} ${k}`).join(' · ') || 'nenhuma'
+    document.getElementById('sess-count').textContent = sData.sessions?.length ?? '—'
+    document.getElementById('msg-count').textContent  = msgData.total ?? msgData.messages?.length ?? '—'
+    document.getElementById('cron-count').textContent = cronData.jobs?.length ?? '—'
+    document.getElementById('sessions-badge').textContent = csData.sessions?.length ?? '—'
+    const msgs = msgData.messages ?? []
+    const list = document.getElementById('msg-list')
+    list.innerHTML = msgs.length
+      ? msgs.map(m => `<div class="msg"><span class="msg-role ${m.role}">${m.role}</span><span class="msg-content">${(m.content||'').slice(0,120)}${(m.content||'').length>120?'…':''}</span><span class="msg-time">${fmt(m.created_at)}</span></div>`).join('')
+      : '<div class="empty">Nenhuma mensagem ainda</div>'
+  } catch(e) { console.error(e) }
+}
+
+async function checkWa() {
+  try {
+    const d = await fetch('/api/wa/status').then(r=>r.json())
+    const dot=document.getElementById('wa-dot'), dotS=document.getElementById('wa-dot-side')
+    const txt=document.getElementById('wa-status-text'), txtS=document.getElementById('wa-status-side')
+    const badge=document.getElementById('wa-badge'), qrCtr=document.getElementById('qr-container')
+    if (d.status === 'open') {
+      dot.className = dotS.className = 'status-dot'
+      txt.textContent = txtS.textContent = 'Conectado'
+      badge.className = 'badge-pill online'; badge.textContent = 'online'
+      qrCtr.style.display = 'none'
+    } else if (d.qr) {
+      dot.className = dotS.className = 'dot yellow'
+      txt.textContent = txtS.textContent = 'Aguardando QR'
+      badge.className = 'badge-pill connecting'; badge.textContent = 'conectando'
+      qrCtr.style.display = 'block'
+      document.getElementById('qr-img').src = d.qr
+      setTimeout(checkWa, 5000)
+    } else {
+      dot.className = 'dot red'; dotS.className = 'status-dot' // keep dot styled differently in sidebar
+      txt.textContent = txtS.textContent = 'Desconectado'
+      badge.className = 'badge-pill offline'; badge.textContent = 'offline'
+      qrCtr.style.display = 'none'
+      setTimeout(checkWa, 8000)
+    }
+  } catch { setTimeout(checkWa, 8000) }
+}
+
+document.getElementById('uptime').textContent = new Date().toLocaleDateString('pt-BR', {weekday:'long', day:'2-digit', month:'long'})
+
+// ── SALIM: monitor de tokens Claude ──────────────────────────────────────────
+function fmtReset(iso) {
+  if (!iso) return ''
+  const d = new Date(iso), now = Date.now()
+  const diff = d - now
+  if (diff <= 0) return 'resetou'
+  const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000)
+  return h > 0 ? `reset em ${h}h${m.toString().padStart(2,'0')}m` : `reset em ${m}m`
+}
+function usageColor(pct) {
+  if (pct >= 85) return '#f87171' // vermelho
+  if (pct >= 60) return '#fbbf24' // amarelo
+  return '#6366f1'               // roxo (accent)
+}
+async function loadSalim() {
+  try {
+    const d = await fetch('/api/claude-usage').then(r => r.json())
+    if (!d || d.error) return
+    const grp = document.getElementById('salim-group')
+    if (grp) grp.style.display = 'flex'
+    const sess = d.session, week = d.week
+    if (sess) {
+      document.getElementById('salim-sess-fill').style.cssText = `width:${sess.pct}%;background:${usageColor(sess.pct)}`
+      document.getElementById('salim-sess-pct').textContent = sess.pct + '%'
+      document.getElementById('salim-sess-reset').textContent = fmtReset(sess.resets_at)
+    }
+    if (week) {
+      document.getElementById('salim-week-fill').style.cssText = `width:${week.pct}%;background:${usageColor(week.pct)}`
+      document.getElementById('salim-week-pct').textContent = week.pct + '%'
+      document.getElementById('salim-week-reset').textContent = fmtReset(week.resets_at)
+    }
+  } catch {}
+}
+loadSalim()
+setInterval(loadSalim, 60000)
+
+loadOrionStats()
+checkWa()
+setInterval(loadOrionStats, 15000)
+
+// ── Panel JS ──────────────────────────────────────────────────────────────────
+const $p=s=>document.querySelector(s), $$p=s=>document.querySelectorAll(s)
+const cls=(v,g,y)=>v<g?'var(--green)':v<y?'var(--yellow)':'var(--red)'
+let STATS={}, KNOW={}, HIST=[]
+
+function pcard(l,v,sub,pct,color){return `<div class="p-card"><div class="l">${l}</div><div class="v">${v}</div>${pct!=null?`<div class="pbar"><i style="width:${Math.min(pct,100)}%;background:${color}"></i></div>`:''}<div class="sub">${sub}</div></div>`}
+
+function renderStats(){
+  const d=STATS; if(!d.vps)return; const v=d.vps, cores=v.cpu_cores
+  $p('#bHost') && ($p('#bHost').textContent=v.hostname)
+  $p('#sideFoot') && ($p('#sideFoot').innerHTML=`🟢 ${v.hostname} · ${v.public_ip}<br>uptime ${v.uptime_hours}h${v.uptime_minutes}m`)
+  $p('#hUpdated').textContent=d.updated_local
+  const sw=v.swap||{percent:0,used_mb:0,total_mb:0}
+  $p('#ovCards').innerHTML=
+    pcard('CPU',v.cpu_usage+'%','uso atual',v.cpu_usage,cls(v.cpu_usage,60,85))+
+    pcard('Memória',v.memory.percent+'%',`${(v.memory.used_mb/1024).toFixed(1)}/${(v.memory.total_mb/1024).toFixed(1)} GB`,v.memory.percent,cls(v.memory.percent,75,90))+
+    pcard('Swap',sw.percent+'%',`${(sw.used_mb/1024).toFixed(1)}/${(sw.total_mb/1024).toFixed(0)} GB`,sw.percent,cls(sw.percent,80,95))+
+    pcard('Disco',v.disk.percent+'%',`${v.disk.used}/${v.disk.total} · ${v.disk.free} livre`,v.disk.percent,cls(v.disk.percent,75,90))+
+    pcard('Containers',d.docker.running,`${d.claude.sessions} Claude · ${d.claude.mcp_procs} MCPs`,null)+
+    pcard('CPU cores',cores,'núcleos',null)
+  const msgs=[]; if(v.memory.percent>90)msgs.push('RAM em '+v.memory.percent+'%')
+  if(sw.percent>85)msgs.push('swap em '+sw.percent+'%')
+  if(parseFloat(v.load_avg['1m'])>cores)msgs.push('load '+v.load_avg['1m']+' acima dos '+cores+' núcleos')
+  const ab=$p('#alertBar'); if(msgs.length){ab.classList.add('show');ab.innerHTML='⚠️ '+msgs.join(' · ')}else ab.classList.remove('show')
+  const g=cores*.7, lc=x=>cls(parseFloat(x),g,cores)
+  $p('#ovLoads').innerHTML=[['1 min',v.load_avg['1m']],['5 min',v.load_avg['5m']],['15 min',v.load_avg['15m']]].map(([k,x])=>`<div class="lc"><div class="l">Load — ${k}</div><div class="n" style="color:${lc(x)}">${x}</div></div>`).join('')
+  $p('#procT tbody').innerHTML=(d.top_proc||[]).slice().sort((a,b)=>(b.cpu||0)-(a.cpu||0)).map(p=>`<tr><td class="mono">${p.cmd}</td><td style="color:${cls(p.cpu,30,70)};font-weight:700">${p.cpu}%</td><td>${p.mem}%</td></tr>`).join('')
+  const ic={'code-server':'💻','SilverBullet':'📓','n8n':'🔀','Evolution API':'💬','Landing pages':'🌍','Orion':'⚡'}
+  $p('#ovSvc').innerHTML=(d.services||[]).slice().sort((a,b)=>((a.status==='online')?0:1)-((b.status==='online')?0:1)).map(s=>`<a class="tile" href="${s.url}" target="_blank"><div class="t">${ic[s.name]||'🔗'} ${s.name} <span class="dot-s" style="background:${s.status==='online'?'var(--green)':'var(--red)'};width:8px;height:8px;border-radius:50%;margin-left:auto;display:inline-block"></span></div><div class="d">${s.desc}</div></a>`).join('')
+  const ctrs=(d.docker?.containers||[]).slice().sort((a,b)=>(b.cpu||0)-(a.cpu||0) || (b.mem_mb||0)-(a.mem_mb||0))
+  const memMax=Math.max(...ctrs.map(c=>c.mem_mb||0),1)
+  const cpuMax=Math.max(...ctrs.map(c=>c.cpu||0),1)
+  $p('#containerGrid').innerHTML=ctrs.map(c=>{
+    const nm=c.name.replace(/^stack-/,'').replace(/-1$/,'')
+    const up=c.status&&c.status.toLowerCase().startsWith('up')
+    const dotC=up?'var(--green)':'var(--red)'
+    const cpuPct=Math.min((c.cpu||0)/Math.max(cpuMax,100)*100,100)
+    const memPct=Math.min((c.mem_mb||0)/memMax*100,100)
+    const memStr=c.mem_mb>=1024?((c.mem_mb/1024).toFixed(1)+' GB'):(c.mem_mb+' MB')
+    const cpuColor=cls(c.cpu,30,100)
+    const memColor=cls(c.mem_pct||0,50,80)
+    const imgShort=c.image.split('/').pop().split(':')[0]
+    return `<div class="ct-card">
+      <div class="ct-head">
+        <span class="ct-dot" style="background:${dotC}"></span>
+        <span class="ct-name" title="${c.name}">${nm}</span>
+        <span class="ct-img" title="${c.image}">${imgShort}</span>
+      </div>
+      <div class="ct-row">
+        <span class="ct-label">CPU</span>
+        <div class="ct-bar"><i style="width:${cpuPct.toFixed(1)}%;background:${cpuColor}"></i></div>
+        <span class="ct-val" style="color:${cpuColor}">${c.cpu}%</span>
+      </div>
+      <div class="ct-row">
+        <span class="ct-label">RAM</span>
+        <div class="ct-bar"><i style="width:${memPct.toFixed(1)}%;background:${memColor}"></i></div>
+        <span class="ct-val" style="color:${memColor}">${memStr}</span>
+      </div>
+    </div>`}).join('')||'<p style="color:var(--mut);font-size:.8rem">sem dados de containers</p>'
+  const ds=(d.dev_servers||[]).slice().sort((a,b)=>(b.cpu||0)-(a.cpu||0) || (b.mem||0)-(a.mem||0))
+  $p('#devSum').textContent=ds.filter(p=>p.status==='online').length+'/'+ds.length+' on'
+  $p('#nbProj').textContent=ds.length
+  $p('#devT tbody').innerHTML=ds.map(p=>{const on=p.status==='online';
+    return `<tr><td><b>${p.name}</b></td><td><span class="pill ${on?'on':'stop'}">${p.status}</span></td><td>${p.mem} MB</td><td>${p.cpu}%</td>
+    <td class="row">${on?`<button class="btn r" onclick="act('pm2_stop',{name:'${p.name}'},this)">parar</button><button class="btn" onclick="act('pm2_restart',{name:'${p.name}'},this)">restart</button>`:`<button class="btn g" onclick="act('pm2_start',{name:'${p.name}'},this)">ligar</button>`}</td></tr>`}).join('')||'<tr><td colspan=5 style="color:var(--mut)">nenhum dev server</td></tr>'
+}
+
+function renderKnow(){
+  const k=KNOW
+  const ck=(ok,l)=>`<span class="ck ${ok?'on':'off'}">${ok?'✓':'✗'} ${l}</span>`
+  const tax=k.taxonomy||{projects:[],tools:[]}
+  $p('#projWrap').innerHTML=(tax.projects||[]).map(p=>{
+    const items=[['Supabase MCP',p.supabase_mcp],['Cloudflare (token)',p.cloudflare_token],['.env',p.env],['Git',p.git]]
+    const done=items.filter(i=>i[1]).length, full=done===items.length
+    return `<div class="proj"><div class="proj-h"><b>${p.label}</b>${p.code?'<span class="chip">node</span>':''}<span class="chip">${p.size}</span>${p.branch?`<span class="chip">⎇ ${p.branch}</span>`:''}<span style="margin-left:auto">${full?'<span class="b100">100% ✓</span>':`<span class="bpend">${done}/${items.length}</span>`}</span></div>
+      <div class="checklist">${items.map(i=>ck(i[1],i[0])).join('')}</div><div class="proj-sub">${p.commit||'—'}</div>
+      ${(p.tools&&p.tools.length)?`<div class="nest">🔧 ${p.tools.map(t=>`<b>${t.id}</b> <span style="opacity:.6">(${t.size})</span>`).join(' · ')}</div>`:''}</div>`
+  }).join('')||'<p style="color:var(--mut)">—</p>'
+  $p('#toolsWrap').innerHTML=(tax.tools||[]).map(t=>`<div class="tile"><div class="t">🔧 ${t.id}</div><div class="d">${t.exists?t.size:'—'}${t.git?' · git':''}${t.code?' · node':''}</div></div>`).join('')
+  $p('#nbNotes').textContent=(k.notes||[]).length
+  const byF={}; (k.notes||[]).forEach(n=>{(byF[n.folder]=byF[n.folder]||[]).push(n)})
+  $p('#notesWrap').innerHTML=Object.entries(byF).map(([f,ns])=>`<div class="box"><div class="box-h">📁 ${f} <span>${ns.length}</span></div><table><tbody>${ns.map(n=>`<tr><td style="width:200px"><a href="${n.url}" target="_blank" style="color:var(--blue);font-weight:600">📝 ${n.name}</a></td><td style="color:var(--mut);font-size:.8rem">${(n.excerpt||'').replace(/\n/g,' ')}</td></tr>`).join('')}</tbody></table></div>`).join('')
+  $p('#mcpSum').textContent=(k.mcps||[]).length
+  $p('#mcpT tbody').innerHTML=(k.mcps||[]).map(m=>`<tr><td><b>${m.name}</b></td><td><span class="chip">${m.type}</span></td><td class="mono" style="color:var(--mut)">${m.cmd}</td></tr>`).join('')
+  $p('#cmdT tbody').innerHTML=(k.commands||[]).map(c=>`<tr><td class="mono" style="color:var(--accent);width:200px">${c.name}</td><td style="color:var(--mut);font-size:.82rem">${c.desc||''}</td></tr>`).join('')
+  $p('#nbSkills').textContent=(k.skills||[]).length
+  $p('#skSum').textContent='('+(k.skills||[]).length+')'
+  renderSkills()
+  $p('#cmdMd').innerHTML=mdRender(k.claude_md||'(vazio)')
+  $p('#nbDns').textContent=(k.dns||[]).length
+  const cont=(k.dns||[]).filter(r=>r.target==='contabo').length, host=(k.dns||[]).filter(r=>r.target==='hostinger').length
+  $p('#dnsCards').innerHTML=pcard('🟢 No Contabo',cont,'subdomínios ativos',null)+pcard('🟠 No Hostinger',host,'legado',null)+pcard('Outros',(k.dns||[]).length-cont-host,'externos',null)
+  const tc={contabo:'var(--green)',hostinger:'var(--yellow)',outro:'var(--mut)'}
+  $p('#dnsT tbody').innerHTML=(k.dns||[]).map(r=>`<tr><td><b>${r.name}</b>.bayerl.cloud</td><td><span class="chip">${r.type}</span></td><td class="mono">${r.content}</td><td><span class="pill" style="color:${tc[r.target]}">${r.target}</span></td></tr>`).join('')
+  const w=k.whatsapp||{}; const open=w.state==='open'
+  $p('#waCards').innerHTML=pcard('Instância',w.instance||'—','Evolution API',null)+pcard('Estado',`<span style="color:${open?'var(--green)':'var(--yellow)'}">${w.state||'?'}</span>`,open?'conectado ✓':'verifique QR',null)+`<a class="p-card tile" href="https://evo.bayerl.cloud" target="_blank"><div class="l">Painel Evo</div><div class="v" style="font-size:1rem;color:var(--blue)">abrir →</div></a>`
+  $p('#dbT tbody').innerHTML=(k.supabase||[]).map(p=>`<tr><td><b>${p.name}</b></td><td>${p.region}</td><td><span class="pill ${/HEALTHY/.test(p.status)?'on':'warn'}">${p.status}</span></td><td>${p.created}</td></tr>`).join('')||'<tr><td colspan=4 style="color:var(--mut)">—</td></tr>'
+}
+
+function renderSkills(){
+  const q=($p('#skSearch').value||'').toLowerCase()
+  const sk=(KNOW.skills||[]).filter(s=>!q||s.name.toLowerCase().includes(q)||(s.desc||'').toLowerCase().includes(q))
+  $p('#skGrid').innerHTML=sk.slice(0,200).map(s=>`<div class="tile"><div class="t">⚡ ${s.name}<span class="chip">${s.plugin}</span></div><div class="d">${s.desc||''}</div></div>`).join('')
+}
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function mdRender(md){
+  const lines=md.split('\n'); let h='',inTbl=false,inUl=false,inCode=false
+  const inl=t=>esc(t).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank">$1</a>')
+  const closeTbl=()=>{if(inTbl){h+='</tbody></table>';inTbl=false}}, closeUl=()=>{if(inUl){h+='</ul>';inUl=false}}
+  for(let ln of lines){
+    if(/^```/.test(ln)){inCode=!inCode;h+=inCode?'<pre><code>':'</code></pre>';continue}
+    if(inCode){h+=esc(ln)+'\n';continue}
+    if(/^\|(.+)\|/.test(ln)){if(/^\|[\s:|-]+\|$/.test(ln))continue;const cells=ln.split('|').slice(1,-1).map(c=>c.trim());if(!inTbl){h+='<table><tbody>';inTbl=true}h+='<tr>'+cells.map(c=>'<td>'+inl(c)+'</td>').join('')+'</tr>';continue}else closeTbl()
+    if(/^### /.test(ln)){closeUl();h+='<h3>'+inl(ln.slice(4))+'</h3>';continue}
+    if(/^## /.test(ln)){closeUl();h+='<h2>'+inl(ln.slice(3))+'</h2>';continue}
+    if(/^# /.test(ln)){closeUl();h+='<h1>'+inl(ln.slice(2))+'</h1>';continue}
+    if(/^---/.test(ln)){closeUl();h+='<hr>';continue}
+    if(/^[-*] /.test(ln)){if(!inUl){h+='<ul>';inUl=true}h+='<li>'+inl(ln.slice(2))+'</li>';continue}else closeUl()
+    if(ln.trim()==='')continue
+    h+='<p>'+inl(ln)+'</p>'
+  }
+  closeTbl();closeUl();return h
+}
+
+function drawChart(){
+  const W=1000,H=320,pad=34; const svg=$p('#chart'); if(!HIST.length){svg.innerHTML='<text x="500" y="160" fill="#6b7280" text-anchor="middle">coletando dados…</text>';return}
+  const pts=HIST.slice(-360); const n=pts.length; const cores=pts[pts.length-1].cores||6
+  const X=i=>pad+(i/(n-1||1))*(W-pad*2)
+  const series=[['load',pts.map(p=>p.load),cores*1.5,'var(--accent)'],['cpu',pts.map(p=>p.cpu),100,'var(--blue)'],['ram',pts.map(p=>p.ram),100,'var(--purple)']]
+  let g=''
+  for(let i=0;i<=4;i++){const y=pad+(i/4)*(H-pad*2);g+=`<line x1="${pad}" y1="${y}" x2="${W-pad}" y2="${y}" stroke="#1e1e2e"/>`}
+  series.forEach(([nm,vals,max,col])=>{const Y=v=>H-pad-(Math.min(v,max)/max)*(H-pad*2)
+    g+=`<polyline fill="none" stroke="${col}" stroke-width="2" points="${vals.map((v,i)=>X(i)+','+Y(v)).join(' ')}"/>`})
+  const first=pts[0], last=pts[n-1]
+  g+=`<text x="${pad}" y="${H-8}" fill="#6b7280" font-size="12">${new Date(first.t*1000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</text>`
+  g+=`<text x="${W-pad}" y="${H-8}" fill="#6b7280" font-size="12" text-anchor="end">${new Date(last.t*1000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</text>`
+  svg.innerHTML=g
+  $p('#histInfo').textContent=`${n} pontos · load ${last.load} · cpu ${last.cpu}% · ram ${last.ram}%`
+}
+
+let tT; function toast(msg,ok=true){ const e=$p('#toast'); e.textContent=msg; e.style.borderColor=ok?'var(--green)':'var(--red)'; e.classList.add('show'); clearTimeout(tT); tT=setTimeout(()=>e.classList.remove('show'),4000) }
+
+async function act(action,params={},btn){
+  if(btn)btn.disabled=true; toast('⏳ '+action+'…')
+  try{
+    const qs=new URLSearchParams({action,...params}).toString()
+    const r=await fetch('/panel/api/?'+qs,{method:'POST'}); const d=await r.json()
+    toast((d.ok?'✅ ':'❌ ')+(d.out?d.out.slice(0,120):(d.ok?'feito':'erro')),d.ok)
+    setTimeout(loadStats,1800)
+  }catch(e){toast('❌ '+e.message,false)}finally{if(btn)setTimeout(()=>btn.disabled=false,1800)}
+}
+
+function refreshNow(){ act('refresh'); act('knowledge'); setTimeout(()=>{loadStats();loadKnow()},2500) }
+
+async function loadStats(){ try{ STATS=await(await fetch('/panel/stats.json?t='+Date.now())).json(); renderStats() }catch(e){} }
+async function loadKnow(){ try{ KNOW=await(await fetch('/panel/knowledge.json?t='+Date.now())).json(); renderKnow() }catch(e){} }
+
+async function loadMemoryQuality(){
+  try{
+    const m=await(await fetch('/api/memory/quality-metrics')).json()
+    const scoreColor=m.quality_score>=70?'var(--green)':m.quality_score>=40?'var(--yellow)':'var(--red)'
+    const pct=v=>((v||0)*100).toFixed(1)+'%'
+    $p('#memQualityGrid').innerHTML=`
+    <div class="ct-card" style="grid-column:span 2;max-width:260px">
+      <div class="ct-head"><span style="font-size:1.5rem;font-weight:800;color:${scoreColor}">${m.quality_score}</span><span style="font-size:.72rem;color:var(--mut);margin-left:.4rem">/100 Quality Score</span></div>
+      <div class="ct-row"><span class="ct-label">Conf.</span><div class="ct-bar"><i style="width:${pct(m.avg_confidence)};background:var(--accent)"></i></div><span class="ct-val">${pct(m.avg_confidence)}</span></div>
+      <div class="ct-row"><span class="ct-label">Vote</span><div class="ct-bar"><i style="width:${pct(m.helpful_ratio)};background:var(--green)"></i></div><span class="ct-val">${pct(m.helpful_ratio)}</span></div>
+      <div class="ct-row"><span class="ct-label">Vec</span><div class="ct-bar"><i style="width:${pct(m.vec_coverage)};background:var(--blue)"></i></div><span class="ct-val">${pct(m.vec_coverage)}</span></div>
+      <div style="font-size:.62rem;color:var(--mut);margin-top:.4rem">Idade média: ${(m.age_days_avg||0).toFixed(1)}d · Contradições: ${m.contradiction_count||0}</div>
+    </div>
+    ${(m.by_category||[]).slice(0,4).map(c=>`<div class="ct-card">
+      <div class="ct-head"><span class="ct-dot" style="background:var(--accent)"></span><span class="ct-name">${c.category}</span><span class="ct-img">${c.count}</span></div>
+      <div style="font-size:.7rem;color:var(--mut)">conf: ${((c.avg_conf||0)*100).toFixed(0)}%</div>
+    </div>`).join('')}
+  `}catch(e){$p('#memQualityGrid').innerHTML='<p style="color:var(--mut);font-size:.78rem">sem dados</p>'}
+}
+async function loadHist(){ try{ HIST=await(await fetch('/panel/history.json?t='+Date.now())).json(); drawChart() }catch(e){} }
+
+let cd=30; function tick(){cd--;if(cd<=0){loadStats();loadHist();loadMemoryQuality();cd=30}$p('#cd').textContent=cd}
+setInterval(tick,1000); setInterval(loadKnow,600000)
+
+// ── Widgets da home unificada (10 ideias + bônus) ─────────────────────────────
+const _g = id => document.getElementById(id)
+const escH = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+const agoT = ts => { if(!ts) return ''; let s = (ts>1e12?Math.floor(ts/1000):ts); s = Math.floor(Date.now()/1000)-s; if(s<0)s=0; if(s<60)return s+'s'; if(s<3600)return Math.floor(s/60)+'m'; if(s<86400)return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d' }
+
+// #1 — Pulso do cérebro (SSE ao vivo)
+const PULSE_COL = { 'memory-save':'#34d399', memory:'#34d399', 'skill-create':'#818cf8', skill:'#818cf8', contradiction:'#f87171', drift:'#fb923c', 'cron-run':'#fbbf24', cron:'#fbbf24', dedup:'#22d3ee', entity:'#22d3ee', relation:'#a78bfa', _:'#64748b' }
+let _pulseES = null
+function pulsePush(evt){
+  const box = _g('brainPulse'); if(!box) return
+  const em = box.querySelector('.empty'); if(em) box.innerHTML=''
+  const type = evt.type || evt.kind || evt.event || 'evt'
+  const txt = evt.text || evt.message || evt.label || evt.content || evt.detail || (typeof evt==='string'?evt:'')
+  const col = PULSE_COL[type] || PULSE_COL._
+  const ts = evt.at || evt.ts || evt.time || evt.created_at
+  const el = document.createElement('div'); el.className='pulse-item'
+  el.innerHTML = `<span class="pulse-dot" style="background:${col}"></span><span class="pulse-txt"><b style="color:${col}">${escH(type)}</b> ${escH(String(txt).slice(0,150))}</span><span class="pulse-t">${ts?agoT(ts):''}</span>`
+  box.prepend(el)
+  while(box.children.length>50) box.lastChild.remove()
+}
+function startPulse(){
+  if(_pulseES) return
+  try {
+    _pulseES = new EventSource('/api/brain/stream')
+    _pulseES.onmessage = e => { try { pulsePush(JSON.parse(e.data)) } catch {} }
+    _pulseES.onerror = () => {}
+  } catch {}
+  setTimeout(()=>{ const box=_g('brainPulse'); if(box && box.querySelector('.empty')) box.innerHTML='<div class="empty">sem eventos recentes</div>' }, 4000)
+}
+
+// #2 Saúde + #4 Caixa de decisão + bônus aprendizado ativo (tudo de /api/academia/health)
+let _healthCache = null
+async function loadHealth(){
+  try {
+    const h = await fetch('/api/academia/health').then(r=>r.json()); _healthCache = h
+    const t = h.stats?.tables || {}
+    const conf = h.stats?.avgConfidence ?? 0
+    const sc = h.score==null ? '—' : h.score
+    const col = h.score>=70 ? 'var(--green)' : h.score>=40 ? 'var(--yellow)' : 'var(--red)'
+    if(_g('memHealth')) _g('memHealth').innerHTML =
+      `<div class="gauge"><div class="big" style="color:${col}">${sc}</div><div style="font-size:.72rem;color:var(--mut)">Quality Score<br>conf. média ${conf} · ${t.memories||0} memórias ativas</div></div>`
+      + (h.signals||[]).filter(s=>s.level!=='action').slice(0,5).map(s=>`<div class="sig ${s.level}"><span class="ic2">${s.level==='ok'?'✅':s.level==='warn'?'⚠️':'ℹ️'}</span><span>${escH(s.text)}</span></div>`).join('')
+    // caixa de decisão = sinais acionáveis
+    const actions = (h.signals||[]).filter(s=>s.level==='action')
+    const pend = (t.contradiction_pending||0)+(t.dedup_pending||0)+(t.proactive_questions||0)
+    if(_g('inboxCount')) _g('inboxCount').textContent = pend ? ('• '+pend) : ''
+    if(_g('decisionInbox')) _g('decisionInbox').innerHTML = actions.length
+      ? actions.map(s=>`<div class="sig action"><span class="ic2">🔔</span><span>${escH(s.text)}</span></div>`).join('') + `<div class="kmut" style="margin-top:.5rem">Resolva respondendo o Orion no WhatsApp.</div>`
+      : '<div class="empty">Nada pendente — tudo resolvido ✦</div>'
+    // aprendizado ativo (bônus)
+    const n = t.proactive_questions || 0
+    if(_g('activeLearning')) _g('activeLearning').innerHTML = n
+      ? `<div class="gauge"><div class="big" style="color:var(--accent)">${n}</div><div style="font-size:.72rem;color:var(--mut)">pergunta(s) que o Orion quer te fazer<br>para preencher lacunas</div></div>`
+      : '<div class="empty">Sem perguntas pendentes — o Orion está confiante ✦</div>'
+  } catch(e){ if(_g('memHealth')) _g('memHealth').innerHTML='<div class="empty">sem dados</div>' }
+}
+
+// #5 — Sessões Claude ativas
+async function loadActiveSessions(){
+  try {
+    const d = await fetch('/api/claude-sessions?limit=60').then(r=>r.json())
+    const all = (d.sessions||[]).filter(s=>!s.hidden)
+    const isLive = s => !!(s.active||s.running||s.status==='active')
+    const live = all.filter(isLive)
+    if(_g('activeCount')) _g('activeCount').textContent = live.length ? ('• '+live.length+' ativa'+(live.length>1?'s':'')) : ''
+    const list = live.length ? live : all.slice(0,6)
+    if(_g('activeSessions')) _g('activeSessions').innerHTML = list.length ? list.map(s=>{
+      const t = s.custom_title||s.ai_title||s.first_user_msg||(s.id||'').slice(0,8)
+      const on = isLive(s)
+      return `<a class="kitem" href="/sessions/${s.id}"><span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:${on?'#22c55e':'#3f3f5a'};${on?'box-shadow:0 0 6px #22c55e':''}"></span><b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(t)}</b><span class="kmut">${s.message_count||0} msg</span></a>`
+    }).join('') : '<div class="empty">nenhuma sessão</div>'
+  } catch(e){}
+}
+
+// #6 — Próximos crons + sugestões do Haiku
+function cronWhen(j){ if(j.next_run){ const d=new Date((j.next_run<1e12?j.next_run*1000:j.next_run)); if(!isNaN(d)) return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) } return j.schedule||'' }
+async function loadCrons(){
+  try {
+    const [c, sg] = await Promise.all([
+      fetch('/api/cron').then(r=>r.json()),
+      fetch('/api/cron/suggestions').then(r=>r.json()).catch(()=>({}))
+    ])
+    const jobs = (c.jobs||[]).filter(j=>j.status!=='deleted')
+    const active = jobs.filter(j=>j.status==='active')
+    if(_g('cronCount')) _g('cronCount').textContent = '• '+active.length
+    const sug = sg.suggestions || sg.items || []
+    if(_g('cronTimeline')) _g('cronTimeline').innerHTML =
+      (active.length ? active.slice(0,8).map(j=>`<div class="kitem"><span style="color:#fbbf24">⏰</span><b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(j.name||j.description||'job')}</b><span class="kmut">${escH(cronWhen(j))}</span></div>`).join('') : '<div class="empty">nenhum cron ativo</div>')
+      + (sug.length ? `<div class="kmut" style="margin:.6rem 0 .3rem">💡 sugestões do Haiku</div>`+sug.slice(0,3).map(s=>`<div class="kitem" style="background:#0d0d1a"><span>✨</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escH(s.name||s.task_prompt||'')}</span><span class="kmut">${escH(s.schedule||'')}</span></div>`).join('') : '')
+  } catch(e){}
+}
+
+// #8 — Top skills aprendidas
+async function loadTopSkills(){
+  try {
+    const d = await fetch('/api/brain/skills').then(r=>r.json())
+    const sk = (d.skills||[]).slice().sort((a,b)=>(b.usage_count||0)-(a.usage_count||0)).slice(0,8)
+    if(_g('skillsCount')) _g('skillsCount').textContent = '• '+(d.counts?.total ?? sk.length)
+    if(_g('topSkills')) _g('topSkills').innerHTML = sk.length ? sk.map(s=>`<div class="kitem"><span style="color:#818cf8">⚡</span><b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escH(s.description)}">${escH(s.name)}</b>${s.autoGenerated?'<span class="chip">auto</span>':''}<span class="kmut">${s.usage_count||0}×</span>${s.rejection_pct?`<span class="kmut" style="color:var(--red)">${s.rejection_pct}%✗</span>`:''}</div>`).join('') : '<div class="empty">nenhuma skill ainda</div>'
+  } catch(e){}
+}
+
+// #3 — Composição da memória
+async function loadMemGrowth(){
+  try {
+    const d = await fetch('/api/memory/stats').then(r=>r.json())
+    const types = d.by_type||{}; const tot = d.total||1
+    const tcol = { raw:'#fbbf24', episodic:'#34d399', semantic:'#c084fc', skill:'#818cf8' }
+    const rows = Object.entries(types).sort((a,b)=>b[1]-a[1])
+    if(_g('memGrowth')) _g('memGrowth').innerHTML =
+      `<div style="display:flex;gap:1.2rem;margin-bottom:.8rem">
+        <div><div style="font-size:1.6rem;font-weight:800">${d.total||0}</div><div class="kmut">ativas</div></div>
+        <div><div style="font-size:1.6rem;font-weight:800;color:var(--mut)">${d.archived||0}</div><div class="kmut">arquivadas</div></div>
+        <div><div style="font-size:1.6rem;font-weight:800;color:var(--blue)">${Math.round((d.vec_coverage||0)*100)}%</div><div class="kmut">c/ vetor</div></div>
+      </div>`
+      + rows.map(([k,v])=>`<div class="minirow"><span class="ml">${escH(k)}</span><div class="mb"><i style="width:${(v/tot*100).toFixed(0)}%;background:${tcol[k]||'#64748b'}"></i></div><span class="mv">${v}</span></div>`).join('')
+  } catch(e){}
+}
+
+// #7 — Mini knowledge-graph (resumo + link)
+async function loadMiniGraph(){
+  try {
+    const d = await fetch('/api/brain/graph?max=120').then(r=>r.json())
+    const s = d.stats||{}
+    if(_g('miniGraph')) _g('miniGraph').innerHTML =
+      `<div class="hgrid3" style="gap:.5rem;margin-bottom:.7rem">`
+      + [['nós',s.nodes],['arestas',s.edges],['memórias',s.memories],['relações',s.relations],['causais',s.causal],['contradições',s.contradictions]].map(([l,v])=>`<div style="background:#0f0f1a;border-radius:8px;padding:.5rem .65rem"><div style="font-size:1.25rem;font-weight:800">${v||0}</div><div class="kmut">${l}</div></div>`).join('')
+      + `</div><a class="btn" href="/brain">🕸️ abrir cérebro ao vivo →</a>`
+  } catch(e){}
+}
+
+// #9 — Atividade por canal
+async function loadChannels(){
+  try {
+    const d = await fetch('/api/sessions').then(r=>r.json())
+    const by = {}; (d.sessions||[]).forEach(s=>{ const c=s.channel||'?'; by[c]=(by[c]||0)+1 })
+    const ic = { whatsapp:'📱', plugin:'💻', chat_ui:'🌐', cron:'⏰', neo:'🧬' }
+    const tot = Object.values(by).reduce((a,b)=>a+b,0)||1
+    const rows = Object.entries(by).sort((a,b)=>b[1]-a[1])
+    if(_g('channelActivity')) _g('channelActivity').innerHTML = rows.length ? rows.map(([k,v])=>`<div class="minirow"><span class="ml">${ic[k]||'🔗'} ${escH(k)}</span><div class="mb"><i style="width:${(v/tot*100).toFixed(0)}%;background:var(--accent)"></i></div><span class="mv">${v}</span></div>`).join('') : '<div class="empty">—</div>'
+  } catch(e){}
+}
+
+// #10 — Uso & custo de IA
+async function loadAiCost(){
+  try {
+    const d = await fetch('/api/claude-usage').then(r=>r.json())
+    const bar = (lbl,o) => o ? `<div class="minirow"><span class="ml">${lbl}</span><div class="mb"><i style="width:${o.pct}%;background:${usageColor(o.pct)}"></i></div><span class="mv">${o.pct}%</span></div>` : ''
+    if(_g('aiCost')) _g('aiCost').innerHTML = `${bar('Sessão 5h',d.session)}${bar('Semana 7d',d.week)}<div class="kmut" style="margin-top:.6rem">Crons Haiku em background: Fase 2 (30min) · Fase 3 (6h) · Fase 4 (meia-noite) — ~$0,001–0,003 por rodada.</div>`
+  } catch(e){}
+}
+
+// bônus — cadeias causais
+async function loadCausal(){
+  try {
+    const d = await fetch('/api/memories/causal?limit=8').then(r=>r.json())
+    const links = d.links||[]
+    if(_g('causalBox')) _g('causalBox').innerHTML = links.length ? links.slice(0,8).map(l=>`<div class="kitem"><span style="flex:1"><b style="color:#a78bfa">${escH(l.cause)}</b> <span style="color:#374151">→</span> <b style="color:#fb923c">${escH(l.effect)}</b></span><span class="kmut">${Math.round((l.confidence||0)*100)}%</span></div>`).join('') : '<div class="empty">nenhuma cadeia causal ainda</div>'
+  } catch(e){}
+}
+
+// bônus — índice temporal
+async function loadTemporal(){
+  try {
+    const d = await fetch('/api/memories/temporal/stats').then(r=>r.json())
+    const entries = Object.entries(d||{}).filter(([k,v])=>typeof v==='number')
+    if(_g('temporalBox')) _g('temporalBox').innerHTML = entries.length ? entries.slice(0,8).map(([k,v])=>`<div class="minirow"><span class="ml" style="width:auto;flex:1">${escH(k)}</span><span class="mv" style="width:auto">${v}</span></div>`).join('') : '<div class="empty">sem eventos temporais</div>'
+  } catch(e){}
+}
+
+// init da home unificada
+function initHome(){
+  loadStats(); loadKnow(); loadHist(); loadMemoryQuality()
+  startPulse()
+  loadHealth(); loadActiveSessions(); loadCrons(); loadTopSkills()
+  loadMemGrowth(); loadMiniGraph(); loadChannels(); loadAiCost(); loadCausal(); loadTemporal()
+  setInterval(()=>{ loadHealth(); loadActiveSessions(); loadCrons() }, 30000)
+  setInterval(()=>{ loadTopSkills(); loadMemGrowth(); loadMiniGraph(); loadChannels(); loadAiCost(); loadCausal(); loadTemporal() }, 90000)
+}
+initHome()
+
+// ── CLAUDE.md editor ─────────────────────────────────────────────────────────
+
+const CMD_LABELS = {
+  global:        { label:'Global', scope:'toda sessão Claude Code', color:'#6366f1', tag:'GLOBAL' },
+  workspace:     { label:'Workspace', scope:'quando cwd = /config/workspace', color:'#22c55e', tag:'WORKSPACE' },
+  brandspace:    { label:'Brandspace', scope:'injetado por buildFullContext + cwd do projeto', color:'#f472b6', tag:'PROJETO' },
+  trackingmachine:{ label:'TrackingMachine', scope:'injetado por buildFullContext + cwd do projeto', color:'#f472b6', tag:'PROJETO' },
+  ralab:         { label:'Ralab', scope:'injetado por buildFullContext + cwd do projeto', color:'#f472b6', tag:'PROJETO' },
+  fisioexpert:   { label:'FisioExpert', scope:'injetado por buildFullContext + cwd do projeto', color:'#f472b6', tag:'PROJETO' },
+  abcprime:      { label:'ABC Prime', scope:'injetado por buildFullContext + cwd do projeto', color:'#f472b6', tag:'PROJETO' },
+  orion:         { label:'Orion', scope:'injetado por buildFullContext + cwd do projeto', color:'#f472b6', tag:'PROJETO' },
+}
+
+let cmdCurrentKey = null
+
+async function loadCmdFileList() {
+  try {
+    const data = await (await fetch('/api/claudemd/list')).json()
+    const wrap = document.getElementById('cmd-file-list')
+    if (!wrap) return
+    wrap.innerHTML = data.files.map(f => {
+      const info = CMD_LABELS[f.key] || { label: f.key, scope: '', color: '#6b7280', tag: '?' }
+      const existsBadge = f.exists
+        ? `<span style="color:#22c55e;font-size:.7rem;font-weight:700">✅ existe</span>`
+        : `<span style="color:#ef4444;font-size:.7rem;font-weight:700">✗ não existe</span>`
+      const sizeTxt = f.exists ? `<span style="color:#4b5563;font-size:.7rem">${f.size} chars</span>` : ''
+      return `<div onclick="openCmdEditor('${f.key}')" style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s" onmouseover="this.style.background='#111118'" onmouseout="this.style.background=''">
+        <div style="width:8px;height:8px;border-radius:50%;background:${info.color};flex-shrink:0"></div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:.5rem">
+            <span style="font-size:.85rem;font-weight:700;color:#e5e7eb">${info.label}</span>
+            <span style="font-size:.65rem;font-weight:700;background:#1a1a2e;color:${info.color};padding:1px 6px;border-radius:4px">${info.tag}</span>
+            ${existsBadge} ${sizeTxt}
+          </div>
+          <div style="font-size:.72rem;color:#6b7280;margin-top:.15rem;font-family:monospace">${f.path}</div>
+          <div style="font-size:.72rem;color:#4b5563;margin-top:.1rem">${info.scope}</div>
+        </div>
+        <span style="color:#374151;font-size:.85rem">✏️</span>
+      </div>`
+    }).join('')
+  } catch(e) { console.error('loadCmdFileList:', e) }
+}
+
+async function openCmdEditor(key) {
+  cmdCurrentKey = key
+  const info = CMD_LABELS[key] || { label: key }
+  document.getElementById('cmd-editor-title').textContent = `Editando: ${info.label} CLAUDE.md`
+  document.getElementById('cmd-editor-wrap').style.display = 'block'
+  document.getElementById('cmd-editor-ta').value = 'carregando…'
+  try {
+    const data = await (await fetch(`/api/claudemd?key=${key}`)).json()
+    document.getElementById('cmd-editor-ta').value = data.content
+  } catch(e) {
+    document.getElementById('cmd-editor-ta').value = `# Erro ao carregar: ${e.message}`
+  }
+  document.getElementById('cmd-editor-wrap').scrollIntoView({ behavior:'smooth' })
+}
+
+async function saveCmdMd() {
+  if (!cmdCurrentKey) return
+  const content = document.getElementById('cmd-editor-ta').value
+  try {
+    const r = await fetch('/api/claudemd', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key: cmdCurrentKey, content })
+    })
+    const data = await r.json()
+    if (data.ok) {
+      showToast('✅ Salvo com sucesso')
+      loadCmdFileList()
+    } else {
+      showToast('❌ Erro: ' + (data.error || 'desconhecido'))
+    }
+  } catch(e) { showToast('❌ ' + e.message) }
+}
+
+function closeCmdEditor() {
+  cmdCurrentKey = null
+  document.getElementById('cmd-editor-wrap').style.display = 'none'
+}
+
+// Carrega quando entrar na aba doc-claudemds
+const _origDocNav = document.querySelectorAll.bind(document)
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.nav-item[data-view="doc-claudemds"]')
+  if (btn) loadCmdFileList()
+})
+
+// ── Metricas (grafico filtravel por consumo) ──────────────────────────────
+let _mfEnt = null
+let _mf = { kind:'container', name:'', metric:'cpu', range:'1h' }
+async function loadMetricEntities(){ try{ _mfEnt = await (await fetch('/api/metrics/entities')).json(); fillMetricSelects() }catch(e){} }
+function fillMetricSelects(){
+  if(!_mfEnt) return
+  const list = _mfEnt[_mf.kind] || []
+  const sn = $p('#mfName'); if(sn){ sn.innerHTML = list.map(n=>`<option value="${n}">${n.replace(/^stack-/,'').replace(/-1$/,'')}</option>`).join('')||'<option>(sem dados)</option>'; if(list.length){ if(!list.includes(_mf.name)) _mf.name=list[0]; sn.value=_mf.name } }
+  const sm = $p('#mfMetric'); if(sm){ sm.innerHTML = _mf.kind==='server'
+    ? '<option value="cpu">CPU %</option><option value="mem_pct">Memoria %</option><option value="swap_pct">Swap %</option><option value="disk_pct">Disco %</option>'
+    : '<option value="cpu">CPU %</option><option value="mem_mb">Memoria (MB)</option>'
+    if(![...sm.options].some(o=>o.value===_mf.metric)) _mf.metric='cpu'; sm.value=_mf.metric }
+}
+async function drawMetric(){
+  if(!_mf.name){ return }
+  try{
+    const d = await (await fetch(`/api/metrics?kind=${_mf.kind}&name=${encodeURIComponent(_mf.name)}&metric=${_mf.metric}&range=${_mf.range}`)).json()
+    renderMetricChart(d.points||[])
+    const unit = _mf.metric==='mem_mb'?' MB':'%'
+    const last = d.points?.length?d.points[d.points.length-1].v:null
+    $p('#metricInfo') && ($p('#metricInfo').textContent = (d.points?.length||0)+' pontos · '+_mf.range+(last!=null?(' · agora: '+last+unit):''))
+  }catch(e){}
+}
+function renderMetricChart(pts){
+  const svg=$p('#metricChart'); if(!svg) return
+  if(!pts.length){ svg.innerHTML='<text x="500" y="150" fill="#6b7280" text-anchor="middle" font-size="13">sem dados ainda neste periodo (vai preenchendo com o tempo)</text>'; return }
+  const W=1000,H=300,pad=42
+  const xs=pts.map(p=>p.t), ys=pts.map(p=>p.v)
+  const minX=Math.min(...xs), maxX=Math.max(...xs), maxY=Math.max(...ys,1)
+  const X=t=>pad+(t-minX)/((maxX-minX)||1)*(W-2*pad)
+  const Y=v=>H-pad-(v/maxY)*(H-2*pad)
+  const line=pts.map((p,i)=>(i?'L':'M')+X(p.t).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ')
+  const area='M'+X(pts[0].t).toFixed(1)+' '+(H-pad)+' '+pts.map(p=>'L'+X(p.t).toFixed(1)+' '+Y(p.v).toFixed(1)).join(' ')+' L'+X(pts[pts.length-1].t).toFixed(1)+' '+(H-pad)+' Z'
+  const grid=[0,.5,1].map(f=>{const v=maxY*f, y=Y(v); return `<line x1="${pad}" y1="${y.toFixed(1)}" x2="${W-pad}" y2="${y.toFixed(1)}" stroke="#1e1e2e" stroke-width="1"/><text x="${pad-7}" y="${(y+4).toFixed(1)}" fill="#6b7280" font-size="11" text-anchor="end">${v.toFixed(0)}</text>`}).join('')
+  const fmt=t=>{const d=new Date(t*1000); return _mf.range==='1h'||_mf.range==='1d'?(('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)):(('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2))}
+  const xlab=[0,Math.floor(pts.length/2),pts.length-1].filter((x,i,a)=>a.indexOf(x)===i).map(i=>`<text x="${X(pts[i].t).toFixed(1)}" y="${H-14}" fill="#6b7280" font-size="11" text-anchor="middle">${fmt(pts[i].t)}</text>`).join('')
+  svg.innerHTML=`${grid}<path d="${area}" fill="rgba(99,102,241,.16)"/><path d="${line}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round"/>${xlab}`
+}
+function initMetrics(){
+  const sk=$p('#mfKind'); if(!sk) return
+  sk.onchange=e=>{ _mf.kind=e.target.value; fillMetricSelects(); drawMetric() }
+  $p('#mfName').onchange=e=>{ _mf.name=e.target.value; drawMetric() }
+  $p('#mfMetric').onchange=e=>{ _mf.metric=e.target.value; drawMetric() }
+  $$p('.mfr').forEach(b=>b.onclick=()=>{ _mf.range=b.dataset.r; $$p('.mfr').forEach(x=>x.classList.remove('active')); b.classList.add('active'); drawMetric() })
+  loadMetricEntities().then(drawMetric)
+  setInterval(()=>{ if(_mf.range==='1h') drawMetric() }, 60000)
+}
+setTimeout(initMetrics, 2000)
+
+</script>
+</body>
+</html>

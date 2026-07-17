@@ -1,0 +1,1626 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Orion — Chat</title>
+<style>@view-transition{navigation:auto}::view-transition-old(sidebar),::view-transition-new(sidebar){animation-duration:.1s}</style>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100vh; display: flex; overflow: hidden; }
+  .page { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ── Markdown dentro das bolhas (igual ao plugin) ── */
+  .bubble.md { white-space: normal; }
+  .bubble.md > *:first-child { margin-top: 0; }
+  .bubble.md > *:last-child { margin-bottom: 0; }
+  .bubble.md h1 { font-size: 1.35em; margin: .6em 0 .35em; color: #fff; }
+  .bubble.md h2 { font-size: 1.18em; margin: .6em 0 .3em; color: #fff; border-bottom: 1px solid #1e1e2e; padding-bottom: 3px; }
+  .bubble.md h3 { font-size: 1.06em; margin: .5em 0 .25em; color: #e5e7eb; }
+  .bubble.md p { margin: .5em 0; }
+  .bubble.md ul, .bubble.md ol { margin: .45em 0 .45em 1.4em; }
+  .bubble.md li { margin: .2em 0; }
+  .bubble.md strong { color: #fff; font-weight: 700; }
+  .bubble.md em { color: #cbd5e1; }
+  .bubble.md a { color: #a5b4fc; text-decoration: underline; }
+  .bubble.md code { background: #0d0d14; border: 1px solid #1e1e2e; padding: 1px 5px; border-radius: 5px; font-family: 'SF Mono', Menlo, monospace; font-size: .88em; color: #a5b4fc; }
+  .bubble.md pre { background: #0a0a12; border: 1px solid #1e1e2e; border-radius: 8px; padding: 11px 13px; overflow-x: auto; margin: .55em 0; }
+  .bubble.md pre code { background: none; border: none; padding: 0; color: #cbd5e1; font-size: 12px; line-height: 1.55; display: block; }
+  .bubble.md blockquote { border-left: 3px solid #6366f1; padding-left: 12px; color: #9ca3af; margin: .5em 0; }
+  .bubble.md table { border-collapse: collapse; margin: .55em 0; font-size: .92em; }
+  .bubble.md td, .bubble.md th { border: 1px solid #1e1e2e; padding: 5px 9px; }
+  .bubble.md hr { border: none; border-top: 1px solid #1e1e2e; margin: .7em 0; }
+  .bubble.md pre::-webkit-scrollbar { height: 5px; } .bubble.md pre::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
+
+  /* ── Timeline estilo plugin (trilho + bolinhas + IN/OUT) ── */
+  .tl { position: relative; padding-left: 24px; max-width: 880px; }
+  .tl::before { content: ''; position: absolute; left: 6px; top: 6px; bottom: 6px; width: 2px; background: #1e1e2e; }
+  .tl-item { position: relative; margin-bottom: 16px; }
+  .tl-item .dot { position: absolute; left: -23px; top: 3px; width: 11px; height: 11px; border-radius: 50%; background: #6366f1; border: 2px solid #0a0a0f; box-sizing: border-box; }
+  .tl-item.user .dot { background: #a5b4fc; }
+  .tl-item.say .dot { background: #22c55e; }
+  .tl-item.thinking .dot { background: #4b5563; }
+  .tl-item.tool .dot { background: #22c55e; }
+  .tl-item.summary .dot { background: #374151; }
+  /* dot pendente = círculo transparente (linha do timeline visível através) + ✶ centralizado */
+  .tl-item.pending .dot { background: transparent; border-color: #0a0a0f; color: #fb7185; font-size: 9px; font-weight: 900; display: flex; align-items: center; justify-content: center; animation: twpulse 1.1s ease-in-out infinite; }
+  .tl-user { font-size: 13.5px; color: #c7d2fe; font-weight: 500; line-height: 1.5; background: #0d0d1a; border: 1px solid rgba(99,102,241,.18); border-radius: 14px; padding: 10px 14px; white-space: pre-wrap; }
+  .tl-say { font-size: 13.5px; color: #e5e7eb; line-height: 1.65; }
+  .tl-think { font-size: 12.5px; color: #6b7280; font-style: italic; cursor: pointer; }
+  .tl-think .tt-full { display: none; margin-top: 4px; white-space: pre-wrap; }
+  .tl-think.open .tt-full { display: block; }
+  .tl-tool .tt-name { font-size: 13px; font-weight: 700; color: #e5e7eb; }
+  .tl-io { background: #0d0d14; border: 1px solid #1e1e2e; border-radius: 8px; margin-top: 6px; overflow: hidden; }
+  .tl-io .io-row { display: flex; }
+  .tl-io .io-tag { flex-shrink: 0; width: 34px; text-align: center; padding: 8px 0; font-size: 10px; font-weight: 700; color: #4b5563; background: #111118; border-right: 1px solid #1e1e2e; }
+  .tl-io pre { flex: 1; margin: 0; padding: 8px 11px; white-space: pre-wrap; word-break: break-word; font-family: 'SF Mono', Menlo, monospace; font-size: 12px; line-height: 1.55; color: #cbd5e1; max-height: 260px; overflow: auto; }
+  .tl-io pre.out { color: #94a3b8; }
+  .tl-io pre::-webkit-scrollbar { width: 5px; height: 5px; } .tl-io pre::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
+  .tl-time { font-size: 10px; color: #374151; margin-top: 3px; }
+  .tl-more { display:block; width:100%; margin:0 0 14px; padding:9px; background:#111118; border:1px dashed #2a2a40; border-radius:8px; color:#9ca3af; font-size:12px; cursor:pointer; transition:all .12s; }
+  .tl-more:hover { background:#1a1a2e; color:#e5e7eb; border-color:#33334d; }
+  /* sanfona dos blocos de tool: fecha em 80px com fade nos últimos 40px, abre suave */
+  .tl-io { transition: max-height .34s cubic-bezier(.4,0,.2,1); }
+  .tl-io.clp { max-height: 80px; overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 40px, transparent 78px);
+            mask-image: linear-gradient(to bottom, #000 40px, transparent 78px); }
+  .tl-io.expanded { max-height: 4000px; }
+  .tl-fold { display:inline-flex; align-items:center; gap:5px; margin:3px 0 0; background:none; border:none; color:#6366f1; font-size:11px; cursor:pointer; padding:3px 6px; border-radius:6px; transition:all .12s; }
+  .tl-fold:hover { background:#1a1a2e; color:#a5b4fc; }
+  /* indicador "pensando" estilo plugin: asterisco colorido pulsando + palavra que cicla */
+  .think-live { font-style: normal; color: #9ca3af; display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .think-live .tw-star { color: #fb7185; font-weight: 700; display: inline-block; animation: twpulse 1.1s ease-in-out infinite; }
+  .think-live .tw-word { transition: opacity .14s ease; }
+  .think-live .tw-dots { color: #6b7280; animation: twpulse 1.1s ease-in-out infinite .3s; }
+  @keyframes twpulse { 0%,100%{opacity:.35;transform:scale(.92)} 50%{opacity:1;transform:scale(1.12)} }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; border-bottom: 1px solid #1e1e2e;
+    background: #0d0d14; flex-shrink: 0;
+  }
+  .back { color: #6b7280; text-decoration: none; font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 6px; }
+  .back:hover { background: #1e1e2e; color: #e5e7eb; }
+  .header-info { flex: 1; min-width: 0; }
+  .session-title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-id { font-size: 11px; color: #4b5563; margin-top: 1px; }
+  .header-actions { display: flex; align-items: center; gap: 6px; }
+  /* lápis discreto ao lado do título */
+  .btn-rename {
+    background: none; border: none; color: #2d2d45; padding: 4px 5px;
+    border-radius: 6px; cursor: pointer; transition: all .15s; display: flex; align-items: center;
+  }
+  .btn-rename:hover { color: #6b7280; background: rgba(255,255,255,.05); }
+  .btn-rename svg { width: 13px; height: 13px; }
+  .btn-view { background: none; border: 1px solid #1e1e2e; color: #4b5563; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .btn-view:hover { border-color: #2a2a40; color: #9ca3af; }
+  .btn-view.clean-on { border-color: #4f46e5; color: #a5b4fc; }
+  /* modo clean: esconde tool / thinking / summary */
+  .clean-mode .tl-item.tool,
+  .clean-mode .tl-item.thinking,
+  .clean-mode .tl-item.summary { display: none !important; }
+  .clean-mode .tl-item .dot { display: none; }
+  .clean-mode .tl { padding-left: 0; }
+  .clean-mode .tl::before { display: none; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .status-dot.sending { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .messages {
+    flex: 1; overflow-y: auto; padding: 24px 40px; display: flex; flex-direction: column; gap: 2px;
+    scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #2a2a40 transparent;
+  }
+  .msg-spinner{display:flex;align-items:center;justify-content:center;flex:1}
+  .msg-spinner svg{animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .messages::-webkit-scrollbar { width: 5px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: #2a2a40; border-radius: 4px; }
+  .messages::-webkit-scrollbar-thumb:hover { background: #3a3a55; }
+
+  .msg { display: flex; flex-direction: column; max-width: 80%; margin-bottom: 6px; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; align-items: flex-start; max-width: 90%; }
+  .msg.summary { align-self: center; width: 100%; max-width: 100%; }
+
+  .bubble {
+    padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.6;
+    word-break: break-word; white-space: pre-wrap;
+  }
+  .msg.user .bubble { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border-radius: 12px 12px 2px 12px; }
+  .msg.assistant .bubble { background: #111118; border: 1px solid #1e1e2e; color: #e5e7eb; border-radius: 12px 12px 12px 2px; }
+  .msg.summary .bubble { background: #0f0f1a; border: 1px solid #1e1e2e; color: #6b7280; font-style: italic; font-size: 12px; text-align: center; border-radius: 8px; }
+
+  .msg-time { font-size: 10px; color: #374151; margin-top: 3px; padding: 0 2px; }
+
+  .tools { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .tool-badge { background: #1a1a2e; border: 1px solid #2a2a40; padding: 2px 8px; border-radius: 4px; font-size: 10px; color: #6366f1; font-family: monospace; }
+
+  .thinking { align-self: flex-start; display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #111118; border: 1px solid #1e1e2e; border-radius: 12px; font-size: 13px; color: #6b7280; }
+  .thinking span { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #6366f1; animation: bounce 1.2s infinite; }
+  .thinking span:nth-child(2) { animation-delay: .15s; }
+  .thinking span:nth-child(3) { animation-delay: .3s; }
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+  .composer { padding: 8px 40px 16px; border-top: 1px solid #17172a; background: #0d0d14; flex-shrink: 0; }
+  .composer-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 11px; color: #4b5563; }
+  .usage-pills { display: flex; gap: 12px; }
+  .usage-pill { display: flex; align-items: center; gap: 5px; }
+  .usage-pill .up-label { text-transform: uppercase; letter-spacing: .05em; font-size: 10px; }
+  .usage-pill .up-bar { width: 50px; height: 3px; background: #1e1e2e; border-radius: 2px; overflow: hidden; }
+  .usage-pill .up-fill { height: 100%; border-radius: 2px; transition: width .5s; }
+  .usage-pill .up-pct { font-weight: 600; color: #9ca3af; min-width: 26px; }
+  /* Slash commands popup */
+  .composer-wrap { position: relative; }
+  .slash-menu { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; right: 0;
+    background: #111118; border: 1px solid #1e1e2e; border-radius: 10px; overflow: hidden; z-index: 50;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  .slash-menu.show { display: flex; flex-direction: column; }
+  .slash-search-wrap { padding: 8px 10px; border-bottom: 1px solid #1e1e2e; display: flex; gap: 6px; align-items: center; }
+  .slash-search { flex: 1; background: #0d0d14; border: 1px solid #2a2a40; border-radius: 7px; padding: 6px 10px; color: #e5e7eb; font-size: 12.5px; outline: none; }
+  .slash-search:focus { border-color: #4f46e5; }
+  .slash-search::placeholder { color: #4b5563; }
+  .slash-sort-btn { flex-shrink: 0; background: #0d0d14; border: 1px solid #2a2a40; border-radius: 7px; color: #6b7280; padding: 5px 8px; font-size: 13px; cursor: pointer; transition: all .15s; line-height: 1; }
+  .slash-sort-btn:hover, .slash-sort-btn.active { background: #1a1a2e; border-color: #4f46e5; color: #a5b4fc; }
+  .slash-list { max-height: 260px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #26263a transparent; }
+  .slash-cmd { padding: 7px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background .1s; }
+  .slash-cmd:hover, .slash-cmd.sel { background: #1a1a2e; }
+  .slash-cmd.is-sub { padding-left: 26px; }
+  .slash-cmd .sc-indent { color: #374151; font-size: 11px; margin-right: -2px; }
+  .slash-cmd .sc-name { font-size: 12.5px; font-weight: 600; color: #6366f1; flex-shrink: 0; }
+  .slash-cmd.is-sub .sc-name { color: #818cf8; font-weight: 500; }
+  .slash-cmd .sc-desc { font-size: 11.5px; color: #6b7280; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slash-cmd .sc-chip { flex-shrink: 0; font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 5px; letter-spacing: .3px; }
+  .slash-cmd .sc-badge { flex-shrink: 0; font-size: 10px; color: #a78bfa; background: rgba(139,92,246,.12); border: 1px solid rgba(139,92,246,.25); padding: 1px 5px; border-radius: 4px; }
+  /* cores dos chips por grupo */
+  .sc-chip.g-builtin  { background: rgba(99,102,241,.15); color: #818cf8; }
+  .sc-chip.g-custom   { background: rgba(16,185,129,.15); color: #34d399; }
+  .sc-chip.g-superpowers { background: rgba(245,158,11,.15); color: #fbbf24; }
+  .sc-chip.g-caveman  { background: rgba(139,92,246,.15); color: #a78bfa; }
+  .sc-chip.g-ui-ux    { background: rgba(236,72,153,.15); color: #f472b6; }
+  .sc-chip.g-obsidian { background: rgba(79,70,229,.15); color: #6366f1; }
+  .sc-chip.g-claude-mem { background: rgba(6,182,212,.15); color: #22d3ee; }
+  /* ── Composer box ── */
+  .composer-inner {
+    display: flex; flex-direction: column;
+    background: #111118; border: 1.5px solid #1e1e2e; border-radius: 14px;
+    transition: border-color .2s; overflow: hidden;
+  }
+  .composer-inner:focus-within { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.08); }
+  /* Linha de anexos (aparece quando há arquivos) */
+  .attach-bar { display: none; flex-wrap: wrap; gap: 5px; padding: 8px 12px 0; }
+  /* Linha do textarea + mic */
+  .composer-text-row { display: flex; align-items: flex-start; padding: 10px 10px 6px 14px; gap: 4px; }
+  /* Divisor entre texto e toolbar */
+  .composer-divider { height: 1px; background: #1a1a2a; margin: 0 10px; opacity: 0; transition: opacity .15s; }
+  /* Linha de botões inferior */
+  .composer-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 8px; gap: 4px;
+  }
+  .toolbar-left { display: flex; align-items: center; gap: 2px; }
+  .toolbar-right { display: flex; align-items: center; gap: 6px; }
+  /* botões frameless */
+  .comp-btn {
+    flex-shrink: 0; background: none; border: none; color: #4b5563;
+    width: 30px; height: 30px; border-radius: 7px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .12s, color .12s;
+  }
+  .comp-btn:hover { background: rgba(255,255,255,.06); color: #9ca3af; }
+  .comp-btn svg { width: 15px; height: 15px; }
+  /* botão + */
+  #plus-btn { font-size: 19px; font-weight: 300; color: #4b5563; }
+  #plus-btn:hover { color: #9ca3af; }
+  .mic-btn.recording { background: rgba(239,68,68,.15); color: #f87171; animation: pulse 1s infinite; }
+  /* botão Auto mode */
+  .auto-toggle {
+    flex-shrink: 0; background: none; border: 1px solid #2a2a40; color: #6b7280;
+    font-size: 12px; font-family: inherit; padding: 0 10px; height: 28px;
+    border-radius: 7px; cursor: pointer; transition: all .12s;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .auto-toggle:hover { border-color: #4b5563; color: #9ca3af; background: rgba(255,255,255,.04); }
+  .auto-toggle.open { border-color: #6366f1; color: #a5b4fc; background: rgba(99,102,241,.08); }
+  /* popup de modos */
+  .mode-popup {
+    display: none; position: absolute; bottom: calc(100% + 8px); right: 0;
+    background: #f8f8f8; border: 1px solid #e5e5e5; border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.22); width: 320px; z-index: 60;
+    overflow: hidden; color: #1a1a1a;
+  }
+  .mode-popup.show { display: block; }
+  .mode-popup-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px 8px; font-size: 13px; font-weight: 600; color: #111;
+    border-bottom: 1px solid #e8e8e8;
+  }
+  .mode-popup-hint { display: flex; align-items: center; gap: 3px; }
+  .mode-popup-hint kbd {
+    background: #fff; border: 1px solid #d0d0d0; border-radius: 4px;
+    padding: 1px 5px; font-size: 11px; font-family: inherit; color: #555;
+    box-shadow: 0 1px 0 #ccc;
+  }
+  .mode-popup-hint span { font-size: 11px; color: #888; }
+  .mode-opt {
+    display: flex; align-items: flex-start; gap: 10px; padding: 9px 14px;
+    cursor: pointer; transition: background .1s; position: relative;
+  }
+  .mode-opt:hover { background: #f0f0f5; }
+  .mode-opt.active { background: #eef2ff; }
+  .mode-opt-icon { flex-shrink: 0; margin-top: 1px; color: #444; }
+  .mode-opt.active .mode-opt-icon { color: #4f46e5; }
+  .mode-opt-body { flex: 1; min-width: 0; }
+  .mode-opt-title { font-size: 13px; font-weight: 500; color: #111; margin-bottom: 1px; }
+  .mode-opt-desc { font-size: 11.5px; color: #666; line-height: 1.4; }
+  .mode-opt-check { font-size: 13px; color: #4f46e5; opacity: 0; flex-shrink: 0; margin-top: 2px; }
+  .mode-opt.active .mode-opt-check { opacity: 1; }
+  /* effort row */
+  .mode-effort-row {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    border-top: 1px solid #e8e8e8; background: #f8f8f8;
+  }
+  .effort-title { font-size: 13px; font-weight: 500; color: #111; }
+  .effort-label-val { font-size: 13px; color: #555; }
+  .effort-dots { display: flex; gap: 5px; margin-left: auto; align-items: center; }
+  .effort-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #d0d0d8;
+    cursor: pointer; transition: all .12s;
+  }
+  .effort-dot.filled { background: #1a1a1a; transform: scale(1.2); }
+  .effort-dot.past { background: #888; }
+  .model-menu { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; background: #111118; border: 1px solid #1e1e2e; border-radius: 10px; overflow: hidden; z-index: 50; box-shadow: 0 8px 24px rgba(0,0,0,.5); min-width: 220px; }
+  .model-menu.show { display: block; }
+  /* ── menu "+" ───────────────────────────── */
+  .plus-menu { display:none; position:absolute; bottom:calc(100% + 6px); left:0; background:#111118; border:1px solid #1e1e2e; border-radius:10px; overflow:hidden; z-index:60; min-width:200px; box-shadow:0 8px 24px rgba(0,0,0,.55); }
+  .plus-menu.show { display:block; }
+  .plus-opt { display:flex; align-items:center; gap:10px; padding:11px 14px; cursor:pointer; color:#c4c4d4; font-size:13px; transition:background .1s; }
+  .plus-opt:hover { background:#1a1a2e; }
+  .plus-opt svg { width:15px; height:15px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; opacity:.75; }
+  .slash-btn { flex-shrink:0; }
+  .auto-inline { display:flex; align-items:center; }
+  /* ── attachments ────────────────────────── */
+  .attach-bar { display:flex; flex-wrap:wrap; gap:5px; padding:6px 10px 0; }
+  .attach-chip { display:flex; align-items:center; gap:5px; background:#13131f; border:1px solid #2a2a40; border-radius:8px; padding:3px 8px; font-size:11px; color:#a5b4fc; max-width:200px; }
+  .attach-img { padding:3px; position:relative; cursor:pointer; border-radius:8px; overflow:hidden; }
+  .attach-img:hover { border-color: #ef4444; }
+  .attach-img .attach-x { background:rgba(0,0,0,.65); border-radius:50%; width:16px; height:16px; display:flex; align-items:center; justify-content:center; font-size:11px; line-height:1; }
+  .attach-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .attach-x { cursor:pointer; opacity:.55; flex-shrink:0; line-height:1; }
+  .attach-x:hover { opacity:1; }
+  /* ── modal nova sessão ──────────────────── */
+  #new-sess-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:500; align-items:center; justify-content:center; }
+  #new-sess-overlay.show { display:flex; }
+  #new-sess-box { background:#111118; border:1px solid #2a2a40; border-radius:16px; padding:24px; width:min(480px,90vw); display:flex; flex-direction:column; gap:14px; }
+  #new-sess-box h3 { margin:0; font-size:15px; color:#e5e7eb; font-weight:600; }
+  #new-sess-msg { width:100%; background:#0d0d1a; border:1px solid #2a2a40; border-radius:10px; padding:10px 12px; color:#e5e7eb; font-size:14px; font-family:inherit; resize:vertical; min-height:80px; outline:none; box-sizing:border-box; }
+  #new-sess-msg:focus { border-color:#6366f1; }
+  .new-sess-actions { display:flex; justify-content:flex-end; gap:8px; }
+  .new-sess-actions button { border:none; border-radius:8px; padding:8px 16px; font-size:13px; cursor:pointer; }
+  .btn-ns-cancel { background:#1e1e2e; color:#9ca3af; }
+  .btn-ns-cancel:hover { background:#2a2a40; color:#e5e7eb; }
+  .btn-ns-ok { background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; font-weight:600; }
+  .btn-ns-ok:disabled { opacity:.5; cursor:not-allowed; }
+  .model-opt { padding: 9px 13px; cursor: pointer; display: flex; flex-direction: column; gap: 1px; transition: background .1s; }
+  .model-opt:hover, .model-opt.sel { background: #1a1a2e; }
+  .model-opt .mo-name { font-size: 13px; font-weight: 600; color: #e5e7eb; }
+  .model-opt .mo-desc { font-size: 11px; color: #6b7280; }
+  .model-opt.sel .mo-name { color: #a5b4fc; }
+  #input {
+    flex: 1; background: none; border: none; outline: none; color: #e5e7eb; font-size: 14px;
+    resize: none; min-height: 22px; max-height: 26vh; font-family: inherit; line-height: 1.6;
+    padding: 0; margin: 0;
+    scrollbar-width: thin; scrollbar-color: #2a2a40 transparent;
+  }
+  #input::-webkit-scrollbar { width: 4px; }
+  #input::-webkit-scrollbar-track { background: transparent; }
+  #input::-webkit-scrollbar-thumb { background: #2a2a40; border-radius: 4px; }
+  #input::placeholder { color: #2d2d45; }
+  #send-btn {
+    flex-shrink: 0; background: #ef4444; border: none; border-radius: 8px;
+    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background .15s, opacity .15s;
+  }
+  #send-btn:hover { background: #dc2626; }
+  #send-btn:disabled { opacity: .35; cursor: not-allowed; background: #1e1e2e; }
+  #send-btn svg { width: 13px; height: 13px; fill: none; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+  .rename-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 100; align-items: center; justify-content: center; }
+  .rename-overlay.show { display: flex; }
+  .rename-box { background: #111118; border: 1px solid #1e1e2e; border-radius: 12px; padding: 24px; width: 360px; }
+  .rename-box h3 { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+  .rename-box input { width: 100%; background: #1a1a2e; border: 1px solid #2a2a40; border-radius: 8px; padding: 10px 12px; color: #e5e7eb; font-size: 14px; outline: none; }
+  .rename-box input:focus { border-color: #6366f1; }
+  .rename-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .btn-cancel { background: none; border: 1px solid #1e1e2e; color: #6b7280; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn-save { background: linear-gradient(135deg, #6366f1, #8b5cf6); border: none; color: #fff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+
+  /* ── drag & drop overlay ── */
+  .page.drag-over { outline: 2px dashed #6366f1; outline-offset: -4px; }
+  .drag-overlay { display:none; position:fixed; inset:0; background:rgba(99,102,241,.12); border:2px dashed #6366f1; border-radius:12px; z-index:400; pointer-events:none; align-items:center; justify-content:center; font-size:18px; color:#a5b4fc; }
+  .drag-overlay.show { display:flex; }
+
+  @media (max-width: 768px) {
+    body, .page { height: 100dvh; }
+    header { padding-left: 56px; }
+    .btn-rename { display: none; }
+    .header-actions a[href="/"] { display: none; }
+    .composer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+    .messages { -webkit-overflow-scrolling: touch; }
+  }
+</style>
+</head>
+<body>
+<!--SIDEBAR-->
+<div class="page">
+<!--TABS-->
+
+<header>
+  <a href="/sessions" class="back" title="Voltar para sessões">←</a>
+  <div class="header-info" style="display:flex;align-items:center;gap:4px;min-width:0">
+    <div class="session-title" id="session-title">Carregando...</div>
+    <button class="btn-rename" onclick="openRename()" title="Renomear sessão">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+    </button>
+  </div>
+  <div class="header-actions">
+    <div class="status-dot" id="status-dot"></div>
+    <button class="btn-view" id="btn-view" onclick="toggleView()" title="Alternar entre modo completo e limpo">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span id="view-label">completo</span>
+    </button>
+  </div>
+</header>
+
+<div class="messages" id="messages"><div class="msg-spinner"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#4b5563" stroke-width="2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div></div>
+
+<div class="composer">
+  <div class="composer-meta">
+    <div class="usage-pills" id="chat-usage-pills">
+      <div class="usage-pill">
+        <span class="up-label">Sessão</span>
+        <div class="up-bar"><div class="up-fill" id="cu-sess-fill" style="width:0%"></div></div>
+        <span class="up-pct" id="cu-sess-pct">—</span>
+      </div>
+      <div class="usage-pill">
+        <span class="up-label">Semana</span>
+        <div class="up-bar"><div class="up-fill" id="cu-week-fill" style="width:0%"></div></div>
+        <span class="up-pct" id="cu-week-pct">—</span>
+      </div>
+    </div>
+  </div>
+  <div class="composer-wrap">
+    <div class="slash-menu" id="slash-menu"></div>
+    <div class="model-menu" id="model-menu"></div>
+    <div class="plus-menu" id="plus-menu">
+      <div class="plus-opt" onclick="triggerFileUpload()">
+        <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        Upload do computador
+      </div>
+      <div class="plus-opt" onclick="addServerPath()">
+        <svg viewBox="0 0 24 24"><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"/></svg>
+        Arquivo do servidor
+      </div>
+      <div class="plus-opt" onclick="closePlusMenu();toggleModelMenu()">
+        <svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2 2 2 0 0 1 2 2 2 2 0 0 1 2 2v1a2 2 0 0 1 0 4 2 2 0 0 1-2 4 2 2 0 0 1-2 2 2 2 0 0 1-4 0 2 2 0 0 1-2-2 2 2 0 0 1-2-4 2 2 0 0 1 0-4V6a2 2 0 0 1 2-2 2 2 0 0 1 2-2z"/></svg>
+        Trocar modelo (<span id="plus-model-label">Sonnet</span>)
+      </div>
+    </div>
+    <input type="file" id="file-input" style="display:none" multiple onchange="handleFiles(this)">
+    <div class="composer-inner">
+      <!-- Linha de anexos (só aparece quando há arquivos) -->
+      <div id="attach-bar" class="attach-bar"></div>
+      <!-- Linha do texto -->
+      <div class="composer-text-row">
+        <textarea id="input" placeholder="Mensagem para o Orion..." rows="1"
+          onkeydown="handleKey(event)" oninput="handleInput(this)"></textarea>
+        <button class="comp-btn mic-btn" id="mic-btn" onclick="toggleMic()" title="Falar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>
+        </button>
+      </div>
+      <!-- Divisor — só visível com 2+ linhas -->
+      <div class="composer-divider" id="composer-divider"></div>
+      <!-- Toolbar inferior -->
+      <div class="composer-toolbar">
+        <div class="toolbar-left">
+          <button class="comp-btn" id="plus-btn" onclick="togglePlusMenu()" title="Adicionar">+</button>
+          <button class="comp-btn slash-btn" id="slash-btn" onclick="triggerSlash()" title="Abrir menu de skills (/)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="4"/><line x1="15" y1="6" x2="9" y2="18"/></svg>
+          </button>
+        </div>
+        <!-- Popup de modos -->
+        <div class="mode-popup" id="mode-popup">
+          <div class="mode-popup-header">
+            <span>Modos</span>
+            <span class="mode-popup-hint">
+              <kbd>⇧</kbd><span>+</span><kbd>tab</kbd> trocar
+            </span>
+          </div>
+          <div class="mode-opt" data-mode="ask" onclick="setMode('ask')">
+            <div class="mode-opt-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 12H6M6 12l4-4M6 12l4 4"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg></div>
+            <div class="mode-opt-body">
+              <div class="mode-opt-title">Confirmar antes</div>
+              <div class="mode-opt-desc">Claude pede aprovação antes de cada edição</div>
+            </div>
+            <div class="mode-opt-check" id="check-ask">✓</div>
+          </div>
+          <div class="mode-opt" data-mode="auto-edit" onclick="setMode('auto-edit')">
+            <div class="mode-opt-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
+            <div class="mode-opt-body">
+              <div class="mode-opt-title">Editar automaticamente</div>
+              <div class="mode-opt-desc">Claude edita arquivos diretamente sem confirmar</div>
+            </div>
+            <div class="mode-opt-check" id="check-auto-edit">✓</div>
+          </div>
+          <div class="mode-opt" data-mode="plan" onclick="setMode('plan')">
+            <div class="mode-opt-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="14" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg></div>
+            <div class="mode-opt-body">
+              <div class="mode-opt-title">Planejar primeiro</div>
+              <div class="mode-opt-desc">Claude apresenta um plano antes de executar</div>
+            </div>
+            <div class="mode-opt-check" id="check-plan">✓</div>
+          </div>
+          <div class="mode-opt" data-mode="auto" onclick="setMode('auto')">
+            <div class="mode-opt-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+            <div class="mode-opt-body">
+              <div class="mode-opt-title">Auto mode</div>
+              <div class="mode-opt-desc">Claude escolhe o melhor modo para cada tarefa</div>
+            </div>
+            <div class="mode-opt-check" id="check-auto">✓</div>
+          </div>
+          <div class="mode-effort-row">
+            <div class="mode-opt-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
+            <span class="effort-title">Esforço</span>
+            <span class="effort-label-val" id="effort-label">(Médio)</span>
+            <div class="effort-dots" id="effort-dots"></div>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="auto-toggle" id="auto-toggle" onclick="toggleModePopup()" title="Modos e esforço">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            <span id="mode-label">Auto mode</span>
+          </button>
+          <button id="send-btn" onclick="sendMessage()" title="Enviar">
+            <svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /.page -->
+
+<!-- Nova sessão overlay -->
+<div id="new-sess-overlay" onclick="if(event.target===this)closeNewSession()">
+  <div id="new-sess-box">
+    <h3>✨ Nova sessão</h3>
+    <textarea id="new-sess-msg" placeholder="O que você quer fazer?"></textarea>
+    <div class="new-sess-actions">
+      <button class="btn-ns-cancel" onclick="closeNewSession()">Cancelar</button>
+      <button class="btn-ns-ok" id="btn-ns-ok" onclick="submitNewSession()">Criar →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Drag overlay -->
+<div id="drag-overlay" class="drag-overlay">📎 Soltar para anexar</div>
+
+<!-- Rename overlay -->
+<div class="rename-overlay" id="rename-overlay">
+  <div class="rename-box">
+    <h3>Renomear sessão</h3>
+    <input type="text" id="rename-input" placeholder="Nome da sessão">
+    <div class="rename-actions">
+      <button class="btn-cancel" onclick="closeRename()">Cancelar</button>
+      <button class="btn-save" onclick="saveRename()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let SESSION_ID = location.pathname.split('/').pop()
+let sending = false
+let thinkingEl = null
+let thinkTimer = null
+// Dedup: textos enviados otimisticamente — SSE vai rebroadcastar o mesmo item, ignoramos
+let _sentTexts = new Set()
+// Palavras que ciclam no indicador "pensando" (estilo plugin)
+const THINK_WORDS = ['Pensando','Contemplando','Ponderando','Ruminando','Elucidando','Cogitando','Raciocinando','Maquinando','Divagando','Tramando','Refletindo','Deliberando']
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+
+function fmtTime(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+// Markdown → HTML (igual ao plugin: títulos, código, listas, negrito, links, tabela)
+function mdToHtml(md) {
+  const lines = String(md ?? '').split('\n')
+  let html = '', inCode = false, inList = false, listTag = 'ul'
+  const inl = s => escHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*]+?)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`]+?)`/g, '<code>$1</code>')
+    .replace(/\[(.+?)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+  const closeList = () => { if (inList) { html += `</${listTag}>`; inList = false } }
+  for (const ln of lines) {
+    const fence = ln.match(/^\s*```(\w*)/)
+    if (fence) { if (inCode) { html += '</code></pre>'; inCode = false } else { closeList(); html += '<pre><code>'; inCode = true } continue }
+    if (inCode) { html += escHtml(ln) + '\n'; continue }
+    if (/^#{1,6}\s/.test(ln)) { closeList(); const l = ln.match(/^#+/)[0].length; html += `<h${l}>${inl(ln.replace(/^#+\s*/, ''))}</h${l}>`; continue }
+    if (/^\s*[-*+]\s/.test(ln)) { if (!inList || listTag !== 'ul') { closeList(); html += '<ul>'; inList = true; listTag = 'ul' } html += `<li>${inl(ln.replace(/^\s*[-*+]\s/, ''))}</li>`; continue }
+    if (/^\s*\d+\.\s/.test(ln)) { if (!inList || listTag !== 'ol') { closeList(); html += '<ol>'; inList = true; listTag = 'ol' } html += `<li>${inl(ln.replace(/^\s*\d+\.\s/, ''))}</li>`; continue }
+    if (/^\s*>\s?/.test(ln)) { closeList(); html += `<blockquote>${inl(ln.replace(/^\s*>\s?/, ''))}</blockquote>`; continue }
+    if (/^\s*---+\s*$/.test(ln)) { closeList(); html += '<hr>'; continue }
+    if (ln.trim() === '') { closeList(); continue }
+    closeList(); html += `<p>${inl(ln)}</p>`
+  }
+  if (inCode) html += '</code></pre>'
+  closeList()
+  return html
+}
+
+const _singleLineH = 22 // px — altura de uma linha (14px * 1.6 lineheight)
+function autoResize(el) {
+  el.style.height = 'auto'
+  const h = el.scrollHeight
+  el.style.height = h + 'px'
+  const multiLine = h > _singleLineH + 6
+  // Esconde scrollbar quando é linha única (sem resquício)
+  el.style.overflowY = multiLine ? 'auto' : 'hidden'
+  // Divisor só aparece quando há mais de uma linha
+  const divider = document.getElementById('composer-divider')
+  if (divider) divider.style.opacity = multiLine ? '1' : '0'
+}
+
+function isNearBottom() {
+  const el = document.getElementById('messages')
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 140
+}
+
+// instant=true → sempre rola (carregamento inicial, troca de sessão, envio de mensagem)
+// instant=false → só rola se o usuário já está perto do fundo (evita pulo aleatório)
+function scrollBottom(instant = false) {
+  if (!instant && !isNearBottom()) return
+  const el = document.getElementById('messages')
+  const prev = el.style.scrollBehavior
+  el.style.scrollBehavior = 'auto'
+  el.scrollTop = el.scrollHeight
+  el.style.scrollBehavior = prev
+}
+
+// ── Render message ────────────────────────────────────────────────────────────
+
+function renderMsg(msg, prepend = false) {
+  if (msg.role === 'summary') {
+    const div = document.createElement('div')
+    div.className = 'msg summary'
+    div.innerHTML = `<div class="bubble">— conversa anterior resumida —</div>`
+    if (prepend) document.getElementById('messages').prepend(div)
+    else document.getElementById('messages').appendChild(div)
+    return div
+  }
+
+  const div = document.createElement('div')
+  div.className = `msg ${msg.role}`
+
+  const toolsHtml = msg.tools?.length
+    ? `<div class="tools">${msg.tools.map(t=>`<span class="tool-badge">${escHtml(t.name)}</span>`).join('')}</div>`
+    : ''
+
+  // Assistant → markdown renderizado (igual plugin). User → texto simples.
+  const body = msg.role === 'assistant'
+    ? `<div class="bubble md">${mdToHtml(msg.text || '')}${toolsHtml}</div>`
+    : `<div class="bubble">${escHtml(msg.text || '')}${toolsHtml}</div>`
+
+  div.innerHTML = `
+    ${body}
+    ${msg.ts ? `<div class="msg-time">${fmtTime(msg.ts)}</div>` : ''}
+  `
+
+  if (prepend) document.getElementById('messages').prepend(div)
+  else document.getElementById('messages').appendChild(div)
+  return div
+}
+
+// ── Timeline estilo plugin ──────────────────────────────────────────────────
+function tlContainer() {
+  let tl = document.querySelector('#messages .tl')
+  if (!tl) { tl = document.createElement('div'); tl.className = 'tl'; document.getElementById('messages').appendChild(tl) }
+  return tl
+}
+function tlItemHtml(it) {
+  const time = it.ts ? `<div class="tl-time">${fmtTime(it.ts)}</div>` : ''
+  if (it.kind === 'user')     return `<div class="tl-item user"><span class="dot"></span><div class="tl-user">${escHtml(it.text||'')}</div>${time}</div>`
+  if (it.kind === 'say')      return `<div class="tl-item say"><span class="dot"></span><div class="tl-say bubble md">${mdToHtml(it.text||'')}</div>${time}</div>`
+  if (it.kind === 'summary')  return `<div class="tl-item summary"><span class="dot"></span><div class="tl-think">— conversa anterior resumida —</div></div>`
+  if (it.kind === 'thinking') {
+    const t = it.text || ''
+    const short = t.length > 120 ? escHtml(t.slice(0,120))+'…' : escHtml(t)
+    return `<div class="tl-item thinking"><span class="dot"></span><div class="tl-think" onclick="this.classList.toggle('open')">💭 ${short}<div class="tt-full">${escHtml(t)}</div></div></div>`
+  }
+  if (it.kind === 'tool') {
+    const inBox  = it.input ? `<div class="io-row"><div class="io-tag">IN</div><pre>${escHtml(String(it.input))}</pre></div>` : ''
+    const outBox = it.output ? `<div class="io-row"><div class="io-tag">OUT</div><pre class="out">${escHtml(String(it.output))}</pre></div>` : ''
+    return `<div class="tl-item tool" data-tid="${it.id||''}"><span class="dot"></span><div class="tt-name">${escHtml(it.name||'tool')}</div><div class="tl-io">${inBox}<div class="io-slot">${outBox}</div></div></div>`
+  }
+  return ''
+}
+// O servidor manda só o fim por padrão; se houver mais, mostra botão p/ buscar tudo.
+function renderTimeline(items, totalOnServer, partial) {
+  const c = document.getElementById('messages')
+  c.innerHTML = ''
+  const tl = document.createElement('div'); tl.className = 'tl'
+  let html = ''
+  if (partial) {
+    // Arquivo grande: lemos só a cauda. Botão carrega tudo via API ?full=1
+    html += `<button class="tl-more" onclick="tlLoadAll()">▲ carregar histórico anterior completo</button>`
+  } else if (totalOnServer && totalOnServer > items.length) {
+    const hidden = totalOnServer - items.length
+    html += `<button class="tl-more" onclick="tlLoadAll()">▲ carregar ${hidden} mensagens anteriores</button>`
+  }
+  html += items.map(tlItemHtml).join('')
+  tl.innerHTML = html
+  c.appendChild(tl)
+  setupToolFolds(tl)
+}
+window.tlLoadAll = async function () {
+  const btn = document.querySelector('#messages .tl-more')
+  if (btn) btn.textContent = 'carregando…'
+  try {
+    const data = await fetch(`/api/claude-sessions/${SESSION_ID}?full=1`).then(r => r.json())
+    const el = document.getElementById('messages')
+    const fromBottom = el.scrollHeight - el.scrollTop
+    renderTimeline(data.timeline)  // sem total → sem botão
+    el.scrollTop = el.scrollHeight - fromBottom  // mantém a posição de leitura
+  } catch { if (btn) btn.textContent = 'erro — tentar de novo' }
+}
+function appendTl(it) {
+  const tl = tlContainer()
+  // se o indicador "pensando" está visível, insere o item ANTES dele (indicador fica por último)
+  if (thinkingEl && thinkingEl.isConnected && thinkingEl.parentNode === tl) {
+    thinkingEl.insertAdjacentHTML('beforebegin', tlItemHtml(it))
+  } else {
+    tl.insertAdjacentHTML('beforeend', tlItemHtml(it))
+  }
+}
+
+// Preenche o OUT de um tool já renderizado (chega depois, ao vivo)
+function fillToolOutput(id, output) {
+  if (!id) return
+  const item = document.querySelector('#messages [data-tid="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]')
+  if (!item) return
+  const slot = item.querySelector('.io-slot')
+  if (slot) slot.innerHTML = `<div class="io-row"><div class="io-tag">OUT</div><pre class="out">${escHtml(String(output||''))}</pre></div>`
+  const io = item.querySelector('.tl-io'); if (io) { io.removeAttribute('data-fold'); setupToolFolds(item) }
+}
+
+// Sanfona: blocos de tool altos fecham em 80px (fade) com botão pra expandir
+function setupToolFolds(root) {
+  (root || document).querySelectorAll('.tl-io:not([data-fold])').forEach(io => {
+    io.dataset.fold = '1'
+    if (io.scrollHeight > 110) {
+      io.classList.add('clp')
+      const btn = document.createElement('button')
+      btn.className = 'tl-fold'
+      btn.innerHTML = '⌄ expandir'
+      btn.addEventListener('click', () => {
+        const open = io.classList.toggle('expanded')
+        io.classList.toggle('clp', !open)
+        btn.innerHTML = open ? '⌃ recolher' : '⌄ expandir'
+      })
+      io.after(btn)
+    }
+  })
+}
+
+// Garante o indicador "✶ pensando" (ciclando) presente, sempre no fim da lista
+function ensureWorking() {
+  if (thinkingEl && thinkingEl.isConnected) { tlContainer().appendChild(thinkingEl); return }
+  showThinking()
+}
+// Após um item novo ao vivo, reposiciona o indicador no fim
+function bumpWorking() { ensureWorking(); scrollBottom() }
+
+// Mostra a animação enquanto a sessão está ATIVA (processo rodando); some quando termina
+async function pollActive() {
+  try {
+    const d = await fetch(`/api/claude-sessions/${SESSION_ID}/active`).then(r => r.json())
+    // O único sinal confiável de "terminou" é o processo sair (active:false).
+    // Não usar d.waiting — ele fica true no meio de loops quando Claude escreveu texto mas ainda
+    // vai usar mais tools; esconderia o ✶ prematuramente.
+    if (d.active) ensureWorking()
+    else setSending(false)
+  } catch {}
+}
+
+function showThinking() {
+  hideThinking()
+  thinkingEl = document.createElement('div')
+  thinkingEl.className = 'tl-item pending'
+  thinkingEl.innerHTML = '<span class="dot">✶</span><div class="tl-think think-live"><span class="tw-word">Pensando</span><span class="tw-dots">…</span></div>'
+  tlContainer().appendChild(thinkingEl)
+  const wordEl = thinkingEl.querySelector('.tw-word')
+  let i = 0
+  thinkTimer = setInterval(() => {
+    i = (i + 1) % THINK_WORDS.length
+    if (wordEl) { wordEl.style.opacity = '0'; setTimeout(() => { wordEl.textContent = THINK_WORDS[i]; wordEl.style.opacity = '1' }, 140) }
+  }, 1700)
+  scrollBottom()
+}
+
+function hideThinking() {
+  if (thinkTimer) { clearInterval(thinkTimer); thinkTimer = null }
+  thinkingEl?.remove()
+  thinkingEl = null
+}
+
+// ── Load history ──────────────────────────────────────────────────────────────
+
+const cacheKey = id => 'tlcache:' + id
+
+function renderData(data) {
+  const session = data.session || {}
+  const title = session.custom_title || session.ai_title || session.first_user_msg || SESSION_ID.slice(0,8)
+  document.getElementById('session-title').textContent = title
+  document.getElementById('session-id').textContent = SESSION_ID.slice(0,8)
+  document.title = `Orion — ${title}`
+  window.orionSetTabTitle?.(title)
+
+  const container = document.getElementById('messages')
+  if (data.timeline?.length) {
+    renderTimeline(data.timeline, data.total, data.partial)
+  } else {
+    container.innerHTML = '<div style="text-align:center;color:#4b5563;padding:40px;font-size:13px">Nenhuma mensagem ainda</div>'
+  }
+  requestAnimationFrame(() => scrollBottom(true))
+  if (data.active) ensureWorking()   // animação aparece NA HORA (sem esperar o poll)
+}
+
+async function loadHistory() {
+  history.replaceState({ id: SESSION_ID }, '', location.pathname)
+  // 0) Dados inlinados pelo servidor (SSR) — renderização síncrona, zero fetch
+  if (window.__INITIAL_DATA__) {
+    const d = window.__INITIAL_DATA__
+    window.__INITIAL_DATA__ = null
+    renderData(d)
+    loadDraft(d.session)
+    try { sessionStorage.setItem(cacheKey(SESSION_ID), JSON.stringify({ session: d.session, timeline: d.timeline, total: d.total, active: d.active })) } catch {}
+    // Revalida em background silencioso (atualiza cache para próxima visita)
+    fetch(`/api/claude-sessions/${SESSION_ID}`).then(r => r.json()).then(fresh => {
+      if (fresh.total !== d.total) renderData(fresh)
+      try { sessionStorage.setItem(cacheKey(SESSION_ID), JSON.stringify({ session: fresh.session, timeline: fresh.timeline, total: fresh.total, active: fresh.active })) } catch {}
+    }).catch(() => {})
+    return
+  }
+
+  // 1) Fallback: cache sessionStorage — zero espera
+  let cached = null
+  try { const c = sessionStorage.getItem(cacheKey(SESSION_ID)); if (c) cached = JSON.parse(c) } catch {}
+  if (cached) renderData(cached)
+
+  // 2) Revalida no fundo; só re-renderiza se mudou
+  try {
+    const data = await fetch(`/api/claude-sessions/${SESSION_ID}`).then(r => r.json())
+    if (!cached || !cached.timeline?.length || data.total !== cached.total) {
+      renderData(data)
+    } else if (data.active !== cached.active) {
+      if (data.active) ensureWorking(); else if (!sending) hideThinking()
+    }
+    try { sessionStorage.setItem(cacheKey(SESSION_ID), JSON.stringify({ session: data.session, timeline: data.timeline, total: data.total, active: data.active })) } catch {}
+  } catch (e) {
+    if (!cached) document.getElementById('messages').innerHTML = '<div style="text-align:center;color:#f87171;padding:40px;font-size:13px">erro ao carregar</div>'
+  }
+}
+
+// ── SSE real-time ─────────────────────────────────────────────────────────────
+
+let _sseConn = null
+
+function connectSSE() {
+  _sseConn?.close()  // garante que não acumula conexões antigas
+  const es = new EventSource(`/api/claude-sessions/${SESSION_ID}/stream`)
+  _sseConn = es
+  es.onopen = () => { if (sending) resetWatchdog() }
+
+  es.onmessage = e => {
+    resetWatchdog()  // qualquer evento SSE = ainda ativo, reinicia contador
+    const d = JSON.parse(e.data)
+
+    // Stream rico (estilo plugin): itens de timeline + saída de tool pareada
+    if (d.type === 'tl') {
+      const it = d.item
+      if (it.kind === 'tool_output') {
+        fillToolOutput(it.id, it.output)
+        scrollBottom()
+      } else {
+        // Pula mensagem de usuário que já foi adicionada otimisticamente
+        if (it.kind === 'user' && _sentTexts.has(it.text)) { _sentTexts.delete(it.text); return }
+        appendTl(it)
+        // ✶ nunca some no meio do loop — só quando pollActive confirmar active:false
+        ensureWorking()
+        scrollBottom()
+      }
+      return
+    }
+
+    // Compat (broadcast antigo)
+    if (d.type === 'message') {
+      hideThinking()
+      const m = d.message
+      if (m.role === 'summary') appendTl({ kind: 'summary' })
+      else if (m.role === 'user') appendTl({ kind: 'user', text: m.text, ts: m.ts })
+      else { // assistant
+        if (m.text?.trim()) appendTl({ kind: 'say', text: m.text, ts: m.ts })
+        for (const t of (m.tools || [])) appendTl({ kind: 'tool', name: t.name, input: '', output: null })
+        setSending(false)
+      }
+      scrollBottom()
+    }
+
+    if (d.type === 'title') {
+      const titleEl = document.getElementById('session-title')
+      titleEl.textContent = d.title
+      document.title = `Orion — ${d.title}`
+      window.orionSetTabTitle?.(d.title)
+    }
+
+    if (d.type === 'sending') {
+      showThinking()
+    }
+  }
+
+  es.onerror = () => {
+    es.close()
+    setTimeout(() => { connectSSE(); pollActive() }, 3000)  // checa se terminou ao reconectar
+  }
+}
+
+// ── Send message ──────────────────────────────────────────────────────────────
+
+function setSending(val) {
+  sending = val
+  document.getElementById('send-btn').disabled = val
+  document.getElementById('status-dot').className = 'status-dot' + (val ? ' sending' : '')
+  if (!val) { hideThinking(); clearTimeout(_watchdog) }
+  startPoll(val)
+  if (val) resetWatchdog()
+}
+
+// ── Modelo (dropdown) ──────────────────────────────────────────────────────
+const MODELS = [
+  { id: 'claude-opus-4-8',           name: 'Opus 4.8',   desc: 'Mais capaz (mais lento/caro)' },
+  { id: 'claude-sonnet-4-6',         name: 'Sonnet 4.6', desc: 'Equilíbrio (padrão)' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5',  desc: 'Rápido e barato' },
+]
+function currentModel() { return localStorage.getItem('chatModel') || 'claude-sonnet-4-6' }
+function setModelLabel() {
+  const m = MODELS.find(x => x.id === currentModel()) || MODELS[1]
+  const el = document.getElementById('model-label'); if (el) el.textContent = m.name
+  const el2 = document.getElementById('plus-model-label'); if (el2) el2.textContent = m.name
+}
+function toggleModelMenu() {
+  const menu = document.getElementById('model-menu')
+  if (menu.classList.contains('show')) { menu.classList.remove('show'); return }
+  const cur = currentModel()
+  menu.innerHTML = MODELS.map(m =>
+    `<div class="model-opt${m.id===cur?' sel':''}" onclick="pickModel('${m.id}')"><span class="mo-name">${m.name}</span><span class="mo-desc">${m.desc}</span></div>`
+  ).join('')
+  menu.classList.add('show')
+}
+function pickModel(id) {
+  localStorage.setItem('chatModel', id)
+  setModelLabel()
+  document.getElementById('model-menu').classList.remove('show')
+}
+document.addEventListener('click', e => {
+  const menu = document.getElementById('model-menu')
+  const plusMenu = document.getElementById('plus-menu')
+  if (menu && !menu.contains(e.target) && !plusMenu?.contains(e.target)) menu.classList.remove('show')
+})
+
+// ── Auto-enviar (após falar) ───────────────────────────────────────────────
+// ── Modos e esforço ─────────────────────────────────────────────────────────
+const MODES = {
+  ask:       { label: 'Confirmar antes', prefix: '[Confirme comigo antes de editar qualquer arquivo]\n' },
+  'auto-edit': { label: 'Editar auto',  prefix: '' },
+  plan:      { label: 'Planejar primeiro', prefix: '/plan ' },
+  auto:      { label: 'Auto mode',      prefix: '' },
+}
+const EFFORT_LABELS = ['Mínimo','Baixo','Médio','Alto','Máximo']
+const EFFORT_MODELS = ['claude-haiku-4-5-20251001','claude-haiku-4-5-20251001','claude-sonnet-4-6','claude-sonnet-4-6','claude-opus-4-5-20251101']
+let _orionMode = localStorage.getItem('orionMode') || 'auto'
+let _orionEffort = parseInt(localStorage.getItem('orionEffort') || '2', 10) // 0-4, padrão Médio
+
+function autoOn() { return false } // compat: auto-send via voz desativado por padrão
+function toggleAuto() {} // compat: sem-op
+
+function toggleModePopup() {
+  const popup = document.getElementById('mode-popup')
+  const btn = document.getElementById('auto-toggle')
+  const isOpen = popup.classList.contains('show')
+  if (isOpen) { popup.classList.remove('show'); btn.classList.remove('open'); return }
+  popup.classList.add('show'); btn.classList.add('open')
+  renderModePopup()
+  // fecha ao clicar fora
+  setTimeout(() => document.addEventListener('click', _closeModeOnBlur, { once: true }), 0)
+}
+function _closeModeOnBlur(e) {
+  if (!document.getElementById('mode-popup').contains(e.target) &&
+      e.target.id !== 'auto-toggle') {
+    document.getElementById('mode-popup').classList.remove('show')
+    document.getElementById('auto-toggle').classList.remove('open')
+  }
+}
+function setMode(m) {
+  _orionMode = m; localStorage.setItem('orionMode', m); renderModePopup()
+  document.getElementById('mode-label').textContent = MODES[m].label
+}
+function setEffort(e) {
+  _orionEffort = e; localStorage.setItem('orionEffort', e); renderModePopup()
+}
+function renderModePopup() {
+  // modos
+  Object.keys(MODES).forEach(k => {
+    const el = document.getElementById('check-' + k)?.closest('.mode-opt')
+    if (el) el.classList.toggle('active', k === _orionMode)
+  })
+  // esforço label
+  const lbl = document.getElementById('effort-label')
+  if (lbl) lbl.textContent = '(' + EFFORT_LABELS[_orionEffort] + ')'
+  // dots
+  const dots = document.getElementById('effort-dots')
+  if (!dots) return
+  dots.innerHTML = EFFORT_LABELS.map((_, i) =>
+    `<div class="effort-dot${i === _orionEffort ? ' filled' : i < _orionEffort ? ' past' : ''}" onclick="event.stopPropagation();setEffort(${i})"></div>`
+  ).join('')
+}
+// aplica modo ao texto antes de enviar
+function applyModePrefix(text) {
+  const prefix = MODES[_orionMode]?.prefix || ''
+  return prefix + text
+}
+// modelo efetivo (esforço pode sobrescrever o modelo selecionado)
+function effectiveModel() {
+  const effort = EFFORT_MODELS[_orionEffort]
+  if (_orionEffort !== 2) return effort // se não é "Médio", usa o do esforço
+  return currentModel() // senão usa o modelo selecionado manualmente
+}
+
+// ── Microfone → SpeechRecognition (live) com fallback Whisper ──────────────
+let recognition = null, recording = false
+
+function toggleMic() {
+  const btn = document.getElementById('mic-btn')
+
+  // ── parar ──
+  if (recording) {
+    recognition?.stop()
+    return
+  }
+
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SpeechRec) { toggleMicFallback(); return }
+
+  const input = document.getElementById('input')
+  const baseText = input.value          // texto que já estava no campo
+  let allFinal = ''                      // texto confirmado nesta sessão
+
+  recognition = new SpeechRec()
+  recognition.continuous = true
+  recognition.interimResults = true
+  recognition.lang = 'pt-BR'
+  recognition.maxAlternatives = 1
+
+  recognition.onstart = () => {
+    recording = true
+    btn.classList.add('recording')
+  }
+
+  recognition.onresult = e => {
+    let interim = ''
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript
+      if (e.results[i].isFinal) allFinal += t
+      else interim += t
+    }
+    const sep = baseText && (allFinal || interim) ? ' ' : ''
+    input.value = baseText + sep + allFinal + interim
+    autoResize(input)
+  }
+
+  recognition.onend = () => {
+    recording = false
+    btn.classList.remove('recording')
+    recognition = null
+    // mantém só o texto confirmado (descarta interim suspenso)
+    const sep = baseText && allFinal ? ' ' : ''
+    input.value = (baseText + sep + allFinal).trim()
+    autoResize(input)
+    input.focus()
+    // não envia automaticamente — usuário confirma manualmente
+  }
+
+  recognition.onerror = e => {
+    if (e.error === 'not-allowed') alert('Permissão de microfone negada.')
+    if (e.error !== 'aborted') { recording = false; btn.classList.remove('recording'); recognition = null }
+  }
+
+  try { recognition.start() } catch(e) { toggleMicFallback() }
+}
+
+// fallback: MediaRecorder → Whisper (para browsers sem SpeechRecognition)
+async function toggleMicFallback() {
+  const btn = document.getElementById('mic-btn')
+  let mediaRec, chunks = []
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    mediaRec = new MediaRecorder(stream)
+    mediaRec.ondataavailable = e => { if (e.data.size) chunks.push(e.data) }
+    mediaRec.onstop = async () => {
+      recording = false; btn.classList.remove('recording')
+      stream.getTracks().forEach(t => t.stop())
+      const blob = new Blob(chunks, { type: 'audio/webm' })
+      if (!blob.size) return
+      const input = document.getElementById('input')
+      const prev = input.placeholder; input.placeholder = 'transcrevendo…'
+      try {
+        const r = await fetch('/api/transcribe', { method: 'POST', headers: { 'Content-Type': 'audio/webm' }, body: blob })
+        const d = await r.json()
+        const txt = (d.text || '').trim()
+        if (txt) { input.value = (input.value ? input.value + ' ' : '') + txt; autoResize(input); input.focus() }
+      } catch(e) { /* silencioso */ }
+      input.placeholder = prev
+    }
+    mediaRec.start(); recording = true; btn.classList.add('recording')
+    btn.onclick = () => { mediaRec?.stop(); btn.onclick = toggleMic }
+  } catch(e) { alert('Microfone indisponível: ' + e.message) }
+}
+
+async function sendMessage() {
+  const input = document.getElementById('input')
+  const text = input.value.trim()
+  if (!text || sending) return
+
+  input.value = ''
+  autoResize(input)
+  clearDraft()
+  setSending(true)
+
+  // Prepend arquivos anexados ao texto
+  let fullText = text
+  if (_attachments.length) {
+    const parts = _attachments.map(a => {
+      if (a.type === 'image') {
+        // Inclui imagem como data URL — o claude CLI aceita como anexo de texto
+        return `[Imagem: ${a.name}]\n${a.dataUrl}`
+      }
+      if (a.content != null) return `[Arquivo: ${a.name}]\n\`\`\`\n${a.content.slice(0, 50000)}\n\`\`\``
+      return `[Arquivo no servidor: ${a.path}]`
+    })
+    fullText = parts.join('\n\n') + (text ? '\n\n' + text : '')
+    _attachments = []; renderAttachments()
+  }
+  fullText = applyModePrefix(fullText)
+
+  // Mostrar mensagem do usuário imediatamente (otimista)
+  _sentTexts.add(fullText)
+  appendTl({ kind: 'user', text: fullText, ts: new Date().toISOString() })
+  showThinking()
+  scrollBottom()
+
+  try {
+    const res = await fetch(`/api/claude-sessions/${SESSION_ID}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: fullText, model: currentModel() }),
+    })
+    if (!res.ok) {
+      hideThinking()
+      appendTl({ kind: 'say', text: '❌ Erro ao enviar. Tente novamente.' })
+      setSending(false)
+    }
+    // Resposta chega via SSE
+  } catch {
+    hideThinking()
+    appendTl({ kind: 'say', text: '❌ Erro de conexão.' })
+    setSending(false)
+  }
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendMessage()
+  }
+}
+
+// ── Rename ────────────────────────────────────────────────────────────────────
+
+function openRename() {
+  const current = document.getElementById('session-title').textContent
+  document.getElementById('rename-input').value = current
+  document.getElementById('rename-overlay').classList.add('show')
+  document.getElementById('rename-input').focus()
+  document.getElementById('rename-input').select()
+}
+
+function closeRename() {
+  document.getElementById('rename-overlay').classList.remove('show')
+}
+
+async function saveRename() {
+  const title = document.getElementById('rename-input').value.trim()
+  if (!title) return
+  await fetch(`/api/claude-sessions/${SESSION_ID}/title`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  document.getElementById('session-title').textContent = title
+  document.title = `Orion — ${title}`
+  closeRename()
+}
+
+document.getElementById('rename-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('rename-overlay')) closeRename()
+})
+
+document.getElementById('rename-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') saveRename()
+  if (e.key === 'Escape') closeRename()
+})
+
+// ── SALIM usage indicator ─────────────────────────────────────────────────────
+function usageColor(pct) {
+  return pct >= 85 ? '#f87171' : pct >= 60 ? '#fbbf24' : '#6366f1'
+}
+async function loadChatUsage() {
+  try {
+    const d = await fetch('/api/claude-usage').then(r => r.json())
+    if (!d || d.error) return
+    const s = d.session, w = d.week
+    if (s) {
+      document.getElementById('cu-sess-fill').style.cssText = 'width:'+s.pct+'%;background:'+usageColor(s.pct)
+      document.getElementById('cu-sess-pct').textContent = s.pct + '%'
+    }
+    if (w) {
+      document.getElementById('cu-week-fill').style.cssText = 'width:'+w.pct+'%;background:'+usageColor(w.pct)
+      document.getElementById('cu-week-pct').textContent = w.pct + '%'
+    }
+  } catch(e) {}
+}
+// ── Slash commands (carregados da API) ─────────────────────────────────────────
+let SLASH_CMDS = [
+  { name: '/multi',  desc: 'Orquestrar tarefa em paralelo com múltiplos agentes' },
+  { name: '/status', desc: 'Ver status do servidor e WhatsApp' },
+]
+fetch('/api/slash-commands').then(r => r.json()).then(d => {
+  if (d.commands?.length) SLASH_CMDS = [...d.commands, { name: '/multi', desc: 'Orquestrar tarefa em paralelo com múltiplos agentes' }, { name: '/status', desc: 'Ver status do servidor e WhatsApp' }]
+}).catch(() => {})
+let slashSel = -1
+let _slashQ = ''
+let _slashPrefix = '/'
+function _slashFiltered() {
+  const q = _slashQ.toLowerCase()
+  let list = q
+    ? SLASH_CMDS.filter(c => c.name.toLowerCase().includes(q))
+    : SLASH_CMDS.filter(c => c.name.startsWith(_slashPrefix))
+  if (!_slashSortAlpha) {
+    list = [...list].sort((a, b) => {
+      const gi = g => GROUP_ORDER.indexOf(g) === -1 ? 99 : GROUP_ORDER.indexOf(g)
+      const gd = gi(a.group) - gi(b.group)
+      if (gd !== 0) return gd
+      return a.name.localeCompare(b.name)
+    })
+  }
+  return list
+}
+const GROUP_LABEL = { builtin:'built-in', custom:'custom', superpowers:'powers', caveman:'cave', 'ui-ux':'ui-ux', obsidian:'obsidian', 'claude-mem':'mem' }
+const GROUP_ORDER = ['builtin','custom','superpowers','caveman','ui-ux','obsidian','claude-mem']
+let _slashSortAlpha = false
+function _renderSlashList() {
+  const list = document.getElementById('slash-list')
+  if (!list) return
+  const cmds = _slashFiltered()
+  list.innerHTML = cmds.length
+    ? cmds.map((c, i) => {
+        const isSub = c.type === 'subcommand' || c.type === 'subagent'
+        const subBadge = c.type === 'subagent' ? `<span class="sc-badge">⬡ sub</span>` : ''
+        const indent = isSub ? `<span class="sc-indent">↳</span>` : ''
+        const chip = `<span class="sc-chip g-${c.group||'custom'}">${GROUP_LABEL[c.group]||c.group||'?'}</span>`
+        return `<div class="slash-cmd${isSub?' is-sub':''}${i===slashSel?' sel':''}" data-cmd="${c.name}">${indent}<span class="sc-name">${c.name}</span><span class="sc-desc">${c.desc||''}</span>${subBadge}${chip}</div>`
+      }).join('')
+    : `<div style="padding:10px 14px;color:#4b5563;font-size:12px">Nenhuma skill encontrada</div>`
+  list.querySelectorAll('.slash-cmd').forEach(el => el.onclick = () => pickSlash(el.dataset.cmd))
+}
+function renderSlashMenu(prefix) {
+  const menu = document.getElementById('slash-menu')
+  _slashPrefix = prefix
+  if (!menu.classList.contains('show')) {
+    // monta estrutura apenas na abertura — preserva o input entre re-renders
+    _slashQ = ''
+    slashSel = -1
+    menu.innerHTML = `<div class="slash-search-wrap"><input class="slash-search" id="slash-search-inp" placeholder="Buscar skill…" autocomplete="off"><button class="slash-sort-btn${_slashSortAlpha?' active':''}" id="slash-sort-btn" title="Alternar ordem: grupo / A-Z">⇅</button></div><div class="slash-list" id="slash-list"></div>`
+    const si = document.getElementById('slash-search-inp')
+    document.getElementById('slash-sort-btn').addEventListener('click', () => {
+      _slashSortAlpha = !_slashSortAlpha
+      document.getElementById('slash-sort-btn').classList.toggle('active', _slashSortAlpha)
+      _renderSlashList()
+      si.focus()
+    })
+    si.addEventListener('input', () => { _slashQ = si.value; slashSel = -1; _renderSlashList() })
+    si.addEventListener('keydown', e => {
+      const cmds = _slashFiltered()
+      if (e.key==='ArrowDown')  { e.preventDefault(); slashSel=Math.min(slashSel+1,cmds.length-1); _renderSlashList(); return }
+      if (e.key==='ArrowUp')    { e.preventDefault(); slashSel=Math.max(slashSel-1,-1); _renderSlashList(); return }
+      if ((e.key==='Tab'||e.key==='Enter') && slashSel>=0) { e.preventDefault(); pickSlash(cmds[slashSel].name); return }
+      if (e.key==='Enter' && cmds.length===1) { e.preventDefault(); pickSlash(cmds[0].name); return }
+      if (e.key==='Escape') { closeSlashMenu(); document.getElementById('input').focus(); return }
+    })
+    menu.classList.add('show')
+    si.focus()
+  }
+  _renderSlashList()
+}
+function closeSlashMenu() {
+  document.getElementById('slash-menu').classList.remove('show')
+  _slashQ = ''; slashSel = -1; _slashViaBtn = false
+}
+function pickSlash(name) {
+  const inp = document.getElementById('input')
+  if (_slashViaBtn) {
+    // aberto via botão: insere no textarea sem sobrescrever o que tinha
+    const cur = inp.value.trim()
+    inp.value = (cur ? cur + ' ' : '') + name + ' '
+  } else {
+    // aberto via digitação de "/": substitui o texto parcial pelo comando
+    inp.value = name + ' '
+  }
+  closeSlashMenu(); inp.focus(); autoResize(inp)
+}
+function handleInput(el) {
+  autoResize(el)
+  saveDraft()
+  const val = el.value
+  if (val.startsWith('/') && !val.includes(' ')) { renderSlashMenu(val) }
+  else { closeSlashMenu() }
+}
+const _origHandleKey = handleKey
+function handleKey(e) {
+  const menu = document.getElementById('slash-menu')
+  if (menu.classList.contains('show')) {
+    const cmds = _slashFiltered()
+    if (e.key==='ArrowDown')  { e.preventDefault(); slashSel=Math.min(slashSel+1,cmds.length-1); _renderSlashList(); return }
+    if (e.key==='ArrowUp')    { e.preventDefault(); slashSel=Math.max(slashSel-1,-1); _renderSlashList(); return }
+    if ((e.key==='Tab'||e.key==='Enter') && slashSel>=0) { e.preventDefault(); pickSlash(cmds[slashSel].name); return }
+    if (e.key==='Escape') { closeSlashMenu(); return }
+  }
+  _origHandleKey(e)
+}
+let _slashViaBtn = false
+function triggerSlash() {
+  const menu = document.getElementById('slash-menu')
+  if (menu.classList.contains('show') && _slashViaBtn) { closeSlashMenu(); document.getElementById('input').focus(); return }
+  _slashViaBtn = true
+  renderSlashMenu('/')
+  // foca o campo de busca — textarea fica intocado até confirmar skill
+}
+
+// ── drag & drop de arquivo na janela ──────────────────────────────────────
+const _dropZone = document.querySelector('.page') || document.body
+const _dragOverlay = document.getElementById('drag-overlay')
+_dropZone.addEventListener('dragover', e => { e.preventDefault(); _dropZone.classList.add('drag-over'); _dragOverlay?.classList.add('show') })
+_dropZone.addEventListener('dragleave', e => { if (!_dropZone.contains(e.relatedTarget)) { _dropZone.classList.remove('drag-over'); _dragOverlay?.classList.remove('show') } })
+_dropZone.addEventListener('drop', e => {
+  e.preventDefault(); _dropZone.classList.remove('drag-over'); _dragOverlay?.classList.remove('show')
+  if (e.dataTransfer.files.length) handleFiles({ files: e.dataTransfer.files, value: '' })
+})
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadHistory()
+connectSSE()
+loadChatUsage()
+setInterval(loadChatUsage, 60000)
+let _pollInterval = null
+function startPoll(fast) {
+  if (_pollInterval) clearInterval(_pollInterval)
+  _pollInterval = setInterval(pollActive, fast ? 1000 : 5000)
+}
+pollActive()
+startPoll(false)
+setModelLabel()
+// inicializa label do modo e popup
+document.getElementById('mode-label').textContent = MODES[_orionMode]?.label || 'Auto mode'
+renderModePopup()
+
+// ── botão "+" (arquivo + nova sessão) ────────────────────────────────────
+let _attachments = []  // [{ name, content, path }]
+let _draftSaveTimer = null
+
+function saveDraft() {
+  clearTimeout(_draftSaveTimer)
+  _draftSaveTimer = setTimeout(() => {
+    const text = document.getElementById('input')?.value || ''
+    const files = JSON.stringify(_attachments)
+    fetch(`/api/claude-sessions/${SESSION_ID}/draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, files })
+    }).catch(() => {})
+  }, 1200)
+}
+
+function clearDraft() {
+  clearTimeout(_draftSaveTimer)
+  fetch(`/api/claude-sessions/${SESSION_ID}/draft`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: '', files: '[]' })
+  }).catch(() => {})
+}
+
+function loadDraft(session) {
+  if (!session) return
+  const text = session.draft_text || ''
+  let files = []
+  try { files = JSON.parse(session.draft_files || '[]') } catch {}
+  if (text) {
+    const input = document.getElementById('input')
+    if (input) { input.value = text; autoResize(input) }
+  }
+  if (files.length) {
+    _attachments = files
+    renderAttachments()
+  }
+}
+
+// ── SPA navigation — troca de sessão sem reload de página ─────────────────────
+const _sessionCache = new Map()  // id → { session, timeline, total, active, partial }
+
+async function loadSession(newId) {
+  if (!newId || newId === SESSION_ID) { scrollBottom(true); return }
+
+  // Salva draft da sessão atual antes de sair
+  clearTimeout(_draftSaveTimer)
+  const curText = document.getElementById('input')?.value || ''
+  const curFiles = JSON.stringify(_attachments)
+  if (curText || _attachments.length) {
+    fetch(`/api/claude-sessions/${SESSION_ID}/draft`, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text: curText, files: curFiles })
+    }).catch(()=>{})
+  }
+
+  // Para estado anterior
+  _sseConn?.close()
+  hideThinking()
+  if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null }
+  _sentTexts = new Set()
+  _attachments = []
+  const inputEl = document.getElementById('input')
+  if (inputEl) { inputEl.value = ''; autoResize(inputEl) }
+  renderAttachments?.()
+
+  // Atualiza sessão ativa
+  SESSION_ID = newId
+  history.pushState({ id: newId }, '', '/sessions/' + newId)
+
+  // Marca link ativo na sidebar
+  document.querySelectorAll('a.sb-sess').forEach(a =>
+    a.classList.toggle('active', a.getAttribute('href') === '/sessions/' + newId)
+  )
+
+  const render = data => {
+    renderData(data)
+    loadDraft(data.session)
+    _sessionCache.set(newId, data)
+    try { sessionStorage.setItem(cacheKey(newId), JSON.stringify(data)) } catch {}
+  }
+
+  // 1. Memória (troca instantânea se já visitou nesta aba)
+  const mem = _sessionCache.get(newId)
+  if (mem) {
+    render(mem)
+    connectSSE(); startPoll(mem.active)
+    // Revalida silenciosamente em background
+    fetch(`/api/claude-sessions/${newId}`).then(r=>r.json()).then(fresh=>{
+      _sessionCache.set(newId, fresh)
+      if (SESSION_ID === newId && fresh.total !== mem.total) render(fresh)
+    }).catch(()=>{})
+    return
+  }
+
+  // 2. sessionStorage (persiste na aba mesmo após recarregar o chat)
+  let ss = null
+  try { const c = sessionStorage.getItem(cacheKey(newId)); if (c) ss = JSON.parse(c) } catch {}
+  if (ss) {
+    render(ss)
+  } else {
+    document.getElementById('messages').innerHTML =
+      '<div style="text-align:center;color:#4b5563;padding:60px;font-size:13px">Carregando…</div>'
+  }
+
+  // 3. Fetch fresco da API (rápido — ~50-100ms com cache de server)
+  try {
+    const data = await fetch(`/api/claude-sessions/${newId}`).then(r=>r.json())
+    if (SESSION_ID === newId) { render(data); connectSSE(); startPoll(data.active) }
+  } catch {}
+}
+
+// Intercepta cliques na sidebar e nas outras navegações de sessão
+document.addEventListener('click', e => {
+  const a = e.target.closest('a.sb-sess')
+  if (!a) return
+  const id = a.getAttribute('href')?.split('/').pop()
+  if (!id) return
+  e.preventDefault()
+  loadSession(id)
+}, true)
+
+// Prefetch ao passar o mouse — quando clicar, já tem os dados
+document.addEventListener('mouseover', e => {
+  const a = e.target.closest('a.sb-sess')
+  if (!a) return
+  const id = a.getAttribute('href')?.split('/').pop()
+  if (!id || id === SESSION_ID || _sessionCache.has(id)) return
+  fetch(`/api/claude-sessions/${id}`).then(r=>r.json()).then(d=>{
+    _sessionCache.set(id, d)
+    try { sessionStorage.setItem(cacheKey(id), JSON.stringify(d)) } catch {}
+  }).catch(()=>{})
+})
+
+// Browser back/forward
+window.addEventListener('popstate', e => {
+  const id = e.state?.id || location.pathname.split('/').pop()
+  if (id && id !== SESSION_ID) loadSession(id)
+})
+
+function togglePlusMenu() {
+  const m = document.getElementById('plus-menu')
+  m.classList.toggle('show')
+  if (m.classList.contains('show')) document.addEventListener('click', _closePlusOnClickOut, true)
+}
+function closePlusMenu() { document.getElementById('plus-menu').classList.remove('show') }
+function _closePlusOnClickOut(e) {
+  if (!document.getElementById('plus-menu').contains(e.target) && e.target.id !== 'plus-btn') {
+    closePlusMenu(); document.removeEventListener('click', _closePlusOnClickOut, true)
+  }
+}
+
+function triggerFileUpload() { closePlusMenu(); document.getElementById('file-input').click() }
+
+async function handleFiles(input) {
+  for (const file of input.files) {
+    const isImage = file.type.startsWith('image/')
+    const isText = file.type.startsWith('text/') ||
+      /\.(js|ts|jsx|tsx|py|json|md|txt|html|css|sh|yaml|yml|toml|rs|go|java|cpp|c|h|rb|php|sql|xml|csv|env|log)$/i.test(file.name)
+
+    if (isImage) {
+      // Imagem: lê como base64 para preview e envio inline
+      const dataUrl = await new Promise(res => {
+        const r = new FileReader(); r.onload = e => res(e.target.result); r.readAsDataURL(file)
+      })
+      _attachments.push({ name: file.name, type: 'image', dataUrl, mimeType: file.type })
+    } else if (isText && file.size < 300_000) {
+      const content = await file.text()
+      _attachments.push({ name: file.name, content, path: null })
+    } else {
+      const r = await fetch('/api/upload-file', {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': file.name },
+        body: await file.arrayBuffer()
+      })
+      const d = await r.json()
+      _attachments.push({ name: file.name, content: null, path: d.path })
+    }
+  }
+  if (input.value !== undefined) input.value = ''
+  renderAttachments()
+}
+
+function addServerPath() {
+  closePlusMenu()
+  const p = prompt('Caminho do arquivo no servidor:')
+  if (!p?.trim()) return
+  _attachments.push({ name: p.trim().split('/').pop(), content: null, path: p.trim() })
+  renderAttachments()
+}
+
+function removeAttachment(i) { _attachments.splice(i, 1); renderAttachments() }
+
+function renderAttachments() {
+  saveDraft()
+  const bar = document.getElementById('attach-bar')
+  if (!_attachments.length) { bar.style.display = 'none'; bar.innerHTML = ''; return }
+  bar.style.display = 'flex'
+  bar.style.paddingBottom = '6px'
+  bar.innerHTML = _attachments.map((a, i) => {
+    if (a.type === 'image') {
+      return `<div class="attach-chip attach-img" onclick="removeAttachment(${i})" title="Clique para remover · ${a.name}">
+        <img src="${a.dataUrl}" style="height:44px;width:auto;max-width:80px;border-radius:5px;display:block;object-fit:cover">
+        <span class="attach-x" style="position:absolute;top:2px;right:2px">×</span>
+      </div>`
+    }
+    return `<div class="attach-chip">📎 <span title="${a.path||a.name}">${a.name}</span><span class="attach-x" onclick="removeAttachment(${i})">×</span></div>`
+  }).join('')
+}
+
+// ── nova sessão ────────────────────────────────────────────────────────────
+function openNewSession() {
+  document.getElementById('new-sess-overlay').classList.add('show')
+  setTimeout(() => document.getElementById('new-sess-msg').focus(), 50)
+}
+function closeNewSession() {
+  document.getElementById('new-sess-overlay').classList.remove('show')
+  document.getElementById('new-sess-msg').value = ''
+  const btn = document.getElementById('btn-ns-ok')
+  btn.textContent = 'Criar →'; btn.disabled = false
+}
+async function submitNewSession() {
+  const msg = document.getElementById('new-sess-msg').value.trim()
+  if (!msg) return
+  const btn = document.getElementById('btn-ns-ok')
+  btn.textContent = 'Criando…'; btn.disabled = true
+  try {
+    const r = await fetch('/api/claude-sessions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg })
+    })
+    const d = await r.json()
+    if (d.id) window.location.href = '/sessions/' + d.id
+    else { btn.textContent = 'Criar →'; btn.disabled = false }
+  } catch { btn.textContent = 'Criar →'; btn.disabled = false }
+}
+// Enter no textarea da modal = Ctrl+Enter cria a sessão
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('new-sess-overlay').classList.contains('show')) return
+  if (e.key === 'Escape') closeNewSession()
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitNewSession()
+})
+
+// ── toggle modo completo / limpo ──────────────────────────────────────────
+function applyViewMode(clean) {
+  document.querySelector('.page').classList.toggle('clean-mode', clean)
+  const btn = document.getElementById('btn-view')
+  const lbl = document.getElementById('view-label')
+  if (!btn || !lbl) return
+  btn.classList.toggle('clean-on', clean)
+  lbl.textContent = clean ? 'limpo' : 'completo'
+}
+function toggleView() {
+  const next = !document.querySelector('.page').classList.contains('clean-mode')
+  localStorage.setItem('viewMode', next ? 'clean' : 'full')
+  applyViewMode(next)
+}
+applyViewMode(localStorage.getItem('viewMode') === 'clean')
+
+// Ao voltar para esta aba / receber foco: rola + checa estado imediatamente
+// (mobile pausa setInterval em background — o ✶ e o botão ficam travados sem isso)
+function onReturnToTab() {
+  scrollBottom(true)
+  pollActive()
+  if (sending) startPoll(true)  // reinicia intervalo caso mobile tenha pausado
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') onReturnToTab()
+})
+window.addEventListener('focus', onReturnToTab)
+
+// Watchdog: se ficar "sending" por mais de 40s sem atividade, força um poll
+let _watchdog = null
+function resetWatchdog() {
+  clearTimeout(_watchdog)
+  if (sending) _watchdog = setTimeout(() => { if (sending) pollActive() }, 40_000)
+}
+</script>
+</body>
+</html>
