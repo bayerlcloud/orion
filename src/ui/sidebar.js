@@ -129,15 +129,30 @@
       const _xIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
       const _chevDn='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>'
       const _dotsIcon='<svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="16" cy="10" r="1.5"/></svg>'
+      const _projColors={'TRACKINGM':'#0ea5e9','BRANDSPA':'#6366f1','RALAB':'#10b981','FISIOEYPE':'#f59e0b','FISIOEXPE':'#f59e0b','BRANDSPAC':'#6366f1'}
+      function _projColor(label){ return _projColors[label]||_projColors[label.slice(0,8)]||null }
       function projOf(s){
         try{
+          // 1. Config explícito do popup (prioridade)
+          const meta=JSON.parse(s.config_meta||'{}')
+          if(meta.project){
+            const w=meta.project.replace(/-WT\d+$/i,'').trim().split(/[\s-]/)[0]||''
+            return w.toUpperCase().slice(0,20)||null
+          }
+          // 2. Fallback: prefixo [Projeto] no título
           const m=titleOf(s).match(/^\[([^\]]+)\]/)
           if(!m) return null
           const word=(m[1].replace(/-WT\d+$/i,'').trim().split(/[\s-]/)||[''])[0]||''
-          return word.toUpperCase().slice(0,10)||null
+          return word.toUpperCase().slice(0,20)||null
         }catch(e){ return null }
       }
-      function shortT(s){ return titleOf(s).replace(/^\[[^\]]+\]\s*/,'').trim()||titleOf(s) }
+      function shortT(s){
+        // Remove prefixo [Projeto] do título exibido
+        const t=titleOf(s).replace(/^\[[^\]]+\]\s*/,'').trim()
+        if(t) return t
+        // Se sem prefixo limpo, garante que não sobra lixo "]..."
+        return titleOf(s).replace(/^[^\[]*\]\s*/,'').trim()||titleOf(s)
+      }
       function _actorAvatar(s){
         const name=s.actor_name||s.actor_username||''
         if(!name) return ''
@@ -146,21 +161,73 @@
         const title=esc('Última atividade: '+name)
         return '<span class="sb-actor-av" style="background:'+color+'" title="'+title+'">'+initial+'</span>'
       }
+      ;(function(){
+        const st=document.createElement('style')
+        st.textContent='.sb-sec-lbl{font-size:9.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#4b5563;padding:8px 14px 4px}'
+          +'.sb-sess.drag-over{box-shadow:inset 0 2px 0 #6366f1}'
+          +'.sb-sess[draggable=true]{cursor:grab}'
+        document.head.appendChild(st)
+      })()
       function sbSessRow(s,inTrash){
         const t=shortT(s); const full=titleOf(s); const isCur=s.id===curSess
         const dot=s.status==='active'?' live':s.status==='finished'?' done':s.status==='waiting'?' idle':''
         const p=projOf(s)
-        const badgeHtml=p?'<span class="sb-badge">'+esc(p)+'</span>':''
+        const pc=p?_projColor(p):null
+        const badgeHtml=p?'<span class="sb-badge"'+(pc?' style="background:'+pc+';color:#fff"':'')+'>'+esc(p)+'</span>':''
         const ctx=inTrash?'trash':'normal'
         const dotsBtn='<button class="sb-trash sb-hdots" title="Opções" data-sid="'+s.id+'" onclick="event.preventDefault();event.stopPropagation();sbShowSessMenu(this,\''+s.id+'\',\''+ctx+'\')">'+_dotsIcon+'</button>'
         const actorHtml=_actorAvatar(s)
-        return '<a href="/sessions/'+s.id+'" class="sb-sess'+(isCur?' active':'')+(s.visibility==='team'?' sess-team':'')+'" title="'+esc(full)+'">'
+        // Abertas: arrastáveis p/ ordenar · Stand-by: duplo-clique promove p/ Abertas
+        const isOpenGrp=!inTrash&&!!s.opened_at
+        const isStandby=!inTrash&&!s.opened_at
+        const dragAttrs=isOpenGrp?' draggable="true" ondragstart="sbDragStart(event,\''+s.id+'\')" ondragover="sbDragOver(event)" ondragleave="sbDragLeave(event)" ondrop="sbDrop(event,\''+s.id+'\')"':''
+        const clickAttrs=isStandby?' onclick="return sbStandbyClick(event,\''+s.id+'\')" ondblclick="sbStandbyDbl(event,\''+s.id+'\')"':''
+        return '<a href="/sessions/'+s.id+'" class="sb-sess'+(isCur?' active':'')+(s.visibility==='team'?' sess-team':'')+'" title="'+esc(full)+'" data-sid="'+s.id+'"'+dragAttrs+clickAttrs+'>'
           +'<span class="sb-dot'+dot+'"></span>'
           +badgeHtml
           +'<span class="sb-sess-t">'+esc(t)+'</span>'
           +actorHtml
           +dotsBtn
           +'</a>'
+      }
+      // Stand-by: 1 clique navega (com pequeno delay p/ detectar duplo) · 2 cliques = vira Aberta no FINAL
+      let _sbNavT=null
+      window.sbStandbyClick=function(e,id){
+        e.preventDefault()
+        clearTimeout(_sbNavT)
+        _sbNavT=setTimeout(function(){ location.href='/sessions/'+id },260)
+        return false
+      }
+      window.sbStandbyDbl=function(e,id){
+        e.preventDefault(); clearTimeout(_sbNavT)
+        try{ fetch('/api/claude-sessions/'+id+'/open',{method:'PUT',keepalive:true}) }catch(err){}
+        location.href='/sessions/'+id
+      }
+      // Abrir/Encerrar manualmente (menu ⋯)
+      window.sbSessSetOpen=function(id,open){
+        fetch('/api/claude-sessions/'+id+'/open',{method:open?'PUT':'DELETE'}).catch(function(){})
+        const s=_allSess.find(function(x){return x.id===id})
+        if(s){ if(open){ s.opened_at=Math.floor(Date.now()/1000); s.sort_order=9999 } else s.opened_at=null }
+        renderSessList()
+      }
+      // Drag-and-drop das Abertas (ordem manual persistida em sort_order)
+      let _sbDragId=null
+      function _sbAlpha(a,b){ return shortT(a).localeCompare(shortT(b),'pt-BR',{sensitivity:'base'}) }
+      function _sbOpenedSorted(){ return _allSess.filter(function(s){return s.opened_at}).sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0)||_sbAlpha(a,b) }) }
+      window.sbDragStart=function(e,id){ _sbDragId=id; e.dataTransfer.effectAllowed='move' }
+      window.sbDragOver=function(e){ if(!_sbDragId) return; e.preventDefault(); e.currentTarget.classList.add('drag-over') }
+      window.sbDragLeave=function(e){ e.currentTarget.classList.remove('drag-over') }
+      window.sbDrop=function(e,targetId){
+        e.preventDefault(); e.currentTarget.classList.remove('drag-over')
+        if(!_sbDragId||_sbDragId===targetId){ _sbDragId=null; return }
+        const opened=_sbOpenedSorted()
+        const si=opened.findIndex(function(s){return s.id===_sbDragId}), di=opened.findIndex(function(s){return s.id===targetId})
+        if(si<0||di<0){ _sbDragId=null; return }
+        const moved=opened.splice(si,1)[0]; opened.splice(di,0,moved)
+        opened.forEach(function(s,i){ s.sort_order=i })
+        _sbDragId=null
+        renderSessList()
+        fetch('/api/claude-sessions/reorder',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:opened.map(function(s){return s.id})})}).catch(function(){})
       }
       window.sbShowSessMenu=function(btn,id,ctx){
         sbCloseMenu()
@@ -178,8 +245,12 @@
           const visNewVal=isTeam?'personal':'team'
           const lockIc='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>'
           const globeIc='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><ellipse cx="12" cy="12" rx="4" ry="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg>'
+          const isOpened=sess&&!!sess.opened_at
+          const powerIc='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>'
           menu.innerHTML=
+            '<button onclick="event.stopPropagation();sbSessSetOpen(\''+id+'\','+(isOpened?'0':'1')+');sbCloseMenu()">'+powerIc+(isOpened?' Encerrar sessão':' Abrir sessão')+'</button>'+
             '<button onclick="event.stopPropagation();sbToggleVis(\''+id+'\',\''+visNewVal+'\');sbCloseMenu()">'+(isTeam?lockIc:globeIc)+(isTeam?' Tornar pessoal':' Compartilhar')+'</button>'+
+            '<button onclick="event.stopPropagation();sbOpenSessConfig(\''+id+'\');sbCloseMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Configurações</button>'+
             '<button class="danger" onclick="event.stopPropagation();sbTrash(\''+id+'\',this);sbCloseMenu()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M9 6V4h6v2"/></svg>Mover para lixeira</button>'
         }
         document.body.appendChild(menu)
@@ -199,20 +270,17 @@
         const box=document.getElementById('sb-sess-list'); if(!box) return
         try{
           const q=_sbQuery
-          const items=q?_allSess.filter(s=>titleOf(s).toLowerCase().includes(q)):_allSess
-          const active=items.filter(s=>s.status==='active')
-          const finished=items.filter(s=>s.status==='finished')
-          const waiting=items.filter(s=>s.status==='waiting')
-          const paused=items.filter(s=>s.status!=='active'&&s.status!=='finished'&&s.status!=='waiting'&&s.status!=='deleted')
+          const items=(q?_allSess.filter(s=>titleOf(s).toLowerCase().includes(q)):_allSess).filter(s=>s.status!=='deleted')
+          // Grupos MANUAIS (opened_at), não por status — a bolinha indica atividade
+          // mas NÃO muda a posição (acabou o "pula-pula" na lista).
+          // Ordem: alfabética; nas Abertas o drag manual (sort_order) tem prioridade.
+          const opened=items.filter(s=>s.opened_at).sort(function(a,b){ return (a.sort_order||0)-(b.sort_order||0)||_sbAlpha(a,b) })
+          const standby=items.filter(s=>!s.opened_at).sort(_sbAlpha)
           let html=''
-          html+=active.map(s=>sbSessRow(s,false)).join('')
-          if(active.length&&finished.length) html+='<div class="sb-div"></div>'
-          html+=finished.map(s=>sbSessRow(s,false)).join('')
-          if((active.length||finished.length)&&waiting.length) html+='<div class="sb-div"></div>'
-          html+=waiting.map(s=>sbSessRow(s,false)).join('')
-          if((active.length||finished.length||waiting.length)&&paused.length) html+='<div class="sb-div"></div>'
-          html+=paused.map(s=>sbSessRow(s,false)).join('')
-          if(!active.length&&!finished.length&&!waiting.length&&!paused.length) html='<div class="sb-sess-empty">Nenhuma sessão</div>'
+          html+='<div class="sb-sec-lbl">Abertas'+(opened.length?' · '+opened.length:'')+'</div>'
+          html+=opened.length?opened.map(s=>sbSessRow(s,false)).join(''):'<div class="sb-sess-empty" style="padding:4px 14px 8px">Nenhuma aberta</div>'
+          html+='<div class="sb-sec-lbl" style="margin-top:6px">Stand-by'+(standby.length?' · '+standby.length:'')+'</div>'
+          html+=standby.length?standby.map(s=>sbSessRow(s,false)).join(''):'<div class="sb-sess-empty" style="padding:4px 14px 8px">Nenhuma</div>'
           const tc=_trashSess.length
           html+='<div class="sb-trash-hdr'+(_trashOpen?' open':'')+'" onclick="sbToggleTrash()">'
             +_trashIcon+'<span>Lixeira'+(tc?' · '+tc:'')+'</span>'
@@ -263,6 +331,156 @@
         },300)
       }
       function sbCloseMenu(){ document.querySelectorAll('.sb-dots-menu').forEach(m=>m.remove()) }
+
+      const _inp='width:100%;padding:8px 10px;background:#0f0f1a;border:1px solid #2d2d44;border-radius:8px;color:#e2e8f0;font-size:13px;box-sizing:border-box'
+      const _lbl='font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px'
+      function _cfgField(label,inner){ return '<div><label style="'+_lbl+'">'+label+'</label>'+inner+'</div>' }
+
+      window.sbOpenSessConfig=async function(id){
+        const sess=_allSess.find(s=>s.id===id)||{}
+        // Buscar dados completos da sessão e lista de usuários em paralelo
+        let full=sess, users=[]
+        const [sessR, usersR]=await Promise.allSettled([
+          fetch('/api/claude-sessions/'+id).then(r=>r.ok?r.json():null),
+          fetch('/api/users').then(r=>r.ok?r.json():null)
+        ])
+        if(sessR.status==='fulfilled'&&sessR.value) full=sessR.value.session||sessR.value
+        if(usersR.status==='fulfilled'&&usersR.value) users=usersR.value.users||[]
+        const m=JSON.parse(full.config_meta||'{}')
+        // Título limpo: strip artefatos malformados tipo "rackingMachine] "
+        const rawTitle=full.custom_title||full.ai_title||full.first_user_msg||(full.id||'').slice(0,8)
+        const currentTitle=rawTitle.replace(/^[a-z][^\]]*\]\s*/,'').trim()||rawTitle
+        const consumo=((full.total_tokens||0)/1000).toFixed(1)+'k tokens'
+        const modal=document.createElement('div')
+        modal.id='sb-sess-cfg-modal'
+        modal.style.cssText='position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(3px)'
+        const projects=['','Orion','TrackingMachine','Brandspace','Ralab','FisioExpert','BayerlPress','ABCPrime','Outro']
+        const models=['','claude-haiku-4-5-20251001','claude-sonnet-4-6','claude-opus-4-8']
+        const modelLabel={'claude-haiku-4-5-20251001':'Haiku (econômico)','claude-sonnet-4-6':'Sonnet (padrão)','claude-opus-4-8':'Opus (máximo)'}
+        const projOpts=projects.map(p=>'<option value="'+p+'"'+(m.project===p?' selected':'')+'>'+((p||'Sem projeto'))+'</option>').join('')
+        const modelOpts=models.map(v=>'<option value="'+v+'"'+(m.preferred_model===v?' selected':'')+'>'+(modelLabel[v]||'Padrão herdado')+'</option>').join('')
+        // Seletor de dono com usuários reais
+        const ownerOpts='<option value="">Sem dono</option>'+users.map(u=>{
+          const av=(u.display_name||u.username||'?').charAt(0).toUpperCase()
+          const sel=(m.owner_id&&m.owner_id===u.id)||(m.owner&&m.owner===u.username)?'selected':''
+          return '<option value="'+u.id+'" '+sel+'>'+esc(u.display_name||u.username)+'</option>'
+        }).join('')
+
+        modal.innerHTML='<div style="background:#1c1c2e;border:1px solid #2d2d44;border-radius:12px;width:min(520px,95vw);max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.6);font-family:inherit">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;padding:18px 20px 14px;border-bottom:1px solid #2d2d44">'+
+          '<div style="font-size:15px;font-weight:600;color:#e2e8f0">⚙ Configurações da Sessão</div>'+
+          '<button onclick="document.getElementById(\'sb-sess-cfg-modal\').remove()" style="background:none;border:none;color:#64748b;cursor:pointer;padding:4px;border-radius:6px;line-height:1">'+
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>'+
+          '<div style="padding:18px 20px;display:grid;gap:14px">'+
+          // Nome da sessão
+          _cfgField('Nome da Sessão','<input id="cfg-title" type="text" value="'+esc(currentTitle)+'" placeholder="Nome desta sessão" style="'+_inp+'">')+
+          // Projeto + Dono em grid
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+          _cfgField('Projeto','<select id="cfg-project" style="'+_inp+'">'+projOpts+'</select>')+
+          _cfgField('Dono / Responsável','<select id="cfg-owner-id" style="'+_inp+'">'+ownerOpts+'</select>')+
+          '</div>'+
+          // Visibilidade + Modelo
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+          _cfgField('Visibilidade','<select id="cfg-vis" style="'+_inp+'">'+
+            '<option value="personal"'+(full.visibility==='personal'||!full.visibility?' selected':'')+'>Pessoal (só eu)</option>'+
+            '<option value="team"'+(full.visibility==='team'?' selected':'')+'>Equipe</option>'+
+            '<option value="public"'+(full.visibility==='public'?' selected':'')+'>Público</option>'+
+            '</select>')+
+          _cfgField('Modelo Preferido','<select id="cfg-model" style="'+_inp+'">'+modelOpts+'</select>')+
+          '</div>'+
+          // Limites
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+          _cfgField('Limite de Tokens','<input id="cfg-tok-limit" type="number" min="0" step="1000" placeholder="Sem limite" value="'+(m.token_limit||'')+'" style="'+_inp+'">')+
+          _cfgField('Horas/Mês (colabs)','<input id="cfg-hours-limit" type="number" min="0" step="1" placeholder="Sem limite" value="'+(m.hours_limit||'')+'" style="'+_inp+'">')+
+          '</div>'+
+          // Tags
+          _cfgField('Tags / Etiquetas','<input id="cfg-tags" type="text" placeholder="ex: urgente, cliente, revisão" value="'+esc(m.tags||'')+'" style="'+_inp+'">')+
+          // Proativo + TTL
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+
+          '<div style="display:flex;align-items:center;gap:10px;padding:10px;background:#0f0f1a;border:1px solid #2d2d44;border-radius:8px">'+
+          '<input id="cfg-proactive" type="checkbox"'+(m.proactive?' checked':'')+' style="width:16px;height:16px;accent-color:#6366f1;cursor:pointer">'+
+          '<div><div style="font-size:13px;color:#e2e8f0;font-weight:500">Modo Proativo</div><div style="font-size:11px;color:#64748b">Orion age sem esperar</div></div></div>'+
+          _cfgField('Arquivar após (dias)','<input id="cfg-ttl" type="number" min="0" step="1" placeholder="Nunca" value="'+(m.archive_ttl_days||'')+'" style="'+_inp+'">')+
+          '</div>'+
+          // Webhook
+          _cfgField('Webhook ao Encerrar','<input id="cfg-webhook" type="url" placeholder="https://..." value="'+esc(m.webhook_url||'')+'" style="'+_inp+'">')+
+          // Notas
+          _cfgField('Notas Internas','<textarea id="cfg-notes" rows="2" placeholder="Contexto, objetivo, observações..." style="'+_inp+';resize:vertical;font-family:inherit">'+esc(m.notes||'')+'</textarea>')+
+          // Consumo (readonly)
+          '<div style="padding:10px 12px;background:#0f0f1a;border:1px solid #2d2d44;border-radius:8px;display:flex;justify-content:space-between;align-items:center">'+
+          '<span style="font-size:12px;color:#64748b">Consumo acumulado</span>'+
+          '<span style="font-size:13px;font-weight:600;color:#a78bfa">'+consumo+'</span></div>'+
+          '</div>'+
+          '<div style="padding:14px 20px;border-top:1px solid #2d2d44;display:flex;justify-content:flex-end;gap:8px">'+
+          '<button onclick="document.getElementById(\'sb-sess-cfg-modal\').remove()" style="padding:8px 16px;background:transparent;border:1px solid #2d2d44;border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer">Cancelar</button>'+
+          '<button id="cfg-save-btn" onclick="sbSaveSessConfig(\''+id+'\')" style="padding:8px 20px;background:#6366f1;border:none;border-radius:8px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Salvar</button>'+
+          '</div></div>'
+        // Guardar título original para comparação no save (evita rename desnecessário)
+        modal.dataset.origTitle=currentTitle
+        document.body.appendChild(modal)
+        modal.addEventListener('click',function(e){ if(e.target===modal) modal.remove() })
+        modal.querySelector('#cfg-title').focus()
+      }
+
+      window.sbSaveSessConfig=async function(id){
+        const btn=document.getElementById('cfg-save-btn')
+        if(btn){ btn.disabled=true; btn.textContent='Salvando...' }
+        const modal=document.getElementById('sb-sess-cfg-modal')
+        // Título original guardado no open (comparação confiável)
+        const origTitle=modal?.dataset?.origTitle||''
+        const vis=document.getElementById('cfg-vis').value
+        const newTitle=document.getElementById('cfg-title').value.trim()
+        const ownerEl=document.getElementById('cfg-owner-id')
+        const ownerOpt=ownerEl.options[ownerEl.selectedIndex]
+        const proactive=document.getElementById('cfg-proactive').checked
+        const newMeta={
+          project: document.getElementById('cfg-project').value||undefined,
+          owner_id: ownerEl.value?Number(ownerEl.value):undefined,
+          owner: ownerEl.value?(ownerOpt.textContent.trim()||undefined):undefined,
+          preferred_model: document.getElementById('cfg-model').value||undefined,
+          token_limit: parseInt(document.getElementById('cfg-tok-limit').value)||undefined,
+          hours_limit: parseFloat(document.getElementById('cfg-hours-limit').value)||undefined,
+          tags: document.getElementById('cfg-tags').value.trim()||undefined,
+          // proactive: sempre salva (true OU false — false tem significado)
+          proactive: proactive,
+          archive_ttl_days: parseInt(document.getElementById('cfg-ttl').value)||undefined,
+          webhook_url: document.getElementById('cfg-webhook').value.trim()||undefined,
+          notes: document.getElementById('cfg-notes').value.trim()||undefined,
+        }
+        // Remove apenas undefined (não false/0)
+        Object.keys(newMeta).forEach(k=>{ if(newMeta[k]===undefined) delete newMeta[k] })
+        try{
+          // Salvar config + visibilidade
+          const r=await fetch('/api/claude-sessions/'+id+'/config',{
+            method:'PATCH',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ visibility:vis, config_meta:JSON.stringify(newMeta) })
+          })
+          if(!r.ok) throw new Error(await r.text())
+          // Renomear SOMENTE se o título realmente mudou (vs o que estava no modal)
+          if(newTitle&&newTitle!==origTitle){
+            await fetch('/api/claude-sessions/'+id+'/title',{
+              method:'PATCH',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({ title:newTitle })
+            })
+          }
+          // Atualizar cache local e redesenhar
+          const idx=_allSess.findIndex(s=>s.id===id)
+          if(idx>=0){
+            _allSess[idx].visibility=vis
+            _allSess[idx].config_meta=JSON.stringify(newMeta)
+            // Sempre reflete o título exibido no modal (seja novo ou o original limpo)
+            _allSess[idx].custom_title=newTitle||origTitle
+          }
+          modal?.remove()
+          renderSessList()
+        }catch(e){
+          if(btn){ btn.disabled=false; btn.textContent='Salvar' }
+          alert('Erro ao salvar: '+e.message)
+        }
+      }
+
       window.sbShowTrashMenu=function(btn,id){
         sbCloseMenu()
         const rect=btn.getBoundingClientRect()
