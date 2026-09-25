@@ -1,0 +1,13 @@
+[Unit]
+Description=Orion – coleta de inventário da VPS (o que está instalado)
+After=network-online.target postgresql.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=danilo
+WorkingDirectory=/srv/orion
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion/dist/scripts/inventory.js
+TimeoutStartSec=180
+Nice=10

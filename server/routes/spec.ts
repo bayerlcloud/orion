@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { collectInventory } from '../inventory.js';
+import { inventoryResponse } from '../inventory.js';
 
 function titleOf(md: string, fallback: string): string {
   const m = md.match(/^#\s+(.+)$/m);
@@ -27,5 +27,10 @@ export async function specRoutes(app: FastifyInstance) {
     return { docs };
   });
 
-  app.get('/api/spec/inventory', async () => collectInventory(app.pool, app.repoDir));
+  // Último snapshot (coletado pelo timer orion-inventory a cada hora) + o que mudou desde o anterior.
+  // Sem snapshot ainda: coleta ao vivo uma vez, guarda e devolve.
+  app.get('/api/spec/inventory', async () => inventoryResponse(app.pool, app.repoDir));
+
+  // Coleta agora (qualquer usuário logado), guarda um snapshot novo e devolve a mesma forma.
+  app.post('/api/spec/inventory/refresh', async () => inventoryResponse(app.pool, app.repoDir, { refresh: true }));
 }

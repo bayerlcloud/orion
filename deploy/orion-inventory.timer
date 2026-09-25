@@ -1,0 +1,11 @@
+[Unit]
+Description=Orion – inventário da VPS a cada hora
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+Persistent=true
+Unit=orion-inventory.service
+
+[Install]
+WantedBy=timers.target
