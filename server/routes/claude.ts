@@ -9,6 +9,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt } from '../claude/header.js';
+import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -19,6 +20,9 @@ type NewBody = { project_id?: number; prompt?: string; permission_mode?: string;
 export async function claudeRoutes(app: FastifyInstance) {
   const runner = new Runner({ queryFn: query, store: pgStore(app.pool), log: (m) => app.log.warn(m) });
   app.decorate('runner', runner);
+  await ensureSettingsTable(app.pool);
+  const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
+  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
 
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
@@ -31,7 +35,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     try { await access(path.join(home, '.claude', '.credentials.json')); loggedIn = true; } catch { /* sem login */ }
     let version = 'indisponível';
     try { version = (await execFile('claude', ['--version'], { timeout: 8000 })).stdout.trim(); } catch { /* sem cli */ }
-    return { logged_in: loggedIn, home, version, linux_user: process.env.USER ?? null };
+    const token = await getSetting(app.pool, KEYS.claudeToken);
+    return { logged_in: loggedIn || !!token, via: token ? 'token' : (loggedIn ? 'login' : null), home, version, linux_user: process.env.USER ?? null };
   });
 
   app.get('/api/claude/projects', async () => {
@@ -66,14 +71,15 @@ export async function claudeRoutes(app: FastifyInstance) {
     const { rows: prow } = await app.pool.query('SELECT id, name, path, rules FROM projects WHERE id = $1', [b.project_id ?? 1]);
     const project = prow[0];
     if (!project) return reply.code(400).send({ error: 'projeto não existe' });
-    const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits';
+    const d = await defaults();
+    const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
     const effort = EFFORTS.has(b.effort ?? '') ? (b.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     const id = randomUUID();
     await app.pool.query(
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
-      [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model ?? null, mode]);
+      [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: prefixPrompt(req.user!.name, prompt), isNew: true, permissionMode: mode, model: b.model || undefined, effort,
+      sessionId: id, cwd: project.path, prompt: prefixPrompt(req.user!.name, prompt), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), maxBudgetUsd: d.budget,
       systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules }),
     });
     return { id, title: titleFromPrompt(prompt) };
@@ -113,7 +119,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (mode !== s.permission_mode) await app.pool.query('UPDATE claude_sessions SET permission_mode = $2 WHERE id = $1', [s.id, mode]);
     const effort = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt: prefixPrompt(req.user!.name, prompt), isNew: false, permissionMode: mode, model: s.model ?? undefined, effort,
+      sessionId: s.id, cwd: s.cwd, prompt: prefixPrompt(req.user!.name, prompt), isNew: false, permissionMode: mode, model: s.model ?? undefined, effort, env: await turnEnv(), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules }),
     });
     return { ok: true, queued: runner.status(s.id) !== 'idle' };

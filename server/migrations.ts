@@ -93,6 +93,17 @@ const MIGRATIONS: { id: string; sql: string }[] = [
         ON CONFLICT (slug) DO NOTHING;
     `,
   },
+  {
+    id: '004_inventory',
+    sql: `
+      CREATE TABLE IF NOT EXISTS inventory_snapshots (
+        id SERIAL PRIMARY KEY,
+        ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+        data JSONB NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS inventory_snapshots_ts_idx ON inventory_snapshots (ts DESC, id DESC);
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

@@ -33,6 +33,7 @@ export type TurnParams = {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   systemAppend: string;
   maxBudgetUsd?: number;
+  env?: Record<string, string>;
 };
 
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string };
@@ -144,6 +145,7 @@ export class Runner {
       ...(p.isNew ? { sessionId: id } : { resume: id }),
       ...(p.model ? { model: p.model } : {}),
       ...(p.effort ? { effort: p.effort } : {}),
+      ...(p.env ? { env: p.env } : {}),
     };
 
     let ok = false, cost = 0, turns = 0;

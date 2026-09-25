@@ -1,10 +1,10 @@
 [Unit]
-Description=Orion Central (painel e API)
+Description=Orion Central (painel, API e runner do Claude) — roda como danilo, dono do login do Max
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
-User=orion
+User=danilo
 Group=orion
 WorkingDirectory=/srv/orion
 EnvironmentFile=/etc/orion/central.env
@@ -13,7 +13,7 @@ Restart=always
 RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=full
-ProtectHome=true
+ProtectHome=false
 PrivateTmp=true
 
 [Install]

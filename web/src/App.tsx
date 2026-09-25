@@ -6,6 +6,7 @@ import Spec from './pages/Spec';
 import Placeholder from './pages/Placeholder';
 import ClaudePage from './claude/ClaudePage';
 import Drive from './pages/Drive';
+import Config from './pages/Config';
 
 const MENU = [
   { to: '/spec', label: 'Spec' },
@@ -14,6 +15,7 @@ const MENU = [
   { to: '/memoria', label: 'Memória' },
   { to: '/arquivos', label: 'Arquivos' },
   { to: '/drive', label: 'Drive' },
+  { to: '/config', label: 'Configurações' },
 ];
 
 export default function App() {
@@ -55,6 +57,7 @@ export default function App() {
           <Route path="/memoria" element={<Placeholder title="Memória" text="Regras por projeto, perfil de cada pessoa e o que a Central injeta em toda sessão." />} />
           <Route path="/arquivos" element={<Placeholder title="Arquivos" text="Repositórios e worktrees na c3, com diff do que cada tarefa alterou." />} />
           <Route path="/drive" element={<Drive user={user} />} />
+          <Route path="/config" element={<Config user={user} />} />
           <Route path="*" element={<Navigate to="/spec" replace />} />
         </Routes>
       </main>
