@@ -1,9 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { KEYS, deleteSetting, ensureSettingsTable, getSetting, looksLikeClaudeToken, maskToken, sdkEnv, setSetting } from '../settings.js';
+import { LoginFlow } from '../claude/login.js';
 
 export async function settingsRoutes(app: FastifyInstance) {
   await ensureSettingsTable(app.pool);
+  let flow: LoginFlow | null = null;
+  const currentUser = { id: null as number | null };
 
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
@@ -56,6 +59,26 @@ export async function settingsRoutes(app: FastifyInstance) {
     } finally { clearTimeout(timer); }
     return { ok: !error, model, reply: text.trim().slice(0, 200), cost_usd: cost, ms: Date.now() - t0, error: error || null, via: token ? 'token' : 'login do usuário linux' };
   });
+
+  /** Login pelo navegador, igual ao plugin: a Central roda `claude setup-token` na c3 e faz a ponte. */
+  app.post('/api/settings/claude-login/start', async (req) => {
+    currentUser.id = req.user!.id;
+    if (!flow || flow.state === 'done' || flow.state === 'error' || flow.state === 'idle') {
+      flow = new LoginFlow({ onToken: async (token) => { await setSetting(app.pool, KEYS.claudeToken, token, currentUser.id); app.log.info('token do Claude salvo pelo login no navegador'); } });
+      flow.start();
+    }
+    await new Promise(r => setTimeout(r, 1500));
+    for (let i = 0; i < 40 && !flow.url && flow.state !== 'error'; i++) await new Promise(r => setTimeout(r, 250));
+    return flow.snapshot();
+  });
+  app.get('/api/settings/claude-login', async () => flow ? flow.snapshot() : { state: 'idle', url: null, error: null, started_at: null, output_tail: '' });
+  app.post<{ Body: { code?: string } }>('/api/settings/claude-login/code', async (req, reply) => {
+    if (!flow) return reply.code(400).send({ error: 'login não iniciado' });
+    if (!flow.submitCode(req.body?.code ?? '')) return reply.code(400).send({ error: `não dá para enviar o código agora (estado ${flow.state})` });
+    for (let i = 0; i < 120 && flow.state === 'exchanging'; i++) await new Promise(r => setTimeout(r, 250));
+    return flow.snapshot();
+  });
+  app.post('/api/settings/claude-login/cancel', async () => { flow?.cancel(); return flow ? flow.snapshot() : { state: 'idle' }; });
 
   app.put<{ Body: { permission_mode?: string; model?: string; max_budget_usd?: number } }>('/api/settings/defaults', async (req, reply) => {
     const b = req.body ?? {};

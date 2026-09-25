@@ -67,3 +67,13 @@ h1 { font-size: 22px; margin: 0 0 16px; }
 .cfg ol { padding-left: 20px; }
 
 .md td.leigo { color: #333; max-width: 420px; }
+
+.cfg-login { border: 1px solid var(--line); padding: 10px 12px; margin: 8px 0; }
+.cfg-code-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.cfg-code-row input { flex: 1; min-width: 220px; }
+.cfg-code-row button { font: inherit; padding: 8px 12px; border: 1px solid var(--line); background: var(--bg); cursor: pointer; border-radius: 0; }
+.cfg-code-row .btn-primary { background: var(--fg); color: var(--bg); }
+.cfg-code-row button:disabled { opacity: .5; }
+.cfg-log { border: 1px solid var(--line); padding: 8px; font-size: 11px; max-height: 200px; overflow: auto; white-space: pre-wrap; background: #fafafa; }
+.cfg-details { margin-top: 14px; }
+.cfg-details summary { cursor: pointer; color: var(--muted); }

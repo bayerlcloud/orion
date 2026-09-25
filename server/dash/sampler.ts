@@ -98,6 +98,7 @@ export class Sampler {
       if (page > 0) this.pageSize = page;
     }
     await this.prime().catch(e => this.log.warn({ err: String(e) }, 'dash: prime falhou'));
+    this.lastWrite = Date.now(); // primeira gravação só depois de um minuto inteiro de amostras
     this.timer = setInterval(() => { void this.tick(); }, this.tickMs);
     this.timer.unref?.();
     // primeira amostra completa logo após a base (para o painel não abrir vazio)

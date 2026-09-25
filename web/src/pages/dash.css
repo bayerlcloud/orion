@@ -1,0 +1,69 @@
+/* Dash — preto e branco, bordas de 1px, sem cantos arredondados. */
+.dash { display: grid; gap: 28px; }
+.dash-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 4px; }
+.dash-head h1 { margin: 0; }
+.dash-live { font-size: 12px; border: 1px solid var(--line); padding: 1px 8px; white-space: nowrap; }
+.dash-live.off { border-style: dashed; color: var(--muted); }
+.dash-live::before { content: ""; display: inline-block; width: 7px; height: 7px; background: var(--fg); margin-right: 6px; vertical-align: 1px; }
+.dash-live.off::before { background: none; border: 1px solid var(--muted); width: 5px; height: 5px; }
+.dash-erro { border: 1px solid var(--line); padding: 8px 10px; }
+
+.dash section { display: grid; gap: 10px; }
+.dash h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; margin: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.dash h2 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; }
+.dash-facts { display: flex; flex-wrap: wrap; gap: 2px 18px; font-size: 13px; }
+.dash-facts b { font-weight: 600; }
+
+.dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.card { border: 1px solid var(--line); padding: 10px 12px; display: grid; gap: 4px; min-width: 0; grid-template-rows: auto auto auto auto 1fr; }
+.card.alerta { outline: 2px solid var(--fg); outline-offset: -3px; }
+.card-title { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; display: flex; justify-content: space-between; gap: 8px; }
+.card-title .muted { text-transform: none; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-big { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-big small { font-size: 14px; font-weight: 400; color: var(--muted); }
+.card-sub { font-size: 12px; color: var(--muted); min-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-spark { width: 100%; height: 38px; display: block; border-bottom: 1px solid #ccc; }
+.card-spark .area { fill: var(--fg); fill-opacity: .08; }
+.card-spark .line { fill: none; stroke: var(--fg); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.card-spark .vazio { fill: #999; font-size: 10px; }
+.card-stats { font-size: 12px; display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; align-self: end; }
+.card-bar { height: 6px; border: 1px solid var(--line); }
+.card-bar > div { height: 100%; background: var(--fg); transition: width .3s linear; }
+
+.dash-wide { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.wide { border: 1px solid var(--line); padding: 8px 12px; display: grid; gap: 4px; min-width: 0; }
+.wide-title { font-size: 12px; display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: .05em; }
+.wide-title .muted { text-transform: none; letter-spacing: 0; }
+.wide-spark { width: 100%; height: 64px; display: block; border-bottom: 1px solid #ccc; }
+.wide-spark .area { fill: var(--fg); fill-opacity: .08; }
+.wide-spark .line { fill: none; stroke: var(--fg); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
+.wide-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+
+.dash-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.dash-bloco { border: 1px solid var(--line); min-width: 0; }
+.dash-bloco h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin: 0; padding: 6px 10px; background: #f2f2f2; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+.dash-bloco h3 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.dash-bloco .vazio { padding: 10px; font-size: 13px; color: var(--muted); }
+.dash-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.dash-table th, .dash-table td { border-top: 1px solid var(--line); padding: 4px 10px; text-align: left; vertical-align: top; }
+.dash-table thead th { border-top: 0; font-weight: 600; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.dash-table th + th, .dash-table td + td { border-left: 1px solid #ddd; }
+.dash-table td.num, .dash-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dash-table td.nome { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.dash-table .failed { font-weight: 700; }
+.dash-table .off { color: var(--muted); }
+.dash-table .tag { display: inline-block; border: 1px solid var(--line); padding: 0 6px; font-size: 11px; line-height: 16px; white-space: nowrap; }
+.dash-table .tag.solid { background: var(--fg); color: var(--bg); }
+.dash-table .tag.off { border-color: var(--muted); }
+
+.dash-rodape { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+
+@media (max-width: 700px) {
+  .dash { gap: 22px; }
+  .dash-grid { grid-template-columns: 1fr; }
+  .dash-two { grid-template-columns: 1fr; }
+  .dash-wide { grid-template-columns: 1fr; }
+  .card-big { font-size: 26px; }
+  .dash-table { font-size: 12px; }
+  .dash-table th, .dash-table td { padding: 4px 6px; }
+}
