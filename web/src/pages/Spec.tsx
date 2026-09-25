@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
 import { api, type User } from '../api';
+import { explicaApt, explicaBinario, explicaContainer, explicaPacote, explicaPorta, explicaUnidade } from './glossario';
 
 type Doc = { id: string; title: string; markdown: string };
 
@@ -144,9 +145,9 @@ export default function Spec({ user }: { user: User }) {
             <h2>Binários e versões</h2>
             {(s.binarios?.length ?? 0) === 0 ? <p className="muted">nenhum binário encontrado</p> : (
               <table>
-                <thead><tr><th>binário</th><th>versão</th><th>caminho</th></tr></thead>
+                <thead><tr><th>binário</th><th>versão</th><th>o que é e para que serve</th><th>caminho</th></tr></thead>
                 <tbody>
-                  {s.binarios!.map(b => <tr key={b.nome}><td>{b.nome}</td><td>{b.versao}</td><td><code>{b.caminho}</code></td></tr>)}
+                  {s.binarios!.map(b => <tr key={b.nome}><td>{b.nome}</td><td>{b.versao}</td><td className="leigo">{explicaBinario(b.nome)}</td><td><code>{b.caminho}</code></td></tr>)}
                 </tbody>
               </table>
             )}
@@ -154,9 +155,9 @@ export default function Spec({ user }: { user: User }) {
             <h2>Pacotes globais (npm/bun)</h2>
             {(s.pacotes?.length ?? 0) === 0 ? <p className="muted">nenhum pacote global encontrado</p> : (
               <table>
-                <thead><tr><th>gerenciador</th><th>pacote</th><th>versão</th></tr></thead>
+                <thead><tr><th>gerenciador</th><th>pacote</th><th>versão</th><th>o que é e para que serve</th></tr></thead>
                 <tbody>
-                  {s.pacotes!.map(p => <tr key={`${p.gerenciador}:${p.nome}`}><td>{p.gerenciador}</td><td>{p.nome}</td><td>{p.versao}</td></tr>)}
+                  {s.pacotes!.map(p => <tr key={`${p.gerenciador}:${p.nome}`}><td>{p.gerenciador}</td><td>{p.nome}</td><td>{p.versao}</td><td className="leigo">{explicaPacote(p.nome)}</td></tr>)}
                 </tbody>
               </table>
             )}
@@ -166,7 +167,7 @@ export default function Spec({ user }: { user: User }) {
               <>
                 {falhas > 0 && <p><strong>{falhas} {falhas === 1 ? 'unidade em failed' : 'unidades em failed'}</strong></p>}
                 <table>
-                  <thead><tr><th>unidade</th><th>tipo</th><th>estado</th><th>sub</th><th>descrição</th><th>próxima / última</th></tr></thead>
+                  <thead><tr><th>unidade</th><th>tipo</th><th>estado</th><th>sub</th><th>o que é e para que serve</th><th>próxima / última</th></tr></thead>
                   <tbody>
                     {servicos.map(u => (
                       <tr key={u.unidade}>
@@ -174,7 +175,7 @@ export default function Spec({ user }: { user: User }) {
                         <td>{u.tipo}</td>
                         <td className={u.estado === 'active' ? '' : 'muted'}>{u.estado === 'failed' ? <strong>failed</strong> : u.estado}</td>
                         <td className="muted">{u.sub}</td>
-                        <td>{u.descricao}</td>
+                        <td className="leigo">{explicaUnidade(u.unidade)}<span className="muted small"> · {u.descricao}</span></td>
                         <td className="muted small">{u.tipo === 'timer' ? `${u.proximo ?? '-'} / ${u.ultimo ?? '-'}` : ''}</td>
                       </tr>
                     ))}
@@ -186,13 +187,13 @@ export default function Spec({ user }: { user: User }) {
             <h2>Containers</h2>
             {(s.containers?.length ?? 0) === 0 ? <p className="muted">nenhum container (ou docker indisponível para o coletor)</p> : (
               <table>
-                <thead><tr><th>nome</th><th>imagem</th><th>estado</th><th>status</th><th>portas</th></tr></thead>
+                <thead><tr><th>nome</th><th>imagem</th><th>estado</th><th>status</th><th>portas</th><th>o que é e para que serve</th></tr></thead>
                 <tbody>
                   {s.containers!.map(c => (
                     <tr key={c.nome}>
                       <td>{c.nome}</td><td>{c.imagem}</td>
                       <td className={c.estado === 'running' ? '' : 'muted'}>{c.estado === 'running' ? c.estado : <strong>{c.estado}</strong>}</td>
-                      <td className="muted">{c.status}</td><td className="small">{c.portas || '—'}</td>
+                      <td className="muted">{c.status}</td><td className="small">{c.portas || '—'}</td><td className="leigo">{explicaContainer(c.nome, c.imagem)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -202,9 +203,9 @@ export default function Spec({ user }: { user: User }) {
             <h2>Portas abertas</h2>
             {(s.portas?.length ?? 0) === 0 ? <p className="muted">nenhuma porta TCP em escuta encontrada</p> : (
               <table>
-                <thead><tr><th>porta</th><th>endereço</th><th>processo</th></tr></thead>
+                <thead><tr><th>porta</th><th>endereço</th><th>processo</th><th>o que é e para que serve</th></tr></thead>
                 <tbody>
-                  {s.portas!.map(p => <tr key={p.porta}><td>{p.porta}</td><td>{p.endereco}</td><td>{p.processo}{p.pid ? <span className="muted small"> (pid {p.pid})</span> : null}</td></tr>)}
+                  {s.portas!.map(p => <tr key={p.porta}><td>{p.porta}</td><td>{p.endereco}</td><td>{p.processo}{p.pid ? <span className="muted small"> (pid {p.pid})</span> : null}</td><td className="leigo">{explicaPorta(p.porta, p.processo)}</td></tr>)}
                 </tbody>
               </table>
             )}
@@ -212,7 +213,7 @@ export default function Spec({ user }: { user: User }) {
             <h2>Pacotes apt recentes</h2>
             {(s.apt?.length ?? 0) === 0 ? <p className="muted">nada instalado ou atualizado via apt nos últimos 7 dias</p> : (
               <table>
-                <thead><tr><th>quando</th><th>ação</th><th>pacote</th><th>versão</th></tr></thead>
+                <thead><tr><th>quando</th><th>ação</th><th>pacote</th><th>versão</th><th>o que é</th></tr></thead>
                 <tbody>
                   {[...s.apt!].reverse().map(e => (
                     <tr key={`${e.quando}:${e.acao}:${e.pacote}:${e.versao}`}>
@@ -220,6 +221,7 @@ export default function Spec({ user }: { user: User }) {
                       <td>{e.acao === 'install' ? 'instalado' : 'atualizado'}</td>
                       <td>{e.pacote}</td>
                       <td>{e.anterior ? <><span className="muted">{e.anterior} → </span>{e.versao}</> : e.versao}</td>
+                      <td className="leigo">{explicaApt(e.pacote)}</td>
                     </tr>
                   ))}
                 </tbody>
