@@ -1,0 +1,16 @@
+type P = { size?: number; className?: string };
+const base = (size = 14) => ({ width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const });
+
+export const Chevron = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M6 3l5 5-5 5" /></svg>;
+export const Plus = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 3v10M3 8h10" /></svg>;
+export const ArrowUp = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 13V3M4 7l4-4 4 4" /></svg>;
+export const Bolt = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M9 2L4 9h4l-1 5 5-7H8l1-5z" /></svg>;
+export const Clock = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><path d="M8 5v3l2 1" /></svg>;
+export const Search = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" /></svg>;
+export const Slash = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="2.5" y="2.5" width="11" height="11" rx="2" /><path d="M10 5l-4 6" /></svg>;
+export const X = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M4 4l8 8M12 4l-8 8" /></svg>;
+export const Filter = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M2 4h12M4 8h8M6 12h4" /></svg>;
+export const Power = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 2v6" /><path d="M4.5 4.5a5 5 0 1 0 7 0" /></svg>;
+export const Sync = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M13 8a5 5 0 0 1-8.7 3.4M3 8a5 5 0 0 1 8.7-3.4" /><path d="M11 2v3h-3M5 14v-3h3" /></svg>;
+export const Dots = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="8" cy="3.5" r=".8" /><circle cx="8" cy="8" r=".8" /><circle cx="8" cy="12.5" r=".8" /></svg>;
+export const Spark = ({ size = 14, className }: P) => <svg width={size} height={size} viewBox="0 0 16 16" className={className} fill="currentColor"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" /></svg>;

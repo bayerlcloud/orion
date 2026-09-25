@@ -9,6 +9,7 @@ import { migrate } from './migrations.js';
 import { SESSION_COOKIE } from './auth.js';
 import { authRoutes } from './routes/auth.js';
 import { specRoutes } from './routes/spec.js';
+import { driveRoutes } from './routes/drive.js';
 
 declare module 'fastify' {
   interface FastifyInstance { pool: Pool; repoDir: string }
@@ -42,6 +43,7 @@ async function main() {
   app.get('/api/health', async () => ({ ok: true }));
   await app.register(authRoutes);
   await app.register(specRoutes);
+  await app.register(driveRoutes);
 
   await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: false });
   app.setNotFoundHandler((req, reply) => {

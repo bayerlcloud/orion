@@ -24,6 +24,7 @@ button[type=submit]:disabled { opacity: .5; }
 .side nav a.active { border-color: var(--line); font-weight: 600; }
 .side .me { margin-top: auto; display: grid; gap: 2px; }
 .content { padding: 24px 32px; max-width: 1000px; }
+.content.is-wide { max-width: none; padding: 0; min-width: 0; }
 h1 { font-size: 22px; margin: 0 0 16px; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
 .tabs button.active { background: var(--fg); color: var(--bg); }

@@ -28,6 +28,21 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    id: '002_drive',
+    sql: `
+      CREATE TABLE IF NOT EXISTS drive_files (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        size BIGINT NOT NULL DEFAULT 0,
+        mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+        path TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS drive_files_user_created_idx ON drive_files (user_id, created_at DESC);
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

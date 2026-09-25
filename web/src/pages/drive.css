@@ -1,0 +1,30 @@
+/* Drive — preto e branco, bordas de 1px, sem cantos arredondados. */
+.drive-uso { border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 16px; display: grid; gap: 2px; font-size: 14px; }
+.drive-uso code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: #f2f2f2; padding: 1px 4px; }
+
+.drive-zona { border: 1px dashed var(--line); padding: 36px 16px; margin-bottom: 20px; text-align: center; cursor: pointer; display: grid; gap: 4px; user-select: none; }
+.drive-zona:focus { outline: 2px solid var(--fg); outline-offset: 0; }
+.drive-zona.ativa { border-style: solid; background: var(--fg); color: var(--bg); }
+.drive-zona.ativa .muted { color: #bbb; }
+.drive-zona-titulo { font-weight: 600; }
+
+.drive-envios { list-style: none; padding: 0; margin: 0 0 20px; display: grid; gap: 8px; }
+.drive-envio-linha { display: flex; gap: 12px; align-items: baseline; font-size: 14px; }
+.drive-envio-nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-envio-status { white-space: nowrap; }
+.drive-envio.erro .drive-envio-status { font-weight: 600; }
+.drive-barra { border: 1px solid var(--line); height: 8px; margin-top: 3px; }
+.drive-barra > div { background: var(--fg); height: 100%; transition: width .15s linear; }
+.drive-envio.erro .drive-barra > div { width: 100% !important; background: repeating-linear-gradient(45deg, var(--fg) 0 3px, var(--bg) 3px 6px); }
+
+.drive-tabela { border-collapse: collapse; width: 100%; font-size: 14px; }
+.drive-tabela th, .drive-tabela td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+.drive-tabela th { background: #f2f2f2; font-weight: 600; white-space: nowrap; }
+.drive-tabela td.num { white-space: nowrap; }
+.drive-tabela td.drive-nome { word-break: break-all; }
+.drive-acoes { display: flex; gap: 10px; white-space: nowrap; font-size: 13px; }
+
+@media (max-width: 700px) {
+  .drive-zona { padding: 24px 12px; }
+  .drive-acoes { flex-direction: column; gap: 4px; }
+}
