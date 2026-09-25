@@ -9,3 +9,5 @@
 7. Motor: Claude Agent SDK (TypeScript). Nunca --dangerously-skip-permissions.
 8. Stack: Node + TypeScript, Postgres, React.
 9. MVP em 3 entregas: (1) base, (2) integrador + cobrador + visão do time, (3) memória + WhatsApp + custo/modelo.
+
+10. (25/09, noite) Uma única conta Claude Max 20x para todo mundo. Um runner, um kanna, mesma infra; a pessoa é diferenciada no login da Central e no prompt. Tudo roda como o usuário Linux danilo na c3. A Central mede custo por pessoa e controla acesso a projetos. Risco aceito: limite de uso compartilhado e sem isolamento de arquivos entre pessoas.
