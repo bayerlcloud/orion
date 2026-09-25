@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, type User } from './api';
 import Login from './pages/Login';
@@ -7,16 +7,41 @@ import Placeholder from './pages/Placeholder';
 import ClaudePage from './claude/ClaudePage';
 import Drive from './pages/Drive';
 import Config from './pages/Config';
+import Dash from './pages/Dash';
+import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec } from './icons';
 
 const MENU = [
-  { to: '/spec', label: 'Spec' },
-  { to: '/dash', label: 'Dash' },
-  { to: '/claude', label: 'Claude' },
-  { to: '/memoria', label: 'Memória' },
-  { to: '/arquivos', label: 'Arquivos' },
-  { to: '/drive', label: 'Drive' },
-  { to: '/config', label: 'Configurações' },
+  { to: '/claude', label: 'Claude', Icon: IcoClaude },
+  { to: '/dash', label: 'Dash', Icon: IcoDash },
+  { to: '/arquivos', label: 'Arquivos', Icon: IcoArquivos },
+  { to: '/drive', label: 'Drive', Icon: IcoDrive },
+  { to: '/memoria', label: 'Memória', Icon: IcoMemoria },
+  { to: '/spec', label: 'Spec', Icon: IcoSpec },
+  { to: '/config', label: 'Configurações', Icon: IcoConfig, ownerOnly: true },
 ];
+
+function Avatar({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  const inicial = (user.name || user.email).trim().charAt(0).toUpperCase();
+  return (
+    <div className="avatar-wrap" ref={ref}>
+      <button className="avatar" onClick={() => setOpen(o => !o)} title={user.name} aria-label="Menu do usuário">{inicial}</button>
+      {open && (
+        <div className="avatar-menu">
+          <div className="avatar-name">{user.name}</div>
+          <div className="avatar-role">{user.role === 'owner' ? 'admin' : 'membro'} · {user.email}</div>
+          <button className="avatar-item" onClick={onLogout}><IcoSair size={14} /> sair</button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -28,37 +53,38 @@ export default function App() {
   }, []);
 
   if (user === undefined) return <div className="center muted">carregando…</div>;
-  if (!user) return <Login onLogin={u => { setUser(u); nav('/spec'); }} />;
+  if (!user) return <Login onLogin={u => { setUser(u); nav('/claude'); }} />;
 
   async function sair() {
     await api('/api/logout', { method: 'POST' });
     setUser(null);
   }
 
+  const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos');
   return (
     <div className="shell">
-      <aside className="side">
-        <div className="brand">ORION</div>
-        <nav>
-          {MENU.map(m => <NavLink key={m.to} to={m.to} className={({ isActive }) => isActive ? 'active' : ''}>{m.label}</NavLink>)}
+      <aside className="rail">
+        <nav className="rail-nav">
+          {MENU.filter(m => !m.ownerOnly || user.role === 'owner').map(m => (
+            <NavLink key={m.to} to={m.to} className={({ isActive }) => `rail-btn ${isActive ? 'active' : ''}`} title={m.label} aria-label={m.label}>
+              <m.Icon />
+              <span className="rail-label">{m.label}</span>
+            </NavLink>
+          ))}
         </nav>
-        <div className="me">
-          <div>{user.name}</div>
-          <div className="muted small">{user.role === 'owner' ? 'admin' : 'membro'}</div>
-          <button className="link" onClick={sair}>sair</button>
-        </div>
+        <Avatar user={user} onLogout={sair} />
       </aside>
-      <main className={`content ${loc.pathname.startsWith('/claude') ? 'is-wide' : ''}`}>
+      <main className={`content ${wide ? 'is-wide' : ''}`}>
         <Routes>
-          <Route path="/" element={<Navigate to="/spec" replace />} />
+          <Route path="/" element={<Navigate to="/claude" replace />} />
           <Route path="/spec" element={<Spec user={user} />} />
-          <Route path="/dash" element={<Placeholder title="Dash" text="Visão dos servidores e das sessões em andamento. Vai reaproveitar o coletor v2 que já roda na c1, c2 e Hostinger." />} />
+          <Route path="/dash" element={<Dash />} />
           <Route path="/claude" element={<ClaudePage />} />
           <Route path="/memoria" element={<Placeholder title="Memória" text="Regras por projeto, perfil de cada pessoa e o que a Central injeta em toda sessão." />} />
-          <Route path="/arquivos" element={<Placeholder title="Arquivos" text="Repositórios e worktrees na c3, com diff do que cada tarefa alterou." />} />
+          <Route path="/arquivos" element={<Placeholder title="Arquivos" text="Explorador de arquivos igual ao do VS Code, com git e editor. Em construção por um agente agora." />} />
           <Route path="/drive" element={<Drive user={user} />} />
           <Route path="/config" element={<Config user={user} />} />
-          <Route path="*" element={<Navigate to="/spec" replace />} />
+          <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
     </div>

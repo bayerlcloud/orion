@@ -22,10 +22,10 @@
 .card-big { font-size: 30px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-big small { font-size: 14px; font-weight: 400; color: var(--muted); }
 .card-sub { font-size: 12px; color: var(--muted); min-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-spark { width: 100%; height: 38px; display: block; border-bottom: 1px solid #ccc; }
+.card-spark { width: 100%; height: 38px; display: block; border-bottom: 1px solid var(--line); }
 .card-spark .area { fill: var(--fg); fill-opacity: .08; }
 .card-spark .line { fill: none; stroke: var(--fg); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
-.card-spark .vazio { fill: #999; font-size: 10px; }
+.card-spark .vazio { fill: var(--fg2); font-size: 10px; }
 .card-stats { font-size: 12px; display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; align-self: end; }
 .card-bar { height: 6px; border: 1px solid var(--line); }
 .card-bar > div { height: 100%; background: var(--fg); transition: width .3s linear; }
@@ -34,20 +34,20 @@
 .wide { border: 1px solid var(--line); padding: 8px 12px; display: grid; gap: 4px; min-width: 0; }
 .wide-title { font-size: 12px; display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: .05em; }
 .wide-title .muted { text-transform: none; letter-spacing: 0; }
-.wide-spark { width: 100%; height: 64px; display: block; border-bottom: 1px solid #ccc; }
+.wide-spark { width: 100%; height: 64px; display: block; border-bottom: 1px solid var(--line); }
 .wide-spark .area { fill: var(--fg); fill-opacity: .08; }
 .wide-spark .line { fill: none; stroke: var(--fg); stroke-width: 1.25; vector-effect: non-scaling-stroke; }
 .wide-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
 
 .dash-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
 .dash-bloco { border: 1px solid var(--line); min-width: 0; }
-.dash-bloco h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin: 0; padding: 6px 10px; background: #f2f2f2; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+.dash-bloco h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin: 0; padding: 6px 10px; background: var(--hover); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
 .dash-bloco h3 .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .dash-bloco .vazio { padding: 10px; font-size: 13px; color: var(--muted); }
 .dash-table { border-collapse: collapse; width: 100%; font-size: 13px; }
 .dash-table th, .dash-table td { border-top: 1px solid var(--line); padding: 4px 10px; text-align: left; vertical-align: top; }
 .dash-table thead th { border-top: 0; font-weight: 600; white-space: nowrap; color: var(--muted); font-size: 12px; }
-.dash-table th + th, .dash-table td + td { border-left: 1px solid #ddd; }
+.dash-table th + th, .dash-table td + td { border-left: 1px solid var(--line); }
 .dash-table td.num, .dash-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dash-table td.nome { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .dash-table .failed { font-weight: 700; }
