@@ -1,0 +1,8 @@
+v2.bayerl.cloud {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}
+
+http://217.76.55.249 {
+	reverse_proxy 127.0.0.1:3000
+}

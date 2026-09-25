@@ -1,0 +1,6 @@
+[
+  { "apelido": "c1", "ip": "86.48.28.10", "provedor": "Contabo", "specs": "6 vCPU / 12 GB", "papel": "Principal hoje: code.bayerl.cloud, Orion antigo, n8n, Evolution, SilverBullet, Caddy", "servicos": "code-server, orion (antigo), n8n, evolution-api, caddy" },
+  { "apelido": "c2", "ip": "212.47.70.170", "provedor": "Contabo", "specs": "6 vCPU / 11 GB / 96 GB", "papel": "Supabase self-hosted e serviços de apoio (~41 containers)", "servicos": "supabase (kong, edge-runtime), litellm, next-server ×2" },
+  { "apelido": "hostinger", "ip": "72.61.135.82", "provedor": "Hostinger", "specs": "4 vCPU / 15 GB / 194 GB", "papel": "Coolify: deploy e preview por PR (66 containers)", "servicos": "coolify, uptime-kuma, typebot, n8n, evolution-api, livekit" },
+  { "apelido": "c3", "ip": "217.76.55.249", "provedor": "Contabo (Cloud VPS Plus 6)", "specs": "6 vCPU / 12 GB / 290 GB · Ubuntu 24.04", "papel": "Orion novo (v2.bayerl.cloud → orion.bayerl.cloud)", "servicos": "orion-central, postgres 16, caddy" }
+]

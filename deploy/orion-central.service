@@ -1,0 +1,20 @@
+[Unit]
+Description=Orion Central (painel e API)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=orion
+Group=orion
+WorkingDirectory=/srv/orion
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion/dist/server/index.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
