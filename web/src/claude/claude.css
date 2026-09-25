@@ -146,3 +146,16 @@
   .cc { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 60px); }
   .cc-side { display: none; }
 }
+
+/* ===== adições: modo real ===== */
+.cc-banner { background: #3f3225; color: var(--cc-warning); padding: 8px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
+.cc-error-bar { background: #3a1f1c; color: #f0b3a8; padding: 6px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
+.cc-head { display: flex; align-items: center; gap: 12px; }
+.cc-head-meta { color: var(--cc-fg2); font-weight: 400; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+.cc-empty-state { max-width: 520px; margin: 60px auto; text-align: center; }
+.cc-brand-big { font-size: 20px; margin-bottom: 12px; color: var(--cc-orange); }
+.cc-select { appearance: none; border: 0; cursor: pointer; }
+.cc-select option { background: var(--cc-bg2); color: var(--cc-fg); }
+.cc-stop { background: var(--cc-failure); }
+.cc-stop-square { width: 10px; height: 10px; background: #fff; border-radius: 2px; display: block; }
+.cc-tab-actions .cc-icon { padding: 3px; }

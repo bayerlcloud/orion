@@ -16,7 +16,7 @@ export default function Sidebar({ sessions, usage, activeId, onSelect, onNew }:
       <div className="cc-side-title">CLAUDE CODE</div>
 
       <section className="cc-section">
-        <div className="cc-section-head"><Chevron size={12} className="cc-chev is-open" /> CONTA E USO <a className="cc-link" href="#">Ver detalhes</a></div>
+        <div className="cc-section-head"><Chevron size={12} className="cc-chev is-open" /> CONTA E USO</div>
         <div className="cc-usage-title">USO</div>
         {usage.map(u => (
           <div key={u.label} className="cc-usage">

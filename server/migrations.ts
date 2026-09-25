@@ -43,6 +43,56 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS drive_files_user_created_idx ON drive_files (user_id, created_at DESC);
     `,
   },
+  {
+    id: '003_claude',
+    sql: `
+      CREATE TABLE IF NOT EXISTS projects (
+        id SERIAL PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        rules TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS claude_sessions (
+        id TEXT PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id),
+        project_id INT REFERENCES projects(id),
+        title TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        model TEXT,
+        permission_mode TEXT NOT NULL DEFAULT 'acceptEdits',
+        status TEXT NOT NULL DEFAULT 'idle',
+        cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+        turns INT NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS claude_sessions_updated ON claude_sessions (updated_at DESC);
+      CREATE TABLE IF NOT EXISTS claude_events (
+        id BIGSERIAL PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES claude_sessions(id) ON DELETE CASCADE,
+        seq INT NOT NULL,
+        ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+        type TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        UNIQUE (session_id, seq)
+      );
+      CREATE TABLE IF NOT EXISTS claude_approvals (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES claude_sessions(id) ON DELETE CASCADE,
+        tool_name TEXT NOT NULL,
+        input JSONB NOT NULL,
+        decision TEXT,
+        decided_by INT REFERENCES users(id),
+        requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        decided_at TIMESTAMPTZ
+      );
+      INSERT INTO projects (slug, name, path, rules) VALUES ('orion', 'Orion (este sistema)', '/srv/orion', NULL)
+        ON CONFLICT (slug) DO NOTHING;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

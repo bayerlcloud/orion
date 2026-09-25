@@ -2,11 +2,11 @@
 # Instala/atualiza a Central na c3. Rodar como root: bash /srv/orion/deploy/install.sh
 set -euo pipefail
 cd /srv/orion
-chown -R orion:orion /srv/orion
-sudo -u orion -H npm ci --no-audit --no-fund
-sudo -u orion -H npm run build
+chown -R danilo:orion /srv/orion && chmod -R g+rwX /srv/orion
+sudo -u danilo -H npm ci --no-audit --no-fund
+sudo -u danilo -H npm run build
 if [ -n "${SEED_PASSWORD:-}" ]; then
-  sudo -u orion -H env SEED_PASSWORD="$SEED_PASSWORD" $(grep -v '^#' /etc/orion/central.env | xargs) node dist/scripts/seed.js
+  sudo -u danilo -H env SEED_PASSWORD="$SEED_PASSWORD" $(grep -v '^#' /etc/orion/central.env | xargs) node dist/scripts/seed.js
 fi
 install -m 644 deploy/orion-central.service /etc/systemd/system/orion-central.service
 install -m 644 deploy/Caddyfile /etc/caddy/Caddyfile
