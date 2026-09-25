@@ -64,7 +64,10 @@ export class LoginFlow {
     const c = code.trim();
     if (!c || !this.child?.stdin || this.state !== 'awaiting_code') return false;
     this.state = 'exchanging';
-    this.child.stdin.write(`${c}\r`);
+    // Texto e Enter no mesmo pacote viram "colagem" para a interface do CLI e o Enter é ignorado. Manda separado.
+    const stdin = this.child.stdin;
+    stdin.write(c);
+    setTimeout(() => { try { stdin.write('\r'); } catch { /* processo já morreu */ } }, 400);
     return true;
   }
 

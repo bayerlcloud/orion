@@ -89,24 +89,30 @@ export async function filesRoutes(app: FastifyInstance) {
 
   /**
    * Resolve `rel` dentro da raiz. `abs` é o caminho real (symlinks resolvidos) quando o item
-   * existe; para item novo, é o realpath da pasta-mãe + nome. Fora da raiz → 403.
+   * existe; para item novo, é o realpath do ancestral existente mais fundo + o resto do caminho.
+   * `noFollow` valida a posição do próprio item (o link, não o alvo): para renomear/excluir.
+   * Fora da raiz → 403.
    */
-  async function target(root: Root & { real: string }, relRaw: unknown, opts: { mustExist?: boolean } = {}): Promise<Target> {
+  async function target(root: Root & { real: string }, relRaw: unknown, opts: { mustExist?: boolean; noFollow?: boolean } = {}): Promise<Target> {
     const rel = str(relRaw, 'path', true).replace(/^\.\/+/, '').replace(/\/+$/, '');
     const abs0 = resolveInside(root.real, rel);
     if (abs0 === null) throw bad('caminho fora do projeto');
-    let abs: string;
-    let exists = true;
-    try {
-      abs = await realpath(abs0);
-    } catch {
-      exists = false;
-      if (opts.mustExist) throw new HttpError(404, 'não existe');
-      const parentReal = await realpath(path.dirname(abs0)).catch(() => null);
-      if (!parentReal) throw new HttpError(404, 'pasta não existe');
-      abs = path.join(parentReal, path.basename(abs0));
+    let probe = opts.noFollow && abs0 !== root.real ? path.dirname(abs0) : abs0;
+    const tail: string[] = opts.noFollow && abs0 !== root.real ? [path.basename(abs0)] : [];
+    let real: string | null = null;
+    for (;;) {
+      real = await realpath(probe).catch(() => null);
+      if (real) break;
+      if (probe === root.real || path.dirname(probe) === probe) throw new HttpError(404, 'não existe');
+      tail.unshift(path.basename(probe));
+      probe = path.dirname(probe);
     }
+    const abs = tail.length ? path.join(real, ...tail) : real;
     if (!isInside(root.real, abs)) throw new HttpError(403, 'caminho aponta para fora do projeto');
+    const exists = opts.noFollow
+      ? await lstat(abs).then(() => true, () => false)
+      : tail.length === 0;
+    if (opts.mustExist && !exists) throw new HttpError(404, 'não existe');
     return { root, rel: relativeInside(root.real, abs0), abs, logical: abs0, exists };
   }
 
@@ -223,19 +229,15 @@ export async function filesRoutes(app: FastifyInstance) {
     const relIn = str(body.path, 'path');
     const err = validateRelName(relIn);
     if (err) throw bad(err);
-    const parentRel = path.posix.dirname(relIn.replace(/\\/g, '/'));
-    if (parentRel && parentRel !== '.') {
-      const parent = await target(root, parentRel);
-      if (!parent.exists) await mkdir(parent.abs, { recursive: true });
-    }
     const { rel, abs } = await target(root, relIn);
+    await mkdir(path.dirname(abs), { recursive: true });
     await writeFile(abs, '', { flag: 'wx' });
     return { path: rel };
   }));
 
   /** Renomear (`to` = caminho relativo completo do novo nome) e mover (`to` = pasta de destino). */
   async function relocate(root: Root & { real: string }, fromRel: unknown, toRel: unknown, mode: 'rename' | 'move') {
-    const from = await target(root, fromRel, { mustExist: true });
+    const from = await target(root, fromRel, { mustExist: true, noFollow: true });
     if (!from.rel) throw new HttpError(403, 'não dá para mexer na raiz do projeto');
     if (path.basename(from.rel) === '.git') throw new HttpError(403, '.git é protegido');
     let destRel: string;
@@ -248,7 +250,7 @@ export async function filesRoutes(app: FastifyInstance) {
       if (!(await stat(dir.abs)).isDirectory()) throw bad('destino não é uma pasta');
       destRel = joinRel(dir.rel, path.basename(from.rel));
     }
-    const dest = await target(root, destRel);
+    const dest = await target(root, destRel, { noFollow: true });
     if (dest.abs === from.abs) return { from: from.rel, to: dest.rel, unchanged: true };
     if (isInside(from.abs, dest.abs)) throw bad('não dá para mover uma pasta para dentro dela mesma');
     // Só o caso de mudar apenas a caixa do nome (macOS) pode "existir" e ainda ser válido.
@@ -271,7 +273,7 @@ export async function filesRoutes(app: FastifyInstance) {
 
   app.post('/api/files/delete', guard(async (req) => {
     const body = b(req);
-    const { rel, logical } = await target(await rootOf(body.root), body.path, { mustExist: true });
+    const { rel, logical } = await target(await rootOf(body.root), body.path, { mustExist: true, noFollow: true });
     if (!rel) throw new HttpError(403, 'não dá para excluir a raiz do projeto');
     if (rel.split('/').includes('.git')) throw new HttpError(403, '.git é protegido');
     const ls = await lstat(logical);
