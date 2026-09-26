@@ -44,6 +44,9 @@ async function main() {
     req.user = rows[0] ?? null;
   });
 
+  // Ao subir, reconcilia sessões órfãs: nada roda em memória depois de um restart.
+  await pool.query("UPDATE claude_sessions SET status = 'idle', last_error = COALESCE(last_error, 'sessão interrompida por reinício do servidor') WHERE status IN ('running','waiting')").catch(() => {});
+
   app.get('/api/health', async () => ({ ok: true }));
   await app.register(authRoutes);
   await app.register(specRoutes);
