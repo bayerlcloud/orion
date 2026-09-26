@@ -25,6 +25,18 @@ export async function claudeRoutes(app: FastifyInstance) {
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
 
+  // Memórias relevantes para uma sessão: universais + do projeto + do usuário, por importância.
+  async function memoriasPara(projectId: number | null, userId: number): Promise<{ title: string; summary: string; status: string; scope: 'universal' | 'projeto' | 'usuário' }[]> {
+    try {
+      const { rows } = await app.pool.query(
+        `SELECT title, summary, status, learning_level, scope_project_id, scope_user_id FROM memories
+          WHERE scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL)
+          ORDER BY CASE status WHEN 'deus' THEN 0 WHEN 'aprendizagem' THEN 1 ELSE 2 END, learning_level DESC NULLS LAST, updated_at DESC
+          LIMIT 20`, [projectId, userId]);
+      return rows.map((r: any) => ({ title: r.title, summary: r.summary, status: r.status, scope: r.scope_project_id ? 'projeto' : (r.scope_user_id ? 'usuário' : 'universal') }));
+    } catch { return []; }
+  }
+
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
   });
@@ -81,7 +93,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode]);
     runner.startTurn({
       sessionId: id, cwd: project.path, prompt: prefixPrompt(req.user!.name, prompt), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), maxBudgetUsd: d.budget,
-      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules }),
+      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, memories: await memoriasPara(project.id, req.user!.id) }),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
@@ -113,7 +125,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const prompt = (req.body?.prompt ?? '').trim();
     if (!prompt) return reply.code(400).send({ error: 'prompt vazio' });
     const { rows } = await app.pool.query(
-      'SELECT s.id, s.cwd, s.model, s.permission_mode, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
+      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.project_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
     const mode = MODES.has(req.body?.permission_mode ?? '') ? (req.body!.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (s.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto');
@@ -121,7 +133,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const effort = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt: prefixPrompt(req.user!.name, prompt), isNew: false, permissionMode: mode, model: s.model ?? undefined, effort, env: await turnEnv(), maxBudgetUsd: (await defaults()).budget,
-      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules }),
+      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, memories: await memoriasPara(s.project_id ?? null, req.user!.id) }),
     });
     return { ok: true, queued: runner.status(s.id) !== 'idle' };
   });

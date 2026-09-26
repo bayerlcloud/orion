@@ -5,6 +5,7 @@ export type SessionHeader = {
   createdBy: string;
   rules?: string | null;
   userMemory?: string | null;
+  memories?: { title: string; summary: string; status: string; scope: 'universal' | 'projeto' | 'usuário' }[] | null;
 };
 
 export function buildSystemAppend(h: SessionHeader): string {
@@ -16,6 +17,10 @@ export function buildSystemAppend(h: SessionHeader): string {
   ];
   if (h.rules?.trim()) lines.push('', 'Regras do projeto definidas no painel:', h.rules.trim());
   if (h.userMemory?.trim()) lines.push('', `Memória sobre ${h.createdBy}:`, h.userMemory.trim());
+  if (h.memories && h.memories.length) {
+    lines.push('', 'Memórias que valem para esta sessão (do painel Memória). Leve-as em conta e, se aprender algo novo e durável, sugira registrar:');
+    for (const m of h.memories) lines.push(`- [${m.scope}${m.status === 'deus' ? ', importância máxima' : ''}] ${m.title}: ${m.summary}`);
+  }
   return lines.join('\n');
 }
 

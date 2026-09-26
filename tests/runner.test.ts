@@ -158,3 +158,19 @@ describe('header', () => {
     expect(titleFromPrompt('')).toBe('Nova sessão');
   });
 });
+
+describe('header com memórias', () => {
+  it('lista as memórias e marca a de importância máxima', () => {
+    const s = buildSystemAppend({ projectName: 'Orion', projectPath: '/srv/orion', createdBy: 'Danilo', memories: [
+      { title: 'Regra de ouro', summary: 'sempre testar', status: 'deus', scope: 'projeto' },
+      { title: 'Prefere PT', summary: 'responde em português', status: 'aprendizagem', scope: 'usuário' },
+    ] });
+    expect(s).toContain('Memórias que valem para esta sessão');
+    expect(s).toMatch(/Regra de ouro: sempre testar/);
+    expect(s).toContain('importância máxima');
+    expect(s).toMatch(/\[usuário\] Prefere PT/);
+  });
+  it('sem memórias não adiciona a seção', () => {
+    expect(buildSystemAppend({ projectName: 'X', projectPath: '/x', createdBy: 'A', memories: [] })).not.toContain('Memórias que valem');
+  });
+});
