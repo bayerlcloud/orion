@@ -77,3 +77,13 @@ describe('pasteFilename', () => {
     expect(pasteFilename('captura-2026-09-25-2311.png', 'image/png', new Date(2027, 0, 1))).toBe('captura-2026-09-25-2311.png');
   });
 });
+
+import { displayName } from '../server/driveUtils';
+describe('displayName (renomear)', () => {
+  it('mantém acentos e espaços, tira caminho e controle', () => {
+    expect(displayName('  Relatório final.pdf ')).toBe('Relatório final.pdf');
+    expect(displayName('/etc/passwd')).toBe('passwd');
+    expect(displayName('a\u0000b')).toBe('ab');
+  });
+  it('vazio vira "arquivo"', () => { expect(displayName('   ')).toBe('arquivo'); });
+});

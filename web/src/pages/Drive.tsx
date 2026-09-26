@@ -11,7 +11,6 @@ type Upload = { key: number; name: string; size: number; progress: number; statu
 const MAX_BYTES = 2 * 1024 ** 3;
 const PARALELOS = 2;
 
-/** Um XHR por arquivo, para ter progresso individual. */
 function enviar(file: File, onProgress: (frac: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -31,8 +30,12 @@ function enviar(file: File, onProgress: (frac: number) => void): Promise<void> {
   });
 }
 
+const isImagem = (m: string) => m.startsWith('image/');
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1).toUpperCase().slice(0, 4) : 'ARQ';
+}
 function plural(n: number, um: string, varios: string) { return `${n} ${n === 1 ? um : varios}`; }
-
 function statusLabel(u: Upload): string {
   switch (u.status) {
     case 'fila': return 'na fila';
@@ -48,6 +51,7 @@ export default function Drive({ user }: { user: User }) {
   const [erro, setErro] = useState('');
   const [arrastando, setArrastando] = useState(false);
   const [copiado, setCopiado] = useState<number | null>(null);
+  const [preview, setPreview] = useState<DriveFile | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const seq = useRef(0);
   const fila = useRef<{ key: number; file: File }[]>([]);
@@ -91,7 +95,6 @@ export default function Drive({ user }: { user: User }) {
     bombear();
   }, [bombear]);
 
-  // Ideia 1: arrastar e soltar em qualquer ponto da página.
   useEffect(() => {
     let profundidade = 0;
     const temArquivo = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
@@ -100,9 +103,7 @@ export default function Drive({ user }: { user: User }) {
     const onLeave = (e: DragEvent) => { if (!temArquivo(e)) return; profundidade = Math.max(0, profundidade - 1); if (profundidade === 0) setArrastando(false); };
     const onDrop = (e: DragEvent) => {
       if (!temArquivo(e)) return;
-      e.preventDefault();
-      profundidade = 0;
-      setArrastando(false);
+      e.preventDefault(); profundidade = 0; setArrastando(false);
       enfileirar(Array.from(e.dataTransfer?.files ?? []));
     };
     document.addEventListener('dragenter', onEnter);
@@ -117,7 +118,6 @@ export default function Drive({ user }: { user: User }) {
     };
   }, [enfileirar]);
 
-  // Ideia 2: Ctrl/Cmd+V com print ou arquivo na área de transferência.
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const alvo = e.target as HTMLElement | null;
@@ -138,32 +138,37 @@ export default function Drive({ user }: { user: User }) {
     return () => document.removeEventListener('paste', onPaste);
   }, [enfileirar]);
 
-  // Ideia 3: copiar o caminho absoluto no servidor para colar numa sessão do Claude.
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [preview]);
+
   async function copiarCaminho(f: DriveFile) {
-    try {
-      await navigator.clipboard.writeText(f.path);
-    } catch {
+    try { await navigator.clipboard.writeText(f.path); }
+    catch {
       const ta = document.createElement('textarea');
-      ta.value = f.path;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
+      ta.value = f.path; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
     }
     setCopiado(f.id);
     setTimeout(() => setCopiado(c => (c === f.id ? null : c)), 1500);
   }
 
+  async function renomear(f: DriveFile) {
+    const novo = prompt('Novo nome do arquivo', f.name);
+    if (novo == null) return;
+    const nome = novo.trim();
+    if (!nome || nome === f.name) return;
+    try { await api(`/api/drive/files/${f.id}/rename`, { method: 'PATCH', body: JSON.stringify({ name: nome }) }); await refresh(); }
+    catch (e) { setErro((e as Error).message); }
+  }
+
   async function excluir(f: DriveFile) {
     if (!confirm(`Excluir "${f.name}"?`)) return;
-    try {
-      await api(`/api/drive/files/${f.id}`, { method: 'DELETE' });
-      await refresh();
-    } catch (e) {
-      setErro((e as Error).message);
-    }
+    try { await api(`/api/drive/files/${f.id}`, { method: 'DELETE' }); await refresh(); }
+    catch (e) { setErro((e as Error).message); }
   }
 
   const admin = user.role === 'owner';
@@ -172,39 +177,32 @@ export default function Drive({ user }: { user: User }) {
 
   return (
     <div className="drive">
-      <h1>Drive</h1>
+      <div className="drive-cabecalho">
+        <h1>Drive</h1>
+        {listing && <span className="muted small">{plural(arquivosGeral, 'arquivo', 'arquivos')} · {formatBytes(totalGeral)} · pasta <code>{listing.dir}</code> · máx {formatBytes(listing.max_bytes)}/arquivo</span>}
+      </div>
       {erro && <div className="erro">{erro}</div>}
 
       {listing && (
-        <div className="drive-uso">
+        <div className="drive-cards">
           {listing.usage.map(u => (
-            <div key={u.user_id}>
-              <b>{u.user_id === user.id ? 'você' : u.name}</b>: {formatBytes(u.total)} em {plural(u.files, 'arquivo', 'arquivos')}
+            <div key={u.user_id} className="drive-card">
+              <div className="drive-card-nome">{u.user_id === user.id ? 'você' : u.name}</div>
+              <div className="drive-card-num">{formatBytes(u.total)}</div>
+              <div className="muted small">{plural(u.files, 'arquivo', 'arquivos')}</div>
             </div>
           ))}
-          {listing.usage.length > 1 && (
-            <div className="muted">total: {formatBytes(totalGeral)} em {plural(arquivosGeral, 'arquivo', 'arquivos')}</div>
-          )}
-          <div className="muted small">pasta: <code>{listing.dir}</code> · máximo {formatBytes(listing.max_bytes)} por arquivo</div>
         </div>
       )}
 
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        hidden
-        onChange={e => { enfileirar(Array.from(e.target.files ?? [])); e.target.value = ''; }}
-      />
-      <div
-        className={'drive-zona' + (arrastando ? ' ativa' : '')}
-        role="button"
-        tabIndex={0}
+      <input ref={inputRef} type="file" multiple hidden
+        onChange={e => { enfileirar(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
+      <div className={'drive-zona' + (arrastando ? ' ativa' : '')} role="button" tabIndex={0}
         onClick={() => inputRef.current?.click()}
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
-      >
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}>
+        <div className="drive-zona-icone">⬆</div>
         <div className="drive-zona-titulo">{arrastando ? 'solte para enviar' : 'arraste arquivos aqui ou clique para escolher'}</div>
-        <div className="muted small">qualquer tipo, vários de uma vez · Ctrl/Cmd+V cola um print ou arquivo da área de transferência</div>
+        <div className="muted small">qualquer tipo, vários de uma vez · Ctrl/Cmd+V cola um print da área de transferência</div>
       </div>
 
       {uploads.length > 0 && (
@@ -220,11 +218,7 @@ export default function Drive({ user }: { user: User }) {
             </li>
           ))}
           {uploads.some(u => u.status === 'ok' || u.status === 'erro') && (
-            <li>
-              <button className="link small" onClick={() => setUploads(us => us.filter(u => u.status === 'fila' || u.status === 'enviando'))}>
-                limpar concluídos
-              </button>
-            </li>
+            <li><button className="link small" onClick={() => setUploads(us => us.filter(u => u.status === 'fila' || u.status === 'enviando'))}>limpar concluídos</button></li>
           )}
         </ul>
       )}
@@ -233,38 +227,41 @@ export default function Drive({ user }: { user: User }) {
       {!listing && !erro && <p className="muted">carregando…</p>}
 
       {listing && listing.files.length > 0 && (
-        <table className="drive-tabela">
-          <thead>
-            <tr>
-              <th>nome</th>
-              <th>tamanho</th>
-              <th>data</th>
-              {admin && <th>de</th>}
-              <th>ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {listing.files.map(f => (
-              <tr key={f.id}>
-                <td className="drive-nome">
-                  <a href={`/api/drive/files/${f.id}/download`} title={f.mime}>{f.name}</a>
-                </td>
-                <td className="num">{formatBytes(f.size)}</td>
-                <td className="num">{new Date(f.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</td>
-                {admin && <td>{f.user_id === user.id ? 'você' : f.user_name}</td>}
-                <td>
-                  <div className="drive-acoes">
-                    <a href={`/api/drive/files/${f.id}/download`}>baixar</a>
-                    <button className="link" onClick={() => copiarCaminho(f)} title={f.path}>
-                      {copiado === f.id ? 'copiado' : 'copiar caminho'}
-                    </button>
-                    <button className="link" onClick={() => excluir(f)}>excluir</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="drive-grade">
+          {listing.files.map(f => (
+            <div key={f.id} className="drive-item">
+              <button className="drive-thumb" onClick={() => isImagem(f.mime) ? setPreview(f) : window.open(`/api/drive/files/${f.id}/download`, '_blank')} title={isImagem(f.mime) ? 'ver' : 'abrir'}>
+                {isImagem(f.mime)
+                  ? <img src={`/api/drive/files/${f.id}/view`} alt={f.name} loading="lazy" />
+                  : <span className="drive-ext">{extOf(f.name)}</span>}
+              </button>
+              <div className="drive-item-nome" title={f.name}>{f.name}</div>
+              <div className="drive-item-meta">
+                {formatBytes(f.size)} · {new Date(f.created_at).toLocaleDateString('pt-BR')}
+                {admin && f.user_id !== user.id && <> · {f.user_name}</>}
+              </div>
+              <div className="drive-acoes">
+                <a href={`/api/drive/files/${f.id}/download`}>baixar</a>
+                <button className="link" onClick={() => renomear(f)}>renomear</button>
+                <button className="link" onClick={() => copiarCaminho(f)} title={f.path}>{copiado === f.id ? 'copiado' : 'copiar caminho'}</button>
+                <button className="link" onClick={() => excluir(f)}>excluir</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {preview && (
+        <div className="drive-lightbox" onClick={() => setPreview(null)}>
+          <div className="drive-lightbox-topo">
+            <span>{preview.name}</span>
+            <div>
+              <a href={`/api/drive/files/${preview.id}/download`} onClick={e => e.stopPropagation()}>baixar</a>
+              <button className="link" onClick={e => { e.stopPropagation(); setPreview(null); }}>fechar</button>
+            </div>
+          </div>
+          <img src={`/api/drive/files/${preview.id}/view`} alt={preview.name} onClick={e => e.stopPropagation()} />
+        </div>
       )}
     </div>
   );

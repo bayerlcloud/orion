@@ -1,0 +1,135 @@
+/* Página Memória: tela dividida (lista à esquerda, leitor à direita). Só usa as variáveis globais do tema. */
+.mem {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  font-size: 13px;
+}
+
+/* ===== lista (esquerda) ===== */
+.mem-list {
+  flex: 0 0 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 80px);
+  position: sticky;
+  top: 0;
+}
+.mem-list-head { display: flex; flex-direction: column; gap: 8px; }
+.mem-nova {
+  font: inherit; font-size: 13px; padding: 8px 12px; text-align: left;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  border-radius: 6px; cursor: pointer;
+}
+.mem-nova:hover { background: var(--accent-2); }
+.mem-nova:disabled { opacity: .5; cursor: default; }
+.mem-search { width: 100%; }
+.mem-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mem-chip {
+  font: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg2); color: var(--fg2); border-radius: 6px;
+}
+.mem-chip:hover { background: var(--hover); color: var(--fg); }
+.mem-chip.is-on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+.mem-rows { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; padding-right: 2px; }
+.mem-empty { padding: 12px 4px; color: var(--fg2); }
+.mem-row {
+  display: flex; flex-direction: column; gap: 5px; width: 100%; text-align: left;
+  border: 1px solid var(--line); background: var(--bg2); color: var(--fg);
+  border-radius: 6px; padding: 9px 10px; cursor: pointer;
+}
+.mem-row:hover { background: var(--hover); }
+.mem-row.is-active { background: var(--active); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.mem-row-top { display: flex; align-items: center; gap: 8px; }
+.mem-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.mem-row-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-row-sum { color: var(--fg2); line-height: 1.4; }
+.mem-kw-line { display: flex; flex-wrap: wrap; gap: 4px; }
+.mem-kw {
+  font-size: 11px; padding: 1px 7px; border-radius: 10px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--fg2);
+}
+.mem-scope-line { display: flex; flex-wrap: wrap; gap: 6px; }
+.mem-scope { font-size: 11px; color: var(--fg2); }
+.mem-scope::before { content: "· "; }
+.mem-scope:first-child::before { content: ""; }
+
+/* ===== leitor (direita) ===== */
+.mem-reader { flex: 1 1 auto; min-width: 0; }
+.mem-reader-empty {
+  border: 1px dashed var(--line); border-radius: 8px; padding: 40px 20px;
+  text-align: center; background: var(--bg2);
+}
+
+.mem-card {
+  border: 1px solid var(--line); background: var(--bg2); border-radius: 8px;
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.mem-badge { color: #fff; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 10px; }
+.mem-importance { display: flex; align-items: center; gap: 10px; }
+
+.mem-field { display: grid; gap: 4px; }
+.mem-field > span {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg2);
+  display: flex; align-items: center; gap: 8px;
+}
+.mem-field input, .mem-field select, .mem-field textarea { width: 100%; }
+.mem-field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mem-summary { resize: vertical; }
+.mem-counter { color: var(--fg2); letter-spacing: 0; text-transform: none; }
+.mem-counter.is-over { color: var(--bad); font-weight: 600; }
+
+.mem-meta-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 10px 0;
+}
+.mem-meta-grid > div { display: grid; gap: 2px; min-width: 0; }
+.mem-meta-grid > div > div { overflow-wrap: anywhere; }
+
+.mem-toggle-line { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.mem-toggle-line input { width: auto; }
+
+.mem-kw-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mem-kw.is-edit { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); }
+.mem-kw-x { border: 0; background: none; color: var(--fg2); cursor: pointer; font: inherit; font-size: 13px; padding: 0 0 0 2px; line-height: 1; }
+.mem-kw-x:hover { color: var(--bad); }
+.mem-kw-input { width: 120px; padding: 3px 8px; font-size: 12px; }
+.mem-hint { margin: -4px 0 0; }
+
+/* ===== corpo markdown ===== */
+.mem-body { margin-top: 14px; }
+.mem-body-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.mem-body-tabs button {
+  font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg2); color: var(--fg2); border-radius: 6px;
+}
+.mem-body-tabs button:hover { background: var(--hover); color: var(--fg); }
+.mem-body-tabs button.is-on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.mem-md {
+  border: 1px solid var(--line); background: var(--bg2); border-radius: 8px; padding: 4px 16px 12px;
+}
+.mem-editor { width: 100%; min-height: 260px; resize: vertical; line-height: 1.5; }
+
+.mem-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.mem-actions button {
+  font: inherit; padding: 7px 14px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px;
+}
+.mem-actions button:hover { background: var(--hover); }
+.mem-actions .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mem-actions .btn-primary:hover { background: var(--accent-2); }
+.mem-actions button:disabled { opacity: .5; cursor: default; }
+.mem-toast { font-size: 12px; }
+.mem-toast.is-ok { color: var(--ok); }
+.mem-toast.is-bad { color: var(--bad); }
+
+/* ===== celular: empilha lista em cima, leitor embaixo ===== */
+@media (max-width: 760px) {
+  .mem { flex-direction: column; }
+  .mem-list { flex: none; width: 100%; max-height: none; position: static; }
+  .mem-rows { max-height: 50vh; }
+  .mem-reader { width: 100%; }
+  .mem-field-grid, .mem-meta-grid { grid-template-columns: 1fr; }
+}

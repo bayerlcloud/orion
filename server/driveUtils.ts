@@ -20,3 +20,10 @@ export function safeFilename(original: string): string {
   }
   return s;
 }
+
+/** Nome de exibição ao renomear: mantém acentos e espaços, tira caminho e controla o tamanho. */
+export function displayName(input: string): string {
+  const base = (input ?? '').replace(/\\/g, '/').split('/').pop() ?? '';
+  const s = base.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  return s.slice(0, MAX_NAME) || 'arquivo';
+}

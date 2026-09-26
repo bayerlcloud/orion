@@ -9,6 +9,7 @@ import Drive from './pages/Drive';
 import Config from './pages/Config';
 import Dash from './pages/Dash';
 import Arquivos from './pages/Arquivos';
+import Memoria from './pages/Memoria';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec } from './icons';
 
 const MENU = [
@@ -81,7 +82,7 @@ export default function App() {
           <Route path="/spec" element={<Spec user={user} />} />
           <Route path="/dash" element={<Dash />} />
           <Route path="/claude" element={<ClaudePage />} />
-          <Route path="/memoria" element={<Placeholder title="Memória" text="Regras por projeto, perfil de cada pessoa e o que a Central injeta em toda sessão." />} />
+          <Route path="/memoria" element={<Memoria user={user} />} />
           <Route path="/arquivos" element={<Arquivos user={user} />} />
           <Route path="/drive" element={<Drive user={user} />} />
           <Route path="/config" element={<Config user={user} />} />

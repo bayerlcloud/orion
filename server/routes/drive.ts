@@ -6,7 +6,8 @@ import { pipeline } from 'node:stream/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { User } from '../db.js';
-import { safeFilename } from '../driveUtils.js';
+import { rename as renameFile } from 'node:fs/promises';
+import { safeFilename, displayName } from '../driveUtils.js';
 
 /** Limite por arquivo: 2 GB (ou DRIVE_MAX_BYTES). O upload é em streaming, nunca fica inteiro em memória. */
 export function maxFileBytes(): number {
@@ -130,6 +131,36 @@ export async function driveRoutes(app: FastifyInstance) {
     reply.header('Cache-Control', 'private, no-store');
     reply.type(f.mime || 'application/octet-stream');
     return reply.send(createReadStream(f.path));
+  });
+
+  // Visualização embutida (miniatura/preview): mesma origem, seguro para <img src>.
+  app.get<{ Params: { id: string } }>('/api/drive/files/:id/view', async (req, reply) => {
+    const f = await findFile(req.params.id, req.user!);
+    if (!f) return reply.code(404).send({ error: 'arquivo não encontrado' });
+    const st = await stat(f.path).catch(() => null);
+    if (!st) return reply.code(410).send({ error: 'arquivo não está mais no disco' });
+    reply.header('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(f.name)}`);
+    reply.header('Content-Length', st.size);
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Cache-Control', 'private, max-age=300');
+    reply.type(f.mime || 'application/octet-stream');
+    return reply.send(createReadStream(f.path));
+  });
+
+  // Renomear no servidor: atualiza o nome de exibição e também o arquivo em disco (mantém o prefixo único).
+  app.patch<{ Params: { id: string }; Body: { name?: string } }>('/api/drive/files/:id/rename', async (req, reply) => {
+    const f = await findFile(req.params.id, req.user!);
+    if (!f) return reply.code(404).send({ error: 'arquivo não encontrado' });
+    const novo = displayName(req.body?.name ?? '');
+    if (!novo) return reply.code(400).send({ error: 'nome vazio' });
+    const dir = path.dirname(f.path);
+    const oldBase = path.basename(f.path);
+    const uuidPrefix = /^[0-9a-f-]{36}-/i.test(oldBase) ? oldBase.slice(0, 37) : '';
+    const destBase = uuidPrefix + safeFilename(novo);
+    const dest = path.join(dir, destBase);
+    if (dest !== f.path) { await renameFile(f.path, dest).catch((e: NodeJS.ErrnoException) => { if (e.code !== 'ENOENT') throw e; }); }
+    await app.pool.query('UPDATE drive_files SET name = $2, path = $3 WHERE id = $1', [f.id, novo, dest]);
+    return { ok: true, name: novo, path: dest };
   });
 
   app.delete<{ Params: { id: string } }>('/api/drive/files/:id', async (req, reply) => {

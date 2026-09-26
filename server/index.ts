@@ -14,6 +14,7 @@ import { claudeRoutes } from './routes/claude.js';
 import { settingsRoutes } from './routes/settings.js';
 import { dashRoutes } from './routes/dash.js';
 import { filesRoutes } from './routes/files.js';
+import { memoriesRoutes } from './routes/memories.js';
 
 declare module 'fastify' {
   interface FastifyInstance { pool: Pool; repoDir: string; runner: import('./claude/runner.js').Runner }
@@ -55,6 +56,7 @@ async function main() {
   await app.register(settingsRoutes);
   await app.register(dashRoutes);
   await app.register(filesRoutes);
+  await app.register(memoriesRoutes);
 
   await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: false });
   app.setNotFoundHandler((req, reply) => {
