@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import type { User } from '../api';
 import { filesApi } from '../files/api';
-import Editor, { type EditorHandle } from '../files/Editor';
+import type { EditorHandle } from '../files/Editor';
 import Explorer, { type ExplorerHandle, type PathChange, type Selection } from '../files/Explorer';
 import Tabs from '../files/Tabs';
 import Timeline from '../files/Timeline';
@@ -9,6 +9,9 @@ import { Chevron } from '../files/icons';
 import { GIT_LABEL, IMAGE_EXT, baseName, extOf, isUnder, keyOf, type GitStatus, type OpenFile, type RootInfo } from '../files/types';
 import { formatBytes } from './driveUtils';
 import './arquivos.css';
+
+// CodeMirror só entra no bundle quando um arquivo de texto abre.
+const Editor = lazy(() => import('../files/Editor'));
 
 /**
  * Página Arquivos: explorer à esquerda (300px), abas + CodeMirror à direita, barra de status embaixo.
@@ -231,12 +234,14 @@ export default function Arquivos(_props: { user: User }) {
             </div>
           )}
           {current?.kind === 'text' && (
-            <Editor
-              ref={editor}
-              file={current}
-              onDirty={(k, d) => patch(k, f => (f.dirty === d ? {} : { dirty: d, preview: d ? false : f.preview }))}
-              onSave={(k, c) => void save(k, c)}
-            />
+            <Suspense fallback={<div className="arq-blank">carregando editor…</div>}>
+              <Editor
+                ref={editor}
+                file={current}
+                onDirty={(k, d) => patch(k, f => (f.dirty === d ? {} : { dirty: d, preview: d ? false : f.preview }))}
+                onSave={(k, c) => void save(k, c)}
+              />
+            </Suspense>
           )}
           {current?.kind === 'image' && (
             <div className="arq-image"><img src={filesApi.rawUrl(current.rootId, current.rel)} alt={current.name} /></div>

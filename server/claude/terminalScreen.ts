@@ -1,4 +1,9 @@
-import { Terminal } from '@xterm/headless';
+import { createRequire } from 'node:module';
+
+// @xterm/headless é CommonJS; num projeto ESM o import nomeado quebra em runtime (o lexer não vê o export).
+// createRequire pega o module.exports direto, com tipos.
+const require = createRequire(import.meta.url);
+const { Terminal } = require('@xterm/headless') as typeof import('@xterm/headless');
 
 /**
  * Reconstrói a tela final de um fluxo de terminal (ANSI cru com movimentos de cursor)

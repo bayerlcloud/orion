@@ -86,7 +86,7 @@
 .arq-commit-meta { font-size: 11px; color: var(--fg2); }
 
 /* menu de contexto */
-.arq-menu { position: fixed; z-index: 50; min-width: 220px; background: var(--bg2); border: 1px solid var(--line); border-radius: 4px; padding: 4px; box-shadow: 0 4px 16px #0006; font-size: 13px; line-height: 22px; }
+.arq-menu { position: fixed; z-index: 50; min-width: 220px; background: var(--bg2); border: 1px solid var(--line); border-radius: 4px; padding: 4px; box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 70%, transparent); font-size: 13px; line-height: 22px; }
 .arq-menu-item { display: flex; justify-content: space-between; gap: 24px; padding: 0 10px; border-radius: 3px; cursor: pointer; }
 .arq-menu-item.is-hi { background: var(--active); }
 .arq-menu-item.is-disabled { color: var(--fg2); opacity: .5; cursor: default; }
@@ -125,7 +125,7 @@
 .arq-status .is-dirty { color: var(--git-modified); }
 
 /* aviso */
-.arq-toast { position: fixed; right: 16px; bottom: 34px; z-index: 60; background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 6px 12px; font-size: 12px; box-shadow: 0 4px 16px #0006; max-width: 60vw; }
+.arq-toast { position: fixed; right: 16px; bottom: 34px; z-index: 60; background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 6px 12px; font-size: 12px; box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 70%, transparent); max-width: 60vw; }
 
 @media (max-width: 700px) {
   .arq { grid-template-columns: 1fr; grid-template-rows: 45% minmax(0, 1fr) 22px; }

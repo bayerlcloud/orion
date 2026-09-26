@@ -8,6 +8,7 @@ import ClaudePage from './claude/ClaudePage';
 import Drive from './pages/Drive';
 import Config from './pages/Config';
 import Dash from './pages/Dash';
+import Arquivos from './pages/Arquivos';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec } from './icons';
 
 const MENU = [
@@ -81,7 +82,7 @@ export default function App() {
           <Route path="/dash" element={<Dash />} />
           <Route path="/claude" element={<ClaudePage />} />
           <Route path="/memoria" element={<Placeholder title="Memória" text="Regras por projeto, perfil de cada pessoa e o que a Central injeta em toda sessão." />} />
-          <Route path="/arquivos" element={<Placeholder title="Arquivos" text="Explorador de arquivos igual ao do VS Code, com git e editor. Em construção por um agente agora." />} />
+          <Route path="/arquivos" element={<Arquivos user={user} />} />
           <Route path="/drive" element={<Drive user={user} />} />
           <Route path="/config" element={<Config user={user} />} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
