@@ -4,8 +4,11 @@ export type ToolStatus = 'running' | 'success' | 'failure' | 'warning';
 export type AskOption = { label: string; description?: string };
 export type AskQuestion = { header?: string; question: string; multiSelect?: boolean; options: AskOption[] };
 
+/** Anexo de uma mensagem do usuário, como a tela o exibe (só metadados; os bytes ficam no servidor). */
+export type UserAttachment = { kind: 'image' | 'file'; name: string; media_type?: string };
+
 export type ConvEvent =
-  | { id: string; kind: 'user'; text: string }
+  | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[] }
   | { id: string; kind: 'text'; text: string; streaming?: boolean }
   | { id: string; kind: 'thinking'; text: string; streaming?: boolean }
   | {
@@ -28,7 +31,7 @@ export type SdkMessage =
   | { type: 'system'; subtype: 'init'; session_id?: string; model?: string; cwd?: string }
   | { type: 'system'; subtype: string; [k: string]: unknown }
   | { type: 'assistant'; message: { content: SdkContentBlock[] } }
-  | { type: 'user'; message: { content: string | SdkContentBlock[] } }
+  | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] } }
   | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
 

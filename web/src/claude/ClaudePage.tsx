@@ -90,21 +90,23 @@ export default function ClaudePage() {
     setTabs(t => [...t, { id, draft: true, projectId: draftProject }]);
     setActiveId(id);
   }
-  async function send(text: string) {
+  async function send(text: string, files: File[] = []) {
     setErro('');
     try {
+      const prompt = text || (files.length ? '(arquivos em anexo)' : '');
+      const attachments = files.length ? (await claudeApi.uploads(files)).attachments : undefined;
       if (!activeId || isDraft(activeId)) {
         const pid = activeTab?.projectId ?? draftProject ?? projects[0]?.id;
         if (!pid) { setErro('Nenhum projeto cadastrado'); return; }
-        const r = await claudeApi.create({ project_id: pid, prompt: text, permission_mode: mode, effort });
+        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, effort, attachments });
         const draftId = activeId;
         setTabs(t => draftId ? t.map(x => x.id === draftId ? { id: r.id } : x) : [...t, { id: r.id }]);
         setActiveId(r.id);
         void refreshSessions();
       } else {
-        await claudeApi.send(activeId, { prompt: text, permission_mode: mode, effort });
+        await claudeApi.send(activeId, { prompt, permission_mode: mode, effort, attachments });
       }
-    } catch (e: any) { setErro(e.message); }
+    } catch (e: any) { setErro(e.message); throw e; }
   }
   async function decide(approvalId: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) {
     if (!activeId) return;

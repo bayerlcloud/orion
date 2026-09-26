@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { Options, PermissionResult, PermissionUpdate, Query, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { readFile } from 'node:fs/promises';
+import type { Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
 export type LiveEvent =
@@ -21,12 +22,46 @@ export interface Store {
   decideApproval(id: string, decision: Decision, decidedBy: number | null): Promise<void>;
 }
 
-export type QueryFn = (params: { prompt: string; options?: Options }) => Query | AsyncIterable<SDKMessage>;
+export type QueryFn = (params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => Query | AsyncIterable<SDKMessage>;
+
+/** Anexo já salvo em disco pelo endpoint de upload; o runner lê o caminho na hora de montar o prompt. */
+export type Attachment = { kind: 'image' | 'file'; media_type: string; name: string; path: string };
+
+/** Prompt de um turno: texto puro (comportamento antigo) ou texto + anexos. */
+export type TurnPrompt = string | { text: string; attachments: Attachment[] };
+
+/** Tipos de imagem que o modelo aceita como bloco base64 (Base64ImageSource do SDK). */
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
+export type AttachmentImageBlock = { type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } };
+
+/**
+ * Traduz anexos em blocos de conteúdo do SDK. Puro (recebe o leitor por injeção, para teste).
+ * Imagens (png/jpeg/webp/gif) viram bloco `image` base64; os demais arquivos viram uma
+ * linha anexada ao texto apontando o caminho no servidor (o modelo lê com ferramentas).
+ */
+export async function attachmentBlocks(
+  attachments: Attachment[],
+  read: (path: string) => Promise<Buffer> = readFile,
+): Promise<{ blocks: AttachmentImageBlock[]; textSuffix: string }> {
+  const blocks: AttachmentImageBlock[] = [];
+  const notes: string[] = [];
+  for (const a of attachments ?? []) {
+    const mt = (a.media_type || '').toLowerCase();
+    if ((IMAGE_MEDIA_TYPES as readonly string[]).includes(mt)) {
+      const buf = await read(a.path);
+      blocks.push({ type: 'image', source: { type: 'base64', media_type: mt as ImageMediaType, data: buf.toString('base64') } });
+    } else {
+      notes.push(`\n\n[arquivo anexado: ${a.name} em ${a.path} — use ferramentas para lê-lo]`);
+    }
+  }
+  return { blocks, textSuffix: notes.join('') };
+}
 
 export type TurnParams = {
   sessionId: string;
   cwd: string;
-  prompt: string;
+  prompt: TurnPrompt;
   isNew: boolean;
   permissionMode: 'default' | 'acceptEdits' | 'plan' | 'auto';
   model?: string;
@@ -111,9 +146,15 @@ export class Runner {
     const l = this.get(id);
     const abort = new AbortController();
     l.abort = abort; l.stderr = [];
+    // Normaliza: texto puro (comportamento antigo) ou { text, attachments }.
+    const promptObj = typeof p.prompt === 'string' ? { text: p.prompt, attachments: [] as Attachment[] } : p.prompt;
+    const text = promptObj.text;
+    const attachments = promptObj.attachments ?? [];
+    // Nota compacta persistida: só o suficiente para reexibir os nomes ao reabrir a sessão.
+    const attachNote = attachments.map(a => ({ kind: a.kind, name: a.name, media_type: a.media_type }));
     await this.setStatus(id, 'running', { lastError: null });
-    await this.deps.store.appendEvent(id, 'user_prompt', { prompt: p.prompt });
-    this.emit(id, { type: 'message', message: { type: 'user', message: { role: 'user', content: p.prompt }, parent_tool_use_id: null, session_id: id } as SDKMessage });
+    await this.deps.store.appendEvent(id, 'user_prompt', { prompt: text, ...(attachNote.length ? { attachments: attachNote } : {}) });
+    this.emit(id, { type: 'message', message: { type: 'user', message: { role: 'user', content: text, ...(attachNote.length ? { attachments: attachNote } : {}) }, parent_tool_use_id: null, session_id: id } as unknown as SDKMessage });
 
     const canUseTool: Options['canUseTool'] = (toolName, input, opts) => new Promise<PermissionResult>((resolve) => {
       const pid = randomUUID();
@@ -151,7 +192,16 @@ export class Runner {
 
     let ok = false, cost = 0, turns = 0;
     try {
-      const q = this.deps.queryFn({ prompt: p.prompt, options });
+      // Sem anexos: mantém o prompt string (não muda o comportamento antigo).
+      // Com anexos: monta UMA SDKUserMessage com [texto, ...imagens] e o texto ganha as notas dos arquivos.
+      let promptArg: string | AsyncIterable<SDKUserMessage> = text;
+      if (attachments.length) {
+        const { blocks, textSuffix } = await attachmentBlocks(attachments);
+        const content = [{ type: 'text', text: text + textSuffix }, ...blocks];
+        const userMsg = { type: 'user', parent_tool_use_id: null, session_id: id, message: { role: 'user', content } } as unknown as SDKUserMessage;
+        promptArg = (async function* () { yield userMsg; })();
+      }
+      const q = this.deps.queryFn({ prompt: promptArg, options });
       for await (const m of q as AsyncIterable<SDKMessage>) {
         if (m.type === 'stream_event') { this.emit(id, { type: 'partial', event: m.event }); continue; }
         if (m.type === 'system' && m.subtype === 'init') await this.deps.store.updateSession(id, { model: m.model });

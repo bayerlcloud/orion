@@ -10,6 +10,8 @@ export type Project = { id: number; slug: string; name: string; path: string; ru
 export type Mode = 'acceptEdits' | 'default' | 'plan' | 'auto';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type Me = { id: number; name: string; email: string; role: string };
+/** Anexo já salvo no servidor pelo endpoint de upload. */
+export type Attachment = { kind: 'image' | 'file'; media_type: string; name: string; path: string; size?: number };
 
 export const claudeApi = {
   status: () => api<{ logged_in: boolean; home: string; version: string; linux_user: string | null }>('/api/claude/status'),
@@ -17,9 +19,18 @@ export const claudeApi = {
   projects: () => api<{ projects: Project[] }>('/api/claude/projects'),
   sessions: () => api<{ sessions: ApiSession[] }>('/api/claude/sessions'),
   usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[] }>('/api/claude/usage'),
-  create: (b: { project_id: number; prompt: string; permission_mode: Mode; effort?: Effort }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
+  create: (b: { project_id: number; prompt: string; permission_mode: Mode; effort?: Effort; attachments?: Attachment[] }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
-  send: (id: string, b: { prompt: string; permission_mode?: Mode; effort?: Effort }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
+  send: (id: string, b: { prompt: string; permission_mode?: Mode; effort?: Effort; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
+  // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
+  uploads: async (files: File[]): Promise<{ attachments: Attachment[] }> => {
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f, f.name);
+    const res = await fetch('/api/claude/uploads', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
+    return data as { attachments: Attachment[] };
+  },
   permission: (id: string, b: { approval_id: string; decision: 'allow' | 'allow_always' | 'deny' | 'answer'; message?: string }) => api<{ ok: true }>(`/api/claude/sessions/${id}/permission`, { method: 'POST', body: JSON.stringify(b) }),
   stop: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/stop`, { method: 'POST' }),
   rename: (id: string, title: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/rename`, { method: 'POST', body: JSON.stringify({ title }) }),

@@ -1,27 +1,71 @@
 import type { FastifyInstance } from 'fastify';
+import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
-import { access } from 'node:fs/promises';
+import { access, mkdir, realpath, stat, unlink } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { Runner } from '../claude/runner.js';
+import { Runner, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt } from '../claude/header.js';
 import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
+import { safeFilename } from '../driveUtils.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
-type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string };
+/** Pasta dos anexos do Claude. Padrão /srv/claude-uploads, ou CLAUDE_UPLOAD_DIR. */
+export function claudeUploadDir(): string {
+  return path.resolve(process.env.CLAUDE_UPLOAD_DIR ?? '/srv/claude-uploads');
+}
+const UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB por arquivo
+const UPLOAD_MAX_FILES = 10;
+
+type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
 
 export async function claudeRoutes(app: FastifyInstance) {
   const runner = new Runner({ queryFn: query, store: pgStore(app.pool), log: (m) => app.log.warn(m) });
   app.decorate('runner', runner);
   await ensureSettingsTable(app.pool);
   await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false');
+
+  // Pasta de anexos e upload em streaming, escopado a este plugin (@fastify/multipart é fastify-plugin, sobe só até aqui).
+  const uploadRoot = claudeUploadDir();
+  await mkdir(uploadRoot, { recursive: true })
+    .catch((e: NodeJS.ErrnoException) => app.log.warn(`CLAUDE_UPLOAD_DIR ${uploadRoot} não pôde ser criado: ${e.message}`));
+  await app.register(multipart, { limits: { fileSize: UPLOAD_MAX_BYTES, files: UPLOAD_MAX_FILES, fields: 4 }, throwFileSizeLimit: false });
+
+  /** Só aceita anexos cujo caminho real está dentro da pasta de uploads (evita path traversal / leitura arbitrária). */
+  async function sanitizeAttachments(raw: unknown): Promise<Attachment[] | null> {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) return null;
+    if (raw.length > UPLOAD_MAX_FILES) return null;
+    let rootReal: string;
+    try { rootReal = await realpath(uploadRoot); } catch { rootReal = uploadRoot; }
+    const out: Attachment[] = [];
+    for (const a of raw as any[]) {
+      const p = typeof a?.path === 'string' ? a.path : '';
+      const name = typeof a?.name === 'string' && a.name.trim() ? a.name.trim().slice(0, 200) : 'arquivo';
+      const media_type = typeof a?.media_type === 'string' && a.media_type ? a.media_type : 'application/octet-stream';
+      if (!p) return null;
+      let rp: string;
+      try { rp = await realpath(p); } catch { return null; }
+      if (rp !== rootReal && !rp.startsWith(rootReal + path.sep)) return null;
+      out.push({ kind: media_type.startsWith('image/') ? 'image' : 'file', media_type, name, path: rp });
+    }
+    return out;
+  }
+
+  /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
+  function buildPrompt(userName: string, prompt: string, attachments: Attachment[]): TurnPrompt {
+    const text = prefixPrompt(userName, prompt);
+    return attachments.length ? { text, attachments } : text;
+  }
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
 
@@ -77,6 +121,34 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { usage: rows };
   });
 
+  /** Upload de anexos (multipart). Salva em <uploadRoot>/<user_id>/<uuid>-<nome seguro> e devolve os metadados. */
+  app.post('/api/claude/uploads', async (req, reply) => {
+    const user = req.user!;
+    if (!req.isMultipart()) return reply.code(400).send({ error: 'envie como multipart/form-data' });
+    const dir = path.join(uploadRoot, String(user.id));
+    await mkdir(dir, { recursive: true });
+    const saved: (Attachment & { size: number })[] = [];
+    for await (const part of req.files()) {
+      const original = (part.filename || '').trim() || 'arquivo';
+      const dest = path.join(dir, `${randomUUID()}-${safeFilename(original)}`);
+      try {
+        await pipeline(part.file, createWriteStream(dest, { flags: 'wx' }));
+      } catch (e) {
+        await unlink(dest).catch(() => {});
+        throw e;
+      }
+      if (part.file.truncated) {
+        await unlink(dest).catch(() => {});
+        return reply.code(413).send({ error: `"${original}" passa do limite de 25 MB`, attachments: saved });
+      }
+      const { size } = await stat(dest);
+      const media_type = part.mimetype || 'application/octet-stream';
+      saved.push({ kind: media_type.startsWith('image/') ? 'image' : 'file', media_type, name: original, path: dest, size });
+    }
+    if (!saved.length) return reply.code(400).send({ error: 'nenhum arquivo recebido' });
+    return { attachments: saved };
+  });
+
   app.post<{ Body: NewBody }>('/api/claude/sessions', async (req, reply) => {
     const b = req.body ?? {};
     const prompt = (b.prompt ?? '').trim();
@@ -87,12 +159,14 @@ export async function claudeRoutes(app: FastifyInstance) {
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
     const effort = EFFORTS.has(b.effort ?? '') ? (b.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
+    const attachments = await sanitizeAttachments(b.attachments);
+    if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const id = randomUUID();
     await app.pool.query(
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: prefixPrompt(req.user!.name, prompt), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), maxBudgetUsd: d.budget,
+      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), maxBudgetUsd: d.budget,
       systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, memories: await memoriasPara(project.id, req.user!.id) }),
     });
     return { id, title: titleFromPrompt(prompt) };
@@ -121,9 +195,11 @@ export async function claudeRoutes(app: FastifyInstance) {
     req.raw.on('close', () => { clearInterval(hb); unsub(); });
   });
 
-  app.post<{ Params: { id: string }; Body: { prompt?: string; permission_mode?: string; effort?: string } }>('/api/claude/sessions/:id/messages', async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: { prompt?: string; permission_mode?: string; effort?: string; attachments?: Attachment[] } }>('/api/claude/sessions/:id/messages', async (req, reply) => {
     const prompt = (req.body?.prompt ?? '').trim();
     if (!prompt) return reply.code(400).send({ error: 'prompt vazio' });
+    const attachments = await sanitizeAttachments(req.body?.attachments);
+    if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const { rows } = await app.pool.query(
       'SELECT s.id, s.cwd, s.model, s.permission_mode, s.project_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
     const s = rows[0];
@@ -132,7 +208,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (mode !== s.permission_mode) await app.pool.query('UPDATE claude_sessions SET permission_mode = $2 WHERE id = $1', [s.id, mode]);
     const effort = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt: prefixPrompt(req.user!.name, prompt), isNew: false, permissionMode: mode, model: s.model ?? undefined, effort, env: await turnEnv(), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model: s.model ?? undefined, effort, env: await turnEnv(), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, memories: await memoriasPara(s.project_id ?? null, req.user!.id) }),
     });
     return { ok: true, queued: runner.status(s.id) !== 'idle' };

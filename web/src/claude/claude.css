@@ -148,6 +148,21 @@
 .cc-send { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: var(--cc-orange); color: #fff; }
 .cc-send:disabled { opacity: .35; cursor: default; }
 
+/* Anexos: destaque de arrastar-soltar, chips pendentes no compositor e chips no histórico. */
+.cc-composer.is-dragover { border-color: var(--cc-orange); background: color-mix(in srgb, var(--cc-orange) 8%, var(--cc-bg2)); }
+.cc-attach-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; }
+.cc-attach { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 6px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-bg); font-size: 12px; color: var(--cc-fg); }
+.cc-attach.is-image { padding-left: 3px; }
+.cc-attach-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; flex-shrink: 0; }
+.cc-attach-ico { display: inline-flex; color: var(--cc-fg2); flex-shrink: 0; }
+.cc-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-attach-x { display: inline-flex; padding: 2px; border-radius: 4px; color: var(--cc-fg2); flex-shrink: 0; }
+.cc-attach-x:hover { background: var(--cc-hover); color: var(--cc-fg); }
+.cc-attach-status { color: var(--cc-orange); }
+.cc-user-text { white-space: pre-wrap; }
+.cc-user-attach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cc-attach.is-chip { background: var(--cc-panel); }
+
 @media (max-width: 800px) {
   .cc { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; min-height: calc(100vh - 60px); }
   .cc-main { height: auto; }

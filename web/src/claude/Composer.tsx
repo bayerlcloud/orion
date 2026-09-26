@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron } from './icons';
+import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, type Mode, type Effort, type Project } from './api';
+import { pasteFilename } from '../pages/driveUtils';
 
 /** Comandos de barra que passam direto pro Claude Code (sem execução no nosso servidor). */
 const SLASH: { cmd: string; desc: string }[] = [
@@ -9,6 +10,15 @@ const SLASH: { cmd: string; desc: string }[] = [
   { cmd: '/context', desc: 'Mostra o uso da janela de contexto' },
   { cmd: '/cost', desc: 'Mostra custo e tokens da sessão' },
 ];
+
+/** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */
+type Pending = { id: string; file: File; name: string; isImage: boolean; url?: string };
+
+let uid = 0;
+function toPending(file: File): Pending {
+  const isImage = (file.type || '').startsWith('image/');
+  return { id: `att-${++uid}`, file, name: file.name || 'arquivo', isImage, url: isImage ? URL.createObjectURL(file) : undefined };
+}
 
 function Menu({ open, onClose, children, className = '' }: { open: boolean; onClose: () => void; children: ReactNode; className?: string }) {
   if (!open) return null;
@@ -21,16 +31,50 @@ function Menu({ open, onClose, children, className = '' }: { open: boolean; onCl
 }
 
 export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, modelLabel, projects, projectId, onProject, elapsed }: {
-  onSend: (text: string) => void; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
+  onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: Effort; onEffort?: (e: Effort) => void; modelLabel: string;
   projects?: Project[]; projectId?: number; onProject?: (id: number) => void; elapsed?: string;
 }) {
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'slash'>('');
+  const [attachments, setAttachments] = useState<Pending[]>([]);
+  const [sending, setSending] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const ta = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
-  function send() { const t = text.trim(); if (!t) return; onSend(t); setText(''); }
-  function key(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
+  // Libera as URLs de objeto ao desmontar (as de cada remoção são liberadas em removeAttachment).
+  useEffect(() => () => { attachments.forEach(a => a.url && URL.revokeObjectURL(a.url)); }, [attachments]);
+
+  function addFiles(list: FileList | File[] | null | undefined) {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    setAttachments(prev => [...prev, ...files.map(toPending)]);
+  }
+  function removeAttachment(id: string) {
+    setAttachments(prev => { const gone = prev.find(a => a.id === id); if (gone?.url) URL.revokeObjectURL(gone.url); return prev.filter(a => a.id !== id); });
+  }
+  function onPick(e: ChangeEvent<HTMLInputElement>) { addFiles(e.target.files); e.target.value = ''; }
+
+  async function send() {
+    const t = text.trim();
+    if (sending || (!t && attachments.length === 0)) return;
+    const files = attachments.map(a => new window.File([a.file], pasteFilename(a.name, a.file.type), { type: a.file.type }));
+    setSending(true);
+    try {
+      await onSend(t, files);
+      setText('');
+      attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
+      setAttachments([]);
+    } catch { /* o ClaudePage mostra o erro; mantém o rascunho e os anexos */ }
+    finally { setSending(false); }
+  }
+  function key(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }
+  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  }
+  function onDrop(e: DragEvent<HTMLDivElement>) { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer?.files); }
   function pickSlash(cmd: string) { setText(cmd + ' '); setMenu(''); ta.current?.focus(); }
 
   // Esc foca/desfoca o compositor.
@@ -48,13 +92,31 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const slashOpen = menu === 'slash' || (menu === '' && /^\/\S*$/.test(text.trimStart()) && text.trim().length > 0);
   const slashFilter = text.trimStart();
   const slashItems = SLASH.filter(s => menu === 'slash' || s.cmd.startsWith(slashFilter));
+  const canSend = !sending && (!!text.trim() || attachments.length > 0);
 
   return (
-    <div className="cc-composer">
-      <textarea ref={ta} value={text} onChange={e => setText(e.target.value)} onKeyDown={key} rows={2}
-        placeholder={running ? 'Claude está trabalhando… você pode enfileirar a próxima mensagem' : 'Escreva para o Claude. Enter envia, Shift+Enter quebra linha, Esc foca/desfoca'} />
+    <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`}
+      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
+      onDrop={onDrop}>
+      <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
+      {attachments.length > 0 && (
+        <div className="cc-attach-row">
+          {attachments.map(a => (
+            <div key={a.id} className={`cc-attach ${a.isImage ? 'is-image' : ''}`} title={a.name}>
+              {a.isImage && a.url
+                ? <img className="cc-attach-thumb" src={a.url} alt={a.name} />
+                : <span className="cc-attach-ico">{a.isImage ? <Image size={13} /> : <File size={13} />}</span>}
+              <span className="cc-attach-name">{a.name}</span>
+              <button className="cc-attach-x" onClick={() => removeAttachment(a.id)} title="Remover anexo"><X size={10} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      <textarea ref={ta} value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
+        placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Claude está trabalhando… você pode enfileirar a próxima mensagem' : 'Escreva para o Claude. Enter envia, Shift+Enter quebra linha, Esc foca/desfoca'} />
       <div className="cc-composer-foot">
-        <button className="cc-icon" title="Anexar (em breve)"><Plus /></button>
+        <button className="cc-icon" title="Anexar arquivos ou imagens" onClick={() => fileInput.current?.click()}><Plus /></button>
         <div className="cc-pop">
           <button className="cc-icon" title="Comandos de barra" onClick={() => setMenu(m => m === 'slash' ? '' : 'slash')}><Slash /></button>
           <Menu open={slashOpen && slashItems.length > 0} onClose={() => setMenu('')} className="cc-menu-up">
@@ -67,6 +129,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             ))}
           </Menu>
         </div>
+        {sending && <span className="cc-pill cc-pill-ghost cc-attach-status">enviando anexos…</span>}
         {elapsed && <span className="cc-pill cc-pill-ghost"><Clock size={12} /> {elapsed}</span>}
         {projects && onProject && (
           <select className="cc-pill cc-select" value={projectId ?? ''} onChange={e => onProject(Number(e.target.value))} title="Projeto da nova sessão">
@@ -106,7 +169,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         </div>
         {running && onStop
           ? <button className="cc-send cc-stop" onClick={onStop} title="Parar"><span className="cc-stop-square" /></button>
-          : <button className="cc-send" onClick={send} disabled={!text.trim()} title="Enviar"><ArrowUp /></button>}
+          : <button className="cc-send" onClick={() => void send()} disabled={!canSend} title="Enviar"><ArrowUp /></button>}
       </div>
     </div>
   );

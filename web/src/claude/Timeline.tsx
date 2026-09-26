@@ -1,8 +1,8 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
-import type { ConvEvent } from './types';
+import type { ConvEvent, UserAttachment } from './types';
 import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff } from './mapper';
-import { Chevron, Copy, Check } from './icons';
+import { Chevron, Copy, Check, Image, File } from './icons';
 
 function Md({ text }: { text: string }) {
   const html = useMemo(() => marked.parse(text) as string, [text]);
@@ -143,6 +143,20 @@ function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission
   );
 }
 
+/** Anexos de uma mensagem do usuário: chips com nome (imagem ou arquivo). Só metadados; sem miniatura no histórico. */
+function Attachments({ items }: { items: UserAttachment[] }) {
+  return (
+    <div className="cc-user-attach">
+      {items.map((a, i) => (
+        <span key={i} className={`cc-attach is-chip ${a.kind === 'image' ? 'is-image' : ''}`} title={a.name}>
+          <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={13} /> : <File size={13} />}</span>
+          <span className="cc-attach-name">{a.name}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Result({ e }: { e: Extract<ConvEvent, { kind: 'result' }> }) {
   if (!e.ok) return <div className="cc-result is-error">Encerrou com erro: {e.error}</div>;
   const tokens = (e.inputTokens !== undefined || e.outputTokens !== undefined)
@@ -164,7 +178,12 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
   return (
     <div className="cc-timeline">
       {events.map(e => {
-        if (e.kind === 'user') return <div key={e.id} className="cc-user">{e.text}</div>;
+        if (e.kind === 'user') return (
+          <div key={e.id} className="cc-user">
+            {e.text && <div className="cc-user-text">{e.text}</div>}
+            {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
+          </div>
+        );
         return (
           <div key={e.id} className={`cc-msg ${dotClass(e)}`}>
             {e.kind === 'text' && <Md text={e.text} />}

@@ -18,3 +18,5 @@ export const Copy = ({ size, className }: P) => <svg {...base(size)} className={
 export const Check = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M3 8.5l3.5 3.5L13 4" /></svg>;
 export const Archive = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="2.5" y="3" width="11" height="3" rx="1" /><path d="M3.5 6v6.5A.5.5 0 0 0 4 13h8a.5.5 0 0 0 .5-.5V6M6.5 9h3" /></svg>;
 export const Pencil = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z" /></svg>;
+export const Image = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><circle cx="6" cy="6.5" r="1" /><path d="M3 11l3-3 2.5 2.5L11 7l2 2" /></svg>;
+export const File = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M4 2.5h5l3 3v8a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" /><path d="M9 2.5V6h3.5" /></svg>;

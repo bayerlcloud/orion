@@ -11,11 +11,28 @@ export type Row = { seq: number; ts?: string; type: string; payload: any };
 
 export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null });
 
+const ATTACH_NOTE = '\n\n[arquivo anexado:';
+
+/** Texto de uma mensagem de usuário (string, ou junção dos blocos de texto). tool_result puro → undefined. */
+function userText(m: Extract<SdkMessage, { type: 'user' }>): string | undefined {
+  const c = m.message.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) {
+    const t = c.filter(b => b.type === 'text').map(b => (b as { text: string }).text).join('');
+    return t.length ? t : undefined;
+  }
+  return undefined;
+}
+
 function pushMessage(s: LiveState, m: SdkMessage): LiveState {
-  // O runner ecoa o prompt como mensagem 'user' com texto; se o SDK ecoar de novo, ignora a duplicata.
-  if (m.type === 'user' && typeof m.message.content === 'string') {
-    if (m.message.content === s.lastPrompt) return s;
-    return { ...s, messages: [...s.messages, m], lastPrompt: m.message.content, partialText: '', partialThinking: '' };
+  // O runner ecoa o prompt como mensagem 'user'; se o SDK ecoar de novo (mesmo texto, ou texto +
+  // as notas de arquivo anexo), ignora a duplicata. tool_result (sem texto) nunca é tratado como eco.
+  if (m.type === 'user') {
+    const t = userText(m);
+    if (t !== undefined) {
+      if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return s;
+      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '' };
+    }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
   return { ...s, messages: [...s.messages, m], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking };
@@ -28,7 +45,7 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
   for (const r of rows) {
     const p = r.payload ?? {};
     switch (r.type) {
-      case 'user_prompt': s = pushMessage(s, { type: 'user', message: { content: String(p.prompt ?? '') } }); break;
+      case 'user_prompt': s = pushMessage(s, { type: 'user', message: { content: String(p.prompt ?? ''), attachments: Array.isArray(p.attachments) ? p.attachments : undefined } }); break;
       case 'system': case 'assistant': case 'user': case 'result': s = pushMessage(s, p as SdkMessage); break;
       case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false }); break;
       case 'permission_resolved': { const q = reqs.get(p.id); if (q) q.decision = p.decision; break; }
