@@ -160,3 +160,20 @@
 .cc-stop { background: var(--cc-failure); }
 .cc-stop-square { width: 10px; height: 10px; background: #fff; border-radius: 2px; display: block; }
 .cc-tab-actions .cc-icon { padding: 3px; }
+
+/* pergunta do Claude (AskUserQuestion) */
+.cc-ask-q { margin-bottom: 8px; }
+.cc-ask-header { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--cc-fg2); }
+.cc-ask-title { font-weight: 600; margin: 2px 0 8px; }
+.cc-ask-opts { display: grid; gap: 6px; }
+.cc-ask-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; }
+.cc-ask-opt-label { font-weight: 600; }
+.cc-ask-opt-desc { font-size: 12px; color: var(--cc-fg2); }
+.cc-perm-exp { color: var(--cc-warning); }
+
+/* tema claro na área do Claude */
+:root[data-theme="light"] .cc {
+  --cc-bg: #ffffff; --cc-bg2: #f6f6f7; --cc-panel: #fafafa; --cc-fg: #1a1a1c; --cc-fg2: #6a6a70; --cc-line: #e2e2e6;
+  --cc-hover: #eeeef0; --cc-active: #e6e6ea; --cc-code: #f2f2f4;
+}
+:root[data-theme="light"] .cc .cc-md a { color: #1a55c8; }

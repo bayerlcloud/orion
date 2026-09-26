@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { ago, agoIso, fmtBytes, fmtKBs, fmtNum, fmtPct, fmtUptime, sparkPath, unitStatus } from './dashUtils';
+import { healthScore } from './dashHealth';
+import { IcoDash } from '../icons';
 import './dash.css';
 
 // Tipos espelham server/dash/types.ts, mas tudo opcional: a tela precisa renderizar com campo faltando.
@@ -88,6 +90,7 @@ export default function Dash() {
   const [series, setSeries] = useState<Point[]>([]);
   const [hist, setHist] = useState<History | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [me, setMe] = useState<{ id: number; name: string; email: string } | null>(null);
   const [erro, setErro] = useState('');
   const [live, setLive] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
@@ -124,6 +127,7 @@ export default function Dash() {
 
   useEffect(() => {
     void loadNow(); void loadHist(); void loadSessions();
+    api<{ user: { id: number; name: string; email: string } }>('/api/me').then(r => setMe(r.user)).catch(() => {});
     const hb = setInterval(() => setClock(Date.now()), 1000);
     const histTimer = setInterval(loadHist, 5 * 60_000);
     const sessTimer = setInterval(loadSessions, 30_000);
@@ -176,16 +180,53 @@ export default function Dash() {
   const activeSessions = (sessions ?? []).filter(x => ['running', 'streaming', 'waiting', 'permission'].includes((x.status ?? '').toLowerCase()));
   const recent = (sessions ?? []).slice(0, 12);
   const kbsStat = (v: number | null) => (v === null ? '—' : fmtKBs(v));
+  const health = healthScore(s as any);
+  const minhasSessoes = (sessions ?? []).filter(x => me && x.user_name === me.name).slice(0, 6);
+  const inicial = (me?.name ?? '?').trim().charAt(0).toUpperCase();
 
   return (
     <div className="dash">
       <div className="dash-head">
-        <h1>Dash</h1>
+        <h1><IcoDash size={22} className="dash-h1-ico" /> Dash</h1>
         <span className={`dash-live${live ? '' : ' off'}`}>{live ? 'ao vivo' : 'polling 15 s'}</span>
         <span className="muted small">{updatedAt ? `atualizado ${ago(clock - updatedAt)}` : 'aguardando a primeira amostra…'}</span>
         {s?.errors && s.errors.length > 0 && <span className="muted small">sondas com falha: {s.errors.join(', ')}</span>}
       </div>
       {erro && <div className="dash-erro">{erro}</div>}
+
+      <section className="dash-hero">
+        <div className="dash-hero-user">
+          <div className="dash-hero-topo">
+            <div className="dash-avatar" aria-hidden="true">
+              {me ? <img src={`/api/profile/avatar/${me.id}`} alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} /> : null}
+              <span className="dash-avatar-ini">{inicial}</span>
+            </div>
+            <div>
+              <div className="dash-hero-nome">{me?.name ?? '…'}</div>
+              <div className="muted small">{me?.email ?? ''}</div>
+            </div>
+          </div>
+          <div className="dash-hero-sub">últimas sessões suas</div>
+          <ul className="dash-sessoes">
+            {minhasSessoes.length === 0 && <li className="muted small">nenhuma sessão ainda</li>}
+            {minhasSessoes.map(x => (
+              <li key={x.id}>
+                <span className={`dash-dot ${(x.status ?? '').toLowerCase()}`} />
+                <span className="dash-sessao-nome" title={x.title}>{x.title || 'sem título'}</span>
+                <span className="muted small">{x.updated_at ? ago(clock - new Date(x.updated_at).getTime()) : ''}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className={`dash-nota nota-${health.grade}`}>
+          <div className="dash-nota-label">saúde da VPS</div>
+          <div className="dash-nota-num"><b>{s ? health.score.toFixed(health.score % 1 ? 1 : 0) : '—'}</b><span>/10</span></div>
+          <div className="dash-nota-tag">{health.label}</div>
+          <ul className="dash-nota-motivos">
+            {health.motivos.map((m, i) => <li key={i}>{m}</li>)}
+          </ul>
+        </div>
+      </section>
 
       <section>
         <h2>

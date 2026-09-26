@@ -108,7 +108,7 @@ export default function ClaudePage() {
       }
     } catch (e: any) { setErro(e.message); }
   }
-  async function decide(approvalId: string, d: 'allow' | 'allow_always' | 'deny', msg?: string) {
+  async function decide(approvalId: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) {
     if (!activeId) return;
     try { await claudeApi.permission(activeId, { approval_id: approvalId, decision: d, message: msg }); } catch (e: any) { setErro(e.message); }
   }

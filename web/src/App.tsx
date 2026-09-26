@@ -10,6 +10,7 @@ import Config from './pages/Config';
 import Dash from './pages/Dash';
 import Arquivos from './pages/Arquivos';
 import Memoria from './pages/Memoria';
+import Perfil from './pages/Perfil';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec } from './icons';
 
 const MENU = [
@@ -22,7 +23,7 @@ const MENU = [
   { to: '/config', label: 'Configurações', Icon: IcoConfig, ownerOnly: true },
 ];
 
-function Avatar({ user, onLogout }: { user: User; onLogout: () => void }) {
+function Avatar({ user, onLogout, onProfile }: { user: User; onLogout: () => void; onProfile: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -33,11 +34,15 @@ function Avatar({ user, onLogout }: { user: User; onLogout: () => void }) {
   const inicial = (user.name || user.email).trim().charAt(0).toUpperCase();
   return (
     <div className="avatar-wrap" ref={ref}>
-      <button className="avatar" onClick={() => setOpen(o => !o)} title={user.name} aria-label="Menu do usuário">{inicial}</button>
+      <button className="avatar" onClick={() => setOpen(o => !o)} title={user.name} aria-label="Menu do usuário">
+        <img className="avatar-img" src={`/api/profile/avatar/${user.id}`} alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        <span className="avatar-ini">{inicial}</span>
+      </button>
       {open && (
         <div className="avatar-menu">
           <div className="avatar-name">{user.name}</div>
           <div className="avatar-role">{user.role === 'owner' ? 'admin' : 'membro'} · {user.email}</div>
+          <button className="avatar-item" onClick={() => { setOpen(false); onProfile(); }}><IcoConfig size={14} /> configurações</button>
           <button className="avatar-item" onClick={onLogout}><IcoSair size={14} /> sair</button>
         </div>
       )}
@@ -63,6 +68,7 @@ export default function App() {
   }
 
   const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos');
+  const dash = loc.pathname.startsWith('/dash');
   return (
     <div className="shell">
       <aside className="rail">
@@ -74,9 +80,9 @@ export default function App() {
             </NavLink>
           ))}
         </nav>
-        <Avatar user={user} onLogout={sair} />
+        <Avatar user={user} onLogout={sair} onProfile={() => nav('/perfil')} />
       </aside>
-      <main className={`content ${wide ? 'is-wide' : ''}`}>
+      <main className={`content ${wide ? 'is-wide' : ''} ${dash ? 'is-dash' : ''}`}>
         <Routes>
           <Route path="/" element={<Navigate to="/claude" replace />} />
           <Route path="/spec" element={<Spec user={user} />} />
@@ -86,6 +92,7 @@ export default function App() {
           <Route path="/arquivos" element={<Arquivos user={user} />} />
           <Route path="/drive" element={<Drive user={user} />} />
           <Route path="/config" element={<Config user={user} />} />
+          <Route path="/perfil" element={<Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} />} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>

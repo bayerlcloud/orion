@@ -127,7 +127,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string }; Body: { approval_id?: string; decision?: string; message?: string } }>('/api/claude/sessions/:id/permission', async (req, reply) => {
     const d = req.body?.decision;
-    if (d !== 'allow' && d !== 'allow_always' && d !== 'deny') return reply.code(400).send({ error: 'decisão inválida' });
+    if (d !== 'allow' && d !== 'allow_always' && d !== 'deny' && d !== 'answer') return reply.code(400).send({ error: 'decisão inválida' });
     const ok = await runner.decide(req.params.id, req.body?.approval_id ?? '', d, req.user!.id, req.body?.message);
     if (!ok) return reply.code(404).send({ error: 'pedido de permissão não está pendente' });
     return { ok: true };

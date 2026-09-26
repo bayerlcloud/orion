@@ -12,7 +12,7 @@ export type LiveEvent =
   | { type: 'turn_end'; costUsd: number; turns: number; ok: boolean };
 
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'error';
-export type Decision = 'allow' | 'allow_always' | 'deny' | 'timeout';
+export type Decision = 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout';
 
 export interface Store {
   appendEvent(sessionId: string, type: string, payload: unknown): Promise<void>;
@@ -96,7 +96,8 @@ export class Runner {
     const p = l.pending.get(approvalId);
     if (!p) return false;
     clearTimeout(p.timer); l.pending.delete(approvalId);
-    if (decision === 'deny') p.resolve({ behavior: 'deny', message: message?.trim() || 'Negado pelo usuário no painel Orion' });
+    if (decision === 'answer') p.resolve({ behavior: 'deny', message: `O usuário respondeu à sua pergunta: "${(message ?? '').trim()}". Continue a partir dessa escolha, sem repetir a pergunta.` });
+    else if (decision === 'deny') p.resolve({ behavior: 'deny', message: message?.trim() || 'Negado pelo usuário no painel Orion' });
     else p.resolve({ behavior: 'allow', ...(decision === 'allow_always' && p.suggestions ? { updatedPermissions: p.suggestions } : {}) });
     await this.deps.store.decideApproval(approvalId, decision, decidedBy);
     await this.deps.store.appendEvent(sessionId, 'permission_resolved', { id: approvalId, decision, message: message ?? null });

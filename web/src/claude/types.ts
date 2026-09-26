@@ -1,6 +1,9 @@
 /** Modelo de eventos da conversa: o que a tela renderiza. Derivado das mensagens do Agent SDK pelo mapper. */
 export type ToolStatus = 'running' | 'success' | 'failure' | 'warning';
 
+export type AskOption = { label: string; description?: string };
+export type AskQuestion = { header?: string; question: string; multiSelect?: boolean; options: AskOption[] };
+
 export type ConvEvent =
   | { id: string; kind: 'user'; text: string }
   | { id: string; kind: 'text'; text: string; streaming?: boolean }
@@ -9,7 +12,7 @@ export type ConvEvent =
       id: string; kind: 'tool'; toolUseId: string; name: string; label: string; description?: string;
       input: unknown; inputText?: string; output?: string; isError?: boolean; status: ToolStatus;
     }
-  | { id: string; kind: 'permission'; toolUseId: string; name: string; label: string; description: string; inputText: string; decision?: 'allow' | 'allow_always' | 'deny' }
+  | { id: string; kind: 'permission'; toolUseId: string; name: string; label: string; description: string; inputText: string; questions?: AskQuestion[]; decision?: 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout'; answer?: string }
   | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; error?: string }
   | { id: string; kind: 'system'; text: string };
 

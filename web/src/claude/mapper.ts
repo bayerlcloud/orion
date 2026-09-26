@@ -21,6 +21,7 @@ export function describeTool(name: string, input: unknown): { label: string; des
     case 'WebFetch': return { label: 'Web Fetch', description: str(i.url) };
     case 'WebSearch': return { label: 'Web Search', description: str(i.query) };
     case 'Agent': return { label: 'Agent', description: str(i.description) };
+    case 'AskUserQuestion': return { label: 'Pergunta', description: 'o Claude quer que você escolha' };
     default: return { label: name, inputText: JSON.stringify(input ?? {}, null, 2) };
   }
 }
@@ -34,12 +35,14 @@ function resultText(content: SdkContentBlock & { type: 'tool_result' }): string 
 export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
   const out: ConvEvent[] = [];
   const toolIndex = new Map<string, number>();
+  let sawInit = false;
   let n = 0;
   const nid = () => `e${++n}`;
 
   for (const m of messages) {
     if (m.type === 'system') {
-      if (m.subtype === 'init') {
+      if (m.subtype === 'init' && !sawInit) {
+        sawInit = true;
         const parts = ['Sessão iniciada'];
         if (m.model) parts.push(`modelo ${m.model}`);
         if (m.cwd) parts.push(`pasta ${m.cwd}`);

@@ -43,10 +43,34 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
   );
 }
 
-function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny', msg?: string) => void }) {
+function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+  const isAsk = !!(e.questions && e.questions.length);
   if (e.decision) {
+    if (e.decision === 'answer') return <div className="cc-perm-done">Você respondeu: <b>{e.answer ?? e.inputText}</b></div>;
+    if (e.decision === 'timeout') return <div className="cc-perm-done cc-perm-exp">{isAsk ? 'Pergunta expirada (sessão reiniciou)' : 'Pedido expirado'}</div>;
     const txt = e.decision === 'deny' ? 'Negado' : e.decision === 'allow_always' ? 'Permitido, sem perguntar de novo' : 'Permitido';
-    return <div className="cc-perm-done">{txt} · <span className="cc-mono">{e.inputText}</span></div>;
+    return <div className="cc-perm-done">{txt}{!isAsk && <> · <span className="cc-mono">{e.inputText}</span></>}</div>;
+  }
+  if (isAsk) {
+    return (
+      <div className="cc-perm cc-ask">
+        {e.questions!.map((q, qi) => (
+          <div key={qi} className="cc-ask-q">
+            {q.header && <div className="cc-ask-header">{q.header}</div>}
+            <div className="cc-ask-title">{q.question}</div>
+            <div className="cc-ask-opts">
+              {q.options.map((o, oi) => (
+                <button key={oi} className="cc-btn cc-ask-opt" onClick={() => onDecide?.('answer', o.label)} title={o.description}>
+                  <span className="cc-ask-opt-label">{o.label}</span>
+                  {o.description && <span className="cc-ask-opt-desc">{o.description}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" onKeyDown={ev => { const v = (ev.target as HTMLInputElement).value.trim(); if (ev.key === 'Enter' && v) onDecide?.('answer', v); }} />
+      </div>
+    );
   }
   return (
     <div className="cc-perm">
@@ -72,14 +96,14 @@ function Result({ e }: { e: Extract<ConvEvent, { kind: 'result' }> }) {
 function dotClass(e: ConvEvent): string {
   switch (e.kind) {
     case 'tool': return e.status === 'success' ? 'dot-success' : e.status === 'failure' ? 'dot-failure' : e.status === 'warning' ? 'dot-warning' : 'dot-progress';
-    case 'permission': return e.decision ? 'dot-success' : 'dot-pending';
+    case 'permission': return e.decision === 'timeout' ? 'dot-warning' : e.decision ? 'dot-success' : 'dot-pending';
     case 'result': return e.ok ? 'dot-success' : 'dot-failure';
     case 'thinking': return e.streaming ? 'dot-progress' : '';
     default: return '';
   }
 }
 
-export default function Timeline({ events, onDecide }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny', msg?: string) => void }) {
+export default function Timeline({ events, onDecide }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   return (
     <div className="cc-timeline">
       {events.map(e => {

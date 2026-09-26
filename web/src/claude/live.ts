@@ -5,11 +5,11 @@ export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
 export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string };
 export type LiveState = {
   status: LiveStatus; messages: SdkMessage[]; partialText: string; partialThinking: string;
-  pending: PermReq[]; error: string | null; lastPrompt: string | null;
+  pending: PermReq[]; resolvedPerms: PermReq[]; error: string | null; lastPrompt: string | null;
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], error: null, lastPrompt: null });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null });
 
 function pushMessage(s: LiveState, m: SdkMessage): LiveState {
   // O runner ecoa o prompt como mensagem 'user' com texto; se o SDK ecoar de novo, ignora a duplicata.
@@ -38,7 +38,10 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
   const pendingSet = new Set(pendingIds.map(x => x.id));
   const pending = [...reqs.values()].filter(q => pendingSet.has(q.id));
   for (const x of pendingIds) if (!reqs.has(x.id)) pending.push({ id: x.id, toolName: x.toolName, input: {}, hasSuggestions: false });
-  return { ...s, status, pending, error: status === 'error' ? s.error : null };
+  // pedidos que não estão mais pendentes e nunca foram resolvidos: marca como expirados (não somem)
+  const resolved: PermReq[] = [...reqs.values()].filter(q => !pendingSet.has(q.id) && q.decision).map(q => ({ ...q }));
+  const expirados: PermReq[] = [...reqs.values()].filter(q => !pendingSet.has(q.id) && !q.decision).map(q => ({ ...q, decision: 'timeout' }));
+  return { ...s, status, pending, resolvedPerms: [...resolved, ...expirados], error: status === 'error' ? s.error : null };
 }
 
 /** Aplica um evento do stream (SSE). Pura. */
@@ -82,9 +85,11 @@ export function toConvEvents(s: LiveState): ConvEvent[] {
   const out = reduceSdkMessages(s.messages);
   if (s.partialThinking) out.push({ id: 'partial-thinking', kind: 'thinking', text: s.partialThinking, streaming: true });
   if (s.partialText) out.push({ id: 'partial-text', kind: 'text', text: s.partialText, streaming: true });
-  for (const p of s.pending) {
+  const parseQuestions = (input: Record<string, unknown>) => Array.isArray((input as any)?.questions) ? (input as any).questions : undefined;
+  for (const p of [...s.resolvedPerms, ...s.pending]) {
     const d = describeTool(p.toolName, p.input);
-    out.push({ id: p.id, kind: 'permission', toolUseId: p.id, name: p.toolName, label: d.label, description: d.description ?? '', inputText: d.inputText ?? JSON.stringify(p.input, null, 2) });
+    const isAsk = p.toolName === 'AskUserQuestion';
+    out.push({ id: p.id, kind: 'permission', toolUseId: p.id, name: p.toolName, label: d.label, description: d.description ?? '', inputText: d.inputText ?? JSON.stringify(p.input, null, 2), questions: isAsk ? parseQuestions(p.input) : undefined, decision: p.decision as any });
   }
   if (s.error && s.status === 'error') out.push({ id: 'live-error', kind: 'result', ok: false, error: s.error });
   return out;

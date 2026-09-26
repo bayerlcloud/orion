@@ -67,3 +67,36 @@
   .dash-table { font-size: 12px; }
   .dash-table th, .dash-table td { padding: 4px 6px; }
 }
+
+/* cabeçalho e hero */
+.dash-h1-ico { vertical-align: -3px; color: var(--accent); margin-right: 6px; }
+.dash-hero { display: grid; grid-template-columns: 1fr 320px; gap: 14px; margin: 4px 0 20px; }
+.dash-hero-user { border: 1px solid var(--line); background: var(--bg2); border-radius: 10px; padding: 14px 16px; }
+.dash-hero-topo { display: flex; align-items: center; gap: 12px; }
+.dash-avatar { position: relative; width: 46px; height: 46px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+.dash-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dash-avatar-ini { font-weight: 600; font-size: 18px; }
+.dash-hero-nome { font-weight: 600; font-size: 15px; }
+.dash-hero-sub { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg2); }
+.dash-sessoes { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.dash-sessoes li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.dash-sessao-nome { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg2); opacity: .5; flex-shrink: 0; }
+.dash-dot.running, .dash-dot.streaming { background: var(--ok); opacity: 1; }
+.dash-dot.waiting, .dash-dot.permission { background: var(--info); opacity: 1; }
+.dash-dot.error { background: var(--bad); opacity: 1; }
+
+.dash-nota { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.dash-nota.nota-ok { background: color-mix(in srgb, var(--ok) 12%, var(--bg2)); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.dash-nota.nota-atencao { background: color-mix(in srgb, var(--warn) 12%, var(--bg2)); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); }
+.dash-nota.nota-ruim { background: color-mix(in srgb, var(--bad) 14%, var(--bg2)); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.dash-nota-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg2); }
+.dash-nota-num { line-height: 1; margin: 6px 0 2px; }
+.dash-nota-num b { font-size: 58px; font-weight: 700; }
+.dash-nota-num span { font-size: 22px; color: var(--fg2); }
+.nota-ok .dash-nota-num b { color: var(--ok); }
+.nota-atencao .dash-nota-num b { color: var(--warn); }
+.nota-ruim .dash-nota-num b { color: var(--bad); }
+.dash-nota-tag { font-weight: 600; text-transform: capitalize; margin-bottom: 8px; }
+.dash-nota-motivos { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--fg2); display: grid; gap: 3px; }
+@media (max-width: 760px) { .dash-hero { grid-template-columns: 1fr; } }

@@ -14,8 +14,12 @@ describe('fromRows', () => {
     expect(s.messages.map(m => m.type)).toEqual(['user', 'system', 'assistant']);
     expect(s.pending.map(p => p.id)).toEqual(['p1']);
     const ev = toConvEvents(s);
-    expect(ev.map(e => e.kind)).toEqual(['user', 'system', 'tool', 'permission']);
-    const perm = ev[3]; expect(perm.kind === 'permission' && perm.inputText).toBe('rm x');
+    // p0 (resolvida) aparece antes de p1 (pendente) — permissões resolvidas não somem mais
+    expect(ev.map(e => e.kind)).toEqual(['user', 'system', 'tool', 'permission', 'permission']);
+    const pend = ev.find(e => e.kind === 'permission' && !e.decision);
+    expect(pend && pend.kind === 'permission' && pend.inputText).toBe('rm x');
+    const resolvida = ev.find(e => e.kind === 'permission' && e.decision === 'allow');
+    expect(!!resolvida).toBe(true);
   });
   it('erro persistido só aparece se o status atual é error', () => {
     const rows = [{ seq: 1, type: 'error', payload: { message: 'sem login' } }];
