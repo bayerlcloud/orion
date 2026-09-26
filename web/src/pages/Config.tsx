@@ -28,7 +28,13 @@ export default function Config({ user }: { user: User }) {
       setS(r); setMode(r.defaults.permission_mode); setModel(r.defaults.model); setBudget(r.defaults.max_budget_usd);
     } catch (e: any) { setMsg(e.message); }
   }
-  useEffect(() => { void load(); }, []);
+  async function loadLoginFlow() {
+    try {
+      const r = await api<LoginSnap>('/api/settings/claude-login');
+      if (r.state === 'awaiting_code' || r.state === 'exchanging' || r.state === 'starting') setLogin(r);
+    } catch { /* sem fluxo */ }
+  }
+  useEffect(() => { void load(); void loadLoginFlow(); }, []);
 
   if (user.role !== 'owner') return <div><h1>Configurações</h1><p className="muted">Só o admin vê esta página.</p></div>;
 
