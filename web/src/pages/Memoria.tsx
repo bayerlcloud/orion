@@ -81,6 +81,7 @@ export default function Memoria({ user }: { user: User }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [erro, setErro] = useState('');
+  const [syncProj, setSyncProj] = useState<number | null>(null);
   const readerRef = useRef<HTMLDivElement>(null);
 
   async function loadList() {
@@ -97,7 +98,7 @@ export default function Memoria({ user }: { user: User }) {
   }
 
   useEffect(() => {
-    api<Meta>('/api/memories/meta').then(setMeta).catch(() => {});
+    api<Meta>('/api/memories/meta').then(m => { setMeta(m); setSyncProj(p => p ?? m.projects[0]?.id ?? null); }).catch(() => {});
   }, []);
 
   // Busca com pequeno atraso; filtros mudam na hora.
@@ -219,11 +220,31 @@ export default function Memoria({ user }: { user: User }) {
   const bodyHtml = useMemo(() => (draft ? (marked.parse(draft.body_md || '') as string) : ''), [draft?.body_md]);
   const somaCount = draft?.summary.length ?? 0;
 
+  async function importar() {
+    if (!syncProj) return;
+    setBusy(true); setErro('');
+    try { const r = await api<{ importadas: number; aviso?: string }>('/api/memories/import', { method: 'POST', body: JSON.stringify({ project_id: syncProj }) }); setToast({ kind: 'ok', text: r.aviso ?? `${r.importadas} memória(s) importada(s) do Claude` }); await loadList(); }
+    catch (e: any) { setErro(e.message); } finally { setBusy(false); }
+  }
+  async function exportar() {
+    if (!syncProj) return;
+    setBusy(true); setErro('');
+    try { const r = await api<{ exportadas: number }>('/api/memories/export', { method: 'POST', body: JSON.stringify({ project_id: syncProj }) }); setToast({ kind: 'ok', text: `${r.exportadas} memória(s) enviada(s) para o Claude ler` }); }
+    catch (e: any) { setErro(e.message); } finally { setBusy(false); }
+  }
+
   return (
     <div className="mem">
       <div className="mem-list">
         <div className="mem-list-head">
           <button className="mem-nova" onClick={nova} disabled={busy}>+ Nova memória</button>
+          <div className="mem-sync">
+            <select value={syncProj ?? ''} onChange={e => setSyncProj(Number(e.target.value))} title="projeto para sincronizar com o Claude">
+              {meta.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button className="link" onClick={importar} disabled={busy || !syncProj} title="trazer o que o Claude escreveu">importar do Claude</button>
+            <button className="link" onClick={exportar} disabled={busy || !syncProj} title="enviar estas memórias para o Claude ler">exportar</button>
+          </div>
           <input
             className="mem-search"
             value={q}

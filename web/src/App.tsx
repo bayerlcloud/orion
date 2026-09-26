@@ -11,11 +11,13 @@ import Dash from './pages/Dash';
 import Arquivos from './pages/Arquivos';
 import Memoria from './pages/Memoria';
 import Perfil from './pages/Perfil';
-import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec } from './icons';
+import Tarefas from './pages/Tarefas';
+import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas } from './icons';
 
 const MENU = [
   { to: '/claude', label: 'Claude', Icon: IcoClaude },
   { to: '/dash', label: 'Dash', Icon: IcoDash },
+  { to: '/tarefas', label: 'Tarefas', Icon: IcoTarefas },
   { to: '/arquivos', label: 'Arquivos', Icon: IcoArquivos },
   { to: '/drive', label: 'Drive', Icon: IcoDrive },
   { to: '/memoria', label: 'Memória', Icon: IcoMemoria },
@@ -93,6 +95,7 @@ export default function App() {
           <Route path="/drive" element={<Drive user={user} />} />
           <Route path="/config" element={<Config user={user} />} />
           <Route path="/perfil" element={<Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} />} />
+          <Route path="/tarefas" element={<Tarefas user={user} />} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>

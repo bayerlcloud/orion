@@ -11,6 +11,10 @@ import {
   type Status,
 } from '../memories/util.js';
 import { seedMemories } from '../memories/seed.js';
+import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import path from 'node:path';
+import { claudeMemoryDir, parseFrontmatter, toMarkdown, isSafeMdName } from '../memories/markdown.js';
 
 // Colunas completas (leitor da direita) já com os nomes de projeto e usuário resolvidos.
 const FULL_SELECT = `
@@ -253,6 +257,70 @@ export async function memoriesRoutes(app: FastifyInstance) {
       if (!upd.rowCount) return reply.code(404).send({ error: 'memória não encontrada' });
       const { rows } = await app.pool.query(`${FULL_SELECT} WHERE m.id = $1`, [id]);
       return { memory: rows[0] };
+    }),
+  );
+
+  // ---- Ponte com as memórias que o Claude escreve em disco ----
+  async function projetoDir(projectId: number): Promise<{ dir: string; project: { id: number; path: string; name: string } } | null> {
+    const { rows } = await app.pool.query('SELECT id, path, name FROM projects WHERE id = $1', [projectId]);
+    if (!rows[0]) return null;
+    return { dir: claudeMemoryDir(homedir(), rows[0].path), project: rows[0] };
+  }
+
+  // Importa os .md que o Claude criou para a tabela do painel (upsert por code).
+  app.post<{ Body: { project_id?: number } }>(
+    '/api/memories/import',
+    guard(async (req, reply) => {
+      const pid = Number(req.body?.project_id);
+      if (!Number.isInteger(pid)) return reply.code(400).send({ error: 'informe project_id' });
+      const info = await projetoDir(pid);
+      if (!info) return reply.code(404).send({ error: 'projeto não existe' });
+      let arquivos: string[] = [];
+      try { arquivos = (await readdir(info.dir)).filter(f => isSafeMdName(f) && f.toLowerCase() !== 'memory.md'); }
+      catch { return { importadas: 0, dir: info.dir, aviso: 'o Claude ainda não escreveu memórias para este projeto' }; }
+      let n = 0; const nomes: string[] = [];
+      for (const f of arquivos) {
+        const raw = await readFile(path.join(info.dir, f), 'utf8').catch(() => '');
+        if (!raw) continue;
+        const parsed = parseFrontmatter(raw);
+        const code = slugify(parsed.name || f.replace(/\.md$/, ''));
+        const title = (parsed.name || f.replace(/\.md$/, '')).replace(/[-_]/g, ' ');
+        const summary = normalizeSummary(parsed.description || '');
+        const scopeProject = parsed.type === 'project' ? pid : null;
+        const scopeUser = parsed.type === 'user' ? (req.user!.id) : null;
+        await app.pool.query(
+          `INSERT INTO memories (code, title, summary, body_md, status, learning_level, rewritable, keywords, scope_project_id, scope_user_id, last_analyzed_at)
+           VALUES ($1,$2,$3,$4,'aprendizagem',3,true,'{}',$5,$6, now())
+           ON CONFLICT (code) DO UPDATE SET summary = EXCLUDED.summary, body_md = EXCLUDED.body_md, updated_at = now()`,
+          [code, title, summary, parsed.body, scopeProject, scopeUser]);
+        n++; nomes.push(code);
+      }
+      return { importadas: n, dir: info.dir, memorias: nomes };
+    }),
+  );
+
+  // Exporta as memórias do painel (deste projeto + universais) para a pasta que o Claude lê.
+  app.post<{ Body: { project_id?: number } }>(
+    '/api/memories/export',
+    guard(async (req, reply) => {
+      const pid = Number(req.body?.project_id);
+      if (!Number.isInteger(pid)) return reply.code(400).send({ error: 'informe project_id' });
+      const info = await projetoDir(pid);
+      if (!info) return reply.code(404).send({ error: 'projeto não existe' });
+      try { await mkdir(info.dir, { recursive: true }); } catch { return reply.code(500).send({ error: 'não consegui criar a pasta de memórias' }); }
+      const { rows } = await app.pool.query(
+        `SELECT code, title, summary, body_md, status, scope_project_id, scope_user_id FROM memories
+          WHERE scope_project_id = $1 OR (scope_project_id IS NULL AND scope_user_id IS NULL) ORDER BY code`, [pid]);
+      const indice: string[] = [];
+      for (const m of rows) {
+        const scope = m.scope_project_id ? 'project' : (m.scope_user_id ? 'user' : 'reference');
+        const nome = `${m.code}.md`;
+        if (!isSafeMdName(nome)) continue;
+        await writeFile(path.join(info.dir, nome), toMarkdown({ code: m.code, title: m.title, summary: m.summary, body_md: m.body_md, scope: scope as any }), 'utf8');
+        indice.push(`- [${m.title}](${nome}) — ${m.summary}`);
+      }
+      await writeFile(path.join(info.dir, 'MEMORY.md'), `# Memórias do projeto ${info.project.name}\n\n${indice.join('\n')}\n`, 'utf8');
+      return { exportadas: rows.length, dir: info.dir };
     }),
   );
 

@@ -14,3 +14,7 @@ export const Power = ({ size, className }: P) => <svg {...base(size)} className=
 export const Sync = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M13 8a5 5 0 0 1-8.7 3.4M3 8a5 5 0 0 1 8.7-3.4" /><path d="M11 2v3h-3M5 14v-3h3" /></svg>;
 export const Dots = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="8" cy="3.5" r=".8" /><circle cx="8" cy="8" r=".8" /><circle cx="8" cy="12.5" r=".8" /></svg>;
 export const Spark = ({ size = 14, className }: P) => <svg width={size} height={size} viewBox="0 0 16 16" className={className} fill="currentColor"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" /></svg>;
+export const Copy = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 2.5H3.5A1 1 0 0 0 2.5 3.5v7" /></svg>;
+export const Check = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M3 8.5l3.5 3.5L13 4" /></svg>;
+export const Archive = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="2.5" y="3" width="11" height="3" rx="1" /><path d="M3.5 6v6.5A.5.5 0 0 0 4 13h8a.5.5 0 0 0 .5-.5V6M6.5 9h3" /></svg>;
+export const Pencil = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z" /></svg>;

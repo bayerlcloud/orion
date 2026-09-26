@@ -1,43 +1,98 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { ConvEvent } from './types';
-import { formatCost, formatDuration } from './mapper';
-import { Chevron } from './icons';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff } from './mapper';
+import { Chevron, Copy, Check } from './icons';
 
 function Md({ text }: { text: string }) {
   const html = useMemo(() => marked.parse(text) as string, [text]);
   return <div className="cc-md" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
+function CopyButton({ text, title = 'Copiar' }: { text: string; title?: string }) {
+  const [done, setDone] = useState(false);
+  function copy(e: MouseEvent) {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1200); }).catch(() => {});
+  }
+  return <button className="cc-copy" onClick={copy} title={title}>{done ? <Check size={12} /> : <Copy size={12} />}</button>;
+}
+
 function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
+  const tokens = estimateTokens(e.text);
   return (
     <details className={`cc-thinking ${e.streaming ? 'is-streaming' : ''}`}>
-      <summary><Chevron size={12} className="cc-chev" /><span>{e.streaming ? 'Pensando' : 'Pensou'}</span></summary>
+      <summary>
+        <Chevron size={12} className="cc-chev" />
+        <span>{e.streaming ? 'Pensando' : 'Pensou'}</span>
+        {!e.streaming && tokens > 0 && <span className="cc-thinking-tokens">· {formatTokens(tokens)} tokens</span>}
+      </summary>
       <div className="cc-thinking-body">{e.text}</div>
     </details>
   );
 }
 
+/** Alvo principal (caminho de arquivo, comando) mostrado em destaque por tipo de ferramenta. */
+function toolTarget(e: Extract<ConvEvent, { kind: 'tool' }>): { mono?: string; desc?: string } {
+  const i = (e.input ?? {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  switch (e.name) {
+    case 'Read': case 'Write': case 'Edit': case 'MultiEdit': case 'NotebookEdit':
+      return { mono: s(i.file_path), desc: undefined };
+    case 'Bash':
+      return { mono: s(i.command), desc: s(i.description) };
+    default:
+      return { desc: e.description };
+  }
+}
+
+function EditDiff({ oldText, newText }: { oldText: string; newText: string }) {
+  const lines = useMemo(() => unifiedDiff(oldText, newText), [oldText, newText]);
+  const adds = lines.filter(l => l.type === 'add').length;
+  const dels = lines.filter(l => l.type === 'del').length;
+  return (
+    <div className="cc-diff">
+      <div className="cc-diff-stats"><span className="cc-diff-add">+{adds}</span> <span className="cc-diff-del">−{dels}</span></div>
+      <pre className="cc-diff-body">{lines.map((l, k) => (
+        <div key={k} className={`cc-diff-line is-${l.type}`}>{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' '} {l.text}</div>
+      ))}</pre>
+    </div>
+  );
+}
+
 function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
-  const showBody = !!(e.inputText || e.output);
+  const { mono, desc } = toolTarget(e);
+  const i = (e.input ?? {}) as Record<string, unknown>;
+  const isEdit = (e.name === 'Edit') && typeof i.old_string === 'string' && typeof i.new_string === 'string';
+  const hasBody = !!(e.inputText || e.output || isEdit);
+  const [open, setOpen] = useState(false);
+  const copyText = mono ?? e.inputText;
   return (
     <div className={`cc-tool is-${e.status}`}>
-      <div className="cc-tool-summary">
+      <div className="cc-tool-summary" onClick={() => hasBody && setOpen(o => !o)} style={{ cursor: hasBody ? 'pointer' : 'default' }}>
+        {hasBody && <Chevron size={11} className={`cc-chev ${open ? 'is-open' : ''}`} />}
         <span className="cc-tool-name">{e.label}</span>
-        {e.description && <span className="cc-tool-desc">{e.description}</span>}
+        {mono && <span className="cc-tool-path cc-mono">{mono}</span>}
+        {desc && <span className="cc-tool-desc cc-clamp2">{desc}</span>}
+        {copyText && <span className="cc-tool-copy"><CopyButton text={copyText} title="Copiar comando" /></span>}
       </div>
-      {showBody && (
+      {hasBody && open && (
         <div className="cc-tool-body">
-          {e.inputText && (
+          {isEdit ? (
+            <div className="cc-tool-row"><span className="cc-tool-lbl">DIFF</span><EditDiff oldText={String(i.old_string)} newText={String(i.new_string)} /></div>
+          ) : e.inputText ? (
             <div className="cc-tool-row"><span className="cc-tool-lbl">IN</span><pre className="cc-tool-pre">{e.inputText}</pre></div>
-          )}
+          ) : null}
           {e.output !== undefined && (
             <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
           )}
-          {e.status === 'running' && !e.output && (
+          {e.status === 'running' && e.output === undefined && (
             <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className="cc-running">executando…</span></div>
           )}
         </div>
+      )}
+      {hasBody && !open && e.status === 'running' && e.output === undefined && (
+        <span className="cc-tool-inline cc-running">executando…</span>
       )}
     </div>
   );
@@ -90,7 +145,9 @@ function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission
 
 function Result({ e }: { e: Extract<ConvEvent, { kind: 'result' }> }) {
   if (!e.ok) return <div className="cc-result is-error">Encerrou com erro: {e.error}</div>;
-  return <div className="cc-result">Concluído · {formatCost(e.costUsd)} · {formatDuration(e.durationMs)} · {e.turns ?? '—'} turnos</div>;
+  const tokens = (e.inputTokens !== undefined || e.outputTokens !== undefined)
+    ? ` · ${formatTokens(e.inputTokens)}↑ / ${formatTokens(e.outputTokens)}↓ tokens` : '';
+  return <div className="cc-result">Concluído · {formatCost(e.costUsd)} · {formatDuration(e.durationMs)} · {e.turns ?? '—'} turnos{tokens}</div>;
 }
 
 function dotClass(e: ConvEvent): string {

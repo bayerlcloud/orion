@@ -21,6 +21,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   const runner = new Runner({ queryFn: query, store: pgStore(app.pool), log: (m) => app.log.warn(m) });
   app.decorate('runner', runner);
   await ensureSettingsTable(app.pool);
+  await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false');
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
 
@@ -46,7 +47,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.cwd, s.last_error, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
               u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
@@ -143,6 +144,12 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (!title) return reply.code(400).send({ error: 'título vazio' });
     await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1', [req.params.id, title]);
     return { ok: true };
+  });
+
+  app.post<{ Params: { id: string }; Body: { archived?: boolean } }>('/api/claude/sessions/:id/archive', async (req) => {
+    const archived = req.body?.archived !== false; // padrão: arquivar
+    await app.pool.query('UPDATE claude_sessions SET archived = $2 WHERE id = $1', [req.params.id, archived]);
+    return { ok: true, archived };
   });
 
   app.delete<{ Params: { id: string } }>('/api/claude/sessions/:id', async (req, reply) => {

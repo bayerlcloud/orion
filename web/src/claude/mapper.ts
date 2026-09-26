@@ -79,11 +79,55 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
       continue;
     }
     if (m.type === 'result') {
-      out.push({ id: nid(), kind: 'result', ok: !m.is_error && m.subtype === 'success', costUsd: m.total_cost_usd, durationMs: m.duration_ms, turns: m.num_turns, error: m.is_error ? (m.result ?? m.subtype) : undefined });
+      const tok = sumModelUsage(m.modelUsage) ?? (m.usage ? { input: m.usage.input_tokens ?? 0, output: m.usage.output_tokens ?? 0 } : undefined);
+      out.push({ id: nid(), kind: 'result', ok: !m.is_error && m.subtype === 'success', costUsd: m.total_cost_usd, durationMs: m.duration_ms, turns: m.num_turns, inputTokens: tok?.input, outputTokens: tok?.output, error: m.is_error ? (m.result ?? m.subtype) : undefined });
       continue;
     }
     // stream_event: parciais; a tela ao vivo trata separadamente
   }
+  return out;
+}
+
+/** Estimativa grosseira de tokens: ~4 caracteres por token (como a extensão exibe no thinking). */
+export function estimateTokens(text: string): number {
+  return Math.ceil((text?.length ?? 0) / 4);
+}
+
+/** Soma tokens de entrada/saída de todos os modelos usados no turno (campo modelUsage do result). */
+export function sumModelUsage(mu?: Record<string, { inputTokens?: number; outputTokens?: number }>): { input: number; output: number } | undefined {
+  if (!mu) return undefined;
+  const entries = Object.values(mu);
+  if (!entries.length) return undefined;
+  let input = 0, output = 0;
+  for (const e of entries) { input += e.inputTokens ?? 0; output += e.outputTokens ?? 0; }
+  return { input, output };
+}
+
+export function formatTokens(n?: number): string {
+  if (n === undefined) return '—';
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+export type DiffLine = { type: 'ctx' | 'add' | 'del'; text: string };
+/** Diff unificado simples por linhas (LCS). Usado no bloco da ferramenta Edit. */
+export function unifiedDiff(oldText: string, newText: string): DiffLine[] {
+  const a = oldText.split('\n'), b = newText.split('\n');
+  const n = a.length, m = b.length;
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const out: DiffLine[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ type: 'ctx', text: a[i] }); i++; j++; }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) { out.push({ type: 'del', text: a[i] }); i++; }
+    else { out.push({ type: 'add', text: b[j] }); j++; }
+  }
+  while (i < n) out.push({ type: 'del', text: a[i++] });
+  while (j < m) out.push({ type: 'add', text: b[j++] });
   return out;
 }
 
@@ -99,6 +143,24 @@ export function formatDuration(ms?: number): string {
   if (s < 60) return `${s} s`;
   const m = Math.floor(s / 60);
   return `${m} min ${s % 60} s`;
+}
+
+export type UsageRow = { cost_5h: string | number; cost_7d: string | number; cost_total: string | number };
+export type UsageBar = { key: string; label: string; pct: number; sub: string };
+/**
+ * Barras de uso a partir do custo real por janela (proxy). O plano não expõe o % real
+ * (token OAuth é inference-scoped), então usamos o custo contra uma referência.
+ */
+export function computeUsageBars(rows: UsageRow[]): UsageBar[] {
+  const sum = (k: keyof UsageRow) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  const c5 = sum('cost_5h'), c7 = sum('cost_7d'), ct = sum('cost_total');
+  const bar = (key: string, label: string, cost: number, ref: number): UsageBar =>
+    ({ key, label, pct: Math.round(Math.min(100, Math.max(0, ref > 0 ? (cost / ref) * 100 : 0))), sub: formatCost(cost) });
+  return [
+    bar('5h', 'Sessão (5h)', c5, 5),
+    bar('7d', 'Semanal (7 dias)', c7, 25),
+    bar('total', 'Limite Fable', ct, 100),
+  ];
 }
 
 export function relativeTime(ts: number, now = Date.now()): string {

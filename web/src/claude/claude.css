@@ -44,8 +44,14 @@
 .cc-item:hover { background: var(--cc-hover); }
 .cc-item.is-active { background: var(--cc-active); }
 .cc-item.is-active .cc-item-name { font-weight: 600; }
-.cc-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cc-item-time { color: var(--cc-fg2); font-size: 12px; }
+.cc-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; }
+.cc-item-edit { flex: 1; min-width: 0; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-orange); border-radius: 4px; padding: 1px 5px; font: inherit; outline: none; }
+.cc-item-time { color: var(--cc-fg2); font-size: 12px; flex-shrink: 0; }
+.cc-item-actions { display: none; align-items: center; gap: 2px; flex-shrink: 0; }
+.cc-item:hover .cc-item-actions { display: flex; }
+.cc-item:hover .cc-item-time { display: none; }
+.cc-item-act { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
+.cc-item-act:hover { background: var(--cc-active); color: var(--cc-fg); }
 .cc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
 .cc-dot.is-running { background: var(--cc-busy); opacity: 1; }
 .cc-dot.is-waiting { background: var(--cc-pending); opacity: 1; }
@@ -170,6 +176,65 @@
 .cc-ask-opt-label { font-weight: 600; }
 .cc-ask-opt-desc { font-size: 12px; color: var(--cc-fg2); }
 .cc-perm-exp { color: var(--cc-warning); }
+
+/* ===== conta e uso ===== */
+.cc-account { padding: 2px 6px 6px; }
+.cc-account-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.cc-account-label { font-size: 11px; letter-spacing: .06em; color: var(--cc-fg2); }
+.cc-account-value { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cc-usage-hint { font-size: 11px; color: var(--cc-fg2); padding: 2px 6px 4px; font-style: italic; }
+.cc-fill.is-high { background: var(--cc-warning); }
+
+/* ===== busca e filtros ===== */
+.cc-search { display: flex; align-items: center; gap: 6px; margin: 4px 4px 2px; padding: 3px 8px; border: 1px solid var(--cc-line); border-radius: var(--r); background: var(--cc-bg); }
+.cc-search:focus-within { border-color: color-mix(in srgb, var(--cc-orange) 55%, transparent); }
+.cc-search-icon { color: var(--cc-fg2); flex-shrink: 0; }
+.cc-search input { flex: 1; min-width: 0; background: none; border: 0; color: var(--cc-fg); font: inherit; font-size: 12px; outline: none; }
+.cc-search input::placeholder { color: var(--cc-fg2); }
+.cc-search-clear { display: inline-flex; padding: 2px; border-radius: 3px; color: var(--cc-fg2); }
+.cc-search-clear:hover { background: var(--cc-hover); }
+.cc-active { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 10px; color: var(--cc-fg2); }
+.cc-active:hover { background: var(--cc-hover); }
+.cc-active.is-on { background: color-mix(in srgb, var(--cc-orange) 22%, transparent); color: var(--cc-fg); }
+.cc-group-head.cc-clickable { cursor: pointer; user-select: none; }
+.cc-group-head.cc-clickable:hover { background: var(--cc-hover); }
+.cc-badge-muted { background: var(--cc-line); color: var(--cc-fg2); }
+
+/* ===== thinking / tool extras ===== */
+.cc-thinking-tokens { color: var(--cc-fg2); font-size: 11px; }
+.cc-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cc-tool-summary { align-items: center; }
+.cc-tool-path { font-size: 12px; color: var(--cc-fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cc-tool-copy { margin-left: auto; opacity: 0; flex-shrink: 0; }
+.cc-tool-summary:hover .cc-tool-copy { opacity: 1; }
+.cc-copy { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
+.cc-copy:hover { background: var(--cc-hover); color: var(--cc-fg); }
+.cc-tool-inline { display: inline-block; margin-top: 2px; font-size: 12px; }
+
+/* ===== diff simples (Edit) ===== */
+.cc-diff { padding: 3px 6px; min-width: 0; overflow: auto; max-height: 40vh; }
+.cc-diff-stats { font-size: 11px; margin-bottom: 3px; }
+.cc-diff-add { color: var(--cc-success); }
+.cc-diff-del { color: var(--cc-failure); }
+.cc-diff-body { margin: 0; font-family: var(--cc-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cc-diff-line { padding: 0 4px; border-radius: 2px; }
+.cc-diff-line.is-add { background: color-mix(in srgb, var(--cc-success) 16%, transparent); }
+.cc-diff-line.is-del { background: color-mix(in srgb, var(--cc-failure) 16%, transparent); }
+.cc-diff-line.is-ctx { color: var(--cc-fg2); }
+
+/* ===== menus do compositor ===== */
+.cc-pop { position: relative; display: inline-flex; }
+.cc-menu-backdrop { position: fixed; inset: 0; z-index: 20; }
+.cc-menu { position: absolute; z-index: 21; min-width: 200px; max-width: 320px; background: var(--cc-bg2); border: 1px solid var(--cc-line); border-radius: 8px; padding: 4px; box-shadow: 0 8px 28px rgba(0,0,0,.4); display: grid; gap: 1px; }
+.cc-menu-up { bottom: calc(100% + 6px); left: 0; }
+.cc-menu-right { left: auto; right: 0; }
+.cc-menu-title { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--cc-fg2); padding: 5px 8px 3px; }
+.cc-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border-radius: 5px; text-align: left; width: 100%; }
+.cc-menu-item:hover { background: var(--cc-hover); }
+.cc-menu-item.is-active { background: var(--cc-active); }
+.cc-menu-item.is-active .cc-menu-item-name::after { content: " ✓"; color: var(--cc-orange); }
+.cc-menu-item-name { font-size: 13px; }
+.cc-menu-item-desc { font-size: 11px; color: var(--cc-fg2); }
 
 /* tema claro na área do Claude */
 :root[data-theme="light"] .cc {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars } from '../web/src/claude/mapper';
 import type { SdkMessage } from '../web/src/claude/types';
 
 describe('describeTool', () => {
@@ -80,5 +80,61 @@ describe('formatação', () => {
     expect(formatCost(1.5)).toBe('US$ 1.50');
     expect(formatDuration(18400)).toBe('18 s');
     expect(formatDuration(125000)).toBe('2 min 5 s');
+  });
+});
+
+describe('estimativa de tokens', () => {
+  it('estimateTokens ≈ chars/4', () => {
+    expect(estimateTokens('')).toBe(0);
+    expect(estimateTokens('abcd')).toBe(1);
+    expect(estimateTokens('abcde')).toBe(2);
+  });
+  it('sumModelUsage soma entrada/saída de todos os modelos', () => {
+    expect(sumModelUsage(undefined)).toBeUndefined();
+    expect(sumModelUsage({})).toBeUndefined();
+    expect(sumModelUsage({ a: { inputTokens: 10, outputTokens: 5 }, b: { inputTokens: 3 } })).toEqual({ input: 13, output: 5 });
+  });
+  it('formatTokens abrevia milhares e milhões', () => {
+    expect(formatTokens(undefined)).toBe('—');
+    expect(formatTokens(500)).toBe('500');
+    expect(formatTokens(1500)).toBe('1.5k');
+    expect(formatTokens(25000)).toBe('25k');
+    expect(formatTokens(2_000_000)).toBe('2.0M');
+  });
+  it('result carrega tokens de modelUsage', () => {
+    const r = reduceSdkMessages([{ type: 'result', subtype: 'success', total_cost_usd: 0.1, modelUsage: { m: { inputTokens: 100, outputTokens: 40 } } }])[0];
+    expect(r.kind === 'result' && r.inputTokens).toBe(100);
+    expect(r.kind === 'result' && r.outputTokens).toBe(40);
+  });
+});
+
+describe('unifiedDiff', () => {
+  it('marca linha trocada como del + add e mantém contexto', () => {
+    const d = unifiedDiff('a\nb\nc', 'a\nx\nc');
+    expect(d).toEqual([
+      { type: 'ctx', text: 'a' },
+      { type: 'del', text: 'b' },
+      { type: 'add', text: 'x' },
+      { type: 'ctx', text: 'c' },
+    ]);
+  });
+  it('linhas só adicionadas viram add', () => {
+    const d = unifiedDiff('a', 'a\nb');
+    expect(d.filter(l => l.type === 'add')).toEqual([{ type: 'add', text: 'b' }]);
+  });
+});
+
+describe('computeUsageBars', () => {
+  it('soma janelas e converte custo em % contra referência, com clamp', () => {
+    const bars = computeUsageBars([{ cost_5h: '2.5', cost_7d: '50', cost_total: '10' }]);
+    expect(bars.map(b => b.label)).toEqual(['Sessão (5h)', 'Semanal (7 dias)', 'Limite Fable']);
+    expect(bars[0].pct).toBe(50); // 2.5 / 5
+    expect(bars[1].pct).toBe(100); // 50 / 25 → clamp
+    expect(bars[2].pct).toBe(10); // 10 / 100
+    expect(bars[0].sub).toBe('US$ 2.50');
+  });
+  it('agrega várias linhas de usuário', () => {
+    const bars = computeUsageBars([{ cost_5h: 1, cost_7d: 0, cost_total: 0 }, { cost_5h: 1.5, cost_7d: 0, cost_total: 0 }]);
+    expect(bars[0].pct).toBe(50); // (1 + 1.5) / 5
   });
 });

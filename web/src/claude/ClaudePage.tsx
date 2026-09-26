@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, type ApiSession, type Mode, type Project } from './api';
-import { formatCost } from './mapper';
+import { claudeApi, type ApiSession, type Mode, type Effort, type Project } from './api';
+import { formatCost, computeUsageBars, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline from './Timeline';
 import Composer from './Composer';
@@ -14,18 +14,20 @@ const isDraft = (id: string) => id.startsWith('draft-');
 
 function toSummary(s: ApiSession): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
-  return { id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined };
+  return { id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, archived: !!s.archived };
 }
 
 export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [login, setLogin] = useState<{ logged_in: boolean; linux_user: string | null; version: string } | null>(null);
-  const [usage, setUsage] = useState<{ label: string; pct: number; note: string }[]>([]);
+  const [usage, setUsage] = useState<UsageBar[]>([]);
+  const [email, setEmail] = useState<string | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
+  const [effort, setEffort] = useState<Effort>('medium');
   const [draftProject, setDraftProject] = useState<number | undefined>(undefined);
   const [erro, setErro] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -38,12 +40,7 @@ export default function ClaudePage() {
   const refreshUsage = useCallback(async () => {
     try {
       const r = await claudeApi.usage();
-      const total = r.usage.reduce((a, u) => ({ c5: a.c5 + Number(u.cost_5h), c7: a.c7 + Number(u.cost_7d), t: a.t + Number(u.cost_total) }), { c5: 0, c7: 0, t: 0 });
-      setUsage([
-        { label: 'Gasto (5h)', pct: Math.min(100, total.c5 / 10 * 100), note: `${formatCost(total.c5)} de US$ 10 (referência)` },
-        { label: 'Gasto (7 dias)', pct: Math.min(100, total.c7 / 50 * 100), note: `${formatCost(total.c7)} de US$ 50 (referência)` },
-        { label: 'Total', pct: 100, note: `${formatCost(total.t)} · estimativa do SDK` },
-      ]);
+      setUsage(computeUsageBars(r.usage));
     } catch { /* silencioso */ }
   }, []);
 
@@ -51,6 +48,7 @@ export default function ClaudePage() {
     void refreshSessions(); void refreshUsage();
     claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
+    claudeApi.me().then(r => setEmail(r.user.email)).catch(() => setEmail(null));
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
     return () => clearInterval(t);
   }, [refreshSessions, refreshUsage]);
@@ -98,13 +96,13 @@ export default function ClaudePage() {
       if (!activeId || isDraft(activeId)) {
         const pid = activeTab?.projectId ?? draftProject ?? projects[0]?.id;
         if (!pid) { setErro('Nenhum projeto cadastrado'); return; }
-        const r = await claudeApi.create({ project_id: pid, prompt: text, permission_mode: mode });
+        const r = await claudeApi.create({ project_id: pid, prompt: text, permission_mode: mode, effort });
         const draftId = activeId;
         setTabs(t => draftId ? t.map(x => x.id === draftId ? { id: r.id } : x) : [...t, { id: r.id }]);
         setActiveId(r.id);
         void refreshSessions();
       } else {
-        await claudeApi.send(activeId, { prompt: text, permission_mode: mode });
+        await claudeApi.send(activeId, { prompt: text, permission_mode: mode, effort });
       }
     } catch (e: any) { setErro(e.message); }
   }
@@ -118,6 +116,14 @@ export default function ClaudePage() {
     const t = window.prompt('Novo título da sessão', active.title);
     if (t && t.trim()) { await claudeApi.rename(active.id, t.trim()); void refreshSessions(); }
   }
+  async function renameSession(id: string, title: string) {
+    setSessions(ss => ss.map(s => s.id === id ? { ...s, title } : s));
+    try { await claudeApi.rename(id, title); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
+  }
+  async function archiveSession(id: string, archived: boolean) {
+    setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
+    try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
+  }
 
   const summaries = useMemo(() => sessions.map(toSummary), [sessions]);
   const title = activeTab?.draft ? 'Nova sessão' : (active?.title ?? (activeId ? 'Sessão' : 'Claude'));
@@ -125,7 +131,7 @@ export default function ClaudePage() {
 
   return (
     <div className="cc">
-      <Sidebar sessions={summaries} usage={usage} activeId={activeId} onSelect={open} onNew={newSession} />
+      <Sidebar sessions={summaries} usage={usage} usageNote="estimativa por custo (o plano não expõe o número exato)" email={email} activeId={activeId} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
       <main className="cc-main">
         <div className="cc-tabs">
           {tabs.map(t => {
@@ -166,7 +172,7 @@ export default function ClaudePage() {
           {activeId && <Timeline events={events} onDecide={decide} />}
         </div>
         {activeId && (
-          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={setMode} modelLabel={modelLabel}
+          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={setMode} effort={effort} onEffort={setEffort} modelLabel={modelLabel}
             projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
             onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
         )}

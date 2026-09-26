@@ -13,7 +13,7 @@ export type ConvEvent =
       input: unknown; inputText?: string; output?: string; isError?: boolean; status: ToolStatus;
     }
   | { id: string; kind: 'permission'; toolUseId: string; name: string; label: string; description: string; inputText: string; questions?: AskQuestion[]; decision?: 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout'; answer?: string }
-  | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; error?: string }
+  | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string };
 
 /** Subconjunto das mensagens do Agent SDK que o mapper entende. */
@@ -29,11 +29,11 @@ export type SdkMessage =
   | { type: 'system'; subtype: string; [k: string]: unknown }
   | { type: 'assistant'; message: { content: SdkContentBlock[] } }
   | { type: 'user'; message: { content: string | SdkContentBlock[] } }
-  | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string }
+  | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
 
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'unread' | 'failed';
 
 export type SessionSummary = {
-  id: string; title: string; status: SessionStatus; updatedAt: number; group?: string; project?: string;
+  id: string; title: string; status: SessionStatus; updatedAt: number; group?: string; project?: string; archived?: boolean;
 };
