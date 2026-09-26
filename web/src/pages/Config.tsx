@@ -20,7 +20,6 @@ export default function Config({ user }: { user: User }) {
   const [budget, setBudget] = useState(5);
   const [login, setLogin] = useState<LoginSnap | null>(null);
   const [code, setCode] = useState('');
-  const [showLog, setShowLog] = useState(false);
 
   async function load() {
     try {
@@ -31,7 +30,7 @@ export default function Config({ user }: { user: User }) {
   async function loadLoginFlow() {
     try {
       const r = await api<LoginSnap>('/api/settings/claude-login');
-      if (r.state === 'awaiting_code' || r.state === 'exchanging' || r.state === 'starting') setLogin(r);
+      if (r.state === 'awaiting_code' || r.state === 'exchanging' || r.state === 'starting') { setLogin(r); }
     } catch { /* sem fluxo */ }
   }
   useEffect(() => { void load(); void loadLoginFlow(); }, []);
@@ -51,9 +50,11 @@ export default function Config({ user }: { user: User }) {
     setBusy(true); setTest(null); setMsg('');
     try { setTest(await api<TestResult>('/api/settings/claude-token/test', { method: 'POST' })); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
+  function abrirLink(url: string | null) { if (url) window.open(url, '_blank', 'noopener'); }
   async function startLogin() {
     setBusy(true); setMsg(''); setTest(null); setCode('');
-    try { setLogin(await api<LoginSnap>('/api/settings/claude-login/start', { method: 'POST' })); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+    try { const r = await api<LoginSnap>('/api/settings/claude-login/start', { method: 'POST' }); setLogin(r); abrirLink(r.url); }
+    catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
   async function sendCode() {
     setBusy(true); setMsg('');
@@ -82,34 +83,30 @@ export default function Config({ user }: { user: User }) {
           <tr><th>situação</th><td>{s ? (s.claude.token_set ? <>token configurado <span className="mono">{s.claude.token_hint}</span></> : 'sem token') : '…'}</td></tr>
           <tr><th>processo</th><td>usuário linux <span className="mono">{s?.claude.linux_user ?? '?'}</span> na c3</td></tr>
         </tbody></table>
-        <h3>Conectar pelo navegador</h3>
-        {(!login || login.state === 'idle' || login.state === 'error' || login.state === 'done') && (
+        {(!login || login.state === 'idle' || login.state === 'error' || login.state === 'done') ? (
           <div className="cfg-actions">
-            <button className="btn-primary" onClick={startLogin} disabled={busy}>{s?.claude.token_set ? 'Conectar outra conta' : 'Conectar conta Claude'}</button>
-            <button onClick={runTest} disabled={busy}>Testar conexão</button>
+            <button className="btn-primary" onClick={startLogin} disabled={busy}>{s?.claude.token_set ? 'Reconectar' : 'Conectar conta Claude'}</button>
+            {s?.claude.token_set && <button onClick={runTest} disabled={busy}>Testar conexão</button>}
             {s?.claude.token_set && <button onClick={removeToken} disabled={busy}>Desconectar</button>}
+          </div>
+        ) : (
+          <div className="cfg-code-row">
+            <input value={code} onChange={e => setCode(e.target.value)} placeholder="cole aqui o código da página" autoFocus autoComplete="off"
+              onKeyDown={e => { if (e.key === 'Enter' && code.trim()) void sendCode(); }} />
+            <button className="btn-primary" onClick={sendCode} disabled={busy || !code.trim() || login.state !== 'awaiting_code'}>{login.state === 'exchanging' ? 'Validando…' : 'Conectar'}</button>
+            <button onClick={() => abrirLink(login.url)} disabled={!login.url} title="Reabrir a página de autorização">reabrir link</button>
+            <button onClick={cancelLogin} disabled={busy}>cancelar</button>
           </div>
         )}
         {login && login.state === 'error' && <div className="cfg-test is-bad">Não deu: <span className="mono">{login.error}</span></div>}
-        {login && (login.state === 'starting') && <p className="muted">Preparando o link…</p>}
-        {login && (login.state === 'awaiting_code' || login.state === 'exchanging') && (
-          <div className="cfg-login">
-            <ol>
-              <li>Abra o link e autorize com a conta Max: {login.url ? <a href={login.url} target="_blank" rel="noopener noreferrer">abrir claude.com para autorizar</a> : <span className="muted">gerando link…</span>}</li>
-              <li>A página mostra um código. Cole aqui:</li>
-            </ol>
-            <div className="cfg-code-row">
-              <input value={code} onChange={e => setCode(e.target.value)} placeholder="código de autorização" autoComplete="off" onKeyDown={e => { if (e.key === 'Enter' && code.trim()) void sendCode(); }} />
-              <button className="btn-primary" onClick={sendCode} disabled={busy || !code.trim() || login.state !== 'awaiting_code'}>{login.state === 'exchanging' ? 'Validando…' : 'Enviar código'}</button>
-              <button onClick={cancelLogin} disabled={busy}>Cancelar</button>
-            </div>
+        {login && login.state === 'done' && <div className="cfg-test">Conectado.</div>}
+        {test && (
+          <div className={`cfg-test ${test.ok ? '' : 'is-bad'}`}>
+            {test.ok
+              ? <>Funcionou. Modelo <span className="mono">{test.model}</span>, resposta "{test.reply}", {test.ms} ms.</>
+              : <>Falhou: <span className="mono">{test.error}</span></>}
           </div>
         )}
-        {login && login.state === 'done' && <div className="cfg-test">Conectado. Clique em "Testar conexão" para ver o modelo respondendo.</div>}
-        {login && login.output_tail && (
-          <p className="muted small"><button className="link" onClick={() => setShowLog(v => !v)}>{showLog ? 'esconder' : 'ver'} o que o login está dizendo</button></p>
-        )}
-        {login && showLog && <pre className="cfg-log">{login.output_tail}</pre>}
 
         <details className="cfg-details">
           <summary>Ou colar um token gerado no terminal</summary>
@@ -119,13 +116,6 @@ export default function Config({ user }: { user: User }) {
           </label>
           <div className="cfg-actions"><button onClick={saveToken} disabled={busy || !token.trim()}>Salvar token</button></div>
         </details>
-        {test && (
-          <div className={`cfg-test ${test.ok ? '' : 'is-bad'}`}>
-            {test.ok
-              ? <>Funcionou via {test.via}. Modelo <span className="mono">{test.model}</span>, resposta "{test.reply}", {test.ms} ms, custo US$ {test.cost_usd.toFixed(4)}.</>
-              : <>Falhou via {test.via}: <span className="mono">{test.error}</span></>}
-          </div>
-        )}
       </section>
 
       <section className="cfg-box">
