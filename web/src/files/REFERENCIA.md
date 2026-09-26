@@ -84,24 +84,24 @@ Delete). Na raiz não há Rename/Cut.
 
 ## Decorações do git
 
-Letra (`Resource.getStatusLetter`) e cor (`Resource.getStatusColor`) por estado; cores do tema **claro**
-(`extensions/git/package.json`):
+Letra (`Resource.getStatusLetter`) e cor (`Resource.getStatusColor`) por estado; cores do tema **claro** e
+**escuro** (`extensions/git/package.json`). A página usa as do escuro (o Orion é escuro):
 
-| Estado | Letra | Cor (light) | id da cor |
-|---|---|---|---|
-| Modified (working tree) / Type changed | `M` | `#895503` | `gitDecoration.modifiedResourceForeground` |
-| Index modified (staged) | `M` | `#895503` | `gitDecoration.stageModifiedResourceForeground` |
-| Added (index) / intent-to-add | `A` | `#587c0c` | `gitDecoration.addedResourceForeground` |
-| Deleted (working tree) | `D` | `#ad0707` (+ tachado) | `gitDecoration.deletedResourceForeground` |
-| Index deleted | `D` | `#ad0707` (+ tachado) | `gitDecoration.stageDeletedResourceForeground` |
-| Renamed / Copied (index) | `R` / `C` | `#007100` | `gitDecoration.renamedResourceForeground` |
-| Untracked | `U` | `#007100` | `gitDecoration.untrackedResourceForeground` |
-| Ignored | `I` (só cor, sem letra no explorer) | `#8E8E90` | `gitDecoration.ignoredResourceForeground` |
-| Conflito (both modified/added/deleted...) | `!` | `#ad0707` | `gitDecoration.conflictingResourceForeground` |
-| Submodule | `S` | `#1258a7` | `gitDecoration.submoduleResourceForeground` |
+| Estado | Letra | Cor (dark) | Cor (light) | id da cor |
+|---|---|---|---|---|
+| Modified (working tree) / Type changed | `M` | `#E2C08D` | `#895503` | `gitDecoration.modifiedResourceForeground` |
+| Index modified (staged) | `M` | `#E2C08D` | `#895503` | `gitDecoration.stageModifiedResourceForeground` |
+| Added (index) / intent-to-add | `A` | `#81b88b` | `#587c0c` | `gitDecoration.addedResourceForeground` |
+| Deleted (working tree) | `D` | `#c74e39` (+ tachado) | `#ad0707` | `gitDecoration.deletedResourceForeground` |
+| Index deleted | `D` | `#c74e39` (+ tachado) | `#ad0707` | `gitDecoration.stageDeletedResourceForeground` |
+| Renamed / Copied (index) | `R` / `C` | `#73C991` | `#007100` | `gitDecoration.renamedResourceForeground` |
+| Untracked | `U` | `#73C991` | `#007100` | `gitDecoration.untrackedResourceForeground` |
+| Ignored | `I` (só cor, sem letra no explorer) | `#8C8C8C` | `#8E8E90` | `gitDecoration.ignoredResourceForeground` |
+| Conflito (both modified/added/deleted...) | `!` | `#e4676b` | `#ad0707` | `gitDecoration.conflictingResourceForeground` |
+| Submodule | `S` | `#8db9e2` | `#1258a7` | `gitDecoration.submoduleResourceForeground` |
 
-Tema escuro, para registro: modified `#E2C08D`, added `#81b88b`, deleted `#c74e39`, untracked/renamed `#73C991`,
-ignored `#8C8C8C`, conflict `#e4676b`.
+Na página (arquivos.css): modified `#e2c08d`, added/untracked/renamed `#73c991`, deleted `#c74e39`, conflito
+`#f14c4c` (o vermelho de erro do tema escuro, pedido pelo projeto), ignored `#8c8c8c`.
 
 Regras:
 - A decoração é publicada para o caminho do recurso; em renomeação também para o caminho antigo; em exclusão para
@@ -129,5 +129,5 @@ Regras:
 Altura de linha 22px, pastas antes de arquivos com ordenação natural sem distinguir caixa, chevrons, guias de
 indentação, input inline de renomear/novo com seleção do nome sem extensão, teclado (setas, Enter, Left/Right com
 foco no pai/filho, F2, Delete, Ctrl/Cmd+C = copiar caminho, digitar = pular para o item), menu de contexto na
-ordem do VS Code, letras e cores do tema claro, bubble em pasta com descendentes alterados (exceto exclusões),
+ordem do VS Code, letras e cores do tema escuro, bubble em pasta com descendentes alterados (exceto exclusões),
 confirmação ao mover por drag & drop, seções OUTLINE e TIMELINE (git log do arquivo).

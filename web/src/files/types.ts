@@ -24,7 +24,7 @@ export type ReadResult = { path: string; size: number; mtime: number; binary: bo
 
 export type DirState = { entries: Entry[] | null; loading: boolean; error?: string; truncated?: boolean };
 
-export type RowKind = 'root' | 'entry' | 'input';
+export type RowKind = 'root' | 'entry' | 'input' | 'info';
 export type Row = {
   key: string;
   rootId: number;
@@ -37,6 +37,8 @@ export type Row = {
   entry?: Entry;
   heavy?: boolean;
   symlink?: boolean;
+  /** kind === 'info': texto da linha (carregando…, erro). */
+  info?: string;
 };
 
 export type EditMode = 'rename' | 'newFile' | 'newDir';
@@ -93,4 +95,19 @@ export function isIgnored(rel: string, ignored: string[] | undefined): boolean {
   if (!ignored?.length || !rel) return false;
   for (const g of ignored) if (rel === g || rel.startsWith(g + '/')) return true;
   return false;
+}
+
+/** Mesma regra de server/files/util.ts validateName, para o input inline responder na hora. */
+export function validateNameClient(name: string, siblings: string[], self?: string): string | null {
+  if (!name.length || /^\s+$/.test(name)) return 'informe um nome';
+  if (name === '.' || name === '..') return `"${name}" não é um nome válido`;
+  // eslint-disable-next-line no-control-regex
+  if (/[\0-\x1f\x7f]/.test(name)) return 'o nome tem caractere inválido';
+  if (name.length > 255) return 'nome longo demais';
+  if (name.startsWith('/') || name.startsWith('\\')) return 'o nome não pode começar com barra';
+  if (/\.\.(\/|$)/.test(name) || /(^|\/)\.(\/|$)/.test(name)) return 'segmento inválido no caminho';
+  const first = name.split('/')[0];
+  if (first !== self && siblings.includes(first)) return `já existe "${first}" nesta pasta`;
+  if (/^\s|\s$/.test(name)) return 'espaço no início ou no fim do nome';
+  return null;
 }

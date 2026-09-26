@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { platform } from 'node:os';
 import { extractAuthUrl, extractToken, looksLikeError, stripAnsi, wantsCode } from './loginParse.js';
+import { tokenFromScreen, urlFromScreen } from './terminalScreen.js';
 
 /** `script` dá um pseudo-terminal ao comando. As opções diferem entre util-linux (Ubuntu) e BSD (macOS, só nos testes). */
 export function ptyCommand(cmd: string): [string, string[]] {
@@ -37,27 +38,35 @@ export class LoginFlow {
     const [bin, args] = ptyCommand(cmd);
     const child = spawn(bin, args, { env: { ...process.env, TERM: 'xterm-256color', BROWSER: 'true' }, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
-    const onData = (b: Buffer) => { this.out += b.toString('utf8'); if (this.out.length > 200_000) this.out = this.out.slice(-100_000); this.scan(); };
+    const onData = (b: Buffer) => { this.out += b.toString('utf8'); if (this.out.length > 400_000) this.out = this.out.slice(-200_000); void this.scan(); };
     child.stdout?.on('data', onData); child.stderr?.on('data', onData);
     child.on('error', (e) => { this.fail(`não consegui rodar o login: ${e.message}`); });
     child.on('exit', (code) => {
       this.child = null;
       if (this.state === 'done') return;
       if (this.state === 'exchanging' || this.state === 'awaiting_code' || this.state === 'starting') {
-        const t = extractToken(this.out);
-        if (t) { void this.finish(t); return; }
-        this.fail(looksLikeError(this.out) ?? `o login encerrou sem token (código ${code})`);
+        void tokenFromScreen(this.out).then(t => { const tok = t ?? extractToken(this.out); if (tok) void this.finish(tok); else this.fail(looksLikeError(this.out) ?? `o login encerrou sem token (código ${code})`); });
       }
     });
     this.timer = setTimeout(() => this.cancel('tempo esgotado (10 min)'), this.opts.timeoutMs ?? 10 * 60_000);
   }
 
-  private scan() {
-    if (!this.url) { const u = extractAuthUrl(this.out); if (u) { this.url = u; if (this.state === 'starting') this.state = 'awaiting_code'; } }
-    if (this.state === 'starting' && wantsCode(this.out) && this.url) this.state = 'awaiting_code';
-    const t = extractToken(this.out);
-    if (t && this.state !== 'done') void this.finish(t);
-    else if (this.state === 'exchanging') { const err = looksLikeError(this.out.slice(-2000)); if (err && /invalid|expired|failed/i.test(err)) this.fail(err); }
+  private scanning = false;
+  private async scan() {
+    if (this.scanning) return;
+    this.scanning = true;
+    try {
+      if (!this.url) {
+        const u = (await urlFromScreen(this.out)) ?? extractAuthUrl(this.out);
+        if (u) { this.url = u; if (this.state === 'starting') this.state = 'awaiting_code'; }
+      }
+      if (this.state === 'starting' && wantsCode(this.out) && this.url) this.state = 'awaiting_code';
+      if (this.state !== 'done') {
+        const t = (await tokenFromScreen(this.out)) ?? extractToken(this.out);
+        if (t) { await this.finish(t); return; }
+      }
+      if (this.state === 'exchanging') { const err = looksLikeError(this.out.slice(-2000)); if (err && /invalid|expired|failed/i.test(err)) this.fail(err); }
+    } finally { this.scanning = false; }
   }
 
   submitCode(code: string): boolean {
