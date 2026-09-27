@@ -104,6 +104,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS inventory_snapshots_ts_idx ON inventory_snapshots (ts DESC, id DESC);
     `,
   },
+  {
+    id: '005_explorer_ui_state',
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS explorer_expanded_keys JSONB;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
