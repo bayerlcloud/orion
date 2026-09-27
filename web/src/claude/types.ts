@@ -38,5 +38,5 @@ export type SdkMessage =
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'unread' | 'failed';
 
 export type SessionSummary = {
-  id: string; title: string; status: SessionStatus; updatedAt: number; group?: string; project?: string; archived?: boolean;
+  id: string; title: string; status: SessionStatus; updatedAt: number; group?: string; project?: string; projectName?: string; archived?: boolean;
 };

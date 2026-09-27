@@ -21,14 +21,15 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
 | Elemento | no nosso v2? | Nota |
 |---|---|---|
 | Botão "Nova sessão" (`newSessionButton_djirOA`) | já tem | `cc-new` |
-| Botão "Novo grupo" (`newGroupButton_OOQiHg`) | n/a | grupos não são persistidos no back; botão removido do v2 |
+| Grupos personalizados arrastáveis (`newGroupButton_OOQiHg`, `sessionGroups`, `groupNameEditing`) | n/a | na extensão real é uma feature de pastas nomeadas, criadas à mão e persistidas (drag-and-drop de sessão pra dentro do grupo, grupo renomeável); exigiria tabela nova + rotas CRUD + DnD. Fora do escopo de "microfunção"; ver "Agrupar por" abaixo como equivalente leve |
 | Toggle Local/Web (`segmented_OOQiHg`) | já tem | Web mostra "em breve" |
-| Caixa de busca (`searchBox_OOQiHg`, `searchInput`, `searchClearButton`) | **implementado agora** | filtra a lista por título |
-| Filtro "Ativas · N" (`activeFilterToggle_OOQiHg`) | **implementado agora** | alterna só rodando/aguardando |
+| Caixa de busca (`searchBox_OOQiHg`, `searchInput`, `searchClearButton`) | já tem | filtra por título; **estendido agora** para também bater com projeto (slug/nome) |
+| Filtro por projeto (sem equivalente direto na extensão — lá é 1 workspace só) | **implementado agora** | `cc-select` "Todos os projetos"/por projeto; só aparece quando há >1 projeto entre as sessões (extra nosso, já que o v2 é multi-projeto) |
+| Filtro "Ativas · N" (`activeFilterToggle_OOQiHg`) | já tem | alterna só rodando/aguardando |
 | Filtro por status em menu (`statusFilterMenuButton`) | n/a | reduzido ao toggle "Ativas" |
-| Grupo com cabeçalho + chevron + contagem (`groupHeader/groupChevron/groupCount`) | já tem | "Sem grupo" com `cc-badge` de contagem |
-| Renomear sessão inline (`sessionNameEditing_OOQiHg`, `onRenameSession`) | **implementado agora** | ação ao passar o mouse (usa endpoint rename) |
-| Arquivar/Desarquivar (`onArchiveSession`, grupo "Archived sessions") | **implementado agora** | coluna `archived`, toggle "Arquivadas", ação no hover |
+| Agrupar por (equivalente leve ao `groupHeader/groupChevron/groupCount` da extensão, mas por critério automático em vez de pasta manual) | **implementado agora** | seletor "Sem agrupar / Por projeto / Por data"; por projeto agrupa por `project_slug`, por data usa baldes Hoje/Ontem/Esta semana/Mais antigas (`groupSessions` em `mapper.ts`); cada grupo tem cabeçalho com chevron/contagem e é colapsável |
+| Renomear sessão inline, lápis ao passar o mouse (`sessionNameEditing_OOQiHg`, `onRenameSession`) | já tem | `cc-item-act` com ícone `Pencil`, edição inline (usa `POST /api/claude/sessions/:id/rename`, já existia); **estendido agora** para também aparecer no `:focus-within` (teclado), não só `:hover` |
+| Arquivar/Desarquivar (`onArchiveSession`, grupo "Archived sessions") | já tem | coluna `archived`, toggle "Arquivadas", ação no hover |
 | Dots de status (`statusDotRunning/Waiting/Unread/Failed/Idle`) | já tem | `cc-dot is-*` |
 | Hora relativa (`sessionTime_OOQiHg`) | já tem | `relativeTime()` |
 | Pill de worktree (`worktreePill_OOQiHg`) | n/a | sem worktrees no nosso fluxo |
@@ -103,11 +104,23 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
 
 ## Resumo
 
-- **já tem** (antes deste trabalho): ~24 itens.
-- **implementado agora**: 15 itens (busca, filtro ativas, renomear inline, arquivar,
-  bloco conta/e-mail, 3 barras de uso rotuladas + chevron, tokens do thinking, resumo
-  2 linhas, copiar, colapsar IN/OUT, render Read/Edit/Write/Bash, diff do Edit, tokens
-  no result, seletor de esforço, seletor de modo em menu, menu de comandos, Esc).
+- **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
+  renomear inline (lápis no hover) e arquivar/desarquivar.
+- **implementado em rodada anterior**: 15 itens (bloco conta/e-mail, 3 barras de uso
+  rotuladas + chevron, tokens do thinking, resumo 2 linhas, copiar, colapsar IN/OUT,
+  render Read/Edit/Write/Bash, diff do Edit, tokens no result, seletor de esforço,
+  seletor de modo em menu, menu de comandos, Esc).
+- **implementado nesta rodada** (microfunções da lista de sessões — filtro, grupo,
+  renomear): filtro por projeto (`cc-select` "Todos os projetos"/por projeto — extra
+  nosso, já que o v2 é multi-projeto e a extensão real é 1 workspace só); controle
+  "Agrupar por" Nenhum/Projeto/Atividade com cabeçalho colapsável por grupo
+  (equivalente leve às pastas manuais arrastáveis da extensão real, que exigiriam
+  tabela nova + rotas CRUD + drag-and-drop); lápis de renomear agora também visível
+  no `:focus-within` (antes só `:hover`) — o endpoint de rename já existia
+  (`POST /api/claude/sessions/:id/rename`), não foi criado nada novo no servidor.
+  Lógica pura testada em `mapper.test.ts` (`filterSessions`, `groupSessions`).
 - **deixados de fora (n/a)**: todo list, subagent, plan mode/plan review, rewind/checkpoint,
   anexos, @-menções, voz, uso por modelo, atribuição de uso, navegação multi-pergunta,
-  worktree, "Manage", % real do plano (token inference-scoped — usamos custo como proxy).
+  worktree, "Manage", % real do plano (token inference-scoped — usamos custo como proxy),
+  grupos personalizados arrastáveis (pastas nomeadas e persistidas — "Agrupar por" cobre
+  a necessidade prática sem exigir a persistência nova).

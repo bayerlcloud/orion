@@ -33,7 +33,7 @@
 .cc-toggle { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--cc-line); border-radius: var(--r); margin: 6px 4px; overflow: hidden; }
 .cc-toggle button { padding: 5px; color: var(--cc-fg2); }
 .cc-toggle button.is-on { background: var(--cc-active); color: var(--cc-fg); }
-.cc-filter-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; font-size: 12px; }
+.cc-filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; font-size: 12px; }
 .cc-active { display: inline-flex; align-items: center; gap: 4px; }
 .cc-link-btn { display: inline-flex; align-items: center; gap: 3px; color: var(--cc-fg2); font-size: 12px; }
 .cc-group-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--r); color: var(--cc-fg2); font-size: 12px; }
@@ -48,8 +48,8 @@
 .cc-item-edit { flex: 1; min-width: 0; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-orange); border-radius: 4px; padding: 1px 5px; font: inherit; outline: none; }
 .cc-item-time { color: var(--cc-fg2); font-size: 12px; flex-shrink: 0; }
 .cc-item-actions { display: none; align-items: center; gap: 2px; flex-shrink: 0; }
-.cc-item:hover .cc-item-actions { display: flex; }
-.cc-item:hover .cc-item-time { display: none; }
+.cc-item:hover .cc-item-actions, .cc-item:focus-within .cc-item-actions { display: flex; }
+.cc-item:hover .cc-item-time, .cc-item:focus-within .cc-item-time { display: none; }
 .cc-item-act { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
 .cc-item-act:hover { background: var(--cc-active); color: var(--cc-fg); }
 .cc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
@@ -214,6 +214,10 @@
 .cc-group-head.cc-clickable { cursor: pointer; user-select: none; }
 .cc-group-head.cc-clickable:hover { background: var(--cc-hover); }
 .cc-badge-muted { background: var(--cc-line); color: var(--cc-fg2); }
+.cc-project-row { padding: 0 4px 4px; }
+.cc-mini-select { border: 1px solid var(--cc-line); border-radius: 10px; padding: 3px 8px; font: inherit; font-size: 12px; background: var(--cc-bg); color: var(--cc-fg2); width: 100%; }
+.cc-mini-select:hover { color: var(--cc-fg); border-color: color-mix(in srgb, var(--cc-orange) 40%, var(--cc-line)); }
+.cc-filter-row .cc-mini-select { width: auto; }
 
 /* ===== thinking / tool extras ===== */
 .cc-thinking-tokens { color: var(--cc-fg2); font-size: 11px; }

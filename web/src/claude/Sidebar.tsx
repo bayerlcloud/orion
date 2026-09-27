@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { SessionSummary } from './types';
 import type { UsageBar } from './mapper';
-import { relativeTime } from './mapper';
+import { relativeTime, filterSessions, groupSessions, type GroupBy } from './mapper';
 import { Chevron, Plus, Search, Bolt, X, Archive, Pencil } from './icons';
 
 function SessionRow({ s, active, onSelect, onRename, onArchive }: {
@@ -29,6 +29,26 @@ function SessionRow({ s, active, onSelect, onRename, onArchive }: {
   );
 }
 
+function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive }: {
+  groupKey: string; label: string; sessions: SessionSummary[]; collapsible: boolean; collapsed: boolean; onToggle: () => void;
+  activeId: string | null; onSelect: (id: string) => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
+}) {
+  return (
+    <div key={groupKey}>
+      <div className={`cc-group-head ${collapsible ? 'cc-clickable' : ''}`} onClick={collapsible ? onToggle : undefined}>
+        <Chevron size={11} className={`cc-chev ${collapsed ? '' : 'is-open'}`} /> {label} <span className="cc-badge">{sessions.length}</span>
+      </div>
+      {!collapsed && (
+        <div className="cc-list">
+          {sessions.map(s => (
+            <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Sidebar({ sessions, usage, usageNote, email, activeId, onSelect, onNew, onRename, onArchive }:
   { sessions: SessionSummary[]; usage: UsageBar[]; usageNote?: string; email: string | null; activeId: string | null;
     onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void; }) {
@@ -38,13 +58,27 @@ export default function Sidebar({ sessions, usage, usageNote, email, activeId, o
   const [q, setQ] = useState('');
   const [activeOnly, setActiveOnly] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const [projectFilter, setProjectFilter] = useState('');
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  function toggleGroup(key: string) {
+    setCollapsedGroups(s => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  }
 
   const isActive = (s: SessionSummary) => s.status === 'running' || s.status === 'waiting';
   const activeCount = sessions.filter(isActive).length;
-  const term = q.trim().toLowerCase();
-  const match = (s: SessionSummary) => (!term || s.title.toLowerCase().includes(term)) && (!activeOnly || isActive(s));
-  const localList = where === 'local' ? sessions.filter(s => !s.archived && match(s)) : [];
-  const archivedList = where === 'local' ? sessions.filter(s => s.archived && match(s)) : [];
+  const filter = { term: q, project: projectFilter || undefined, activeOnly };
+  const localList = where === 'local' ? filterSessions(sessions.filter(s => !s.archived), filter) : [];
+  const archivedList = where === 'local' ? filterSessions(sessions.filter(s => s.archived), filter) : [];
+  const groups = groupSessions(localList, groupBy);
+
+  // Projetos presentes entre as sessões, para o filtro (slug → rótulo). Só aparece quando há mais de um.
+  const projectOptions: [string, string][] = [];
+  const seenProjects = new Set<string>();
+  for (const s of sessions) {
+    if (s.project && !seenProjects.has(s.project)) { seenProjects.add(s.project); projectOptions.push([s.project, s.projectName ?? s.project]); }
+  }
+  projectOptions.sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
 
   return (
     <aside className="cc-side">
@@ -86,22 +120,34 @@ export default function Sidebar({ sessions, usage, usageNote, email, activeId, o
               <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…" />
               {q && <button className="cc-search-clear" onClick={() => setQ('')} title="Limpar"><X size={11} /></button>}
             </div>
+            {projectOptions.length > 1 && (
+              <div className="cc-project-row">
+                <select className="cc-select cc-mini-select" value={projectFilter} onChange={e => setProjectFilter(e.target.value)} title="Filtrar por projeto">
+                  <option value="">Todos os projetos</option>
+                  {projectOptions.map(([slug, label]) => <option key={slug} value={slug}>{label}</option>)}
+                </select>
+              </div>
+            )}
             <div className="cc-filter-row">
               <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
                 <Bolt size={11} /> Ativas · {activeCount}
               </button>
+              <select className="cc-select cc-mini-select" value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} title="Agrupar sessões">
+                <option value="none">Sem agrupar</option>
+                <option value="project">Por projeto</option>
+                <option value="recency">Por data</option>
+              </select>
             </div>
             {where === 'web' ? (
               <div className="cc-empty">Sessões na nuvem em breve</div>
             ) : (
               <>
-                <div className="cc-group-head"><Chevron size={11} className="cc-chev is-open" /> Sem grupo <span className="cc-badge">{localList.length}</span></div>
-                <div className="cc-list">
-                  {localList.length === 0 && <div className="cc-empty">Nenhuma sessão</div>}
-                  {localList.map(s => (
-                    <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive} />
-                  ))}
-                </div>
+                {groups.map(g => (
+                  <SessionGroupSection key={g.key} groupKey={g.key} label={g.label} sessions={g.sessions}
+                    collapsible={groupBy !== 'none'} collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
+                    activeId={activeId} onSelect={onSelect} onRename={onRename} onArchive={onArchive} />
+                ))}
+                {localList.length === 0 && <div className="cc-empty">Nenhuma sessão</div>}
                 {archivedList.length > 0 && (
                   <>
                     <div className="cc-group-head cc-clickable" onClick={() => setShowArchived(v => !v)}>
