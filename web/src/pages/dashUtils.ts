@@ -87,6 +87,20 @@ export function sparkPath(values: (number | null | undefined)[], w: number, h: n
   return { line, area, max };
 }
 
+export type UserActivity = { id: number; name: string; last_login: string | null; commands_7d: number };
+
+/** Acha a atividade (último login + comandos 7d) de um usuário numa lista vinda de /api/dash/user-activity,
+ * por id (preferido) e com um fallback por nome só por segurança -- a lista sempre deve trazer o id. */
+export function activityFor(list: UserActivity[] | null | undefined, userId: number | null | undefined, userName?: string | null): UserActivity | null {
+  if (!list || list.length === 0) return null;
+  if (userId !== null && userId !== undefined) {
+    const byId = list.find(a => a.id === userId);
+    if (byId) return byId;
+  }
+  if (userName) return list.find(a => a.name === userName) ?? null;
+  return null;
+}
+
 /** Estado textual de uma unidade systemd para a tabela. */
 export function unitStatus(active: string | undefined, sub: string | undefined): { label: string; failed: boolean; ok: boolean } {
   const a = (active ?? '').toLowerCase(), s = (sub ?? '').toLowerCase();

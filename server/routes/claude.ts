@@ -104,7 +104,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
       `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
-              u.name AS user_name, p.slug AS project_slug, p.name AS project_name
+              u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
     const sessions = rows.map(r => ({ ...r, status: runner.status(r.id) === 'idle' && r.status === 'error' ? 'error' : runner.status(r.id), pending: runner.pendingPermissions(r.id).length }));

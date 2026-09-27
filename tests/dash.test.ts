@@ -10,7 +10,7 @@ import {
 } from '../server/dash/parse.js';
 import { aggregateMinute } from '../server/dash/series.js';
 import { Sampler } from '../server/dash/sampler.js';
-import { sparkPath, fmtBytes, fmtKBs, ago, unitStatus } from '../web/src/pages/dashUtils';
+import { sparkPath, fmtBytes, fmtKBs, ago, agoIso, unitStatus, activityFor, type UserActivity } from '../web/src/pages/dashUtils';
 
 const STAT_A = `cpu  1000 10 500 8000 200 0 50 40 0 0
 cpu0 500 5 250 4000 100 0 25 20 0 0
@@ -325,6 +325,22 @@ describe('dashUtils', () => {
     expect(unitStatus('failed', 'failed')).toMatchObject({ failed: true });
     expect(unitStatus('active', 'running').label).toBe('active');
     expect(unitStatus(undefined, undefined).label).toBe('—');
+  });
+  it('activityFor acha por id, cai pro nome se faltar id, e some direito quando não tem nada', () => {
+    const lista: UserActivity[] = [
+      { id: 1, name: 'Guilherme', last_login: '2026-09-26T12:00:00Z', commands_7d: 3 },
+      { id: 2, name: 'Lais', last_login: null, commands_7d: 0 },
+    ];
+    expect(activityFor(lista, 1, 'outro nome qualquer')).toMatchObject({ id: 1, commands_7d: 3 });
+    expect(activityFor(lista, undefined, 'Lais')).toMatchObject({ id: 2, last_login: null });
+    expect(activityFor(lista, 99, 'ninguém com esse nome')).toBeNull();
+    expect(activityFor([], 1, 'Guilherme')).toBeNull();
+    expect(activityFor(null, 1, 'Guilherme')).toBeNull();
+  });
+  it('agoIso some com login nulo e formata relativo quando tem data', () => {
+    expect(agoIso(null)).toBe('—');
+    const agora = Date.parse('2026-09-27T12:00:00Z');
+    expect(agoIso('2026-09-26T12:00:00Z', agora)).toBe('há 24 h');
   });
 });
 
