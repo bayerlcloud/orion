@@ -1,7 +1,7 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions } from './mapper';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 
 function Md({ text }: { text: string }) {
@@ -117,13 +117,13 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
           {e.output !== undefined && (
             <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
           )}
-          {e.status === 'running' && e.output === undefined && (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className="cc-running">executando…</span></div>
+          {(e.status === 'running' || e.status === 'waiting') && e.output === undefined && (
+            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className={`cc-running ${e.status === 'waiting' ? 'is-waiting' : ''}`}>{toolRunningLabel(e.status)}</span></div>
           )}
         </div>
       )}
-      {hasBody && !open && e.status === 'running' && e.output === undefined && (
-        <span className="cc-tool-inline cc-running">executando…</span>
+      {hasBody && !open && (e.status === 'running' || e.status === 'waiting') && e.output === undefined && (
+        <span className={`cc-tool-inline cc-running ${e.status === 'waiting' ? 'is-waiting' : ''}`}>{toolRunningLabel(e.status)}</span>
       )}
     </div>
   );
@@ -190,8 +190,8 @@ function TaskAgent({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
           {e.output !== undefined && (
             <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
           )}
-          {e.status === 'running' && e.output === undefined && (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className="cc-running">executando…</span></div>
+          {(e.status === 'running' || e.status === 'waiting') && e.output === undefined && (
+            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className={`cc-running ${e.status === 'waiting' ? 'is-waiting' : ''}`}>{toolRunningLabel(e.status)}</span></div>
           )}
         </div>
       )}
@@ -316,12 +316,51 @@ function Result({ e }: { e: Extract<ConvEvent, { kind: 'result' }> }) {
 
 function dotClass(e: ConvEvent): string {
   switch (e.kind) {
-    case 'tool': return e.status === 'success' ? 'dot-success' : e.status === 'failure' ? 'dot-failure' : e.status === 'warning' ? 'dot-warning' : 'dot-progress';
+    case 'tool': return e.status === 'success' ? 'dot-success' : e.status === 'failure' ? 'dot-failure' : e.status === 'warning' ? 'dot-warning' : e.status === 'waiting' ? 'dot-pending' : 'dot-progress';
     case 'permission': return e.decision === 'timeout' ? 'dot-warning' : e.decision ? 'dot-success' : 'dot-pending';
     case 'result': return e.ok ? 'dot-success' : 'dot-failure';
     case 'thinking': return e.streaming ? 'dot-progress' : '';
     default: return '';
   }
+}
+
+/**
+ * Indicador "pensando" ao vivo — ícone (glifo em ciclo, dá impressão de pulsar de tamanho) + palavra
+ * em inglês trocando periodicamente. Renderizado a partir do evento sintético `kind:'busy'` (ver
+ * `toConvEvents` em live.ts) — mesma condição de `visiblyBusy && !permissionRequests.length` da
+ * extensão real: aparece assim que o turno começa a rodar (não só antes do 1º token) e continua
+ * visível durante todo o turno, sumindo só quando um pedido de permissão aparece ou o turno termina
+ * (ver mapper.ts, comentário de `SPINNER_GLYPHS`/`SPINNER_WORDS` pros achados completos e
+ * PARIDADE.md). Como o React casa este elemento pela `key` fixa `live-busy` (ver Timeline abaixo),
+ * ele só desmonta/remonta quando o indicador some/reaparece de verdade — igual à extensão real, cujo
+ * componente `Re` só é instanciado enquanto a condição é verdadeira — então o ciclo de glifo e o
+ * cronograma de troca de palavra não reiniciam a cada streaming parcial, só numa transição real de
+ * visibilidade.
+ */
+function ThinkingIndicator() {
+  const [glyphStep, setGlyphStep] = useState(0);
+  const [word, setWord] = useState(() => pickSpinnerWord());
+  useEffect(() => {
+    const t = setInterval(() => setGlyphStep(s => s + 1), SPINNER_GLYPH_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    let n = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const fire = () => {
+      setWord(pickSpinnerWord());
+      n++;
+      timer = setTimeout(fire, spinnerWordDelayMs(n));
+    };
+    timer = setTimeout(fire, spinnerWordDelayMs(n));
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <div className="cc-live" aria-hidden="true">
+      <span className="cc-live-icon">{spinnerGlyphAt(glyphStep)}</span>
+      <span key={word} className="cc-live-word">{word}…</span>
+    </div>
+  );
 }
 
 export default function Timeline({ events, onDecide }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
@@ -332,6 +371,7 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
     <div className="cc-timeline">
       {folded.map(e => {
         if (e.kind === 'system' || e.kind === 'result') return null;
+        if (e.kind === 'busy') return <ThinkingIndicator key={e.id} />;
         if (e.kind === 'user') return (
           <div key={e.id} className="cc-user">
             {e.text && <div className="cc-user-text">{e.text}</div>}

@@ -290,9 +290,14 @@ export function parseTodos(input: unknown): TodoItem[] {
  * texto exato (ela tem telemetria ao vivo — tempo decorrido, tokens, contagem de tool calls do
  * subagente — funções `iU0`/`lU0` no webview; exigiria um stream de progresso por tarefa que o Orion
  * não tem hoje); aqui é o texto de progresso mínimo a partir do `ToolStatus` que já temos.
+ * `'waiting'` (ver `applyPendingToolWaitStatus`) precisa do próprio caso — sem ele caía no `else`
+ * final e um Task ainda aguardando aprovação aparecia rotulado "Concluído", o oposto do que é
+ * verdade (bug que essa correção evita reintroduzir, achado na mesma investigação de 28/09/2026 do
+ * "padrão de mensagens diferente do plugin" — ver PARIDADE.md).
  */
 export function taskStatusLabel(status: ToolStatus): string {
   if (status === 'running') return 'Executando…';
+  if (status === 'waiting') return 'Aguardando permissão…';
   if (status === 'failure') return 'Falhou';
   return 'Concluído';
 }
@@ -310,6 +315,95 @@ export function taskStatusLabel(status: ToolStatus): string {
  */
 export function interruptedLabel(duringTool: boolean): string {
   return duringTool ? 'Ferramenta interrompida' : 'Interrompido';
+}
+
+/**
+ * Indicador "pensando" (ícone + palavra em inglês pulsando/trocando) — mostrado enquanto o turno
+ * está rodando de verdade, sem pedido de permissão pendente (ver `toConvEvents` em `live.ts`, evento
+ * sintético `kind:'busy'` quando `status==='running'`). Reportado ao vivo pelo Bayerl (28/09/2026):
+ * "aquela animaçãozinha... quando está pensando que fica trocando a palavra com asterisco pulsando".
+ *
+ * Espelha o componente real `Re` (spinner) do webview decompilado v2.1.282
+ * (`/srv/orion-reference/vscode-extension/extension/webview/index.js`), lido função por função antes
+ * de implementar qualquer coisa — achados completos em PARIDADE.md:
+ * - **Ícone**: 6 glifos, do menor ao maior — `var sU0=["·","✢","*","✶","✻","✽"]` (inclui o asterisco
+ *   literal, exatamente o que o Bayerl descreveu) — ciclados num vai-e-volta de 12 passos
+ *   (`oU0=[...sU0,...[...sU0].reverse()]`) via `setInterval(...,120)`: cresce do ponto até a maior
+ *   estrela e volta, em loop contínuo — é isso que dá a impressão de "pulsar" de tamanho.
+ * - **Palavra**: lista real `VA1`, 84 verbos/gerúndios inventados em inglês ("Pondering",
+ *   "Marinating", "Percolating", "Discombobulating", "Flibbertigibbeting" etc. — extraída do bundle
+ *   via `json.loads`, não digitada à mão, pra não errar nenhuma). Sorteada sem evitar repetição
+ *   (mesma função real `_e($){return $[Math.floor(Math.random()*$.length)]}`) e trocada num
+ *   cronograma fixo: 2s depois de montar, +3s (5s), +5s (10s), e a cada 5s dali em diante — tabela
+ *   real `[2000,3000,5000]` (índice 3+ cai no default 5000) dentro do hook `rx`/`Cq0`.
+ * - **Quando aparece**: a extensão condiciona a `visiblyBusy && !permissionRequests.value.length`
+ *   (arquivo real, não suposição) — ou seja, ela NÃO some no instante em que o 1º token/tool_use
+ *   chega; ela fica visível a sessão inteira do turno "rodando" (inclusive com texto/ferramentas já
+ *   streamando acima dela na tela), e só some quando: (a) um pedido de permissão aparece (o card de
+ *   permissão toma o lugar), ou (b) o turno termina. Isso bate 1:1 com o `status` que o Orion já
+ *   mantém: `'waiting'` é exatamente "há permissão pendente" e `'running'` é exatamente "rodando sem
+ *   pendência" — não precisou de nenhum estado novo no runner, só ler `status` em `toConvEvents`.
+ * Mantidos em **inglês** de propósito (mesma convenção já usada pra "Agent"/"Task"/"Fable"/nomes de
+ * modelo neste arquivo): é a personalidade "Claude-y" do produto, e boa parte da lista são
+ * portmanteaus inventados sem equivalente natural em PT-BR.
+ *
+ * Diferente da extensão real — que roda um efeito de "decodificação" caractere a caractere a cada
+ * troca de palavra (função `A85` no webview: cursor de bloco + flicker de 2-3 caracteres com
+ * `requestAnimationFrame` a cada ~40ms até assentar no texto final) — a implementação aqui troca a
+ * palavra com um fade CSS simples (`key={word}` + `@keyframes cc-fade-in` em `claude.css`, ver
+ * `ThinkingIndicator` em `Timeline.tsx`): mesma ideia (a troca não é um corte seco), sem reimplementar
+ * o motor de scramble inteiro — decisão de escopo documentada em PARIDADE.md, mesmo espírito da
+ * decisão já tomada pro diff de caractere (granularidade replicada, não o motor completo).
+ */
+export const SPINNER_GLYPHS = ['·', '✢', '*', '✶', '✻', '✽'] as const;
+/** Sequência vai-e-volta dos glifos (12 passos: cresce do menor ao maior e volta) — `oU0` real. */
+export const SPINNER_GLYPH_SEQUENCE: readonly string[] = [...SPINNER_GLYPHS, ...[...SPINNER_GLYPHS].reverse()];
+/** Intervalo entre passos do ciclo de glifo, em ms — confirmado no webview (`setInterval(...,120)`). */
+export const SPINNER_GLYPH_INTERVAL_MS = 120;
+
+/** Glifo do passo N do ciclo (aceita qualquer inteiro, inclusive negativo — módulo sempre positivo). */
+export function spinnerGlyphAt(step: number): string {
+  const n = SPINNER_GLYPH_SEQUENCE.length;
+  return SPINNER_GLYPH_SEQUENCE[((step % n) + n) % n];
+}
+
+/**
+ * Lista real de palavras (função `VA1` do webview decompilado v2.1.282) — 84 verbos/gerúndios em
+ * inglês, extraída do bundle com `json.loads` (não digitada à mão). Ordem alfabética, igual ao real.
+ */
+export const SPINNER_WORDS: readonly string[] = [
+  'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Booping', 'Brewing', 'Calculating', 'Cerebrating',
+  'Channeling', 'Churning', 'Clauding', 'Coalescing', 'Cogitating', 'Computing', 'Combobulating', 'Concocting',
+  'Considering', 'Contemplating', 'Cooking', 'Crafting', 'Creating', 'Crunching', 'Deciphering', 'Deliberating',
+  'Determining', 'Discombobulating', 'Doing', 'Effecting', 'Elucidating', 'Enchanting', 'Envisioning', 'Finagling',
+  'Flibbertigibbeting', 'Forging', 'Forming', 'Frolicking', 'Generating', 'Germinating', 'Hatching', 'Herding',
+  'Honking', 'Ideating', 'Imagining', 'Incubating', 'Inferring', 'Manifesting', 'Marinating', 'Meandering',
+  'Moseying', 'Mulling', 'Mustering', 'Musing', 'Noodling', 'Percolating', 'Perusing', 'Philosophizing',
+  'Pontificating', 'Pondering', 'Processing', 'Puttering', 'Puzzling', 'Reticulating', 'Ruminating', 'Scheming',
+  'Schlepping', 'Shimmying', 'Simmering', 'Smooshing', 'Spelunking', 'Spinning', 'Stewing', 'Sussing',
+  'Synthesizing', 'Thinking', 'Tinkering', 'Transmuting', 'Unfurling', 'Unraveling', 'Vibing', 'Wandering',
+  'Whirring', 'Wibbling', 'Working', 'Wrangling',
+];
+
+/**
+ * Atraso (ms) antes da N-ésima troca de palavra (N a partir de 0, contando desde o momento em que o
+ * indicador aparece) — espelha o agendamento real do hook `rx`/`Cq0` no componente `Re`: 2000ms antes
+ * da 1ª troca, 3000ms antes da 2ª (5s desde o início), 5000ms antes da 3ª (10s), e 5000ms dali em
+ * diante (a cada 5s) — tabela literal `let K=[2000,3000,5000];return B<K.length?K[B]:5000` no webview.
+ */
+export function spinnerWordDelayMs(callIndex: number): number {
+  const table = [2000, 3000, 5000];
+  return callIndex < table.length ? table[callIndex] : 5000;
+}
+
+/**
+ * Sorteia uma palavra da lista (mesma função real `_e`: sem evitar repetição — pode repetir a mesma
+ * palavra em trocas seguidas, de propósito, fiel ao original). `rand` injetável pra teste
+ * determinístico (produção usa `Math.random`).
+ */
+export function pickSpinnerWord(words: readonly string[] = SPINNER_WORDS, rand: () => number = Math.random): string {
+  if (words.length === 0) return '';
+  return words[Math.floor(rand() * words.length)] ?? words[0];
 }
 
 export function formatCost(usd?: number): string {
@@ -460,6 +554,47 @@ export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
     i++;
   }
   return out;
+}
+
+/**
+ * Rótulo do estado "em andamento" de um bloco de ferramenta genérico (`Tool` em Timeline.tsx) —
+ * "aguardando permissão…" para um tool_use cujo pedido de permissão ainda está pendente (status
+ * `'waiting'`, ver `applyPendingToolWaitStatus`), "executando…" pro caso comum. Achado numa
+ * investigação de "o padrão de mensagens tá diferente do plugin" (Bayerl, ao vivo, 28/09/2026; ver
+ * PARIDADE.md): antes desta rodada, TODO tool_use que precisava de aprovação já mostrava
+ * "executando…" na própria linha, assim que o SDK mandava o `tool_use` — antes mesmo do usuário
+ * clicar Sim, e mesmo que ele acabasse clicando Não (o comando nunca chegou a rodar). Raiz do
+ * problema: `server/claude/runner.ts` descartava `opts.toolUseID` (campo real do `canUseTool` do SDK,
+ * documentado em `sdk.d.ts`: "Unique identifier for this specific tool call within the assistant
+ * message") ao criar o pedido de permissão — sem esse id, não havia como ligar o bloco de ferramenta
+ * (que vem de `reduceSdkMessages`, a partir do `tool_use` bruto) ao pedido de permissão pendente que
+ * é dele de verdade. Corrigido: `runner.ts` agora repassa `opts.toolUseID` pro evento persistido/ao
+ * vivo, e `applyPendingToolWaitStatus` usa esse id real (não um heurístico por nome/input) pra marcar
+ * o bloco certo como `'waiting'`.
+ */
+export function toolRunningLabel(status: ToolStatus): string {
+  return status === 'waiting' ? 'aguardando permissão…' : 'executando…';
+}
+
+/**
+ * Corrige o status de um evento `tool` que `reduceSdkMessages` já marcou como `'running'` (o SDK manda
+ * o `tool_use` e a timeline mostra "executando…" na hora — antes de qualquer decisão de permissão)
+ * mas que na verdade tem um pedido de permissão pendente pra ELE MESMO, ligado pelo `toolUseId` real
+ * do SDK (`opts.toolUseID` do `canUseTool`, repassado por `server/claude/runner.ts` — ver
+ * `toolRunningLabel`). Pura: devolve uma lista nova só quando algo muda (mesma referência de volta
+ * quando `pendingToolUseIds` está vazio ou não bate com nada — evita re-render à toa); nunca mexe em
+ * eventos que não são `tool`, que já têm `output`, ou cujo status não é `'running'` (uma ferramenta já
+ * `success`/`failure`/`warning` não regride pra `'waiting'` só porque calhou de aparecer aqui).
+ */
+export function applyPendingToolWaitStatus(events: ConvEvent[], pendingToolUseIds: ReadonlySet<string> | readonly string[]): ConvEvent[] {
+  const ids = pendingToolUseIds instanceof Set ? pendingToolUseIds : new Set(pendingToolUseIds);
+  if (ids.size === 0) return events;
+  let changed = false;
+  const out = events.map(e => {
+    if (e.kind === 'tool' && e.status === 'running' && ids.has(e.toolUseId)) { changed = true; return { ...e, status: 'waiting' as ToolStatus }; }
+    return e;
+  });
+  return changed ? out : events;
 }
 
 /**

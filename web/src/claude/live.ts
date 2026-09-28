@@ -1,8 +1,10 @@
 import type { ConvEvent, SdkMessage, SlashCommandInfo } from './types';
-import { describeTool, interruptedLabel, reduceSdkMessages } from './mapper';
+import { applyPendingToolWaitStatus, describeTool, interruptedLabel, reduceSdkMessages } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
-export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string; answer?: string };
+/** `toolUseId`: id real do SDK pro tool_use que gerou este pedido (ver comentário de `toolRunningLabel`
+ * em mapper.ts) — ausente em pedidos persistidos antes da correção de 28/09/2026. */
+export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string; answer?: string; toolUseId?: string };
 /**
  * Turno terminado por stop manual (botão Parar) — separado de `error` de propósito (ver
  * server/claude/runner.ts: evento/tipo persistido 'interrupted', nunca 'error', nesse caso). `text`/
@@ -64,7 +66,7 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
     switch (r.type) {
       case 'user_prompt': s = pushMessage(s, { type: 'user', message: { content: String(p.prompt ?? ''), attachments: Array.isArray(p.attachments) ? p.attachments : undefined } }); break;
       case 'system': case 'assistant': case 'user': case 'result': s = pushMessage(s, p as SdkMessage); break;
-      case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false }); break;
+      case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false, toolUseId: typeof p.toolUseId === 'string' ? p.toolUseId : undefined }); break;
       case 'permission_resolved': { const q = reqs.get(p.id); if (q) { q.decision = p.decision; if (typeof p.message === 'string') q.answer = p.message; } break; }
       case 'error': s = { ...s, error: String(p.message ?? 'erro') }; break;
       // Stop manual persistido (ver server/claude/runner.ts) — texto parcial reconstruído aqui, do
@@ -115,7 +117,7 @@ export function applyLive(s: LiveState, ev: any): LiveState {
     }
     case 'permission_request':
       if (s.pending.some(p => p.id === ev.id)) return s;
-      return { ...s, status: 'waiting', pending: [...s.pending, { id: ev.id, toolName: ev.toolName, input: ev.input ?? {}, hasSuggestions: !!ev.hasSuggestions }] };
+      return { ...s, status: 'waiting', pending: [...s.pending, { id: ev.id, toolName: ev.toolName, input: ev.input ?? {}, hasSuggestions: !!ev.hasSuggestions, toolUseId: typeof ev.toolUseId === 'string' ? ev.toolUseId : undefined }] };
     case 'permission_resolved': {
       // Move da pendência pra resolvida (em vez de só sumir): sem isso, o bubble "Você respondeu"
       // só aparecia depois de recarregar a página (fromRows), nunca na hora, ao vivo.
@@ -147,7 +149,12 @@ export function applyLive(s: LiveState, ev: any): LiveState {
 
 /** O que a linha do tempo renderiza: mensagens reduzidas + parciais + pendências + erro. */
 export function toConvEvents(s: LiveState): ConvEvent[] {
-  const out = reduceSdkMessages(s.messages);
+  // Corrige o status do bloco de ferramenta que já apareceu como "running"/"executando…" (assim que o
+  // SDK manda o tool_use) mas cujo pedido de permissão ainda está pendente — ligado pelo toolUseId
+  // real do SDK, nunca um heurístico (ver applyPendingToolWaitStatus/toolRunningLabel em mapper.ts,
+  // achado numa investigação de "o padrão de mensagens tá diferente do plugin", PARIDADE.md).
+  const pendingToolIds = s.pending.map(p => p.toolUseId).filter((x): x is string => !!x);
+  const out = applyPendingToolWaitStatus(reduceSdkMessages(s.messages), pendingToolIds);
   if (s.partialThinking) out.push({ id: 'partial-thinking', kind: 'thinking', text: s.partialThinking, streaming: true });
   if (s.partialText) out.push({ id: 'partial-text', kind: 'text', text: s.partialText, streaming: true });
   // Stop manual: o que sobrou da resposta cortada, tagueado como interrompido (nunca some — ver bug
@@ -166,5 +173,16 @@ export function toConvEvents(s: LiveState): ConvEvent[] {
     out.push({ id: p.id, kind: 'permission', toolUseId: p.id, name: p.toolName, label: d.label, description: d.description ?? '', inputText: d.inputText ?? JSON.stringify(p.input, null, 2), questions: isAsk ? parseQuestions(p.input) : undefined, decision: p.decision as any, answer: p.answer });
   }
   if (s.error && s.status === 'error') out.push({ id: 'live-error', kind: 'result', ok: false, error: s.error });
+  // Indicador "pensando" ao vivo (ícone + palavra pulsando/trocando — ver mapper.ts SPINNER_* e
+  // Timeline.tsx ThinkingIndicator). Mesma condição da extensão real (`visiblyBusy &&
+  // !permissionRequests.value.length`, achado lendo o webview decompilado — ver PARIDADE.md): aqui
+  // isso já É status==='running' (o Orion só entra em 'waiting' quando há permissão pendente, e só
+  // sai de 'waiting' de volta pra 'running' quando não sobra nenhuma — ver runner.ts), então não
+  // precisou de estado novo no runner. Sempre por último, igual à extensão real (a linha do spinner
+  // fica abaixo de tudo que já foi renderizado neste turno, não some no 1º token/tool_use — ela
+  // acompanha o turno inteiro, só some ao entrar em 'waiting' ou terminar). Guard extra `!s.interrupted`:
+  // evita mostrar o spinner por um instante junto com o bubble de interrupção, na janela entre o
+  // evento 'interrupted' chegar (que não mexe em status) e o 'status':'idle' que vem logo depois.
+  if (s.status === 'running' && !s.interrupted) out.push({ id: 'live-busy', kind: 'busy' });
   return out;
 }

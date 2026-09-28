@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus } from '../web/src/claude/mapper';
 import { matchModelAlias } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
@@ -540,6 +540,9 @@ describe('taskStatusLabel', () => {
   it('warning cai no mesmo texto de concluído (fallback)', () => {
     expect(taskStatusLabel('warning')).toBe('Concluído');
   });
+  it('waiting (permissão pendente, ver applyPendingToolWaitStatus) vira "Aguardando permissão…" — nunca "Concluído" (bug que essa entrada evita reintroduzir)', () => {
+    expect(taskStatusLabel('waiting')).toBe('Aguardando permissão…');
+  });
 });
 
 describe('interruptedLabel', () => {
@@ -642,5 +645,166 @@ describe('matchModelAlias', () => {
 
   it('modelo desconhecido: cai pro default em vez de quebrar', () => {
     expect(matchModelAlias('gpt-5')).toBe('default');
+  });
+});
+
+describe('spinnerGlyphAt', () => {
+  it('passo 0 é o menor glifo ("·"), primeiro da lista real sU0', () => {
+    expect(spinnerGlyphAt(0)).toBe('·');
+  });
+  it('passo 2 é o asterisco literal "*" — exatamente o que o Bayerl descreveu ("asterisco pulsando")', () => {
+    expect(spinnerGlyphAt(2)).toBe('*');
+  });
+  it('passo 5 é o maior glifo ("✽"), o pico do vai-e-volta', () => {
+    expect(spinnerGlyphAt(5)).toBe('✽');
+  });
+  it('passo 6 já é a volta: repete o maior glifo (sequência espelhada, 12 passos: sU0 + reverse)', () => {
+    expect(spinnerGlyphAt(6)).toBe('✽');
+    expect(spinnerGlyphAt(7)).toBe('✻');
+  });
+  it('passo 10 é o penúltimo da volta (mesmo glifo do passo 1); passo 11 fecha o ciclo no menor glifo de novo (mesmo do passo 0)', () => {
+    expect(spinnerGlyphAt(10)).toBe('✢');
+    expect(spinnerGlyphAt(11)).toBe('·');
+  });
+  it('dá a volta no ciclo: passo 12 == passo 0', () => {
+    expect(spinnerGlyphAt(12)).toBe(spinnerGlyphAt(0));
+    expect(spinnerGlyphAt(120)).toBe(spinnerGlyphAt(0));
+  });
+  it('aceita passo negativo sem quebrar (módulo sempre positivo)', () => {
+    expect(spinnerGlyphAt(-1)).toBe(spinnerGlyphAt(11));
+    expect(spinnerGlyphAt(-12)).toBe(spinnerGlyphAt(0));
+  });
+  it('a sequência vai-e-volta tem 12 passos, ida + volta espelhada dos 6 glifos reais', () => {
+    expect(SPINNER_GLYPH_SEQUENCE).toHaveLength(12);
+    expect(SPINNER_GLYPHS).toHaveLength(6);
+    expect([...SPINNER_GLYPH_SEQUENCE]).toEqual([...SPINNER_GLYPHS, ...[...SPINNER_GLYPHS].reverse()]);
+  });
+});
+
+describe('SPINNER_WORDS', () => {
+  it('84 palavras reais (lista VA1 extraída do webview decompilado v2.1.282, via json.loads)', () => {
+    expect(SPINNER_WORDS).toHaveLength(84);
+  });
+  it('todas não-vazias, sem duplicata, e nenhuma tem espaço (são gerúndios/verbos de uma palavra só)', () => {
+    expect(SPINNER_WORDS.every(w => w.length > 0)).toBe(true);
+    expect(new Set(SPINNER_WORDS).size).toBe(SPINNER_WORDS.length);
+    expect(SPINNER_WORDS.every(w => !w.includes(' '))).toBe(true);
+  });
+  it('inclui as palavras citadas no pedido original (achadas de verdade no bundle, não inventadas)', () => {
+    expect(SPINNER_WORDS).toContain('Pondering');
+    expect(SPINNER_WORDS).toContain('Marinating');
+    expect(SPINNER_WORDS).toContain('Percolating');
+  });
+});
+
+describe('spinnerWordDelayMs', () => {
+  it('1ª troca: 2000ms', () => { expect(spinnerWordDelayMs(0)).toBe(2000); });
+  it('2ª troca: 3000ms (5s desde o início)', () => { expect(spinnerWordDelayMs(1)).toBe(3000); });
+  it('3ª troca: 5000ms (10s desde o início)', () => { expect(spinnerWordDelayMs(2)).toBe(5000); });
+  it('4ª troca em diante: 5000ms (default, a cada 5s)', () => {
+    expect(spinnerWordDelayMs(3)).toBe(5000);
+    expect(spinnerWordDelayMs(10)).toBe(5000);
+    expect(spinnerWordDelayMs(1000)).toBe(5000);
+  });
+});
+
+describe('pickSpinnerWord', () => {
+  it('rand=0: primeira palavra da lista', () => {
+    expect(pickSpinnerWord(['a', 'b', 'c'], () => 0)).toBe('a');
+  });
+  it('rand perto de 1: última palavra da lista (nunca estoura o índice)', () => {
+    expect(pickSpinnerWord(['a', 'b', 'c'], () => 0.999999)).toBe('c');
+  });
+  it('rand no meio: palavra do meio', () => {
+    expect(pickSpinnerWord(['a', 'b', 'c'], () => 0.5)).toBe('b');
+  });
+  it('lista vazia: string vazia em vez de quebrar', () => {
+    expect(pickSpinnerWord([], () => 0.5)).toBe('');
+  });
+  it('sem argumentos: sorteia da lista real SPINNER_WORDS', () => {
+    const w = pickSpinnerWord();
+    expect(SPINNER_WORDS).toContain(w);
+  });
+});
+
+describe('toolRunningLabel', () => {
+  it('running: "executando…"', () => {
+    expect(toolRunningLabel('running')).toBe('executando…');
+  });
+  it('waiting (permissão pendente, ver applyPendingToolWaitStatus): "aguardando permissão…"', () => {
+    expect(toolRunningLabel('waiting')).toBe('aguardando permissão…');
+  });
+});
+
+/**
+ * `applyPendingToolWaitStatus` — investigação de 28/09/2026 ("Bayerl: o padrão de mensagens tá
+ * diferente do plugin", ver PARIDADE.md e a seção nova em "Timeline"). Grounding num exemplo real:
+ * sessão de produção c4380a41-d263-408e-9543-4be08d1aea01, seq 29 (`assistant`, tool_use Bash, id
+ * real `toolu_01Rt1vpAf4CECJztM2s5gdqZ`) seguido em seq 30 de um `permission_request` pro mesmo
+ * comando (`grep -n -i "nível\|nivel\|root\|level" web/src/pages/SpecMemoria.tsx | head -60; ...`) —
+ * antes desta correção, o bloco da ferramenta já mostrava "executando…" nesse intervalo, porque o
+ * runner descartava o `toolUseID` real do SDK (não tinha como ligar os dois).
+ */
+describe('applyPendingToolWaitStatus', () => {
+  const toolEvent = (overrides: Partial<Extract<ConvEvent, { kind: 'tool' }>> = {}): ConvEvent => ({
+    id: 'e1', kind: 'tool', toolUseId: 'toolu_01Rt1vpAf4CECJztM2s5gdqZ', name: 'Bash', label: 'Bash',
+    input: { command: 'grep -n -i "nível\\|nivel\\|root\\|level" web/src/pages/SpecMemoria.tsx | head -60' },
+    inputText: 'grep -n -i "nível\\|nivel\\|root\\|level" web/src/pages/SpecMemoria.tsx | head -60',
+    status: 'running', ...overrides,
+  });
+
+  it('sem ids pendentes: devolve a MESMA referência (evita re-render à toa)', () => {
+    const events = [toolEvent()];
+    expect(applyPendingToolWaitStatus(events, [])).toBe(events);
+  });
+
+  it('tool_use running com permissão pendente pro MESMO toolUseId real (caso real da sessão de produção, seq 29/30): vira waiting', () => {
+    const events = [toolEvent()];
+    const out = applyPendingToolWaitStatus(events, ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
+    expect(out).not.toBe(events);
+    expect(out[0]).toMatchObject({ status: 'waiting' });
+    // imutável: a lista original não muda
+    expect(events[0]).toMatchObject({ status: 'running' });
+  });
+
+  it('toolUseId diferente (outro tool_use pendente, não este): não mexe, mesma referência de volta', () => {
+    const events = [toolEvent()];
+    const out = applyPendingToolWaitStatus(events, ['toolu_outro_completamente_diferente']);
+    expect(out).toBe(events);
+    expect(out[0]).toMatchObject({ status: 'running' });
+  });
+
+  it('já tem output (tool_result já chegou, status success): não regride pra waiting mesmo se o id ainda aparecer numa lista pendente desatualizada', () => {
+    const events = [toolEvent({ status: 'success', output: 'ok' })];
+    const out = applyPendingToolWaitStatus(events, ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
+    expect(out).toBe(events);
+    expect(out[0]).toMatchObject({ status: 'success' });
+  });
+
+  it('status já failure/warning: não regride pra waiting', () => {
+    const failure = applyPendingToolWaitStatus([toolEvent({ status: 'failure', output: 'erro' })], ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
+    expect(failure[0]).toMatchObject({ status: 'failure' });
+    const warning = applyPendingToolWaitStatus([toolEvent({ status: 'warning', output: 'ok, com aviso' })], ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
+    expect(warning[0]).toMatchObject({ status: 'warning' });
+  });
+
+  it('eventos que não são tool (texto do usuário, por exemplo) passam intactos', () => {
+    const userEvent: ConvEvent = { id: 'u1', kind: 'user', text: 'oi' };
+    const events: ConvEvent[] = [userEvent, toolEvent()];
+    const out = applyPendingToolWaitStatus(events, ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
+    expect(out[0]).toEqual(userEvent);
+    expect(out[1]).toMatchObject({ status: 'waiting' });
+  });
+
+  it('aceita Set ou array de ids indistintamente', () => {
+    const viaSet = applyPendingToolWaitStatus([toolEvent()], new Set(['toolu_01Rt1vpAf4CECJztM2s5gdqZ']));
+    expect(viaSet[0]).toMatchObject({ status: 'waiting' });
+  });
+
+  it('várias ferramentas na mesma timeline: só a que bate com o id pendente muda', () => {
+    const outra = toolEvent({ id: 'e2', toolUseId: 'toolu_outra_ferramenta', name: 'Read' });
+    const out = applyPendingToolWaitStatus([toolEvent(), outra], ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
+    expect(out[0]).toMatchObject({ status: 'waiting' });
+    expect(out[1]).toMatchObject({ status: 'running' });
   });
 });

@@ -93,6 +93,16 @@
 @keyframes cc-spin { to { transform: rotate(360deg); } }
 .cc-system { color: var(--cc-fg2); font-size: 12px; }
 
+/* Indicador "pensando" ao vivo (ícone em ciclo + palavra pulsando/trocando) — ver ThinkingIndicator
+   em Timeline.tsx e SPINNER_GLYPHS/SPINNER_WORDS em mapper.ts pros achados na extensão real
+   (webview/index.js v2.1.282, componente `Re`). Alinhado à coluna dos pontos da linha do tempo
+   (padding-left 30px, mesmo valor de .cc-msg) mas sem bolinha/linha própria — é efêmero, nunca uma
+   mensagem persistida. */
+.cc-live { display: flex; align-items: center; gap: 6px; padding: 6px 0 6px 30px; color: var(--cc-fg2); font-size: 12px; }
+.cc-live-icon { display: inline-block; width: 1.4em; text-align: center; font-family: var(--cc-mono); font-size: 15px; line-height: 1; animation: cc-pulse 1.6s ease-in-out infinite; }
+.cc-live-word { animation: cc-fade-in .3s ease; }
+@keyframes cc-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
 .cc-thinking summary { list-style: none; cursor: pointer; color: var(--cc-fg2); display: inline-flex; align-items: center; gap: 4px; user-select: none; }
 .cc-thinking summary::-webkit-details-marker { display: none; }
 .cc-thinking[open] summary .cc-chev { transform: rotate(90deg); }
@@ -109,6 +119,10 @@
 .cc-tool-pre { margin: 0; padding: 3px 6px; font-family: var(--cc-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
 .cc-tool-pre.is-error { color: var(--cc-warning); }
 .cc-running { color: var(--cc-fg2); padding: 3px 6px; animation: cc-pulse 1.6s ease-in-out infinite; }
+/* tool_use com pedido de permissão pendente (status "waiting" — ver applyPendingToolWaitStatus em
+   mapper.ts): cor calma (mesma de .cc-dot.is-waiting), sem o pulso de "rodando de verdade" — é uma
+   ferramenta parada esperando decisão do usuário, não uma execução em andamento. */
+.cc-running.is-waiting { color: var(--cc-pending); animation: none; }
 
 .cc-perm { border: 1px solid var(--cc-line); background: var(--cc-bg2); border-radius: 8px; padding: 12px; display: grid; gap: 8px; }
 .cc-perm:focus-within { border-color: color-mix(in srgb, var(--cc-orange) 65%, transparent); }
@@ -290,6 +304,9 @@
 .cc-task-type { color: var(--cc-fg2); font-size: 11px; border: .5px solid var(--cc-line); border-radius: 8px; padding: 0 6px; flex-shrink: 0; }
 .cc-task-status { font-size: 11px; color: var(--cc-fg2); flex-shrink: 0; }
 .cc-task-status.is-running { color: var(--cc-pending); animation: cc-pulse 1.6s ease-in-out infinite; }
+/* Aguardando permissão (ver applyPendingToolWaitStatus/taskStatusLabel em mapper.ts) — mesma cor de
+   is-running, sem o pulso: parado esperando decisão, não rodando de verdade. */
+.cc-task-status.is-waiting { color: var(--cc-pending); }
 .cc-task-status.is-failure { color: var(--cc-failure); }
 .cc-task-status.is-success { color: var(--cc-success); }
 

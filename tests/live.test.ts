@@ -207,3 +207,104 @@ describe('applyLive', () => {
     expect(applyLive(s, { type: 'zzz' })).toBe(s);
   });
 });
+
+/**
+ * Indicador "pensando" ao vivo (evento sintético `kind:'busy'`, ver ThinkingIndicator em
+ * Timeline.tsx e SPINNER_* em mapper.ts) — reportado ao vivo pelo Bayerl (28/09/2026): "aquela
+ * animaçãozinha... quando está pensando que fica trocando a palavra com asterisco pulsando".
+ * Condição confirmada lendo o webview decompilado v2.1.282 (função `Re`/spinner): mostra sempre que
+ * `visiblyBusy && !permissionRequests.length` — no Orion isso já É `status==='running'` (o runner só
+ * usa 'waiting' quando há permissão pendente, ver server/claude/runner.ts), sem precisar de estado
+ * novo. Continua visível o turno inteiro (não só antes do 1º token), até 'waiting' ou o turno acabar.
+ */
+describe('toConvEvents — indicador "pensando" (evento sintético kind:"busy")', () => {
+  it('status running, sem pendência: último evento é o indicador "pensando"', () => {
+    const s = fromRows([{ seq: 1, type: 'user_prompt', payload: { prompt: 'oi' } }], 'running', []);
+    const ev = toConvEvents(s);
+    expect(ev.at(-1)).toMatchObject({ kind: 'busy' });
+  });
+  it('status waiting (permissão pendente): sem indicador — o card de permissão toma o lugar, igual à extensão real', () => {
+    const s = fromRows([
+      { seq: 1, type: 'assistant', payload: { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'ls' } }] } } },
+      { seq: 2, type: 'permission_request', payload: { id: 'p1', toolName: 'Bash', input: {} } },
+    ], 'waiting', [{ id: 'p1', toolName: 'Bash' }]);
+    expect(toConvEvents(s).some(e => e.kind === 'busy')).toBe(false);
+  });
+  it('status idle: sem indicador (turno terminado)', () => {
+    expect(toConvEvents(fromRows([], 'idle', [])).some(e => e.kind === 'busy')).toBe(false);
+  });
+  it('status error: sem indicador', () => {
+    expect(toConvEvents(fromRows([], 'error', [])).some(e => e.kind === 'busy')).toBe(false);
+  });
+  it('continua visível mesmo com texto/thinking parciais já streamando (a extensão real não some no 1º token, ver PARIDADE.md)', () => {
+    let s = applyLive(emptyLive(), { type: 'status', status: 'running' });
+    s = applyLive(s, { type: 'partial', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Vou fazer isso' } } });
+    const ev = toConvEvents(s);
+    expect(ev.map(e => e.kind)).toEqual(['text', 'busy']);
+  });
+  it('ao vivo: aparece quando status vira running, some quando uma permissão chega (waiting)', () => {
+    let s = applyLive(emptyLive(), { type: 'status', status: 'running' });
+    expect(toConvEvents(s).some(e => e.kind === 'busy')).toBe(true);
+    s = applyLive(s, { type: 'permission_request', id: 'p', toolName: 'Bash', input: {}, hasSuggestions: false });
+    expect(s.status).toBe('waiting');
+    expect(toConvEvents(s).some(e => e.kind === 'busy')).toBe(false);
+  });
+  it('guard: não aparece junto do bubble de interrupção, mesmo se status ainda disser "running" no instante do stop (interrupted não mexe em status)', () => {
+    let s = applyLive(emptyLive(), { type: 'status', status: 'running' });
+    s = applyLive(s, { type: 'interrupted', message: 'Interrompido pelo usuário', duringTool: false, partialText: 'x', partialThinking: '' });
+    expect(s.status).toBe('running'); // ainda não chegou o 'status':'idle' que o runner manda logo depois
+    const ev = toConvEvents(s);
+    expect(ev.some(e => e.kind === 'busy')).toBe(false);
+    expect(ev.some(e => e.kind === 'text' && (e as any).interrupted)).toBe(true);
+  });
+});
+
+/**
+ * Investigação de 28/09/2026 ("Bayerl, ao vivo: 'não é o mesmo padrão aqui do plugin'", ver
+ * PARIDADE.md). Reproduz, com o `toolUseId` real da sessão de produção
+ * c4380a41-d263-408e-9543-4be08d1aea01 (seq 29: tool_use Bash `toolu_01Rt1vpAf4CECJztM2s5gdqZ`; seq
+ * 30: permission_request pro mesmo comando), a correção: o runner agora repassa `opts.toolUseID` do
+ * SDK (antes descartado) até o evento persistido/ao vivo, e `toConvEvents` usa esse id real (via
+ * `applyPendingToolWaitStatus`) pra corrigir o status do bloco de ferramenta — que antes mostrava
+ * "executando…" mesmo sem o usuário ter aprovado nada ainda.
+ */
+describe('toConvEvents — status do tool_use com permissão pendente (toolUseId real do SDK)', () => {
+  const TOOL_USE_ID = 'toolu_01Rt1vpAf4CECJztM2s5gdqZ';
+  const BASH_CMD = 'grep -n -i "nível\\|nivel\\|root\\|level" web/src/pages/SpecMemoria.tsx | head -60';
+
+  it('reconstrução após reload (fromRows): tool_use com permission_request pendente pro mesmo toolUseId real vira status "waiting", não "running"', () => {
+    const rows = [
+      { seq: 1, type: 'assistant', payload: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } },
+      { seq: 2, type: 'permission_request', payload: { id: 'approval-1', toolName: 'Bash', input: { command: BASH_CMD }, toolUseId: TOOL_USE_ID } },
+    ];
+    const s = fromRows(rows, 'waiting', [{ id: 'approval-1', toolName: 'Bash' }]);
+    const toolEv = toConvEvents(s).find(e => e.kind === 'tool');
+    expect(toolEv).toMatchObject({ status: 'waiting', toolUseId: TOOL_USE_ID });
+  });
+
+  it('ao vivo (sem reload): o mesmo tool_use, assim que o pedido de permissão chega com o toolUseId real, também vira waiting', () => {
+    let s = applyLive(emptyLive(), { type: 'message', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } });
+    // Antes do pedido de permissão chegar: o tool_use aparece "running" (mesmo comportamento de sempre).
+    expect(toConvEvents(s).find(e => e.kind === 'tool')).toMatchObject({ status: 'running' });
+    s = applyLive(s, { type: 'permission_request', id: 'approval-1', toolName: 'Bash', input: { command: BASH_CMD }, hasSuggestions: true, toolUseId: TOOL_USE_ID });
+    expect(toConvEvents(s).find(e => e.kind === 'tool')).toMatchObject({ status: 'waiting' });
+  });
+
+  it('depois de resolvido e o tool_result chegar: volta a refletir o resultado normal (success), não fica travado em waiting', () => {
+    let s = applyLive(emptyLive(), { type: 'message', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } });
+    s = applyLive(s, { type: 'permission_request', id: 'approval-1', toolName: 'Bash', input: { command: BASH_CMD }, hasSuggestions: true, toolUseId: TOOL_USE_ID });
+    s = applyLive(s, { type: 'permission_resolved', id: 'approval-1', decision: 'allow_always' });
+    s = applyLive(s, { type: 'message', message: { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: TOOL_USE_ID, content: 'saída do comando', is_error: false }] } } });
+    expect(toConvEvents(s).find(e => e.kind === 'tool')).toMatchObject({ status: 'success', output: 'saída do comando' });
+  });
+
+  it('evento de permissão persistido sem toolUseId (dado antigo, de antes desta correção): não quebra, e o tool_use continua "running" como sempre foi (degrada bem, sem regressão)', () => {
+    const rows = [
+      { seq: 1, type: 'assistant', payload: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } },
+      { seq: 2, type: 'permission_request', payload: { id: 'approval-1', toolName: 'Bash', input: { command: BASH_CMD } } },
+    ];
+    const s = fromRows(rows, 'waiting', [{ id: 'approval-1', toolName: 'Bash' }]);
+    const toolEv = toConvEvents(s).find(e => e.kind === 'tool');
+    expect(toolEv).toMatchObject({ status: 'running' });
+  });
+});
