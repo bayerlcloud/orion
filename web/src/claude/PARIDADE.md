@@ -82,6 +82,41 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
   Fable", contra referência de US$ 5/25/100) **continua sem "Reinicia {tempo}"** — não inventamos reset
   pra ele. Os nomes fixos do proxy são só uma aproximação nossa (não correspondem 1:1 à lista dinâmica
   real acima) e já foram revisados pelo Bayerl; não mexi neles.
+- **Correção da rodada seguinte (mesmo dia, 28/09/2026 à tarde)**: o Bayerl lembrou que "no último
+  Orion funcionava perfeitamente" — o Orion antigo (c1, `/config/workspace/orion/src/api/usage.js`)
+  nunca dependia do `rate_limits` do SDK; ele batia **direto** em `GET
+  https://api.anthropic.com/api/oauth/usage` (headers `Authorization: Bearer <token>`,
+  `anthropic-beta: oauth-2025-04-20`), lendo o token de `~/.claude/.credentials.json`. Testei essa
+  mesma chamada em produção com o token atual (`claude setup-token`) e voltou
+  `403 oauth_scope_insufficient, required_scopes: ["user:profile"]` — confirma que o problema nunca
+  foi o método (SDK vs. API direta), é o **escopo do token**. Achei que `claude auth login --claudeai`
+  (comando separado do `setup-token`, `claude auth --help`) pede exatamente `user:profile` na URL de
+  autorização (testado ao vivo, capturando a tela antes de completar o login) — e usa o mesmo padrão
+  de tela (URL + "Paste code here if prompted") que o conector do Orion (`server/claude/login.ts`) já
+  sabia processar.
+  - **Implementado**: `server/claude/login.ts` agora roda `claude auth login --claudeai` em vez de
+    `setup-token`. Como não há garantia de que esse comando imprima um token de 1 ano na tela (o
+    `setup-token` imprime; o login normal grava a sessão OAuth completa, com refresh token, em
+    `~/.claude/.credentials.json`), o fluxo tenta capturar um token impresso primeiro (caminho antigo,
+    inalterado) e, se não achar, confirma sucesso pelo arquivo de credenciais em vez de falhar —
+    **sem** copiar esse access token pro Postgres (copiar um token curto e guardar pra sempre
+    quebraria a renovação automática que o próprio `claude` CLI faz sozinho a cada uso).
+  - `server/claude/credentialsFile.ts` (novo): lê `~/.claude/.credentials.json` ao vivo.
+    `server/claude/realUsage.ts` (novo): `fetchRealUsage` chama a API direta preferindo esse arquivo
+    (cai pro token do Postgres só se não houver arquivo), normaliza `utilization` de 0-1 (a API manda
+    assim) para 0-100 (o resto do Orion espera assim) — mesma normalização que o Orion antigo fazia.
+    `/api/claude/usage` (`server/routes/claude.ts`) agora chama isso antes de olhar
+    `claude_events` (que vira só um fallback secundário).
+  - `server/routes/settings.ts` + `web/src/pages/Config.tsx`: a tela de Configurações mostra
+    "conectado via login" quando a sessão é por arquivo (sem token pra mascarar), e desconectar agora
+    também apaga `~/.claude/.credentials.json` quando for esse o caso — senão o `sdkEnv(null)`
+    continuaria caindo nele mesmo depois de "desconectar".
+  - **O que ainda falta**: tudo isso depende de alguém completar o login de verdade pelo navegador uma
+    vez (abrir a URL, autorizar, colar o código) — não dá pra testar esse último passo sem alguém
+    fazendo isso. Testes cobrem o parsing e os dois caminhos de sucesso/erro com comandos falsos
+    (`tests/login.test.ts`), a leitura do arquivo (`tests/credentialsFile.test.ts`) e a normalização da
+    resposta da API (`tests/realUsage.test.ts`) — 19 testes novos, tudo isolado, nada bateu na API real
+    além do teste manual de escopo já citado acima.
 
 | Elemento | no nosso v2? | Nota |
 |---|---|---|
@@ -91,8 +126,8 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Barras de uso rotuladas (`usageBars_JuUW3A`, `usageFill_8s5nuw`, `usageLabel`, `usagePercent`) | já tem | lista dinâmica na extensão real (ver notas acima); Orion usa 3 barras fixas como proxy quando não há dado real |
 | Rótulos reais (`Session (5hr)`, `Weekly (7 day)`, `Weekly Sonnet`, `Weekly {display_name}` por `model_scoped`) | n/a | confirmado no código real (função `L$5`); não é uma lista fixa — ver notas acima |
 | Cor de aviso da barra a partir de 80% (`usageFillHigh` na função `ee`) | **implementado agora** | Orion usava 90% (`is-high`); a extensão real muda em 80% — corrigido em `Sidebar.tsx` |
-| "Resets {tempo}" (`resetText_8s5nuw`) | **implementado agora (condicional)** | `formatResetIn` + `computeRealUsageBars` em `mapper.ts`; só aparece com dado real (hoje nunca — ver notas acima); nunca inventado para o proxy |
-| % real do limite do plano | **implementado agora (condicional)** | `computeRealUsageBars` usa o `utilization` real do SDK quando presente; hoje o token de `setup-token` não traz esse campo (ver notas acima, com evidência) — continuamos com **custo como proxy** nesse caso |
+| "Resets {tempo}" (`resetText_8s5nuw`) | **implementado, aguardando login real** | `formatResetIn` + `computeRealUsageBars` em `mapper.ts`, alimentado por `fetchRealUsage` (API direta); nunca inventado para o proxy; falta alguém completar `claude auth login` pelo navegador uma vez (ver nota abaixo) |
+| % real do limite do plano | **implementado, aguardando login real** | mesma cadeia acima; o token de `setup-token` não tem escopo (`user:profile`), o de `claude auth login` tem — troca feita no conector (`Config.tsx`/`settings.ts`), falta o login de verdade acontecer uma vez |
 | Uso por modelo (`modelUsage_JuUW3A`, `modelUsageDetail`) | n/a | baixa prioridade |
 | Atribuição por skill/agent/plugin (`attribution*_QET5Ow`, `behavior*`) | n/a | dado indisponível (campo `behaviors` existe no SDK mas é outra função, fora do escopo desta rodada) |
 

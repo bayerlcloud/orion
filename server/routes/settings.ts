@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { KEYS, deleteSetting, ensureSettingsTable, getSetting, looksLikeClaudeToken, maskToken, sdkEnv, setSetting } from '../settings.js';
 import { LoginFlow } from '../claude/login.js';
+import { readClaudeCredentials, credentialsPath } from '../claude/credentialsFile.js';
+import { unlink } from 'node:fs/promises';
 
 export async function settingsRoutes(app: FastifyInstance) {
   await ensureSettingsTable(app.pool);
@@ -16,9 +18,18 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get('/api/settings', async () => {
     const [token, mode, model, budget] = await Promise.all([
       getSetting(app.pool, KEYS.claudeToken), getSetting(app.pool, KEYS.defaultMode), getSetting(app.pool, KEYS.defaultModel), getSetting(app.pool, KEYS.maxBudgetUsd)]);
+    // Duas formas de estar conectado: token estático (`claude setup-token`, salvo aqui no Postgres)
+    // ou sessão do login normal (`claude auth login`, vive em ~/.claude/.credentials.json e se renova
+    // sozinha — nunca copiada pra cá, ver claude/login.ts). Ambas fazem sdkEnv/turnEnv funcionarem.
+    const fileCreds = token ? null : await readClaudeCredentials();
     const { rows } = await app.pool.query('SELECT key, updated_at, u.name AS updated_by FROM settings s LEFT JOIN users u ON u.id = s.updated_by');
     return {
-      claude: { token_set: !!token, token_hint: maskToken(token), linux_user: process.env.USER ?? null },
+      claude: {
+        token_set: !!token || !!fileCreds,
+        token_hint: maskToken(token),
+        via: token ? 'token' : (fileCreds ? 'login' : null),
+        linux_user: process.env.USER ?? null,
+      },
       defaults: { permission_mode: mode ?? 'acceptEdits', model: model ?? '', max_budget_usd: budget ? Number(budget) : 5 },
       meta: rows,
     };
@@ -33,6 +44,9 @@ export async function settingsRoutes(app: FastifyInstance) {
 
   app.delete('/api/settings/claude-token', async (req) => {
     await deleteSetting(app.pool, KEYS.claudeToken);
+    // Se a conexão ativa era via `claude auth login` (sem token no Postgres), desconectar precisa
+    // também invalidar o arquivo de credenciais, senão sdkEnv(null) continuaria caindo nele.
+    try { await unlink(credentialsPath()); } catch { /* não tinha arquivo (era conexão por token) — normal */ }
     app.log.info(`token do Claude removido por ${req.user!.email}`);
     return { ok: true };
   });
@@ -60,11 +74,15 @@ export async function settingsRoutes(app: FastifyInstance) {
     return { ok: !error, model, reply: text.trim().slice(0, 200), cost_usd: cost, ms: Date.now() - t0, error: error || null, via: token ? 'token' : 'login do usuário linux' };
   });
 
-  /** Login pelo navegador, igual ao plugin: a Central roda `claude setup-token` na c3 e faz a ponte. */
+  /** Login pelo navegador, igual ao plugin: a Central roda `claude auth login --claudeai` na c3 e faz
+   * a ponte (ver claude/login.ts pro porquê da troca do `setup-token`). */
   app.post('/api/settings/claude-login/start', async (req) => {
     currentUser.id = req.user!.id;
     if (!flow || flow.state === 'done' || flow.state === 'error' || flow.state === 'idle') {
-      flow = new LoginFlow({ onToken: async (token) => { await setSetting(app.pool, KEYS.claudeToken, token, currentUser.id); app.log.info('token do Claude salvo pelo login no navegador'); } });
+      flow = new LoginFlow({
+        onToken: async (token) => { await setSetting(app.pool, KEYS.claudeToken, token, currentUser.id); app.log.info('token do Claude salvo pelo login no navegador'); },
+        onFileAuth: async () => { app.log.info('login do Claude concluído via claude auth login (sessão no arquivo de credenciais, sem token estático)'); },
+      });
       flow.start();
     }
     await new Promise(r => setTimeout(r, 1500));

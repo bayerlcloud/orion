@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 
 type Settings = {
-  claude: { token_set: boolean; token_hint: string | null; linux_user: string | null };
+  claude: { token_set: boolean; token_hint: string | null; via: 'token' | 'login' | null; linux_user: string | null };
   defaults: { permission_mode: string; model: string; max_budget_usd: number };
   meta: { key: string; updated_at: string; updated_by: string | null }[];
 };
@@ -61,7 +61,7 @@ export default function Config({ user }: { user: User }) {
     try {
       const r = await api<LoginSnap>('/api/settings/claude-login/code', { method: 'POST', body: JSON.stringify({ code }) });
       setLogin(r);
-      if (r.state === 'done') { setMsg('Conta conectada. O token de 1 ano ficou salvo na Central.'); setCode(''); await load(); }
+      if (r.state === 'done') { setMsg('Conta conectada.'); setCode(''); await load(); }
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
   async function cancelLogin() { try { setLogin(await api<LoginSnap>('/api/settings/claude-login/cancel', { method: 'POST' })); } catch { /* ignora */ } }
@@ -80,7 +80,11 @@ export default function Config({ user }: { user: User }) {
         <h2>Conta Claude (Max 20x)</h2>
         <p>Uma conta alimenta tudo: as sessões de todo mundo e os agentes do próprio Orion. O login fica no servidor, na Central, e nunca no navegador.</p>
         <table><tbody>
-          <tr><th>situação</th><td>{s ? (s.claude.token_set ? <>token configurado <span className="mono">{s.claude.token_hint}</span></> : 'sem token') : '…'}</td></tr>
+          <tr><th>situação</th><td>{s ? (
+            s.claude.via === 'login' ? 'conectado via login (percentual real de uso disponível)'
+            : s.claude.token_set ? <>token configurado <span className="mono">{s.claude.token_hint}</span></>
+            : 'sem token'
+          ) : '…'}</td></tr>
           <tr><th>processo</th><td>usuário linux <span className="mono">{s?.claude.linux_user ?? '?'}</span> na c3</td></tr>
         </tbody></table>
         {(!login || login.state === 'idle' || login.state === 'error' || login.state === 'done') ? (
