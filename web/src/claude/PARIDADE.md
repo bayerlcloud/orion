@@ -148,6 +148,7 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Elemento | no nosso v2? | Nota |
 |---|---|---|
 | Texto simples + Markdown (`rendered-markdown`) | já tem | `marked` em `cc-md` |
+| Indicador "pensando" — ícone em ciclo (glifo, dá impressão de pulsar de tamanho, inclui o asterisco literal) + palavra em inglês trocando periodicamente, enquanto o turno roda (`spinnerRow_07S1Yg`, componente `Re`) | **implementado agora (28/09/2026, rodada 4)** | `ThinkingIndicator` em Timeline.tsx, `SPINNER_*`/`pickSpinnerWord`/`spinnerGlyphAt`/`spinnerWordDelayMs` em mapper.ts — ver seção nova abaixo |
 | Thinking recolhível (`thinking_aHyQPQ`, `thinkingToggle`) | já tem | `<details>` `cc-thinking` |
 | Thinking "Thought for Ns" + contador de tokens (`thinkingTokenCount_aHyQPQ`) | **implementado agora** | rótulo "Pensou · N tokens" (≈ chars/4) |
 | Thinking vazio não renderiza | já tem | mapper filtra `thinking.trim()` |
@@ -159,6 +160,8 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Render distinto Read/Edit/Write/Bash (`bashCommand_F2hEIg`, `filename_adbcGQ`) | **implementado agora** | caminho de arquivo em destaque; Bash mostra comando |
 | Diff colorido para Edit (`insertions/deletions_oblbPg`, `char-insert/delete`) | **implementado agora (28/09/2026, rodada 2)** | diff unificado simples (linhas -/+) **+ destaque de caractere dentro da linha trocada** — ver nota abaixo |
 | Permission card allow/deny (`permissionRequestContainer_qlaBag`) | já tem | `cc-perm` |
+| Card de permissão **docado** acima do compositor (`position:absolute;bottom:16px`, fora da área que rola) — nunca dentro da lista de mensagens | **estrutural, não implementado — ver seção nova abaixo** | o nosso `cc-perm` fica dentro da `cc-timeline` que rola junto com o resto; documentado como possível rodada futura, não uma correção pequena |
+| Status do tool_use enquanto aguarda decisão (não mostrar "executando…" antes da aprovação) | **corrigido agora (28/09/2026, rodada 4)** | novo `ToolStatus` `'waiting'`, ligado pelo `toolUseId` real do SDK — ver seção nova abaixo |
 | "Sim, e não perguntar de novo" (`Yes, and don't ask again`) | já tem | `allow_always` |
 | Escopo do allow_always (session/settings) | n/a | sem UI de escopo; SDK decide |
 | AskUserQuestion com opções (`questionBlock_hONcXw`, `optionLabel`, `radio`) | **corrigido agora** | `cc-ask`/`AskAnswer`: marcar opção só seleciona, um botão "Enviar respostas" finaliza; antes o 1º clique em qualquer opção já respondia tudo (sem dar pra marcar mais de uma em pergunta `multiSelect`), e a resposta ("Você respondeu") virava o JSON cru da pergunta em vez do texto escolhido — ver bug de `2026-09-28` |
@@ -676,6 +679,190 @@ do Fastify) está mesmo ativo — devolveu `401`, como esperado. As 3 rotas nova
 leitura de código (registradas dentro do mesmo `claudeRoutes(app)`, depois do hook, mesmo padrão de
 `/rename`/`/archive`) + `tsc --noEmit` + a suíte de `vitest` do `Runner` (que cobre a lógica que as
 rotas chamam).
+## 9. Indicador "pensando" + investigação do "padrão de mensagens diferente do plugin" — rodada de 28/09/2026 (4)
+
+Duas coisas reportadas ao vivo pelo Bayerl no mesmo dia das rodadas 1-3 acima: (1) "não tem aquela
+animaçãozinha... quando está pensando que fica trocando a palavra com asterisco pulsando" (pedido
+específico, já sabíamos o que construir); (2) "dá uma olhada... como as mensagens estão sendo
+devolvidas... não é o mesmo padrão aqui do plugin... tá diferente" (pedido vago — investigação de
+verdade, não um gap conhecido; usei a sessão de produção real
+`c4380a41-d263-408e-9543-4be08d1aea01` — lida read-only do Postgres via `DATABASE_URL` de
+`/etc/orion/central.env` — como base, em vez de dado sintético).
+
+### Indicador "pensando" (ícone + palavra pulsando)
+
+Lido o componente real `Re` (spinner) do webview decompilado v2.1.282
+(`/srv/orion-reference/vscode-extension/extension/webview/index.js`) função por função antes de
+implementar qualquer coisa:
+
+- **Ícone**: `var sU0=["·","✢","*","✶","✻","✽"]` — 6 glifos do menor ao maior, **inclui o asterisco
+  literal** (exatamente o que o Bayerl descreveu). Ciclados num vai-e-volta de 12 passos
+  (`oU0=[...sU0,...[...sU0].reverse()]`) via `setInterval(...,120)` — cresce até a maior estrela e
+  volta, em loop contínuo; é isso que dá a impressão de "pulsar" de tamanho (não é opacidade/glow via
+  CSS — é substituição de caractere, JS puro).
+- **Palavra**: lista real `VA1`, **84** verbos/gerúndios inventados em inglês ("Pondering",
+  "Marinating", "Percolating", "Discombobulating", "Flibbertigibbeting" etc.) — extraída do bundle via
+  `json.loads` (não digitada à mão, pra não errar nenhuma; conferida 1:1 num teste). Sorteada **sem**
+  evitar repetição (mesma função real `_e($){return $[Math.floor(Math.random()*$.length)]}`) e trocada
+  num cronograma fixo: 2s depois de montar, +3s (5s), +5s (10s), e a cada 5s dali em diante — tabela
+  real `let K=[2000,3000,5000];return B<K.length?K[B]:5000` dentro do hook `rx`/`Cq0`.
+- **Quando aparece — achado que corrige a suposição inicial do pedido**: o pedido original supunha que
+  o indicador só aparece "no intervalo entre o fim do turno do usuário e o 1º token/tool_use", sumindo
+  assim que algo começa a streamar. **Isso é falso** — confirmado lendo o código, não assumido: a
+  extensão real condiciona a exibição a `visiblyBusy.value && !permissionRequests.value.length`
+  (`visiblyBusy = busy && !hostUnresponsive`; `busy` fica `true` do `system/init`/início do turno até
+  `endTurn()`, ou seja, **o turno inteiro**, não só o intervalo antes do 1º conteúdo). O spinner é
+  posicionado (`N5`) **depois** de todas as mensagens/grupos já renderizados desse turno, como uma
+  linha persistente abaixo do que já streamou — só some quando (a) um pedido de permissão aparece (o
+  card de permissão toma o lugar), ou (b) o turno termina. Reimplementado fiel a isso: no Orion,
+  `status==='running'` já É exatamente essa condição (`'waiting'` só existe quando há permissão
+  pendente — ver `runner.ts`), então não precisou de estado novo.
+- **Diferente da extensão real**, que roda um efeito de "decodificação" caractere a caractere a cada
+  troca de palavra (função `A85`: cursor de bloco + flicker de 2-3 caracteres via
+  `requestAnimationFrame` a cada ~40ms até assentar no texto final — um motor de scramble completo):
+  aqui a palavra troca com um fade CSS simples (`key={word}` + `@keyframes cc-fade-in`). Mesma ideia
+  (a troca não é um corte seco), sem reimplementar o motor inteiro — decisão de escopo no mesmo
+  espírito da já tomada pro diff de caractere (seção 4: granularidade replicada, não o motor completo
+  do Monaco).
+
+**Implementado**: `web/src/claude/mapper.ts` — `SPINNER_GLYPHS`/`SPINNER_GLYPH_SEQUENCE`/
+`SPINNER_GLYPH_INTERVAL_MS`/`spinnerGlyphAt` (ciclo do ícone); `SPINNER_WORDS` (as 84 palavras);
+`spinnerWordDelayMs`/`pickSpinnerWord` (cronograma e sorteio). `web/src/claude/types.ts`: `ConvEvent`
+ganhou o caso sintético `kind:'busy'` (nunca persistido). `web/src/claude/live.ts`: `toConvEvents`
+empurra esse evento por último quando `s.status==='running' && !s.interrupted` (o guard extra evita um
+flash de 1 frame junto do bubble de interrupção, na janela entre o evento `'interrupted'` chegar — que
+não mexe em `status` — e o `'status':'idle'` que o runner manda logo depois). `web/src/claude/
+Timeline.tsx`: componente `ThinkingIndicator` (dois `useEffect`: um `setInterval` de 120ms pro glifo,
+um `setTimeout` recursivo fiel ao cronograma `rx` real pra palavra) — como o React casa esse elemento
+pela `key` fixa `'live-busy'`, ele só desmonta/remonta numa transição real de visibilidade (turno
+começa/pausa em permissão/termina), nunca a cada streaming parcial, igual ao `Re` real (que só existe
+enquanto `t0` é verdadeiro). `web/src/claude/claude.css`: `.cc-live`/`.cc-live-icon`
+(`animation: cc-pulse`)/`.cc-live-word` + `@keyframes cc-fade-in` (nova).
+
+**Mantido em inglês de propósito**: a lista de palavras não foi traduzida pro PT-BR, ao contrário da
+maior parte do resto da tela — mesma convenção já usada pra "Agent"/"Task"/"Fable"/nomes de modelo
+(seções 3-4 acima): é a personalidade "Claude-y" do produto, e boa parte da lista são portmanteaus
+("Discombobulating", "Flibbertigibbeting") sem equivalente natural em PT-BR que preserve a graça.
+
+**TDD**: 20 testes novos em `tests/mapper.test.ts` (`spinnerGlyphAt`: glifo em cada passo do ciclo,
+volta, índice negativo; `SPINNER_WORDS`: 84 palavras, sem duplicata, contém as citadas no pedido;
+`spinnerWordDelayMs`: tabela 2000/3000/5000/default; `pickSpinnerWord`: `rand` injetável,
+determinístico, lista vazia) + 7 em `tests/live.test.ts` (`toConvEvents`: aparece com `status
+running`, some com `waiting`/`idle`/`error`, continua visível com texto parcial já streamando —
+regressão direta da suposição errada do pedido —, aparece/some ao vivo, guard da interrupção).
+
+### Investigação: "o padrão de mensagens tá diferente do plugin"
+
+Usei `superpowers:systematic-debugging` (Fase 1-2: evidência antes de hipótese) em vez de tentar
+adivinhar o que "parece diferente". Reli as seções 4 e 7 desta tabela primeiro (já cobrem: resumo
+tool de 2 linhas, colapsar IN/OUT, diff de caractere, Todo list, Task/Agent, AskUserQuestion — nenhuma
+delas é o que falta aqui) e depois comparei, elemento por elemento, contra o webview decompilado
+v2.1.282, grounded na sessão de produção real `c4380a41-d263-408e-9543-4be08d1aea01` (191 eventos
+lidos via `claude_events`, node + `pg` — mesmo padrão de leitura read-only já usado noutras tarefas do
+dia).
+
+**Achado 1 (estrutural, não um bug de linha de código) — o card de permissão real é DOCADO, não faz
+parte da lista que rola.** Confirmado em duas camadas independentes do bundle:
+- JSX: o container do card de permissão (`F("div",{ref:q,className:f0.permissionsContainer,
+  children:F(qW0,{request:N,...})})`) é renderizado **fora** do `messagesContainer` que rola — é
+  filho de um `inputContainer` que vem **depois** do fim da lista de mensagens (`N5`/spinner,
+  `heldPrompts`, o spacer de altura) e **antes** do composer de verdade (`F5`).
+- CSS: `.inputContainer_07S1Yg{position:absolute;z-index:20;bottom:16px;left:16px;right:16px}` — um
+  overlay fixo ancorado no rodapé da viewport, nunca move com o scroll do histórico.
+  `.messagesContainer_07S1Yg{overflow-y:auto;...}` é a área que rola, separada.
+- Consequência: a extensão real nunca deixa um card de permissão "perdido no meio do histórico" — só
+  existe UM card interativo por vez, sempre visível, sem precisar rolar. E **não sobra bubble
+  nenhuma** no histórico depois de decidir — o único rastro que fica é o próprio dot de status do
+  tool_use (`waiting`→`running`/concluído, componente `c85`: `Z?F(iY,{state:"waiting"}):...`).
+- O Orion faz diferente: `cc-perm` é um evento normal dentro de `cc-timeline`, que rola junto com
+  tudo — numa sessão longa e cheia de Bash com aprovação (como a de produção usada aqui: 5 pedidos de
+  permissão em 191 eventos), o usuário precisa rolar pra cima pra achar o card ativo, e o histórico
+  acumula uma fileira de bubbles "Permitido, sem perguntar de novo · `<comando>`" (extra nosso — a
+  extensão real não deixa NENHUM rastro assim; só o dot do tool_use muda). Bate com a descrição do
+  Bayerl (as duas capturas de tela mostravam exatamente essa fileira acima do card ativo).
+- **Não corrigido nesta rodada — documentado como item maior pra rodada futura, de propósito.** Mudar
+  isso é uma mudança de arquitetura de UI (tirar o card de permissão da `cc-timeline`, decidir onde ele
+  vive perto do compositor, decidir o que acontece com a fileira "Permitido..." que já existe hoje e
+  se o Bayerl quer manter essa trilha de auditoria — ele não pediu pra remover), não uma correção
+  pequena. Também esbarraria em `ClaudePage.tsx`/`Composer.tsx` — que um agente irmão está mexendo
+  concorrentemente num bug não relacionado de troca de modo ao vivo, nesta mesma janela de tempo — e a
+  instrução deste round foi explicitamente não tocar lá. Ver tabela na seção 4 acima (nova linha "Card
+  de permissão docado").
+
+**Achado 2 (bug real, raiz confirmada no `.d.ts` do SDK) — o tool_use mostrava "executando…" ANTES do
+usuário aprovar.** Investigado a partir do Achado 1: como o `reduceSdkMessages` cria o bloco da
+ferramenta (`kind:'tool', status:'running'`) assim que o SDK manda o `tool_use` — **antes** de
+qualquer permissão ser concedida — e o `Tool`/`TaskAgent` em Timeline.tsx mostravam "executando…"
+sempre que `status==='running'` e não havia `output` ainda, um comando esperando Sim/Não já aparecia
+como se estivesse rodando. Rastreei a causa raiz (não um heurístico — o `.d.ts` real do SDK, não uma
+suposição): `CanUseTool` (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`) documenta
+`options.toolUseID: string` — "Unique identifier for this specific tool call within the assistant
+message" — só que `server/claude/runner.ts` **descartava esse campo por completo**: o `canUseTool`
+implementado ali usa `const pid = randomUUID()` (um id do próprio Orion, sem relação nenhuma com o id
+do SDK) como identificador do pedido de permissão, e nunca lia/repassava `opts.toolUseID` pra lugar
+nenhum. Sem esse id real, não havia NENHUMA forma de ligar o bloco de ferramenta ao pedido de
+permissão que é dele de verdade (nem heurística por nome/input dava pra confiar — dois Bash seguidos
+com comandos parecidos existem na sessão real usada aqui).
+
+Grounding no exemplo real: sessão `c4380a41-d263-408e-9543-4be08d1aea01`, seq 29 (`assistant`,
+tool_use Bash, id `toolu_01Rt1vpAf4CECJztM2s5gdqZ`) seguido em seq 30 de um `permission_request` pro
+mesmo comando (`grep -n -i "nível\|nivel\|root\|level" web/src/pages/SpecMemoria.tsx | head -60; ...`)
+— entre os dois, o bloco da ferramenta já mostrava "executando…" nessa sessão real, sem o usuário ter
+decidido nada ainda (confirmado lendo o payload bruto dos dois eventos; a correlação `toolUseID ↔
+tool_use.id` em si vem do `.d.ts` do SDK, não foi observável retroativamente nesses dados antigos —
+são eventos persistidos ANTES da correção, e por isso nunca gravaram `toolUseId`).
+
+**Implementado** (pequeno, escopado, não mexe em `ClaudePage.tsx`/`Composer.tsx`):
+- `server/claude/runner.ts`: `opts.toolUseID` agora é repassado pro evento persistido
+  (`appendEvent(..., 'permission_request', {..., toolUseId: opts.toolUseID})`) e pro evento ao vivo
+  (`emit(..., {type:'permission_request', ..., toolUseId: opts.toolUseID})`) e guardado em `Pending`
+  (`l.pending.set(pid, {..., toolUseId: opts.toolUseID})`). `LiveEvent`'s `'permission_request'` e o
+  tipo `Pending` ganharam o campo (opcional — eventos antigos, persistidos antes desta correção, não
+  têm). `store.createApproval`/a tabela `claude_approvals` **não** foram tocados — o campo só precisa
+  existir no log de eventos, que é a única fonte que `fromRows`/`applyLive` leem.
+- `web/src/claude/types.ts`: novo valor de `ToolStatus`, `'waiting'` — nunca vem direto de
+  `reduceSdkMessages` (que só conhece `'running'`); é aplicado depois.
+- `web/src/claude/mapper.ts`: `applyPendingToolWaitStatus(events, pendingToolUseIds)` — pura, corrige
+  `status:'running'` pra `'waiting'` só no evento `tool` cujo `toolUseId` bate (não um heurístico) com
+  algum pedido **ainda pendente**; nunca regride um evento que já tem `output` ou já terminou
+  (`success`/`failure`/`warning`). `toolRunningLabel(status)` — "aguardando permissão…" pra `waiting`,
+  "executando…" pro resto. `taskStatusLabel` ganhou o caso `waiting` também (sem ele, um Task ainda
+  aguardando aprovação cairia no `else` final e apareceria rotulado "Concluído" — o oposto do que é
+  verdade; bug que essa correção evita reintroduzir).
+- `web/src/claude/live.ts`: `PermReq` ganhou `toolUseId?`; `fromRows`/`applyLive` capturam o campo do
+  payload; `toConvEvents` aplica `applyPendingToolWaitStatus` com os `toolUseId` de `s.pending`
+  (nunca `resolvedPerms` — uma vez resolvida, se ainda `running`, é porque está rodando de verdade).
+- `web/src/claude/Timeline.tsx`/`claude.css`: `Tool`/`TaskAgent` tratam `status==='waiting'` igual a
+  `'running'` pra mostrar o corpo OUT-pendente, mas com `toolRunningLabel` (rótulo diferente) e classe
+  `.is-waiting` (cor `--cc-pending`, mesma da bolinha `cc-dot.is-waiting` que já existia, **sem** o
+  pulso de "rodando de verdade" — é uma ferramenta parada esperando decisão, não em execução);
+  `dotClass` mapeia `'waiting'` pro dot `dot-pending` (estático) em vez do `dot-progress` (piscando).
+
+**TDD**: 1 teste novo em `tests/runner.test.ts` (o `toolUseId` real chega no evento ao vivo E no
+persistido) + 9 em `tests/mapper.test.ts` (`toolRunningLabel`; `applyPendingToolWaitStatus`: caso real
+grounded na sessão de produção, id diferente não mexe, não regride de success/failure/warning, ignora
+eventos não-tool, aceita Set ou array, várias ferramentas na mesma timeline só a certa muda; 1 caso
+novo de `taskStatusLabel`) + 4 em `tests/live.test.ts` (`toConvEvents`: reconstrução pós-reload vira
+`waiting`, ao vivo vira `waiting` assim que o pedido chega, volta a refletir o resultado normal depois
+de resolvido + tool_result, dado antigo sem `toolUseId` degrada bem sem quebrar — nunca regride pra
+pior que o comportamento de sempre).
+
+**O que NÃO foi encontrado/não é gap**: o formato "Você respondeu: {resposta}" do AskUserQuestion (já
+corrigido numa rodada anterior do mesmo dia, confirmado funcionando nas duas capturas de tela do
+Bayerl) e o card "Aguardando sua permissão" com comando completo + descrição + botões Sim/"Sim, e não
+perguntar de novo"/Não + campo de texto livre (seção 4, "já tem") batem, elemento por elemento, com o
+que a extensão real mostra dentro do próprio card — a diferença não estava no CONTEÚDO do card, estava
+em ONDE ele fica (Achado 1) e no fato de o tool_use por trás mentir sobre já estar rodando (Achado 2).
+
+### Verificação (rodada de 28/09/2026, 4)
+
+Sem navegador/visual-testing neste ambiente — verificação por leitura cuidadosa do webview decompilado
++ `sdk.d.ts` real (não só a descrição dos pedidos) + a sessão de produção real via Postgres (read-only,
+`DATABASE_URL` de `/etc/orion/central.env`) + `vitest` (403 testes, suíte inteira verde, 43 novos
+desta rodada, confirmado via `git diff`: 31 de `mapper.test.ts` (20 do indicador "pensando" + 11 do
+status `waiting`), 11 de `live.test.ts` (7 + 4), 1 de `runner.test.ts`) + `tsc --noEmit`
+(server e front, sem erro) + `vite build` (bundle gera sem erro, mesmo aviso pré-existente de chunk
+grande).
 
 ## Resumo
 
@@ -778,3 +965,21 @@ rotas chamam).
   sincronizando em `queryFn()` ter retornado, não em `status==='running'`); 6 testes novos em
   `tests/runner.test.ts`; suíte inteira 366 testes, `tsc --noEmit` (server e front) e `vite build`
   verdes.
+- **implementado/corrigido nesta rodada (5)** (28/09/2026 — duas coisas reportadas ao vivo pelo
+  Bayerl no mesmo dia; ver seção 8 para os detalhes e evidências completas): indicador "pensando"
+  (ícone com 6 glifos — inclui o asterisco literal — ciclando num vai-e-volta a cada 120ms, +
+  palavra sorteada de uma lista real de 84 gerúndios em inglês, trocando em 2s/5s/10s/15s.../cada
+  5s — tudo extraído/confirmado no componente `Re` do webview decompilado v2.1.282, não inventado;
+  achado que corrige a suposição inicial do pedido — o indicador real NÃO some no 1º token, fica
+  visível o turno inteiro) — `ThinkingIndicator` em `Timeline.tsx`, evento sintético `kind:'busy'`.
+  Investigação (`superpowers:systematic-debugging`, grounded na sessão de produção real
+  `c4380a41-d263-408e-9543-4be08d1aea01`) do "padrão de mensagens diferente do plugin": achado
+  **estrutural** documentado, não corrigido de propósito (card de permissão real é docado/fixo acima
+  do compositor, fora da lista que rola, e não deixa rastro no histórico depois de decidido — mudar
+  isso no Orion é uma decisão de arquitetura de UI maior, esbarraria em `ClaudePage.tsx`/
+  `Composer.tsx`, fora de escopo aqui de propósito); e um **bug real corrigido** (tool_use mostrava
+  "executando…" antes mesmo do usuário aprovar, porque `server/claude/runner.ts` descartava
+  `opts.toolUseID` — campo real e documentado do SDK — ao criar o pedido de permissão; agora
+  repassado, novo `ToolStatus` `'waiting'` ligado pelo id real, nunca um heurístico). 43 testes
+  novos, confirmado via `git diff` (31 `mapper.test.ts`, 11 `live.test.ts`, 1 `runner.test.ts`);
+  suíte inteira 403 testes, `tsc --noEmit` e `vite build` verdes.

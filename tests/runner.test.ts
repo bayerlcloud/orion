@@ -41,7 +41,10 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
       if (opts.slow) await wait(opts.slow);
       if (options?.signal?.aborted || options?.abortController?.signal.aborted) throw new Error('aborted');
       if (opts.askPermission && options?.canUseTool) {
-        const r = await options.canUseTool('Bash', { command: 'ls' }, { signal: options.abortController!.signal, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow', destination: 'session' } as any] });
+        // toolUseID: campo real do SDK (options do canUseTool, sdk.d.ts) — fixture fixo pra poder
+        // afirmar, no teste novo abaixo, que o runner repassa esse id (não descarta mais, ver
+        // PARIDADE.md "padrão de mensagens diferente do plugin").
+        const r = await options.canUseTool('Bash', { command: 'ls' }, { signal: options.abortController!.signal, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow', destination: 'session' } as any], toolUseID: 'toolu_fixture_bash' } as any);
         yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: r.behavior === 'allow' ? 'permitido' : `negado: ${(r as any).message}` }] } } as any;
       }
       if (opts.fail) throw new Error('falhou de propósito');
@@ -102,6 +105,28 @@ describe('Runner', () => {
     const texts = m.events.filter(e => e.type === 'assistant').map(e => e.payload.message.content[0].text);
     expect(texts[0]).toBe('permitido');
     expect(await r.decide('s3', req.id, 'allow', 1)).toBe(false);
+  });
+
+  /**
+   * Investigação de 28/09/2026 ("Bayerl: o padrão de mensagens tá diferente do plugin", ver
+   * PARIDADE.md): `opts.toolUseID` é um campo real do `canUseTool` do SDK (`sdk.d.ts`: "Unique
+   * identifier for this specific tool call within the assistant message") que o runner descartava —
+   * sem ele, o mapper não tinha como ligar o bloco de ferramenta (que já aparece "executando…" assim
+   * que o SDK manda o tool_use) ao pedido de permissão pendente que é dele de verdade, e o bloco
+   * mostrava "executando…" antes mesmo do usuário decidir. Este teste confirma que o id agora é
+   * repassado tanto no evento ao vivo (SSE) quanto no persistido (claude_events) — os dois caminhos
+   * que `web/src/claude/live.ts` (fromRows/applyLive) lê.
+   */
+  it('repassa o toolUseId real do SDK (opts.toolUseID) no pedido de permissão, ao vivo e persistido', async () => {
+    const m = memStore(); const q = fakeQuery({ askPermission: true });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    const seen: LiveEvent[] = []; r.subscribe('s3c', e => seen.push(e));
+    r.startTurn({ ...base, sessionId: 's3c', prompt: 'x', isNew: true });
+    await until(() => r.status('s3c') === 'waiting');
+    const liveReq = seen.find(e => e.type === 'permission_request') as any;
+    expect(liveReq.toolUseId).toBe('toolu_fixture_bash');
+    const persisted = m.events.find(e => e.type === 'permission_request')!;
+    expect(persisted.payload.toolUseId).toBe('toolu_fixture_bash');
   });
 
   it('responder (AskUserQuestion) manda a mensagem no evento ao vivo, não só no evento persistido', async () => {

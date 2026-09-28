@@ -7,7 +7,19 @@ export type LiveEvent =
   | { type: 'status'; status: SessionStatus }
   | { type: 'message'; message: SDKMessage }
   | { type: 'partial'; event: unknown }
-  | { type: 'permission_request'; id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean }
+  /**
+   * `toolUseId`: o id real do SDK pro tool_use que gerou este pedido (`opts.toolUseID` do callback
+   * `canUseTool`, campo documentado em `sdk.d.ts` — "Unique identifier for this specific tool call
+   * within the assistant message"). Investigação de 28/09/2026 (Bayerl: "não é o mesmo padrão do
+   * plugin"): esse campo existia no SDK mas era descartado aqui — o `pid` (id do pedido de permissão)
+   * é um `randomUUID()` do próprio Orion, sem NENHUMA relação com o id do tool_use, então o mapper
+   * nunca conseguia ligar o bloco de ferramenta (que já aparece na timeline assim que o SDK manda o
+   * tool_use, status "running"/"executando…") ao pedido de permissão pendente pra ELE — o bloco da
+   * ferramenta mostrava "executando…" antes mesmo do usuário aprovar. Ver PARIDADE.md e
+   * `applyPendingToolWaitStatus` em web/src/claude/mapper.ts. Opcional: pode faltar em eventos
+   * antigos, persistidos antes desta correção.
+   */
+  | { type: 'permission_request'; id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; toolUseId?: string }
   | { type: 'permission_resolved'; id: string; decision: Decision; message?: string }
   | { type: 'error'; message: string }
   /**
@@ -88,7 +100,7 @@ export type TurnParams = {
   mcpServers?: Record<string, McpServerConfig>;
 };
 
-type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string };
+type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string; toolUseId?: string };
 
 type Live = {
   status: SessionStatus;
@@ -268,11 +280,14 @@ export class Runner {
         if (l.pending.size === 0) void this.setStatus(id, 'running');
       }, this.deps.permissionTimeoutMs ?? 30 * 60_000);
       opts.signal.addEventListener('abort', () => { clearTimeout(timer); l.pending.delete(pid); });
-      l.pending.set(pid, { resolve, suggestions: opts.suggestions, timer, toolName });
+      // opts.toolUseID: id real do SDK pro tool_use (ver comentário de LiveEvent 'permission_request'
+      // acima) — repassado pro evento persistido/ao vivo pra o mapper poder ligar o bloco de
+      // ferramenta ao pedido de permissão que é dele de verdade, em vez de duas coisas soltas na tela.
+      l.pending.set(pid, { resolve, suggestions: opts.suggestions, timer, toolName, toolUseId: opts.toolUseID });
       void this.deps.store.createApproval({ id: pid, sessionId: id, toolName, input });
-      void this.deps.store.appendEvent(id, 'permission_request', { id: pid, toolName, input });
+      void this.deps.store.appendEvent(id, 'permission_request', { id: pid, toolName, input, toolUseId: opts.toolUseID });
       void this.setStatus(id, 'waiting');
-      this.emit(id, { type: 'permission_request', id: pid, toolName, input, hasSuggestions: !!opts.suggestions?.length });
+      this.emit(id, { type: 'permission_request', id: pid, toolName, input, hasSuggestions: !!opts.suggestions?.length, toolUseId: opts.toolUseID });
     });
 
     const options: Options = {

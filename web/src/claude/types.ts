@@ -1,5 +1,11 @@
 /** Modelo de eventos da conversa: o que a tela renderiza. Derivado das mensagens do Agent SDK pelo mapper. */
-export type ToolStatus = 'running' | 'success' | 'failure' | 'warning';
+/**
+ * `'waiting'`: tool_use com pedido de permissão pendente ligado a ele (ver `applyPendingToolWaitStatus`
+ * em mapper.ts) — nunca vem direto de `reduceSdkMessages` (que só conhece 'running' assim que o SDK
+ * manda o tool_use); é uma correção aplicada depois, em `toConvEvents` (live.ts), a partir do
+ * `toolUseId` real do SDK repassado por server/claude/runner.ts.
+ */
+export type ToolStatus = 'running' | 'waiting' | 'success' | 'failure' | 'warning';
 
 export type AskOption = { label: string; description?: string };
 export type AskQuestion = { header?: string; question: string; multiSelect?: boolean; options: AskOption[] };
@@ -28,7 +34,14 @@ export type ConvEvent =
       expiredGroupCount?: number;
     }
   | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
-  | { id: string; kind: 'system'; text: string };
+  | { id: string; kind: 'system'; text: string }
+  /**
+   * Indicador "pensando" ao vivo (ícone + palavra pulsando/trocando) — sintético, nunca persistido;
+   * gerado só em `toConvEvents` (live.ts) quando `status==='running'` (turno rodando, sem pedido de
+   * permissão pendente — mesma condição de `visiblyBusy && !permissionRequests.length` da extensão
+   * real). Ver `ThinkingIndicator` em Timeline.tsx e a lista/timing em mapper.ts (`SPINNER_WORDS` etc.).
+   */
+  | { id: string; kind: 'busy' };
 
 /** Subconjunto das mensagens do Agent SDK que o mapper entende. */
 export type SdkContentBlock =
