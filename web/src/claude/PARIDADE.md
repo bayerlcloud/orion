@@ -111,12 +111,21 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
     "conectado via login" quando a sessão é por arquivo (sem token pra mascarar), e desconectar agora
     também apaga `~/.claude/.credentials.json` quando for esse o caso — senão o `sdkEnv(null)`
     continuaria caindo nele mesmo depois de "desconectar".
-  - **O que ainda falta**: tudo isso depende de alguém completar o login de verdade pelo navegador uma
-    vez (abrir a URL, autorizar, colar o código) — não dá pra testar esse último passo sem alguém
-    fazendo isso. Testes cobrem o parsing e os dois caminhos de sucesso/erro com comandos falsos
-    (`tests/login.test.ts`), a leitura do arquivo (`tests/credentialsFile.test.ts`) e a normalização da
-    resposta da API (`tests/realUsage.test.ts`) — 19 testes novos, tudo isolado, nada bateu na API real
-    além do teste manual de escopo já citado acima.
+  - **Confirmado ponta a ponta** (28/09/2026, mesmo dia à tarde): o Bayerl completou o login pelo
+    navegador. Dois bugs apareceram no primeiro teste real e foram corrigidos na hora:
+    1. A URL de autorização do `claude auth login` (escopo maior que o `setup-token`) passa de 400
+       colunas e quebrava em duas linhas na reconstrução de tela (`terminalScreen.ts`), perdendo o
+       `state=...` do fim — erro "Parâmetro state ausente" da Anthropic. Corrigido juntando linhas
+       `isWrapped` antes de procurar a URL (`tests/terminalScreen.test.ts` tem os dois casos de
+       regressão, incluindo o hyperlink OSC 8 real).
+    2. A resposta de verdade de `/api/oauth/usage` é **diferente** do que a nota antiga (herdada do
+       `usage.js` do Orion antigo) e o `.d.ts` do SDK sugeriam: `utilization` já vem em escala 0-100
+       (não 0-1 — multiplicar de novo estourava pro clamp de 100% sempre), e não existe
+       `model_scoped[]` nem `subscription_type` — o limite de modelo ("Fable") vem dentro de
+       `limits[]`, num item `kind: "weekly_scoped"` com `scope.model.display_name`. Corrigido em
+       `realUsage.ts`, testes reescritos com a resposta real capturada em produção.
+    - Resultado ao vivo depois das correções: `Sessão (5h) 13%, Reinicia em ~5h`; `Semanal (7 dias)
+      13%, Reinicia em ~4d`; `Fable 4%` — as três barras, com dado real, batendo com a extensão.
 
 | Elemento | no nosso v2? | Nota |
 |---|---|---|
@@ -126,8 +135,8 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Barras de uso rotuladas (`usageBars_JuUW3A`, `usageFill_8s5nuw`, `usageLabel`, `usagePercent`) | já tem | lista dinâmica na extensão real (ver notas acima); Orion usa 3 barras fixas como proxy quando não há dado real |
 | Rótulos reais (`Session (5hr)`, `Weekly (7 day)`, `Weekly Sonnet`, `Weekly {display_name}` por `model_scoped`) | n/a | confirmado no código real (função `L$5`); não é uma lista fixa — ver notas acima |
 | Cor de aviso da barra a partir de 80% (`usageFillHigh` na função `ee`) | **implementado agora** | Orion usava 90% (`is-high`); a extensão real muda em 80% — corrigido em `Sidebar.tsx` |
-| "Resets {tempo}" (`resetText_8s5nuw`) | **implementado, aguardando login real** | `formatResetIn` + `computeRealUsageBars` em `mapper.ts`, alimentado por `fetchRealUsage` (API direta); nunca inventado para o proxy; falta alguém completar `claude auth login` pelo navegador uma vez (ver nota abaixo) |
-| % real do limite do plano | **implementado, aguardando login real** | mesma cadeia acima; o token de `setup-token` não tem escopo (`user:profile`), o de `claude auth login` tem — troca feita no conector (`Config.tsx`/`settings.ts`), falta o login de verdade acontecer uma vez |
+| "Resets {tempo}" (`resetText_8s5nuw`) | **implementado e confirmado ao vivo** | `formatResetIn` + `computeRealUsageBars` em `mapper.ts`, alimentado por `fetchRealUsage` (API direta); testado em produção 28/09/2026 |
+| % real do limite do plano | **implementado e confirmado ao vivo** | mesma cadeia acima; testado em produção 28/09/2026, as 3 barras com % e reset reais |
 | Uso por modelo (`modelUsage_JuUW3A`, `modelUsageDetail`) | n/a | baixa prioridade |
 | Atribuição por skill/agent/plugin (`attribution*_QET5Ow`, `behavior*`) | n/a | dado indisponível (campo `behaviors` existe no SDK mas é outra função, fora do escopo desta rodada) |
 
