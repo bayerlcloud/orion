@@ -114,8 +114,11 @@
 .cc-perm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .cc-btn { border: 1px solid var(--cc-line); border-radius: var(--r); padding: 5px 10px; background: var(--cc-bg); }
 .cc-btn:hover { background: var(--cc-hover); }
+.cc-btn:disabled { opacity: .4; cursor: default; }
+.cc-btn:disabled:hover { background: var(--cc-bg); }
 .cc-btn-primary { background: var(--cc-orange); border-color: var(--cc-orange); color: #fff; }
 .cc-btn-primary:hover { background: #c6613f; }
+.cc-btn-primary:disabled:hover { background: var(--cc-orange); }
 .cc-perm-reject { width: 100%; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-line); border-radius: var(--r); padding: 6px 8px; font: inherit; }
 .cc-perm-reject:focus { outline: none; border-color: var(--cc-orange); }
 .cc-hints { font-size: 11px; color: var(--cc-fg2); }
@@ -190,6 +193,9 @@
 .cc-ask-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; }
 .cc-ask-opt-label { font-weight: 600; }
 .cc-ask-opt-desc { font-size: 12px; color: var(--cc-fg2); }
+.cc-ask-opt.is-selected { border-color: var(--cc-orange); background: color-mix(in srgb, var(--cc-orange) 14%, var(--cc-bg2)); }
+.cc-ask-multi { font-weight: 400; font-size: 12px; color: var(--cc-fg2); }
+.cc-ask-submit-row { display: flex; justify-content: flex-end; }
 .cc-perm-exp { color: var(--cc-warning); }
 
 /* ===== conta e uso ===== */

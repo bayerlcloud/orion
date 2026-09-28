@@ -21,7 +21,14 @@ export function describeTool(name: string, input: unknown): { label: string; des
     case 'WebFetch': return { label: 'Web Fetch', description: str(i.url) };
     case 'WebSearch': return { label: 'Web Search', description: str(i.query) };
     case 'Agent': return { label: 'Agent', description: str(i.description) };
-    case 'AskUserQuestion': return { label: 'Pergunta', description: 'o Claude quer que você escolha' };
+    case 'AskUserQuestion': {
+      // Resumo legível das perguntas (nunca o JSON cru): usado como fallback de inputText quando não
+      // há resposta formatada ainda — evita o bubble "Você respondeu: {...json...}" se algo além do
+      // fluxo normal cair nesse caminho (ver toConvEvents, que prioriza a resposta de fato).
+      const qs = Array.isArray(i.questions) ? (i.questions as { question?: string; header?: string }[]) : [];
+      const summary = qs.map(q => q.header || q.question).filter(Boolean).join(' · ');
+      return { label: 'Pergunta', description: 'o Claude quer que você escolha', inputText: summary || undefined };
+    }
     default: return { label: name, inputText: JSON.stringify(input ?? {}, null, 2) };
   }
 }
@@ -162,6 +169,55 @@ export function computeUsageBars(rows: UsageRow[]): UsageBar[] {
     bar('7d', 'Semanal (7 dias)', c7, 25),
     bar('total', 'Limite Fable', ct, 100),
   ];
+}
+
+/**
+ * Monta a resposta de um AskUserQuestion pronta pra mandar como `message` da decisão 'answer':
+ * texto legível pro Claude continuar, nunca o JSON cru das perguntas/opções. Uma pergunta só → só o
+ * valor escolhido; várias perguntas → uma linha "header ou pergunta: valor" por pergunta (perguntas
+ * sem escolha ficam de fora). `picks[i]` é a lista de labels marcados (multiSelect) ou um texto livre.
+ */
+export function formatAskAnswer(questions: { header?: string; question: string }[], picks: (string[] | string)[]): string {
+  const lines: string[] = [];
+  questions.forEach((q, i) => {
+    const p = picks[i];
+    const val = Array.isArray(p) ? p.join(', ') : (p ?? '').trim();
+    if (!val) return;
+    lines.push(questions.length > 1 ? `${q.header || q.question}: ${val}` : val);
+  });
+  return lines.join('\n');
+}
+
+/**
+ * Colapsa pedidos de permissão expirados consecutivos (2+) num único bubble com contagem.
+ * O Runner guarda o estado de pedidos pendentes só em memória (o Map de `pending`, junto do timer
+ * de 30 min e do resolve da promise); um restart do processo no meio de um pedido pendente órfa
+ * esse pedido pra sempre (nem o usuário consegue responder, nem o timeout automático dispara — o
+ * timer some com o processo). Numa janela de restarts seguidos (deploy), vários pedidos órfãos
+ * assim se acumulam e, como a linha do tempo lista as permissões numa cauda (ver toConvEvents),
+ * aparecem em sequência como uma fileira repetida de "Pedido expirado"/"Pergunta expirada".
+ */
+export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
+  const out: ConvEvent[] = [];
+  let i = 0;
+  while (i < events.length) {
+    const e = events[i];
+    if (e.kind === 'permission' && e.decision === 'timeout') {
+      let j = i + 1;
+      while (j < events.length) {
+        const f = events[j];
+        if (f.kind !== 'permission' || f.decision !== 'timeout') break;
+        j++;
+      }
+      const count = j - i;
+      out.push(count > 1 ? { ...e, expiredGroupCount: count } : e);
+      i = j;
+      continue;
+    }
+    out.push(e);
+    i++;
+  }
+  return out;
 }
 
 export function relativeTime(ts: number, now = Date.now()): string {

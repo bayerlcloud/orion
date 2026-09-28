@@ -8,7 +8,7 @@ export type LiveEvent =
   | { type: 'message'; message: SDKMessage }
   | { type: 'partial'; event: unknown }
   | { type: 'permission_request'; id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean }
-  | { type: 'permission_resolved'; id: string; decision: Decision }
+  | { type: 'permission_resolved'; id: string; decision: Decision; message?: string }
   | { type: 'error'; message: string }
   | { type: 'turn_end'; costUsd: number; turns: number; ok: boolean };
 
@@ -136,7 +136,9 @@ export class Runner {
     else p.resolve({ behavior: 'allow', ...(decision === 'allow_always' && p.suggestions ? { updatedPermissions: p.suggestions } : {}) });
     await this.deps.store.decideApproval(approvalId, decision, decidedBy);
     await this.deps.store.appendEvent(sessionId, 'permission_resolved', { id: approvalId, decision, message: message ?? null });
-    this.emit(sessionId, { type: 'permission_resolved', id: approvalId, decision });
+    // A mensagem (ex.: a resposta escolhida num AskUserQuestion) vai junto do evento ao vivo também,
+    // não só do persistido — senão a tela não tem o que mostrar no bubble "Você respondeu" sem recarregar.
+    this.emit(sessionId, { type: 'permission_resolved', id: approvalId, decision, ...(message !== undefined ? { message } : {}) });
     if (l.pending.size === 0 && l.status === 'waiting') await this.setStatus(sessionId, 'running');
     return true;
   }

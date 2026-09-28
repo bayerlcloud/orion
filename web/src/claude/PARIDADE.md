@@ -67,8 +67,8 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
 | Permission card allow/deny (`permissionRequestContainer_qlaBag`) | já tem | `cc-perm` |
 | "Sim, e não perguntar de novo" (`Yes, and don't ask again`) | já tem | `allow_always` |
 | Escopo do allow_always (session/settings) | n/a | sem UI de escopo; SDK decide |
-| AskUserQuestion com opções (`questionBlock_hONcXw`, `optionLabel`, `radio`) | já tem | `cc-ask` |
-| Navegação multi-pergunta (`navTab_hONcXw`, `navigationBar`) | n/a | renderizamos todas as perguntas em sequência |
+| AskUserQuestion com opções (`questionBlock_hONcXw`, `optionLabel`, `radio`) | **corrigido agora** | `cc-ask`/`AskAnswer`: marcar opção só seleciona, um botão "Enviar respostas" finaliza; antes o 1º clique em qualquer opção já respondia tudo (sem dar pra marcar mais de uma em pergunta `multiSelect`), e a resposta ("Você respondeu") virava o JSON cru da pergunta em vez do texto escolhido — ver bug de `2026-09-28` |
+| Navegação multi-pergunta (`navTab_hONcXw`, `navigationBar`) | n/a | renderizamos todas as perguntas em sequência, cada uma com sua própria seleção; "Enviar respostas" só habilita com todas respondidas |
 | Todo list (`todoList_xheXVQ`, `todoItem`, pending/in_progress/completed) | n/a | baixa prioridade; não implementado |
 | Subagent (`subagentRow_mpBgEA`, `innerCall_3H9AYw`) | n/a | fora de escopo |
 | Plan mode / plan review (`ExitPlanMode`, `milestone*_UxGN1Q`) | n/a | fora de escopo (pedido) |
