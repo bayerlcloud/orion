@@ -131,7 +131,17 @@ export async function claudeRoutes(app: FastifyInstance) {
               COALESCE(SUM(s.cost_usd) FILTER (WHERE s.updated_at > now() - interval '7 days'), 0) AS cost_7d,
               COALESCE(SUM(s.cost_usd), 0) AS cost_total, COUNT(s.id) AS sessions
          FROM users u LEFT JOIN claude_sessions s ON s.user_id = u.id GROUP BY u.id ORDER BY u.id`);
-    return { usage: rows };
+    // Limites reais da conta (campo `rate_limits` do result do SDK, já persistido em claude_events
+    // junto com o resto da mensagem — nenhuma chamada nova). Só existe quando o CLI expõe a API de
+    // uso da conta (hoje não expõe com o token de `claude setup-token`; ver PARIDADE.md). O limite é
+    // da conta, não da sessão, então pega o result mais recente entre TODAS as sessões.
+    const { rows: rlRows } = await app.pool.query(
+      `SELECT payload->'rate_limits' AS rate_limits, payload->>'subscription_type' AS subscription_type
+         FROM claude_events
+        WHERE type = 'result' AND payload->>'rate_limits_available' = 'true' AND payload->'rate_limits' IS NOT NULL
+        ORDER BY ts DESC LIMIT 1`);
+    const real = rlRows[0] ? { subscription_type: rlRows[0].subscription_type ?? null, rate_limits: rlRows[0].rate_limits } : null;
+    return { usage: rows, real };
   });
 
   /** Upload de anexos (multipart). Salva em <uploadRoot>/<user_id>/<uuid>-<nome seguro> e devolve os metadados. */

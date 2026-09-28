@@ -41,7 +41,7 @@ export default function ClaudePage() {
   const refreshUsage = useCallback(async () => {
     try {
       const r = await claudeApi.usage();
-      setUsage(computeUsageBars(r.usage));
+      setUsage(computeUsageBars(r.usage, r.real));
     } catch { /* silencioso */ }
   }, []);
 

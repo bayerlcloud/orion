@@ -1,5 +1,6 @@
 import { api } from '../api';
 import type { Row } from './live';
+import type { RealUsage } from './mapper';
 
 export type ApiSession = {
   id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; cost_usd: number; turns: number; model: string | null;
@@ -20,7 +21,7 @@ export const claudeApi = {
   sessions: () => api<{ sessions: ApiSession[] }>('/api/claude/sessions'),
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),
-  usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[] }>('/api/claude/usage'),
+  usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[]; real: RealUsage }>('/api/claude/usage'),
   create: (b: { project_id: number; prompt: string; permission_mode: Mode; effort?: Effort; attachments?: Attachment[] }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
   send: (id: string, b: { prompt: string; permission_mode?: Mode; effort?: Effort; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),

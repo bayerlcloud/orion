@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, filterSessions, groupSessions } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions } from '../web/src/claude/mapper';
 import type { SdkMessage, SessionSummary } from '../web/src/claude/types';
 
 describe('describeTool', () => {
@@ -136,6 +136,74 @@ describe('computeUsageBars', () => {
   it('agrega várias linhas de usuário', () => {
     const bars = computeUsageBars([{ cost_5h: 1, cost_7d: 0, cost_total: 0 }, { cost_5h: 1.5, cost_7d: 0, cost_total: 0 }]);
     expect(bars[0].pct).toBe(50); // (1 + 1.5) / 5
+  });
+  it('com dados reais (rate_limits do SDK), usa os reais em vez do proxy por custo', () => {
+    const now = Date.parse('2026-09-28T12:00:00Z');
+    const real = { subscription_type: 'max' as string | null, rate_limits: { five_hour: { utilization: 79, resets_at: '2026-09-28T15:00:00Z' }, seven_day: { utilization: 12, resets_at: '2026-10-05T00:00:00Z' } } };
+    const bars = computeUsageBars([{ cost_5h: '999', cost_7d: '999', cost_total: '999' }], real, now);
+    expect(bars.map(b => b.label)).toEqual(['Sessão (5h)', 'Semanal (7 dias)']);
+    expect(bars[0].pct).toBe(79);
+    expect(bars[0].sub).toBeUndefined();
+    expect(bars[0].resetText).toBe('em 3h');
+  });
+  it('sem dados reais, cai para o proxy por custo (comportamento de hoje)', () => {
+    const bars = computeUsageBars([{ cost_5h: '2.5', cost_7d: '0', cost_total: '0' }], null);
+    expect(bars[0].sub).toBe('US$ 2.50');
+    expect(bars[0].resetText).toBeUndefined();
+  });
+});
+
+describe('formatResetIn', () => {
+  const now = Date.parse('2026-09-28T12:00:00Z');
+  it('sem resets_at, devolve undefined (nunca inventa)', () => {
+    expect(formatResetIn(undefined, now)).toBeUndefined();
+    expect(formatResetIn(null, now)).toBeUndefined();
+  });
+  it('data inválida devolve undefined', () => {
+    expect(formatResetIn('não é uma data', now)).toBeUndefined();
+  });
+  it('já passou ou é agora: "em breve"', () => {
+    expect(formatResetIn('2026-09-28T11:00:00Z', now)).toBe('em breve');
+    expect(formatResetIn('2026-09-28T12:00:00Z', now)).toBe('em breve');
+  });
+  it('menos de 1h: minutos', () => {
+    expect(formatResetIn('2026-09-28T12:45:00Z', now)).toBe('em 45m');
+  });
+  it('menos de 24h: horas', () => {
+    expect(formatResetIn('2026-09-28T15:00:00Z', now)).toBe('em 3h');
+  });
+  it('24h ou mais: dias', () => {
+    expect(formatResetIn('2026-10-01T12:00:00Z', now)).toBe('em 3d');
+  });
+});
+
+describe('computeRealUsageBars', () => {
+  const now = Date.parse('2026-09-28T12:00:00Z');
+  it('sem rate_limits (null), devolve lista vazia', () => {
+    expect(computeRealUsageBars(null, 'max', now)).toEqual([]);
+  });
+  it('monta Session (5hr) e Weekly (7 day) a partir de five_hour/seven_day', () => {
+    const bars = computeRealUsageBars({ five_hour: { utilization: 79, resets_at: '2026-09-28T15:00:00Z' }, seven_day: { utilization: 12.4, resets_at: null } }, 'max', now);
+    expect(bars).toEqual([
+      { key: '5h', label: 'Sessão (5h)', pct: 79, resetText: 'em 3h' },
+      { key: '7d', label: 'Semanal (7 dias)', pct: 12, resetText: undefined },
+    ]);
+  });
+  it('janela com utilization null é omitida (a extensão real também pula)', () => {
+    const bars = computeRealUsageBars({ five_hour: { utilization: null, resets_at: null }, seven_day: { utilization: 5, resets_at: null } }, 'max', now);
+    expect(bars.map(b => b.key)).toEqual(['7d']);
+  });
+  it('Weekly Sonnet só aparece em plano max/team/desconhecido (espelha a extensão real)', () => {
+    const withSonnet = { five_hour: null, seven_day: null, seven_day_sonnet: { utilization: 30, resets_at: null } };
+    expect(computeRealUsageBars(withSonnet, 'max', now).map(b => b.label)).toEqual(['Semanal Sonnet']);
+    expect(computeRealUsageBars(withSonnet, 'team', now).map(b => b.label)).toEqual(['Semanal Sonnet']);
+    expect(computeRealUsageBars(withSonnet, null, now).map(b => b.label)).toEqual(['Semanal Sonnet']);
+    expect(computeRealUsageBars(withSonnet, 'pro', now).map(b => b.label)).toEqual([]);
+  });
+  it('model_scoped vira uma barra "Semanal {display_name}" por entrada (é daí que vem "Fable")', () => {
+    const real = { five_hour: null, seven_day: null, model_scoped: [{ display_name: 'Fable', utilization: 45, resets_at: '2026-09-28T13:00:00Z' }] };
+    const bars = computeRealUsageBars(real, 'max', now);
+    expect(bars).toEqual([{ key: 'model-0', label: 'Semanal Fable', pct: 45, resetText: 'em 1h' }]);
   });
 });
 
