@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
 export type LiveEvent =
@@ -10,7 +10,8 @@ export type LiveEvent =
   | { type: 'permission_request'; id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean }
   | { type: 'permission_resolved'; id: string; decision: Decision; message?: string }
   | { type: 'error'; message: string }
-  | { type: 'turn_end'; costUsd: number; turns: number; ok: boolean };
+  | { type: 'turn_end'; costUsd: number; turns: number; ok: boolean }
+  | { type: 'commands'; commands: SlashCommand[] };
 
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'error';
 export type Decision = 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout';
@@ -80,6 +81,8 @@ type Live = {
   pending: Map<string, Pending>;
   queue: TurnParams[];
   stderr: string[];
+  /** Últimos comandos de barra conhecidos (Query.supportedCommands() do SDK) — só em memória, como `pending`; some se o processo reiniciar (mesma limitação já aceita para permissões, ver mapper.ts/foldExpiredPermissions). */
+  commands: SlashCommand[];
 };
 
 export class Runner {
@@ -88,7 +91,7 @@ export class Runner {
 
   private get(id: string): Live {
     let l = this.live.get(id);
-    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [] }; this.live.set(id, l); }
+    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [] }; this.live.set(id, l); }
     return l;
   }
 
@@ -96,6 +99,8 @@ export class Runner {
   pendingPermissions(id: string): { id: string; toolName: string }[] {
     return [...(this.live.get(id)?.pending ?? new Map()).entries()].map(([pid, p]) => ({ id: pid, toolName: p.toolName }));
   }
+  /** Comandos de barra reais da sessão, do último `Query.supportedCommands()` (ou push `commands_changed`) que chegou — [] antes do primeiro turno rodar neste processo. */
+  commandsFor(id: string): SlashCommand[] { return this.live.get(id)?.commands ?? []; }
 
   subscribe(id: string, fn: (e: LiveEvent) => void): () => void {
     const l = this.get(id); l.subscribers.add(fn);
@@ -206,7 +211,25 @@ export class Runner {
       const q = this.deps.queryFn({ prompt: promptArg, options });
       for await (const m of q as AsyncIterable<SDKMessage>) {
         if (m.type === 'stream_event') { this.emit(id, { type: 'partial', event: m.event }); continue; }
-        if (m.type === 'system' && m.subtype === 'init') await this.deps.store.updateSession(id, { model: m.model });
+        if (m.type === 'system' && m.subtype === 'init') {
+          await this.deps.store.updateSession(id, { model: m.model });
+          // Lista real de comandos de barra (/clear, /compact, skills, comandos de projeto em
+          // .claude/commands/*.md, etc.) — só existe depois que a Query começou; um fake de teste sem
+          // controle (fakeQuery em runner.test.ts) não tem esse método, daí a checagem defensiva.
+          // Fire-and-forget: não atrasa o processamento das mensagens do turno.
+          const withCommands = q as unknown as Partial<Query>;
+          if (typeof withCommands.supportedCommands === 'function') {
+            withCommands.supportedCommands()
+              .then(commands => { l.commands = commands; this.emit(id, { type: 'commands', commands }); })
+              .catch(() => { /* melhor esforço: sem lista real, o front cai no fallback fixo */ });
+          }
+        }
+        // Push do SDK quando a lista muda no meio da sessão (skill descoberta em subpasta, etc.) —
+        // mesma forma (SlashCommand[]) do supportedCommands(), sem precisar pedir de novo.
+        if (m.type === 'system' && m.subtype === 'commands_changed' && Array.isArray((m as any).commands)) {
+          l.commands = (m as any).commands;
+          this.emit(id, { type: 'commands', commands: l.commands });
+        }
         await this.deps.store.appendEvent(id, m.type, m);
         this.emit(id, { type: 'message', message: m });
         if (m.type === 'result') { ok = !m.is_error; cost = m.total_cost_usd ?? 0; turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }

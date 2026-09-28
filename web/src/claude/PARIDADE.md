@@ -263,17 +263,101 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
 | Elemento | no nosso v2? | Nota |
 |---|---|---|
 | Textarea; Enter envia, Shift+Enter quebra (`messageInput_cKsPxg`) | já tem | `Composer` |
-| Esc foca/desfoca o compositor | **implementado agora** | listener global de Escape |
+| Recall de mensagens ArrowUp/ArrowDown (`cycleMessage`/`Cq0` no webview) | **implementado agora (28/09/2026)** | cicla pelas mensagens já enviadas da sessão quando o cursor está no início/fim do texto; ver seção "Compositor — rodada de 28/09/2026" abaixo |
+| Esc foca/desfoca o compositor | já tem | listener global de Escape |
 | Botão parar (`stopIcon_gGYT1w`) | já tem | `cc-stop` |
 | Fila de mensagens enquanto roda (`queued`) | já tem (back) | back enfileira; placeholder avisa que dá pra enfileirar |
-| Seletor de modelo (`modelPill_gGYT1w`, `modelItem_G8AMvA`) | já tem | pill mostra o modelo da sessão |
-| Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | **implementado agora** | menu; envia `effort` no create/send |
-| Seletor de modo de permissão (`modeOption_7kXHPg` Manual/Plan/Accept edits/Auto) | **implementado agora** | menu visível (era só ciclo) |
+| Seletor de modelo (`modelPill_gGYT1w`, `modelItem_G8AMvA`) | **implementado agora (28/09/2026)** | era `<span>` decorativo; agora é um menu de verdade (Padrão/Sonnet/Opus/Haiku/Fable) que muda o modelo da próxima mensagem, inclusive no meio de uma sessão já existente — ver seção "Compositor — rodada de 28/09/2026" |
+| Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | já tem | menu; envia `effort` no create/send |
+| Seletor de modo de permissão (`modeOption_7kXHPg` Manual/Plan/Accept edits/Auto) | já tem | menu visível (era só ciclo) |
 | Anexar arquivos/imagens (`attachedFilesContainer_cKsPxg`, `onAddFiles`) | n/a | "em breve" (pedido) |
-| Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora** | menu com passthrough `/clear`, `/compact`, `/context`, `/cost` |
+| Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora (28/09/2026)** | era uma lista fixa de 4 (`/clear /compact /context /cost`); agora vem de `Query.supportedCommands()` do SDK quando a sessão já rodou pelo menos um turno neste processo (inclui skills, comandos de projeto, etc.), com fallback pros 4 fixos antes disso — ver seção "Compositor — rodada de 28/09/2026" |
 | @-menções (`mentionChip_uq5aLg`, "Add context") | n/a | fora de escopo (pedido) |
 | Microfone/voz (`micButton_cKsPxg`) | n/a | fora de escopo (pedido) |
 | Projeto da nova sessão | já tem | extra nosso (`cc-select`) |
+
+### Compositor — rodada de 28/09/2026 (recall, seletor de modelo, comandos reais)
+
+Auditoria de 28/09/2026 achou 3 gaps reais no compositor, todos confirmados lendo o webview
+decompilado v2.1.282 (`/srv/orion-reference/vscode-extension/extension/webview/index.js`) e o
+`.d.ts` do Agent SDK (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`, SDK 0.3.283) antes de
+implementar qualquer coisa — não só a tabela antiga.
+
+- **Recall de mensagens (ArrowUp/ArrowDown)**: a extensão real tem o hook `Cq0` no webview, que
+  devolve `{cycleMessage, resetHistory}`. A função `cx($)` (mesmo arquivo) extrai o histórico:
+  filtra mensagens `type==="user"`, descarta `isSynthetic`/`parentToolUseId` (não pega eco de
+  tool_result), junta o texto e **inverte a ordem** (mais recente primeiro). `cycleMessage(V)`
+  (a função `q` dentro de `Cq0`): na 1ª ArrowUp (`V===-1`) guarda o texto atual num ref e mostra o
+  item de índice 0; ArrowUp de novo avança; no item mais antigo **não dá a volta** (sem wrap,
+  retorna `false` e deixa o comportamento padrão da tecla acontecer); ArrowDown volta em direção ao
+  mais recente e, saindo do índice 0, **restaura exatamente o texto original salvo no início do
+  ciclo** (mesmo que o meio do ciclo tenha sido editado). O guard real não é "input vazio": é a
+  **posição do cursor** — `cycleMessage` só age quando a seleção está colapsada no início absoluto
+  do texto (ArrowUp) ou no fim absoluto (ArrowDown), checando `startContainer`/offset da seleção do
+  DOM; com texto de várias linhas, ArrowUp no meio continua navegando normal. Reimplementado fiel a
+  essa lógica, adaptado pro nosso `<textarea>` simples (onde a checagem de "início/fim absoluto"
+  vira só `selectionStart`/`selectionEnd`, sem a complexidade de nós de um contentEditable):
+  `messageHistory` e `cycleMessageIndex` (puras, `web/src/claude/mapper.ts`) mais o wiring em
+  `Composer.tsx` (estado `cycle` local, guard de cursor em `key()`, reset ao trocar de sessão ou
+  quando o rascunho fica vazio — mesmo guard do `Cq0` real: `if (currentInput === "") resetHistory()`).
+  O histórico vem de `messageHistory(events)`, os eventos `kind:'user'` já carregados/ao vivo da
+  sessão (não uma lista separada rastreada à parte) — mais fiel ao real (que também lê do array de
+  mensagens da própria sessão) e funciona mesmo reabrindo uma sessão antiga sem precisar mandar
+  nada de novo nela primeiro. 13 testes novos em `tests/mapper.test.ts` (TDD, vermelho→verde
+  confirmado): sem histórico, 1ª ArrowUp guarda o rascunho, ArrowUp seguinte avança sem dar volta no
+  mais antigo, ArrowDown restaura o rascunho original mesmo com edição no meio do ciclo, etc.
+- **Seletor de modelo**: a extensão real tem um popup de verdade (`SB0`, `xJ5` no webview: classes
+  `modelPill_gGYT1w`/`modelItem_G8AMvA`/`activeModelItem_G8AMvA`/`unavailableModelItem_G8AMvA`),
+  alimentado por `availableModels`/`unavailableModels` (linha com nome + descrição, marca o
+  `currentModel`) — e integrado com `Query.supportedModels()` do SDK (`Promise<ModelInfo[]>`,
+  confirmado em `sdk.d.ts`). Decisão de escopo: **não** fizemos essa chamada ao vivo por sessão —
+  o compositor também renderiza pra uma sessão **rascunho**, antes de qualquer `Query` existir (não
+  tem o que perguntar), e o pedido explicitamente permitia uma lista estática nesse caso. A lista
+  usa os aliases reais que o campo `model` das `Options` do SDK aceita — confirmados no próprio
+  `sdk.d.ts` ("Model alias (e.g. 'fable', 'opus', 'sonnet', 'haiku') or full model ID") e nos
+  literais `"default"`/`"haiku"`/`"opus"`/`"sonnet"` soltos no webview decompilado — mais "Fable"
+  como rótulo real também visto lá (`"Fable 5"`, `"Fable limit"`). `web/src/claude/api.ts`:
+  `ModelAlias`/`MODEL_LABEL`/`MODEL_ORDER` (mesmo padrão de `MODE_LABEL`/`EFFORT_LABEL`) +
+  `matchModelAlias` (casa o id canônico resolvido pelo SDK, ex. `"claude-sonnet-5"`, contra o alias
+  certo, por substring). `Composer.tsx`: o `<span>` decorativo virou um menu — copiado **literalmente
+  o mesmo padrão** de `cc-pop`/`Menu`/`cc-menu-item` já usado pelo seletor de Esforço, sem inventar
+  interação nova. Escolha do usuário atualiza `modelLabel` na hora e é enviada no próximo turno.
+  Faltava threading no backend pra sessão **já existente**: `POST /api/claude/sessions/:id/messages`
+  não aceitava `model` (só `POST /api/claude/sessions`, na criação, aceitava) — corrigido em
+  `server/routes/claude.ts`, mesmo padrão já usado ali pro `permission_mode` (só grava no Postgres
+  quando o valor mudou; sem override, segue com o modelo já salvo da sessão). 9 testes novos de
+  `matchModelAlias` em `tests/mapper.test.ts`.
+- **Comandos de barra**: a extensão real busca a lista de verdade via `Query.supportedCommands()`
+  do SDK (`Promise<SlashCommand[]>` — o próprio `sdk.d.ts` descreve o tipo como "an available skill,
+  invoked via /command syntax", ou seja no vocabulário desse SDK todo comando de barra É uma skill;
+  inclui builtin, comandos de projeto de `.claude/commands/*.md` e skills descobertas em runtime).
+  `SlashCommand` tem `name`, `description`, `argumentHint`, `aliases?`, `builtin?`. O runner do
+  Orion (`server/claude/runner.ts`) não guardava a `Query` viva em lugar nenhum acessível fora do
+  `for await` do turno — agora guarda (`l.commands`, no mesmo `Live` que já guarda `pending`) e, ao
+  ver `system/init`, chama `q.supportedCommands()` (fire-and-forget: não atrasa o processamento das
+  mensagens do turno) e emite um novo `LiveEvent` `{type:'commands', commands}`. Bônus de baixo
+  custo: o SDK também empurra sozinho um `system/commands_changed` (`SDKCommandsChangedMessage`) no
+  meio da sessão quando a lista muda (skill nova descoberta numa subpasta, por exemplo) — como essa
+  mensagem já passa pelo mesmo `for await` que processa tudo mais, só precisou de mais um `if` pra
+  tratar (substitui a lista inteira, não soma — mesmo contrato que o `.d.ts` documenta). Escolhi SSE
+  em vez de um endpoint novo: o padrão já existe pra exatamente esse caso (`pendingPermissions()` +
+  evento `hello` na conexão + eventos incrementais depois, ver `/api/claude/sessions/:id/stream`) —
+  o `hello` agora também manda `commands: runner.commandsFor(id)`, então reabrir/reconectar recupera
+  a lista sem esperar um turno novo (desde que o processo do servidor não tenha reiniciado — mesma
+  limitação já aceita e documentada pra `pendingPermissions`, só em memória). `Composer.tsx`: o menu
+  agora usa `commands` (via `ClaudePage` → `state.commands`, populado pelo evento SSE) quando não
+  está vazio; cai pros 4 fixos (`SLASH_FALLBACK`) antes da sessão rodar um turno ou se o SDK nunca
+  respondeu. Um fake de teste "burro" sem `supportedCommands()` (todos os outros testes de
+  `runner.test.ts`, escritos antes de hoje) continua funcionando — checagem defensiva
+  (`typeof withCommands.supportedCommands === 'function'`) — e um fake novo com o método simula
+  o caso real. 3 testes novos em `tests/runner.test.ts` (sem o método → `[]`; com o método → evento
+  `commands` + `commandsFor()`; `commands_changed` → substitui a lista).
+- Não avaliado por falta de ferramenta: não há navegador/visual-testing neste ambiente; verificação
+  foi por leitura de código + `vitest` (324 testes, suite inteira verde) + `tsc --noEmit` (server e
+  front, sem erro) + `vite build` (bundle gera sem erro). Não fizemos `curl` autenticado contra rotas
+  novas porque este worktree (`composer-paridade`) não é o processo `orion-central` rodando de
+  verdade (esse roda o código do `main`/`/srv/orion`); um `curl` só re-testaria o código antigo, não
+  o que mudou aqui.
 
 ## 6. Rodapé / estado
 
@@ -326,11 +410,25 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
   disparava porque o nome real da tool sempre foi "Task"). 24 testes novos + 2 de integração via
   `reduceSdkMessages`, TDD (vermelho→verde confirmado: 22 testes falhando por função ausente antes
   da implementação, depois verde); suíte inteira em 329 testes, `npm run build` limpo.
-- **deixados de fora (n/a)**: plan mode/plan review, rewind/checkpoint, anexos, @-menções, voz, uso
-  por modelo, atribuição de uso (`behaviors` existe no SDK mas é outra função — fora do escopo),
-  navegação multi-pergunta, worktree, "Manage", grupos personalizados arrastáveis (pastas nomeadas e
-  persistidas — "Agrupar por" cobre a necessidade prática sem exigir a persistência nova), telemetria
-  ao vivo de subagente (tempo decorrido/tokens/tool calls — `subagentRow` real, exigiria stream de
-  progresso por tarefa que o Orion não tem), widget completo do editor de diff do Monaco (gutters,
-  minimapa, blocos movidos, linhas de revisão de acessibilidade — só a granularidade de caractere foi
-  replicada, não o widget).
+
+- **implementado nesta rodada (2)** (28/09/2026 — Compositor: recall, seletor de modelo, comandos
+  reais; ver seção 5 "Compositor — rodada de 28/09/2026" para os detalhes e evidências): 3 gaps
+  confirmados lendo o webview decompilado e o `.d.ts` do SDK antes de mexer em código. Recall
+  ArrowUp/ArrowDown (`messageHistory`/`cycleMessageIndex` em `mapper.ts`, fiel ao `cycleMessage`/`Cq0`
+  real, inclusive o guard de posição do cursor — não "input vazio" como a descrição inicial supunha).
+  Seletor de modelo funcional (Padrão/Sonnet/Opus/Haiku/Fable — `ModelAlias`/`MODEL_LABEL`/
+  `MODEL_ORDER`/`matchModelAlias` em `api.ts`, mesmo padrão de menu do seletor de Esforço), com
+  `model` agora aceito também em `POST /api/claude/sessions/:id/messages` (antes só na criação).
+  Menu de comandos de barra passou a usar a lista real da sessão (`Query.supportedCommands()` via
+  novo campo `commands` no `Live`/`LiveEvent`/SSE `hello` do runner), caindo pros 4 fixos como
+  fallback. 25 testes novos (13 de recall + 9 de `matchModelAlias` em `tests/mapper.test.ts`, 3 de
+  comandos em `tests/runner.test.ts`), TDD, suite inteira (324 testes) e `tsc --noEmit` verdes.
+- **deixados de fora (n/a)**: plan mode/plan review, rewind/checkpoint, anexos (já implementado,
+  ver correção no início desta seção), @-menções, voz, uso por modelo, atribuição de uso (
+  existe no SDK mas é outra função — fora do escopo), navegação multi-pergunta, worktree, "Manage",
+  grupos personalizados arrastáveis (pastas nomeadas e persistidas — "Agrupar por" cobre a
+  necessidade prática sem exigir a persistência nova), telemetria ao vivo de subagente (tempo
+  decorrido/tokens/tool calls — `subagentRow` real, exigiria stream de progresso por tarefa que o
+  Orion não tem), widget completo do editor de diff do Monaco (gutters, minimapa, blocos movidos,
+  linhas de revisão de acessibilidade — só a granularidade de caractere foi replicada, não o
+  widget).

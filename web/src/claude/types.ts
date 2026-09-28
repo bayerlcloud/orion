@@ -40,6 +40,9 @@ export type SdkMessage =
   | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
 
+/** Comando de barra real da sessão (server/claude/runner.ts, via Query.supportedCommands() do SDK) — nome, descrição e dica de argumento, iguais ao que a extensão real lista no menu `/`. */
+export type SlashCommandInfo = { name: string; description: string; argumentHint?: string };
+
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'unread' | 'failed';
 
 export type SessionSummary = {
