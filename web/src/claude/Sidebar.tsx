@@ -29,8 +29,8 @@ function SessionRow({ s, active, onSelect, onRename, onArchive }: {
   );
 }
 
-export default function Sidebar({ sessions, usage, usageNote, email, activeId, onSelect, onNew, onRename, onArchive }:
-  { sessions: SessionSummary[]; usage: UsageBar[]; usageNote?: string; email: string | null; activeId: string | null;
+export default function Sidebar({ sessions, usage, activeId, onSelect, onNew, onRename, onArchive }:
+  { sessions: SessionSummary[]; usage: UsageBar[]; activeId: string | null;
     onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void; }) {
   const [where, setWhere] = useState<'local' | 'web'>('local');
   const [open, setOpen] = useState(true);
@@ -56,9 +56,6 @@ export default function Sidebar({ sessions, usage, usageNote, email, activeId, o
         </div>
         {acctOpen && (
           <>
-            <div className="cc-account">
-              <div className="cc-account-row"><span className="cc-account-label">CONTA</span><span className="cc-account-value">{email ?? '—'}</span></div>
-            </div>
             <div className="cc-usage-title">USO</div>
             {usage.map(u => (
               <div key={u.key} className="cc-usage">
@@ -67,7 +64,6 @@ export default function Sidebar({ sessions, usage, usageNote, email, activeId, o
                 <div className="cc-usage-note">{u.sub}</div>
               </div>
             ))}
-            {usageNote && <div className="cc-usage-hint">{usageNote}</div>}
           </>
         )}
       </section>

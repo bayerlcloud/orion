@@ -17,6 +17,7 @@ import { filesRoutes } from './routes/files.js';
 import { memoriesRoutes } from './routes/memories.js';
 import { profileRoutes } from './routes/profile.js';
 import { tasksRoutes } from './routes/tasks.js';
+import { toolsRoutes } from './routes/tools.js';
 
 declare module 'fastify' {
   interface FastifyInstance { pool: Pool; repoDir: string; runner: import('./claude/runner.js').Runner }
@@ -61,6 +62,7 @@ async function main() {
   await app.register(memoriesRoutes);
   await app.register(profileRoutes);
   await app.register(tasksRoutes);
+  await app.register(toolsRoutes);
 
   await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: false });
   app.setNotFoundHandler((req, reply) => {

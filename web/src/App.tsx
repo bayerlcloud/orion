@@ -12,13 +12,15 @@ import Arquivos from './pages/Arquivos';
 import Memoria from './pages/Memoria';
 import Perfil from './pages/Perfil';
 import Tarefas from './pages/Tarefas';
-import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas } from './icons';
+import Tools from './pages/Tools';
+import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools } from './icons';
 
 const MENU = [
-  { to: '/claude', label: 'Claude', Icon: IcoClaude },
   { to: '/dash', label: 'Dash', Icon: IcoDash },
-  { to: '/tarefas', label: 'Tarefas', Icon: IcoTarefas },
+  { to: '/claude', label: 'Claude', Icon: IcoClaude },
   { to: '/arquivos', label: 'Arquivos', Icon: IcoArquivos },
+  { to: '/tarefas', label: 'Tarefas', Icon: IcoTarefas },
+  { to: '/tools', label: 'Tools', Icon: IcoTools },
   { to: '/drive', label: 'Drive', Icon: IcoDrive },
   { to: '/memoria', label: 'Memória', Icon: IcoMemoria },
   { to: '/spec', label: 'Spec', Icon: IcoSpec },
@@ -96,6 +98,7 @@ export default function App() {
           <Route path="/config" element={<Config user={user} />} />
           <Route path="/perfil" element={<Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} />} />
           <Route path="/tarefas" element={<Tarefas user={user} />} />
+          <Route path="/tools" element={<Tools />} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>

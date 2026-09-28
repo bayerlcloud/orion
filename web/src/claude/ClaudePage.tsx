@@ -33,6 +33,7 @@ export default function ClaudePage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const draftCounter = useRef(0);
   const esRef = useRef<EventSource | null>(null);
+  const restoredRef = useRef(false);
 
   const refreshSessions = useCallback(async () => {
     try { const r = await claudeApi.sessions(); setSessions(r.sessions); } catch (e: any) { setErro(e.message); }
@@ -45,13 +46,37 @@ export default function ClaudePage() {
   }, []);
 
   useEffect(() => {
-    void refreshSessions(); void refreshUsage();
+    let alive = true;
+    // Primeira carga: junto com as sessões, restaura as abas que o usuário tinha abertas.
+    Promise.allSettled([claudeApi.sessions(), claudeApi.uiState()]).then(([sessRes, uiRes]) => {
+      if (!alive) return;
+      if (sessRes.status === 'fulfilled') {
+        setSessions(sessRes.value.sessions);
+        if (uiRes.status === 'fulfilled') {
+          const validIds = new Set(sessRes.value.sessions.map(s => s.id));
+          setTabs(uiRes.value.tabs.filter(id => validIds.has(id)).map(id => ({ id })));
+          setActiveId(uiRes.value.active_id && validIds.has(uiRes.value.active_id) ? uiRes.value.active_id : null);
+        }
+      } else {
+        setErro((sessRes.reason as Error).message);
+      }
+      restoredRef.current = true;
+    });
+    void refreshUsage();
     claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
     claudeApi.me().then(r => setEmail(r.user.email)).catch(() => setEmail(null));
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
-    return () => clearInterval(t);
+    return () => { alive = false; clearInterval(t); };
   }, [refreshSessions, refreshUsage]);
+
+  // Sempre que as abas abertas mudam, lembra por usuário (sobrevive a reload/troca de dispositivo).
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    const ids = tabs.filter(t => !t.draft).map(t => t.id);
+    const active = activeId && !isDraft(activeId) ? activeId : null;
+    void claudeApi.saveUiState({ tabs: ids, active_id: active }).catch(() => { /* melhor esforço */ });
+  }, [tabs, activeId]);
 
   // Abre a sessão ativa: carrega histórico e liga o stream.
   useEffect(() => {
@@ -133,7 +158,7 @@ export default function ClaudePage() {
 
   return (
     <div className="cc">
-      <Sidebar sessions={summaries} usage={usage} usageNote="estimativa por custo (o plano não expõe o número exato)" email={email} activeId={activeId} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
+      <Sidebar sessions={summaries} usage={usage} activeId={activeId} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
       <main className="cc-main">
         <div className="cc-tabs">
           {tabs.map(t => {

@@ -178,6 +178,7 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
   return (
     <div className="cc-timeline">
       {events.map(e => {
+        if (e.kind === 'system' || e.kind === 'result') return null;
         if (e.kind === 'user') return (
           <div key={e.id} className="cc-user">
             {e.text && <div className="cc-user-text">{e.text}</div>}
@@ -190,8 +191,6 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
             {e.kind === 'thinking' && <Thinking e={e} />}
             {e.kind === 'tool' && <Tool e={e} />}
             {e.kind === 'permission' && <Permission e={e} onDecide={(d, msg) => onDecide?.(e.id, d, msg)} />}
-            {e.kind === 'result' && <Result e={e} />}
-            {e.kind === 'system' && <div className="cc-system">{e.text}</div>}
           </div>
         );
       })}

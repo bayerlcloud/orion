@@ -104,6 +104,31 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS inventory_snapshots_ts_idx ON inventory_snapshots (ts DESC, id DESC);
     `,
   },
+  {
+    id: '005_tools',
+    sql: `
+      CREATE TABLE IF NOT EXISTS tools (
+        id SERIAL PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('tool','skill','mcp')),
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        icon TEXT NOT NULL DEFAULT '⚙️',
+        status TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo','inativo')),
+        link TEXT,
+        created_by INT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS tools_kind_idx ON tools (kind, name);
+    `,
+  },
+  {
+    id: '006_claude_ui_state',
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_open_tabs JSONB NOT NULL DEFAULT '[]';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_active_session TEXT;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

@@ -96,6 +96,19 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { logged_in: loggedIn || !!token, via: token ? 'token' : (loggedIn ? 'login' : null), home, version, linux_user: process.env.USER ?? null };
   });
 
+  /** Abas abertas do usuário no chat: lembradas entre reloads/dispositivos. */
+  app.get('/api/claude/ui-state', async (req) => {
+    const { rows } = await app.pool.query('SELECT claude_open_tabs, claude_active_session FROM users WHERE id = $1', [req.user!.id]);
+    return { tabs: rows[0]?.claude_open_tabs ?? [], active_id: rows[0]?.claude_active_session ?? null };
+  });
+
+  app.put<{ Body: { tabs?: string[]; active_id?: string | null } }>('/api/claude/ui-state', async (req) => {
+    const tabs = Array.isArray(req.body?.tabs) ? req.body!.tabs.filter(x => typeof x === 'string').slice(0, 50) : [];
+    const activeId = typeof req.body?.active_id === 'string' ? req.body!.active_id : null;
+    await app.pool.query('UPDATE users SET claude_open_tabs = $2, claude_active_session = $3 WHERE id = $1', [req.user!.id, JSON.stringify(tabs), activeId]);
+    return { ok: true };
+  });
+
   app.get('/api/claude/projects', async () => {
     const { rows } = await app.pool.query('SELECT id, slug, name, path, rules FROM projects ORDER BY id');
     return { projects: rows };
