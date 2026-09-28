@@ -223,14 +223,16 @@ export function computeRealUsageBars(real: RealRateLimits, subscriptionType: str
 
 /**
  * Barras de uso a partir do custo real por janela (proxy), usado quando a API não devolveu limites
- * reais — hoje é sempre o caso (ver `computeUsageBars`/PARIDADE.md). O plano não expõe o % real nesse
- * caso, então usamos o custo contra uma referência.
+ * reais — hoje é sempre o caso (ver `computeUsageBars`/PARIDADE.md). O plano não expõe o % real nem
+ * o horário de reset nesse caso; a extensão real também nunca mostra valor em dólar aqui (só
+ * "Resets in Xh" quando tem o dado, ou nada), então deixamos sem legenda em vez de mostrar um número
+ * que a extensão de verdade não mostra.
  */
 function computeProxyUsageBars(rows: UsageRow[]): UsageBar[] {
   const sum = (k: keyof UsageRow) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
   const c5 = sum('cost_5h'), c7 = sum('cost_7d'), ct = sum('cost_total');
   const bar = (key: string, label: string, cost: number, ref: number): UsageBar =>
-    ({ key, label, pct: Math.round(Math.min(100, Math.max(0, ref > 0 ? (cost / ref) * 100 : 0))), sub: formatCost(cost) });
+    ({ key, label, pct: Math.round(Math.min(100, Math.max(0, ref > 0 ? (cost / ref) * 100 : 0))) });
   return [
     bar('5h', 'Sessão (5h)', c5, 5),
     bar('7d', 'Semanal (7 dias)', c7, 25),

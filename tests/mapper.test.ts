@@ -213,7 +213,7 @@ describe('computeUsageBars', () => {
     expect(bars[0].pct).toBe(50); // 2.5 / 5
     expect(bars[1].pct).toBe(100); // 50 / 25 → clamp
     expect(bars[2].pct).toBe(10); // 10 / 100
-    expect(bars[0].sub).toBe('US$ 2.50');
+    expect(bars[0].sub).toBeUndefined();
   });
   it('agrega várias linhas de usuário', () => {
     const bars = computeUsageBars([{ cost_5h: 1, cost_7d: 0, cost_total: 0 }, { cost_5h: 1.5, cost_7d: 0, cost_total: 0 }]);
@@ -230,7 +230,7 @@ describe('computeUsageBars', () => {
   });
   it('sem dados reais, cai para o proxy por custo (comportamento de hoje)', () => {
     const bars = computeUsageBars([{ cost_5h: '2.5', cost_7d: '0', cost_total: '0' }], null);
-    expect(bars[0].sub).toBe('US$ 2.50');
+    expect(bars[0].sub).toBeUndefined();
     expect(bars[0].resetText).toBeUndefined();
   });
 });
