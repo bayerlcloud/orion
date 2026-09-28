@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars } from '../web/src/claude/mapper';
-import type { SdkMessage } from '../web/src/claude/types';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, filterSessions, groupSessions } from '../web/src/claude/mapper';
+import type { SdkMessage, SessionSummary } from '../web/src/claude/types';
 
 describe('describeTool', () => {
   it('Bash usa a descrição e guarda o comando', () => {
@@ -136,5 +136,85 @@ describe('computeUsageBars', () => {
   it('agrega várias linhas de usuário', () => {
     const bars = computeUsageBars([{ cost_5h: 1, cost_7d: 0, cost_total: 0 }, { cost_5h: 1.5, cost_7d: 0, cost_total: 0 }]);
     expect(bars[0].pct).toBe(50); // (1 + 1.5) / 5
+  });
+});
+
+describe('filterSessions', () => {
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const sessions: SessionSummary[] = [
+    { id: 's1', title: '[Brandspace] Forms', status: 'running', updatedAt: now, project: 'brandspace', projectName: 'Brandspace' },
+    { id: 's2', title: 'Subdomínio v2', status: 'idle', updatedAt: now, project: 'infra', projectName: 'Infraestrutura' },
+    { id: 's3', title: 'Deploy da Central', status: 'waiting', updatedAt: now, project: 'orion', projectName: 'Orion' },
+    { id: 's4', title: 'Sem projeto nenhum', status: 'idle', updatedAt: now },
+  ];
+
+  it('sem filtros devolve tudo', () => {
+    expect(filterSessions(sessions, {})).toHaveLength(4);
+  });
+
+  it('filtra por termo no título, sem diferenciar maiúsculas', () => {
+    const r = filterSessions(sessions, { term: 'forms' });
+    expect(r.map(s => s.id)).toEqual(['s1']);
+  });
+
+  it('filtra por termo que bate no projeto (slug ou nome)', () => {
+    expect(filterSessions(sessions, { term: 'infra' }).map(s => s.id)).toEqual(['s2']);
+    expect(filterSessions(sessions, { term: 'orion' }).map(s => s.id)).toEqual(['s3']);
+  });
+
+  it('filtra por projeto exato (slug)', () => {
+    expect(filterSessions(sessions, { project: 'brandspace' }).map(s => s.id)).toEqual(['s1']);
+  });
+
+  it('activeOnly só deixa passar running/waiting', () => {
+    expect(filterSessions(sessions, { activeOnly: true }).map(s => s.id)).toEqual(['s1', 's3']);
+  });
+
+  it('combina termo e projeto', () => {
+    expect(filterSessions(sessions, { term: 'deploy', project: 'orion' }).map(s => s.id)).toEqual(['s3']);
+    expect(filterSessions(sessions, { term: 'deploy', project: 'infra' })).toHaveLength(0);
+  });
+});
+
+describe('groupSessions', () => {
+  const now = Date.parse('2026-09-27T12:00:00Z');
+  const day = 86_400_000;
+  const sessions: SessionSummary[] = [
+    { id: 's1', title: 'A', status: 'running', updatedAt: now, project: 'brandspace', projectName: 'Brandspace' },
+    { id: 's2', title: 'B', status: 'idle', updatedAt: now, project: 'infra', projectName: 'Infraestrutura' },
+    { id: 's3', title: 'C', status: 'idle', updatedAt: now - day, project: 'brandspace', projectName: 'Brandspace' },
+    { id: 's4', title: 'D', status: 'idle', updatedAt: now - 3 * day, project: 'orion', projectName: 'Orion' },
+    { id: 's5', title: 'E', status: 'idle', updatedAt: now - 10 * day },
+  ];
+
+  it("'none' devolve um único grupo 'Sem grupo' com todas as sessões, na ordem original", () => {
+    const g = groupSessions(sessions, 'none', now);
+    expect(g).toHaveLength(1);
+    expect(g[0]).toEqual({ key: 'all', label: 'Sem grupo', sessions });
+  });
+
+  it("'none' com lista vazia ainda devolve o grupo (contagem zero)", () => {
+    const g = groupSessions([], 'none', now);
+    expect(g).toEqual([{ key: 'all', label: 'Sem grupo', sessions: [] }]);
+  });
+
+  it("'project' agrupa por slug, com rótulo do projeto, ordenado alfabeticamente", () => {
+    const g = groupSessions(sessions, 'project', now);
+    expect(g.map(x => x.label)).toEqual(['Brandspace', 'Infraestrutura', 'Orion', 'Sem projeto']);
+    expect(g.find(x => x.key === 'brandspace')?.sessions.map(s => s.id)).toEqual(['s1', 's3']);
+  });
+
+  it("'recency' separa Hoje/Ontem/Esta semana/Mais antigas e some com baldes vazios", () => {
+    const g = groupSessions(sessions, 'recency', now);
+    expect(g.map(x => x.key)).toEqual(['today', 'yesterday', 'week', 'older']);
+    expect(g.find(x => x.key === 'today')?.sessions.map(s => s.id)).toEqual(['s1', 's2']);
+    expect(g.find(x => x.key === 'yesterday')?.sessions.map(s => s.id)).toEqual(['s3']);
+    expect(g.find(x => x.key === 'week')?.sessions.map(s => s.id)).toEqual(['s4']);
+    expect(g.find(x => x.key === 'older')?.sessions.map(s => s.id)).toEqual(['s5']);
+  });
+
+  it("'recency' sem sessões antigas não mostra o balde 'Mais antigas'", () => {
+    const g = groupSessions([sessions[0]], 'recency', now);
+    expect(g.map(x => x.key)).toEqual(['today']);
   });
 });

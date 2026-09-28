@@ -14,7 +14,7 @@ const isDraft = (id: string) => id.startsWith('draft-');
 
 function toSummary(s: ApiSession): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
-  return { id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, archived: !!s.archived };
+  return { id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, projectName: s.project_name ?? undefined, archived: !!s.archived };
 }
 
 export default function ClaudePage() {

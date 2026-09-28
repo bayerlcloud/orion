@@ -1,4 +1,4 @@
-import type { ConvEvent, SdkContentBlock, SdkMessage, ToolStatus } from './types';
+import type { ConvEvent, SdkContentBlock, SdkMessage, SessionSummary, ToolStatus } from './types';
 
 type Rec = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -172,4 +172,63 @@ export function relativeTime(ts: number, now = Date.now()): string {
   const h = Math.round(min / 60);
   if (h < 24) return `${h}h`;
   return `${Math.round(h / 24)}d`;
+}
+
+/** Filtro combinado da lista de sessões: termo (título ou projeto), projeto exato e só-ativas. Pura. */
+export type SessionFilter = { term?: string; project?: string; activeOnly?: boolean };
+export function filterSessions(sessions: SessionSummary[], f: SessionFilter): SessionSummary[] {
+  const term = (f.term ?? '').trim().toLowerCase();
+  return sessions.filter(s => {
+    if (f.project && s.project !== f.project) return false;
+    if (f.activeOnly && s.status !== 'running' && s.status !== 'waiting') return false;
+    if (term) {
+      const hit = s.title.toLowerCase().includes(term)
+        || (s.project ?? '').toLowerCase().includes(term)
+        || (s.projectName ?? '').toLowerCase().includes(term);
+      if (!hit) return false;
+    }
+    return true;
+  });
+}
+
+/** Como a extensão agrupa a lista lateral: nenhum agrupamento (um grupo só), por projeto, ou por recência. Pura. */
+export type GroupBy = 'none' | 'project' | 'recency';
+export type SessionGroup = { key: string; label: string; sessions: SessionSummary[] };
+
+function startOfDay(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+export function groupSessions(sessions: SessionSummary[], groupBy: GroupBy, now = Date.now()): SessionGroup[] {
+  if (groupBy === 'project') {
+    const byKey = new Map<string, SessionGroup>();
+    for (const s of sessions) {
+      const key = s.project ?? '__sem_projeto__';
+      const label = s.projectName ?? s.project ?? 'Sem projeto';
+      if (!byKey.has(key)) byKey.set(key, { key, label, sessions: [] });
+      byKey.get(key)!.sessions.push(s);
+    }
+    return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  }
+  if (groupBy === 'recency') {
+    const today = startOfDay(now);
+    const dayMs = 86_400_000;
+    const buckets: Record<'today' | 'yesterday' | 'week' | 'older', SessionSummary[]> = { today: [], yesterday: [], week: [], older: [] };
+    for (const s of sessions) {
+      const diffDays = Math.round((today - startOfDay(s.updatedAt)) / dayMs);
+      if (diffDays <= 0) buckets.today.push(s);
+      else if (diffDays === 1) buckets.yesterday.push(s);
+      else if (diffDays <= 7) buckets.week.push(s);
+      else buckets.older.push(s);
+    }
+    return ([
+      { key: 'today', label: 'Hoje', sessions: buckets.today },
+      { key: 'yesterday', label: 'Ontem', sessions: buckets.yesterday },
+      { key: 'week', label: 'Esta semana', sessions: buckets.week },
+      { key: 'older', label: 'Mais antigas', sessions: buckets.older },
+    ] satisfies SessionGroup[]).filter(g => g.sessions.length > 0);
+  }
+  return [{ key: 'all', label: 'Sem grupo', sessions }];
 }
