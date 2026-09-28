@@ -135,12 +135,21 @@ const buracos: { buraco: string; efeito: string }[] = [
   },
 ];
 
+// Os 5 níveis da arquitetura decidida em 28/09/2026
+const niveis: { nivel: string; oQueE: string; quemEscreve: string; dinamica: string; injecao: string }[] = [
+  { nivel: '0', oQueE: 'Constituição (um só CLAUDE.md raiz)', quemEscreve: 'só o Danilo', dinamica: 'imutável', injecao: 'sempre, em toda sessão' },
+  { nivel: '1', oQueE: 'Mapas auto-atualizáveis (mapa, equipe-e-projetos, capacidades)', quemEscreve: 'só script determinístico', dinamica: 'regenerado a cada 1h pelo ciclo do inventário', injecao: 'sempre, via @import no CLAUDE.md' },
+  { nivel: '2', oQueE: 'Regras e preferências por projeto e por usuário', quemEscreve: 'IA e pessoas', dinamica: 'editada ou removida quando muda; binário, sem nota', injecao: 'quando o escopo da sessão bate' },
+  { nivel: '3', oQueE: 'Decisões fechadas e conclusões', quemEscreve: 'promoção do nível 4 ou registro direto', dinamica: 'só sai por revogação explícita', injecao: 'só a linha do índice; corpo sob demanda' },
+  { nivel: '4', oQueE: 'Enxame de micro-memórias (fatos de 1 a 3 linhas)', quemEscreve: 'IA livre, em qualquer sessão', dinamica: 'nota 1 a 10, curadoria diária', injecao: 'não injetada; recuperada por busca' },
+];
+
 const aDefinir = [
-  'Fonte canônica única: tabela × arquivos × híbrido.',
-  'Como o Claude lê o corpo das memórias (tool? rota? export automático?).',
-  'Como o Claude registra acesso e aprendizado (fechar o ciclo de rastreio).',
+  'Migração do esquema da tabela memories (deus/aprendizagem/rascunho) para os níveis 0 a 4 e rebaixamento da memória deus antiga (orion-central-unico-painel).',
+  'Detalhes do nível 2: onde vivem os CLAUDE.md por projeto e as preferências por pessoa, e como entram na sessão certa.',
+  'Construção da tool MCP orion-memory (buscar/salvar).',
+  'Construção do curador: prompt, limites, o que pede aprovação.',
   'Sincronização com a memória do Mac do Bayerl.',
-  'Memória por projeto × memória global.',
 ];
 
 export default function SpecMemoria() {
@@ -229,10 +238,52 @@ export default function SpecMemoria() {
         </tbody>
       </table>
 
-      <h2>5. A definir</h2>
+      <h2>5. Decisões fechadas (28/09/2026)</h2>
       <p>
-        Bifurcações que serão decididas em conversa, uma por vez. Esta seção vai sendo preenchida
-        conforme as decisões forem fechadas.
+        A arquitetura decidida é uma pirâmide de <strong>5 níveis</strong>. Quanto mais alto o nível,
+        mais ele é injetado nas sessões, e menos gente (ou IA) pode escrever nele.
+      </p>
+      <table>
+        <thead><tr><th>Nível</th><th>O que é</th><th>Quem escreve</th><th>Dinâmica</th><th>Injeção</th></tr></thead>
+        <tbody>
+          {niveis.map(n => (
+            <tr key={n.nivel}>
+              <td><strong>{n.nivel}</strong></td>
+              <td>{n.oQueE}</td>
+              <td>{n.quemEscreve}</td>
+              <td>{n.dinamica}</td>
+              <td>{n.injecao}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h3>A escada de escrita (lei)</h3>
+      <p>
+        Quanto mais alto o nível (mais injetado), menos IA pode escrever. Nível 0: só o Danilo.
+        Nível 1: só script (fato mecânico, zero LLM; um fato alucinado sempre injetado envenenaria
+        todas as sessões). Níveis 2 a 4: a IA escreve e o curador cuida.
+      </p>
+
+      <h3>Mecânica do nível 4 (MVP no estilo "Hermes agent", sem exagero)</h3>
+      <ul>
+        <li>Micro-memória nasce com <strong>nota 5</strong>, criada por qualquer sessão (captura proativa da constituição).</li>
+        <li>Usada ou confirmada em sessão: +1. Sem uso por 30 dias: -1. Nota 0: deletada. Nota 10: o curador propõe promover a nível 3 (decisão permanente); no início, a promoção só acontece com aprovação do Danilo.</li>
+        <li><strong>Curador</strong>: agente headless diário, só com as tools de memória. Funde duplicatas (nota = maior das duas), promove, deleta, sinaliza conflito. Nunca toca os níveis 0 e 1.</li>
+        <li><strong>Recuperação (RAG mínimo)</strong>: busca textual do Postgres (full-text + keywords), exposta às sessões como tool MCP <code>orion-memory</code> com <code>buscar</code> e <code>salvar</code>. Sem embeddings nem vector store no MVP; se a busca textual se provar insuficiente, o upgrade é pgvector na mesma tabela.</li>
+        <li>A nota é <strong>exclusiva do nível 4</strong>: acima dele, a importância é o próprio nível. Um plano aprovado se decompõe: a lei sobe para os níveis 0/1/2, a decisão vira nível 3, migalhas úteis viram nível 4.</li>
+      </ul>
+
+      <h3>Já implantado (28/09/2026)</h3>
+      <ul>
+        <li><strong>Nível 0 no ar</strong>: <code>/home/danilo/.claude/CLAUDE.md</code>, espelhado na aba Memória como <code>constituicao-nivel-0</code>.</li>
+        <li><strong>Nível 1 no ar</strong>: 3 arquivos em <code>~danilo/.claude/nivel1/</code> com <code>@import</code>, regenerados de hora em hora por <code>server/nivel1/generate.ts</code> dentro do ciclo do orion-inventory, espelhados como <code>nivel1-*</code>.</li>
+        <li>Teste headless confirmou a injeção de ponta a ponta.</li>
+      </ul>
+
+      <h2>6. A definir</h2>
+      <p>
+        O que segue aberto depois das decisões de 28/09. Cada item será fechado em conversa, um por vez.
       </p>
       <ul>
         {aDefinir.map(d => <li key={d}>{d}</li>)}
