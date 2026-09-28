@@ -53,6 +53,23 @@ export async function dashRoutes(app: FastifyInstance) {
     }
   });
 
+  // Atividade por usuário: quando cada um logou pela última vez e quantos comandos (prompts do usuário) mandou
+  // pro Claude nos últimos 7 dias. Mesmo padrão de "último login" do /api/users (server/routes/auth.ts):
+  // max(ts) em logins. "Comando" = evento user_prompt em claude_events, gravado uma vez por prompt enviado
+  // (server/claude/runner.ts appendEvent), não por evento bruto do SDK (tool_use etc.) -- é o que um usuário
+  // não técnico entenderia por "quantos comandos dei pro Claude essa semana".
+  app.get('/api/dash/user-activity', async () => {
+    const { rows } = await app.pool.query(
+      `SELECT u.id, u.name,
+              (SELECT max(ts) FROM logins l WHERE l.user_id = u.id) AS last_login,
+              (SELECT count(*) FROM claude_events je
+                 JOIN claude_sessions cs ON cs.id = je.session_id
+                WHERE cs.user_id = u.id AND je.type = 'user_prompt' AND je.ts >= now() - interval '7 days') AS commands_7d
+         FROM users u
+        ORDER BY u.id`);
+    return { users: rows.map(r => ({ id: r.id, name: r.name, last_login: r.last_login, commands_7d: Number(r.commands_7d) })) };
+  });
+
   app.get('/api/dash/stream', async (req, reply) => {
     reply.hijack();
     const res = reply.raw;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import { ago, agoIso, fmtBytes, fmtKBs, fmtNum, fmtPct, fmtUptime, sparkPath, unitStatus } from './dashUtils';
+import { activityFor, ago, agoIso, fmtBytes, fmtKBs, fmtNum, fmtPct, fmtUptime, sparkPath, unitStatus, type UserActivity } from './dashUtils';
 import { healthScore } from './dashHealth';
 import { IcoDash } from '../icons';
 import './dash.css';
@@ -27,7 +27,7 @@ type Point = { t: number } & Record<string, number | null>;
 type Now = { host?: { label?: string; ip?: string }; tick_ms?: number; sample?: Sample | null; series?: Point[] };
 type Stat = { max_24h: number | null; avg_7d: number | null };
 type History = { hours?: number; rows?: (Record<string, number | null> & { ts: string })[]; stats?: Record<string, Stat>; minutes_7d?: number };
-type Session = { id: string; title?: string; status?: string; cost_usd?: number | string | null; turns?: number | null; user_name?: string; project_name?: string | null; updated_at?: string; pending?: number };
+type Session = { id: string; user_id?: number; title?: string; status?: string; cost_usd?: number | string | null; turns?: number | null; user_name?: string; project_name?: string | null; updated_at?: string; pending?: number };
 
 const RING = 360;
 const LABEL = 'c3', IP = '217.76.55.249';
@@ -90,6 +90,7 @@ export default function Dash() {
   const [series, setSeries] = useState<Point[]>([]);
   const [hist, setHist] = useState<History | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [activity, setActivity] = useState<UserActivity[] | null>(null);
   const [me, setMe] = useState<{ id: number; name: string; email: string } | null>(null);
   const [erro, setErro] = useState('');
   const [live, setLive] = useState(false);
@@ -124,13 +125,15 @@ export default function Dash() {
   }
   async function loadHist() { try { setHist(await api<History>('/api/dash/history?hours=24')); } catch { /* fica sem histórico */ } }
   async function loadSessions() { try { const r = await api<{ sessions: Session[] }>('/api/claude/sessions'); setSessions(Array.isArray(r.sessions) ? r.sessions : []); } catch { setSessions(s => s ?? []); } }
+  async function loadActivity() { try { const r = await api<{ users: UserActivity[] }>('/api/dash/user-activity'); setActivity(Array.isArray(r.users) ? r.users : []); } catch { setActivity(a => a ?? []); } }
 
   useEffect(() => {
-    void loadNow(); void loadHist(); void loadSessions();
+    void loadNow(); void loadHist(); void loadSessions(); void loadActivity();
     api<{ user: { id: number; name: string; email: string } }>('/api/me').then(r => setMe(r.user)).catch(() => {});
     const hb = setInterval(() => setClock(Date.now()), 1000);
     const histTimer = setInterval(loadHist, 5 * 60_000);
     const sessTimer = setInterval(loadSessions, 30_000);
+    const activityTimer = setInterval(loadActivity, 60_000);
     const pollTimer = setInterval(() => { if (!liveRef.current) void loadNow(); }, 15_000);
 
     let es: EventSource | null = null;
@@ -158,7 +161,7 @@ export default function Dash() {
       closed = true;
       es?.close();
       if (retry) clearTimeout(retry);
-      clearInterval(hb); clearInterval(histTimer); clearInterval(sessTimer); clearInterval(pollTimer);
+      clearInterval(hb); clearInterval(histTimer); clearInterval(sessTimer); clearInterval(activityTimer); clearInterval(pollTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -351,19 +354,24 @@ export default function Dash() {
         <div className="dash-bloco">
           {sessions === null ? <div className="vazio">carregando…</div> : recent.length === 0 ? <div className="vazio">nenhuma sessão ainda</div> : (
             <table className="dash-table">
-              <thead><tr><th>título</th><th>estado</th><th>quem</th><th>projeto</th><th className="num">turnos</th><th className="num">custo</th><th className="num">atualizada</th></tr></thead>
+              <thead><tr><th>título</th><th>estado</th><th>quem</th><th>último login</th><th className="num">comandos 7d</th><th>projeto</th><th className="num">turnos</th><th className="num">custo</th><th className="num">atualizada</th></tr></thead>
               <tbody>
-                {recent.map(x => (
-                  <tr key={x.id} className={sessionTag(x.status) === 'off' ? 'off' : ''}>
-                    <td className="nome" title={x.title}>{x.title ?? x.id}</td>
-                    <td><span className={`tag ${sessionTag(x.status)}`}>{x.status ?? '—'}{x.pending ? ` · ${x.pending} pendente${x.pending > 1 ? 's' : ''}` : ''}</span></td>
-                    <td>{x.user_name ?? '—'}</td>
-                    <td>{x.project_name ?? '—'}</td>
-                    <td className="num">{x.turns ?? '—'}</td>
-                    <td className="num">{num(x.cost_usd) === null ? '—' : `US$ ${fmtNum(num(x.cost_usd), 2)}`}</td>
-                    <td className="num">{agoIso(x.updated_at, clock)}</td>
-                  </tr>
-                ))}
+                {recent.map(x => {
+                  const a = activityFor(activity, x.user_id, x.user_name);
+                  return (
+                    <tr key={x.id} className={sessionTag(x.status) === 'off' ? 'off' : ''}>
+                      <td className="nome" title={x.title}>{x.title ?? x.id}</td>
+                      <td><span className={`tag ${sessionTag(x.status)}`}>{x.status ?? '—'}{x.pending ? ` · ${x.pending} pendente${x.pending > 1 ? 's' : ''}` : ''}</span></td>
+                      <td>{x.user_name ?? '—'}</td>
+                      <td title={a?.last_login ? new Date(a.last_login).toLocaleString('pt-BR') : undefined}>{a ? agoIso(a.last_login, clock) : '—'}</td>
+                      <td className="num">{a ? a.commands_7d : '—'}</td>
+                      <td>{x.project_name ?? '—'}</td>
+                      <td className="num">{x.turns ?? '—'}</td>
+                      <td className="num">{num(x.cost_usd) === null ? '—' : `US$ ${fmtNum(num(x.cost_usd), 2)}`}</td>
+                      <td className="num">{agoIso(x.updated_at, clock)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
