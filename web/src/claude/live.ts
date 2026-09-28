@@ -1,4 +1,4 @@
-import type { ConvEvent, SdkMessage } from './types';
+import type { ConvEvent, SdkMessage, SlashCommandInfo } from './types';
 import { describeTool, reduceSdkMessages } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
@@ -6,10 +6,12 @@ export type PermReq = { id: string; toolName: string; input: Record<string, unkn
 export type LiveState = {
   status: LiveStatus; messages: SdkMessage[]; partialText: string; partialThinking: string;
   pending: PermReq[]; resolvedPerms: PermReq[]; error: string | null; lastPrompt: string | null;
+  /** Comandos de barra reais da sessão (server/claude/runner.ts, via Query.supportedCommands()); vazio até o servidor mandar (evento 'hello' ou 'commands'). */
+  commands: SlashCommandInfo[];
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [] });
 
 const ATTACH_NOTE = '\n\n[arquivo anexado:';
 
@@ -67,8 +69,11 @@ export function applyLive(s: LiveState, ev: any): LiveState {
     case 'hello': {
       const known = new Map(s.pending.map(p => [p.id, p]));
       const pending = (ev.pending ?? []).map((x: any) => known.get(x.id) ?? { id: x.id, toolName: x.toolName, input: {}, hasSuggestions: false });
-      return { ...s, status: ev.status ?? s.status, pending };
+      // commands: só troca quando o servidor manda algo (sessão já rodou pelo menos um turno nesse
+      // processo); sem isso, mantém o que já tínhamos em vez de apagar com [] a cada reconexão SSE.
+      return { ...s, status: ev.status ?? s.status, pending, commands: Array.isArray(ev.commands) && ev.commands.length ? ev.commands : s.commands };
     }
+    case 'commands': return { ...s, commands: Array.isArray(ev.commands) ? ev.commands : s.commands };
     case 'status': return { ...s, status: ev.status, error: ev.status === 'running' ? null : s.error };
     case 'message': return pushMessage(s, ev.message);
     case 'partial': {

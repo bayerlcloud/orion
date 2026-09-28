@@ -368,3 +368,48 @@ export function groupSessions(sessions: SessionSummary[], groupBy: GroupBy, now 
   }
   return [{ key: 'all', label: 'Sem grupo', sessions }];
 }
+
+/**
+ * Histórico de mensagens do usuário nesta sessão, mais recente primeiro — espelha `cx()` no webview
+ * decompilado v2.1.282 da extensão real: filtra os eventos `kind: 'user'`, pega o texto, descarta
+ * vazio/só espaço, e inverte (a lista de eventos é cronológica, mais antiga primeiro; o recall quer o
+ * oposto — item [0] é o último enviado). Alimenta o ciclo ArrowUp/ArrowDown do compositor
+ * (ver `cycleMessageIndex`).
+ */
+export function messageHistory(events: ConvEvent[]): string[] {
+  const out: string[] = [];
+  for (const e of events) {
+    if (e.kind !== 'user') continue;
+    const t = e.text.trim();
+    if (t) out.push(t);
+  }
+  return out.reverse();
+}
+
+/** Estado do ciclo de recall de mensagens: índice atual no histórico (-1 = fora do ciclo) e o rascunho original salvo antes de começar a ciclar. */
+export type CycleState = { index: number; saved: string };
+export type CycleResult = { index: number; saved: string; text: string };
+
+/**
+ * Passo puro do ciclo ArrowUp(-1)/ArrowDown(1) pelo histórico de mensagens — mesma lógica de
+ * `cycleMessage` (a função `q`, dentro do hook `Cq0`) no webview decompilado v2.1.282: na 1ª
+ * ArrowUp guarda o texto atual em `saved` e mostra o item mais recente (índice 0); ArrowUp de novo
+ * avança pro item seguinte mais antigo; no item mais antigo, ArrowUp não dá a volta — retorna null
+ * (deixa o comportamento padrão da tecla acontecer). ArrowDown volta em direção ao mais recente e,
+ * a partir do índice 0, restaura `saved` — o rascunho **original**, exatamente como estava antes de
+ * começar a ciclar (mesmo que o meio do ciclo tenha sido editado: só o texto salvo no início conta).
+ * ArrowDown fora de um ciclo (index -1) não faz nada — null. Sem histórico, sempre null. A checagem
+ * de "o cursor está no início/fim do texto" (só aí a tecla vira recall) é responsabilidade de quem
+ * chama, não desta função — aqui é só o índice.
+ */
+export function cycleMessageIndex(direction: -1 | 1, state: CycleState, history: string[], currentInput: string): CycleResult | null {
+  if (history.length === 0) return null;
+  if (direction === -1) {
+    if (state.index === -1) return { index: 0, saved: currentInput, text: history[0] };
+    if (state.index < history.length - 1) return { index: state.index + 1, saved: state.saved, text: history[state.index + 1] };
+    return null;
+  }
+  if (state.index === -1) return null;
+  if (state.index > 0) return { index: state.index - 1, saved: state.saved, text: history[state.index - 1] };
+  return { index: -1, saved: state.saved, text: state.saved };
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, messageHistory, cycleMessageIndex } from '../web/src/claude/mapper';
+import { matchModelAlias } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
 /** Payload real de um AskUserQuestion da sessão de produção "Esta ai?" (fcc5ee4b-96f2-45a5-baf3-78e9f1f71ecd,
@@ -366,5 +367,99 @@ describe('groupSessions', () => {
   it("'recency' sem sessões antigas não mostra o balde 'Mais antigas'", () => {
     const g = groupSessions([sessions[0]], 'recency', now);
     expect(g.map(x => x.key)).toEqual(['today']);
+  });
+});
+
+describe('messageHistory', () => {
+  const ev = (id: string, text: string): ConvEvent => ({ id, kind: 'user', text });
+
+  it('extrai só eventos de usuário, mais recente primeiro (ordem invertida)', () => {
+    const events: ConvEvent[] = [ev('1', 'primeira'), ev('2', 'segunda'), ev('3', 'terceira')];
+    expect(messageHistory(events)).toEqual(['terceira', 'segunda', 'primeira']);
+  });
+
+  it('ignora eventos que não são de usuário (texto do assistente, tool, etc.)', () => {
+    const events: ConvEvent[] = [ev('1', 'oi'), { id: '2', kind: 'text', text: 'resposta do claude' }, ev('3', 'de novo')];
+    expect(messageHistory(events)).toEqual(['de novo', 'oi']);
+  });
+
+  it('ignora texto vazio ou só espaço', () => {
+    const events: ConvEvent[] = [ev('1', 'real'), ev('2', '   '), ev('3', '')];
+    expect(messageHistory(events)).toEqual(['real']);
+  });
+
+  it('sem mensagens de usuário: lista vazia', () => {
+    expect(messageHistory([{ id: '1', kind: 'system', text: 'início' }])).toEqual([]);
+  });
+});
+
+describe('cycleMessageIndex', () => {
+  const history = ['mais recente', 'do meio', 'mais antiga'];
+
+  it('sem histórico: null em qualquer direção', () => {
+    expect(cycleMessageIndex(-1, { index: -1, saved: '' }, [], 'rascunho')).toBeNull();
+    expect(cycleMessageIndex(1, { index: -1, saved: '' }, [], '')).toBeNull();
+  });
+
+  it('ArrowUp pela 1ª vez: guarda o rascunho atual e mostra o item mais recente (índice 0)', () => {
+    const r = cycleMessageIndex(-1, { index: -1, saved: '' }, history, 'meu rascunho');
+    expect(r).toEqual({ index: 0, saved: 'meu rascunho', text: 'mais recente' });
+  });
+
+  it('ArrowUp de novo (já ciclando): avança pro item seguinte mais antigo, mantendo o rascunho salvo', () => {
+    const r = cycleMessageIndex(-1, { index: 0, saved: 'meu rascunho' }, history, 'mais recente');
+    expect(r).toEqual({ index: 1, saved: 'meu rascunho', text: 'do meio' });
+  });
+
+  it('ArrowUp no item mais antigo: não dá a volta — null', () => {
+    const r = cycleMessageIndex(-1, { index: 2, saved: 'meu rascunho' }, history, 'mais antiga');
+    expect(r).toBeNull();
+  });
+
+  it('ArrowDown fora de um ciclo (índice -1): não faz nada — null', () => {
+    expect(cycleMessageIndex(1, { index: -1, saved: '' }, history, 'texto solto')).toBeNull();
+  });
+
+  it('ArrowDown a partir do meio: volta um item em direção ao mais recente', () => {
+    const r = cycleMessageIndex(1, { index: 1, saved: 'meu rascunho' }, history, 'do meio');
+    expect(r).toEqual({ index: 0, saved: 'meu rascunho', text: 'mais recente' });
+  });
+
+  it('ArrowDown no item mais recente (índice 0): restaura o rascunho original salvo, sai do ciclo (índice -1)', () => {
+    const r = cycleMessageIndex(1, { index: 0, saved: 'meu rascunho' }, history, 'mais recente');
+    expect(r).toEqual({ index: -1, saved: 'meu rascunho', text: 'meu rascunho' });
+  });
+
+  it('edição no meio do ciclo não contamina o rascunho restaurado: só o texto salvo no início da 1ª ArrowUp volta', () => {
+    // Simula: ArrowUp (salva 'original'), usuário edita o item mostrado, ArrowDown de volta ao -1.
+    const first = cycleMessageIndex(-1, { index: -1, saved: '' }, history, 'original')!;
+    const r = cycleMessageIndex(1, { index: first.index, saved: first.saved }, history, 'texto editado no meio do ciclo, ignorado aqui');
+    expect(r).toEqual({ index: -1, saved: 'original', text: 'original' });
+  });
+});
+
+describe('matchModelAlias', () => {
+  it('sem modelo (null/undefined/vazio): default', () => {
+    expect(matchModelAlias(null)).toBe('default');
+    expect(matchModelAlias(undefined)).toBe('default');
+    expect(matchModelAlias('')).toBe('default');
+  });
+
+  it('alias exato', () => {
+    expect(matchModelAlias('sonnet')).toBe('sonnet');
+    expect(matchModelAlias('opus')).toBe('opus');
+    expect(matchModelAlias('haiku')).toBe('haiku');
+    expect(matchModelAlias('fable')).toBe('fable');
+  });
+
+  it('id canônico resolvido pelo SDK (o que o system/init realmente grava): casa por substring', () => {
+    expect(matchModelAlias('claude-sonnet-5')).toBe('sonnet');
+    expect(matchModelAlias('claude-opus-4-8')).toBe('opus');
+    expect(matchModelAlias('claude-fable-5-1')).toBe('fable'); // valor real visto em fixtures.ts
+    expect(matchModelAlias('claude-haiku-4-5')).toBe('haiku');
+  });
+
+  it('modelo desconhecido: cai pro default em vez de quebrar', () => {
+    expect(matchModelAlias('gpt-5')).toBe('default');
   });
 });

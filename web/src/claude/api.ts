@@ -22,9 +22,9 @@ export const claudeApi = {
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),
   usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[]; real: RealUsage }>('/api/claude/usage'),
-  create: (b: { project_id: number; prompt: string; permission_mode: Mode; effort?: Effort; attachments?: Attachment[] }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
+  create: (b: { project_id: number; prompt: string; permission_mode: Mode; model?: string; effort?: Effort; attachments?: Attachment[] }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
-  send: (id: string, b: { prompt: string; permission_mode?: Mode; effort?: Effort; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
+  send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: Effort; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
   // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
   uploads: async (files: File[]): Promise<{ attachments: Attachment[] }> => {
     const fd = new FormData();
@@ -52,3 +52,30 @@ export const MODE_ORDER: Mode[] = ['acceptEdits', 'default', 'plan', 'auto'];
 
 export const EFFORT_LABEL: Record<Effort, string> = { low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
 export const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * Modelo escolhido no seletor do compositor. `'default'` = sem override (usa o padrão da sessão/
+ * conta); os demais são os aliases reais que o Agent SDK aceita no campo `model` das `Options`
+ * (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`: "Model alias (e.g. 'fable', 'opus',
+ * 'sonnet', 'haiku') or full model ID"), os mesmos 4 literais (`"default"`, `"haiku"`, `"opus"`,
+ * `"sonnet"`) achados soltos no webview decompilado da extensão real (v2.1.282) e "Fable 5" como
+ * rótulo real visto lá também (`grep -oE '"(Sonnet|Opus|Haiku|Fable)[^"]{0,40}"'`). A extensão real
+ * busca a lista completa ao vivo (`Query.supportedModels()`); aqui é uma lista estática por decisão
+ * de escopo — o seletor precisa funcionar mesmo numa sessão ainda não iniciada (rascunho), quando
+ * não existe Query nenhuma pra perguntar (ver PARIDADE.md, seção 5).
+ */
+export type ModelAlias = 'default' | 'sonnet' | 'opus' | 'haiku' | 'fable';
+export const MODEL_LABEL: Record<ModelAlias, string> = { default: 'Padrão', sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku', fable: 'Fable' };
+export const MODEL_ORDER: ModelAlias[] = ['default', 'sonnet', 'opus', 'haiku', 'fable'];
+
+/**
+ * Alias do menu que corresponde ao `model` resolvido de uma sessão (`system/init` grava o id
+ * canônico, ex. "claude-sonnet-5", "claude-fable-5-1" — nunca o alias curto). Casamento por
+ * substring (case-insensitive) contra cada alias conhecido; sem match ou sem modelo, `'default'`.
+ */
+export function matchModelAlias(model: string | null | undefined): ModelAlias {
+  if (!model) return 'default';
+  const m = model.toLowerCase();
+  for (const alias of MODEL_ORDER) if (alias !== 'default' && m.includes(alias)) return alias;
+  return 'default';
+}

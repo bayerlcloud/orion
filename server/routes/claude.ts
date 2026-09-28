@@ -217,13 +217,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     const res = reply.raw;
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     const send = (e: unknown) => { res.write(`data: ${JSON.stringify(e)}\n\n`); };
-    send({ type: 'hello', status: runner.status(id), pending: runner.pendingPermissions(id) });
+    send({ type: 'hello', status: runner.status(id), pending: runner.pendingPermissions(id), commands: runner.commandsFor(id) });
     const unsub = runner.subscribe(id, send);
     const hb = setInterval(() => res.write(': hb\n\n'), 15_000);
     req.raw.on('close', () => { clearInterval(hb); unsub(); });
   });
 
-  app.post<{ Params: { id: string }; Body: { prompt?: string; permission_mode?: string; effort?: string; attachments?: Attachment[] } }>('/api/claude/sessions/:id/messages', async (req, reply) => {
+  app.post<{ Params: { id: string }; Body: { prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] } }>('/api/claude/sessions/:id/messages', async (req, reply) => {
     const prompt = (req.body?.prompt ?? '').trim();
     if (!prompt) return reply.code(400).send({ error: 'prompt vazio' });
     const attachments = await sanitizeAttachments(req.body?.attachments);
@@ -234,9 +234,15 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
     const mode = MODES.has(req.body?.permission_mode ?? '') ? (req.body!.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (s.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto');
     if (mode !== s.permission_mode) await app.pool.query('UPDATE claude_sessions SET permission_mode = $2 WHERE id = $1', [s.id, mode]);
+    // Troca de modelo no meio da sessão (seletor do compositor): mesmo padrão do modo acima — só
+    // grava quando veio um valor e é diferente do atual, pra não sobrescrever com null/vazio o que
+    // já foi resolvido pelo SDK num turno anterior (system/init). Sem override, segue com s.model.
+    const modelOverride = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+    if (modelOverride && modelOverride !== s.model) await app.pool.query('UPDATE claude_sessions SET model = $2 WHERE id = $1', [s.id, modelOverride]);
+    const model = modelOverride || s.model || undefined;
     const effort = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model: s.model ?? undefined, effort, env: await turnEnv(), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, memories: await memoriasPara(s.project_id ?? null, req.user!.id) }),
     });
     return { ok: true, queued: runner.status(s.id) !== 'idle' };

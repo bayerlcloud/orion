@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, type ApiSession, type Mode, type Effort, type Project } from './api';
-import { formatCost, computeUsageBars, type UsageBar } from './mapper';
+import { claudeApi, matchModelAlias, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
+import { formatCost, computeUsageBars, messageHistory, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline from './Timeline';
 import Composer from './Composer';
@@ -28,6 +28,7 @@ export default function ClaudePage() {
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
   const [effort, setEffort] = useState<Effort>('medium');
+  const [model, setModel] = useState<ModelAlias>('default');
   const [draftProject, setDraftProject] = useState<number | undefined>(undefined);
   const [erro, setErro] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -91,12 +92,15 @@ export default function ClaudePage() {
       es.onerror = () => { /* o navegador reconecta sozinho */ };
       esRef.current = es;
       const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
+      setModel(matchModelAlias(s.model));
     }).catch(e => setErro(e.message));
     return () => { alive = false; esRef.current?.close(); esRef.current = null; };
   }, [activeId, refreshSessions, refreshUsage]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
   const events = useMemo(() => toConvEvents(state), [state]);
+  // Recall ArrowUp/ArrowDown do compositor: mensagens já enviadas nesta sessão, mais recente primeiro.
+  const history = useMemo(() => messageHistory(events), [events]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [events.length, state.partialText.length, state.partialThinking.length, activeId]);
 
   const active = sessions.find(s => s.id === activeId);
@@ -120,16 +124,19 @@ export default function ClaudePage() {
     try {
       const prompt = text || (files.length ? '(arquivos em anexo)' : '');
       const attachments = files.length ? (await claudeApi.uploads(files)).attachments : undefined;
+      // 'default' = sem override (deixa a sessão/conta decidir); só manda um valor real quando o
+      // usuário escolheu algo no seletor de modelo.
+      const modelOverride = model !== 'default' ? model : undefined;
       if (!activeId || isDraft(activeId)) {
         const pid = activeTab?.projectId ?? draftProject ?? projects[0]?.id;
         if (!pid) { setErro('Nenhum projeto cadastrado'); return; }
-        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, effort, attachments });
+        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, model: modelOverride, effort, attachments });
         const draftId = activeId;
         setTabs(t => draftId ? t.map(x => x.id === draftId ? { id: r.id } : x) : [...t, { id: r.id }]);
         setActiveId(r.id);
         void refreshSessions();
       } else {
-        await claudeApi.send(activeId, { prompt, permission_mode: mode, effort, attachments });
+        await claudeApi.send(activeId, { prompt, permission_mode: mode, model: modelOverride, effort, attachments });
       }
     } catch (e: any) { setErro(e.message); throw e; }
   }
@@ -154,7 +161,9 @@ export default function ClaudePage() {
 
   const summaries = useMemo(() => sessions.map(toSummary), [sessions]);
   const title = activeTab?.draft ? 'Nova sessão' : (active?.title ?? (activeId ? 'Sessão' : 'Claude'));
-  const modelLabel = active?.model ?? 'modelo padrão';
+  // Mostra o que vale pra PRÓXIMA mensagem: o override escolhido no seletor, se houver; senão o
+  // modelo resolvido da sessão (gravado no system/init do SDK), como antes.
+  const modelLabel = model !== 'default' ? MODEL_LABEL[model] : (active?.model ?? 'modelo padrão');
 
   return (
     <div className="cc">
@@ -199,7 +208,8 @@ export default function ClaudePage() {
           {activeId && <Timeline events={events} onDecide={decide} />}
         </div>
         {activeId && (
-          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={setMode} effort={effort} onEffort={setEffort} modelLabel={modelLabel}
+          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={setMode} effort={effort} onEffort={setEffort}
+            model={model} onModel={setModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
             projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
             onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
         )}

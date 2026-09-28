@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File } from './icons';
-import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, type Mode, type Effort, type Project } from './api';
+import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, type Mode, type Effort, type ModelAlias, type Project } from './api';
+import { cycleMessageIndex, type CycleState } from './mapper';
+import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 
-/** Comandos de barra que passam direto pro Claude Code (sem execução no nosso servidor). */
-const SLASH: { cmd: string; desc: string }[] = [
+/**
+ * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
+ * novo, ou reconexão ainda não recebeu o evento 'hello'/'commands' — ver PARIDADE.md seção 5). Com a
+ * sessão rodando, a lista real vem de `Query.supportedCommands()` (`server/claude/runner.ts`) via prop
+ * `commands` — inclui skills, comandos de projeto (`.claude/commands/*.md`) e os builtin.
+ */
+const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
   { cmd: '/clear', desc: 'Limpa o contexto da conversa' },
   { cmd: '/compact', desc: 'Resume o histórico para liberar contexto' },
   { cmd: '/context', desc: 'Mostra o uso da janela de contexto' },
@@ -30,18 +37,33 @@ function Menu({ open, onClose, children, className = '' }: { open: boolean; onCl
   );
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, modelLabel, projects, projectId, onProject, elapsed }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, elapsed }: {
   onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
-  effort?: Effort; onEffort?: (e: Effort) => void; modelLabel: string;
+  effort?: Effort; onEffort?: (e: Effort) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
+  /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
+  history?: string[];
+  /** Comandos de barra reais da sessão (Query.supportedCommands(), via ClaudePage); sem isso, usa SLASH_FALLBACK. */
+  commands?: SlashCommandInfo[];
+  /** Id da sessão ativa — só pra saber quando trocou de aba e sair de um ciclo de recall em andamento. */
+  sessionId?: string;
   projects?: Project[]; projectId?: number; onProject?: (id: number) => void; elapsed?: string;
 }) {
   const [text, setText] = useState('');
-  const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'slash'>('');
+  const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash'>('');
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  // Ciclo de recall de mensagens (ArrowUp/ArrowDown com o cursor no início/fim do texto — ver `key`
+  // abaixo e `cycleMessageIndex` em mapper.ts, que espelha `cycleMessage` do webview real).
+  const [cycle, setCycle] = useState<CycleState>({ index: -1, saved: '' });
   const ta = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Trocou de sessão: sai de um ciclo em andamento (o histórico agora é de outra conversa).
+  useEffect(() => { setCycle({ index: -1, saved: '' }); }, [sessionId]);
+  // Rascunho ficou vazio (enviado, apagado à mão, ou o próprio ciclo restaurou ''): sai do ciclo —
+  // mesmo guard do hook real (`Cq0`: "if (currentInput === '') resetHistory()").
+  useEffect(() => { if (text === '') setCycle({ index: -1, saved: '' }); }, [text]);
 
   // Libera as URLs de objeto ao desmontar (as de cada remoção são liberadas em removeAttachment).
   useEffect(() => () => { attachments.forEach(a => a.url && URL.revokeObjectURL(a.url)); }, [attachments]);
@@ -69,7 +91,31 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     } catch { /* o ClaudePage mostra o erro; mantém o rascunho e os anexos */ }
     finally { setSending(false); }
   }
-  function key(e: KeyboardEvent<HTMLTextAreaElement>) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }
+  function key(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); return; }
+    // Recall de mensagens: só quando não há menu aberto (evita brigar com a navegação de um popover)
+    // e o cursor está colado no início (ArrowUp) ou no fim (ArrowDown) de TODO o texto — não só da
+    // linha atual. É a mesma checagem de posição do cursor da extensão real (`cycleMessage`/`Cq0` no
+    // webview decompilado): com texto de várias linhas, ArrowUp no meio continua navegando normal.
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !menu && history && history.length && ta.current) {
+      const el = ta.current;
+      const dir: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
+      const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+      const atEnd = el.selectionStart === text.length && el.selectionEnd === text.length;
+      if ((dir === -1 && atStart) || (dir === 1 && atEnd)) {
+        const r = cycleMessageIndex(dir, cycle, history, text);
+        if (r) {
+          e.preventDefault();
+          setCycle({ index: r.index, saved: r.saved });
+          setText(r.text);
+          // Cursor no início quando ArrowUp mostrou um item do histórico; no fim nos outros casos
+          // (espelha N75/O75 do webview real: recall mais antigo começa lido do topo, o resto do fim).
+          const pos = dir === -1 && r.index !== -1 ? 0 : r.text.length;
+          setTimeout(() => el.setSelectionRange(pos, pos), 0);
+        }
+      }
+    }
+  }
   function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
     const files = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'));
     if (files.length) { e.preventDefault(); addFiles(files); }
@@ -91,7 +137,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
 
   const slashOpen = menu === 'slash' || (menu === '' && /^\/\S*$/.test(text.trimStart()) && text.trim().length > 0);
   const slashFilter = text.trimStart();
-  const slashItems = SLASH.filter(s => menu === 'slash' || s.cmd.startsWith(slashFilter));
+  // Lista real da sessão (Query.supportedCommands(), via ClaudePage) quando já existe; senão os 4 fixos.
+  const slashSource = commands && commands.length ? commands.map(c => ({ cmd: '/' + c.name, desc: c.description })) : SLASH_FALLBACK;
+  const slashItems = slashSource.filter(s => menu === 'slash' || s.cmd.startsWith(slashFilter));
   const canSend = !sending && (!!text.trim() || attachments.length > 0);
 
   return (
@@ -136,7 +184,23 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         )}
-        <span className="cc-pill" title="Modelo da sessão">{modelLabel}</span>
+        {onModel ? (
+          <div className="cc-pop">
+            <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'model' ? '' : 'model')} title="Modelo">
+              {modelLabel} <Chevron size={10} className="cc-chev-down" />
+            </button>
+            <Menu open={menu === 'model'} onClose={() => setMenu('')} className="cc-menu-up">
+              <div className="cc-menu-title">Modelo</div>
+              {MODEL_ORDER.map(m => (
+                <button key={m} className={`cc-menu-item ${m === (model ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onModel(m); setMenu(''); }}>
+                  <span className="cc-menu-item-name">{MODEL_LABEL[m]}</span>
+                </button>
+              ))}
+            </Menu>
+          </div>
+        ) : (
+          <span className="cc-pill" title="Modelo da sessão">{modelLabel}</span>
+        )}
         {onEffort && (
           <div className="cc-pop">
             <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'effort' ? '' : 'effort')} title="Esforço de raciocínio">

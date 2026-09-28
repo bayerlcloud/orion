@@ -18,13 +18,20 @@ function memStore() {
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timeout'); await wait(5); } }
 
-/** SDK falso: emite init, pede permissão para Bash, devolve texto e result. */
-function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number } = {}): { fn: QueryFn; calls: any[] } {
+/**
+ * SDK falso: emite init, pede permissão para Bash, devolve texto e result. `commands`, quando
+ * passado, expõe `supportedCommands()` no objeto Query devolvido (como o SDK real faz, mas os outros
+ * testes deste arquivo — sem essa opção — reproduzem de propósito um fake "burro" sem métodos de
+ * controle, pra garantir que o runner nunca quebra chamando um método que não existe).
+ * `commandsChanged`, quando passado, emite um `system/commands_changed` (push do SDK) no meio do turno.
+ */
+function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[] } = {}): { fn: QueryFn; calls: any[] } {
   const calls: any[] = [];
   const fn: QueryFn = ({ prompt, options }) => {
     calls.push({ prompt, options });
     async function* gen() {
       yield { type: 'system', subtype: 'init', model: 'claude-test', cwd: options?.cwd, session_id: options?.sessionId ?? options?.resume } as any;
+      if (opts.commandsChanged) yield { type: 'system', subtype: 'commands_changed', commands: opts.commandsChanged } as any;
       yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'oi' } } } as any;
       if (opts.slow) await wait(opts.slow);
       if (options?.signal?.aborted || options?.abortController?.signal.aborted) throw new Error('aborted');
@@ -36,7 +43,9 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
       yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${prompt}` }] } } as any;
       yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.01, num_turns: 1, duration_ms: 5 } as any;
     }
-    return gen() as any;
+    const g = gen();
+    if (opts.commands) (g as any).supportedCommands = async () => opts.commands;
+    return g as any;
   };
   return { fn, calls };
 }
@@ -153,6 +162,37 @@ describe('Runner', () => {
     await r.stop('s8');
     await until(() => m.sessions.get('s8')?.status === 'idle', 3000);
     expect(m.sessions.get('s8').lastError).toBe('Interrompido pelo usuário');
+  });
+
+  it('sem Query.supportedCommands() (fake burro, como todos os outros testes acima): commandsFor fica [] e nada quebra', async () => {
+    const m = memStore(); const q = fakeQuery();
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 's9', prompt: 'x', isNew: true });
+    await until(() => m.sessions.get('s9')?.status === 'idle');
+    expect(r.commandsFor('s9')).toEqual([]);
+  });
+
+  it('depois do init, chama Query.supportedCommands() e expõe o resultado via commandsFor + evento "commands"', async () => {
+    const commands = [{ name: 'clear', description: 'Limpa o contexto', argumentHint: '', builtin: true }];
+    const m = memStore(); const q = fakeQuery({ commands });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    const seen: LiveEvent[] = []; r.subscribe('s10', e => seen.push(e));
+    r.startTurn({ ...base, sessionId: 's10', prompt: 'x', isNew: true });
+    await until(() => m.sessions.get('s10')?.status === 'idle');
+    await until(() => r.commandsFor('s10').length > 0);
+    expect(r.commandsFor('s10')).toEqual(commands);
+    const ev = seen.find(e => e.type === 'commands') as any;
+    expect(ev.commands).toEqual(commands);
+  });
+
+  it('push commands_changed no meio da sessão substitui a lista (REPLACE, não soma)', async () => {
+    const initial = [{ name: 'clear', description: 'a', argumentHint: '' }];
+    const changed = [{ name: 'clear', description: 'a', argumentHint: '' }, { name: 'deploy', description: 'skill descoberta', argumentHint: '' }];
+    const m = memStore(); const q = fakeQuery({ commands: initial, commandsChanged: changed });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 's11', prompt: 'x', isNew: true });
+    await until(() => m.sessions.get('s11')?.status === 'idle');
+    expect(r.commandsFor('s11')).toEqual(changed);
   });
 });
 
