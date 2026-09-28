@@ -20,6 +20,7 @@ export const KEYS = {
   defaultMode: 'claude_default_mode',
   defaultModel: 'claude_default_model',
   maxBudgetUsd: 'claude_max_budget_usd',
+  hostingerToken: 'hostinger_api_token',
 } as const;
 
 /** Token de `claude setup-token`: começa com sk-ant- e é longo. Só validação de forma. */
@@ -39,4 +40,28 @@ export function sdkEnv(token: string | null): Record<string, string> | undefined
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   env.CLAUDE_CODE_OAUTH_TOKEN = token;
   return env;
+}
+
+export type StdioMcpServerConfig = { type: 'stdio'; command: string; args: string[]; env: Record<string, string> };
+
+/** Um binário do pacote hostinger-api-mcp por vertical da API (mesmo token para todos, igual ao .mcp.json da c1). */
+const HOSTINGER_MCP_BINS: Record<string, string> = {
+  'hostinger-hosting': 'hostinger-hosting-mcp',
+  'hostinger-wordpress': 'hostinger-wordpress-mcp',
+  'hostinger-domains': 'hostinger-domains-mcp',
+  'hostinger-dns': 'hostinger-dns-mcp',
+  'hostinger-billing': 'hostinger-billing-mcp',
+  'hostinger-reach': 'hostinger-reach-mcp',
+  'hostinger-vps-studio': 'hostinger-vps-mcp',
+  'hostinger-ecommerce': 'hostinger-ecommerce-mcp',
+};
+
+/** MCP servers da Hostinger pras sessões do Claude — undefined sem token configurado. */
+export function hostingerMcpServers(token: string | null): Record<string, StdioMcpServerConfig> | undefined {
+  if (!token) return undefined;
+  const out: Record<string, StdioMcpServerConfig> = {};
+  for (const [name, bin] of Object.entries(HOSTINGER_MCP_BINS)) {
+    out[name] = { type: 'stdio', command: 'npx', args: ['--package=hostinger-api-mcp@latest', bin], env: { APITOKEN: token, HOSTINGER_API_TOKEN: token } };
+  }
+  return out;
 }

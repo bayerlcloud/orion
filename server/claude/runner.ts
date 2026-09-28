@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
 export type LiveEvent =
@@ -70,6 +70,7 @@ export type TurnParams = {
   systemAppend: string;
   maxBudgetUsd?: number;
   env?: Record<string, string>;
+  mcpServers?: Record<string, McpServerConfig>;
 };
 
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string };
@@ -195,6 +196,7 @@ export class Runner {
       ...(p.model ? { model: p.model } : {}),
       ...(p.effort ? { effort: p.effort } : {}),
       ...(p.env ? { env: p.env } : {}),
+      ...(p.mcpServers ? { mcpServers: p.mcpServers } : {}),
     };
 
     let ok = false, cost = 0, turns = 0;
