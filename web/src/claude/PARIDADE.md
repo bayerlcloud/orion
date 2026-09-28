@@ -154,19 +154,109 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Botão copiar comando (`copyButton_F2hEIg`, `copyIcon`) | **implementado agora** | copia IN/comando |
 | Colapsar/expandir IN/OUT longos (`expandButton_xGDvVg`, `truncationGradient`) | **implementado agora** | corpo dobrável, forma de 1 linha quando fechado |
 | Render distinto Read/Edit/Write/Bash (`bashCommand_F2hEIg`, `filename_adbcGQ`) | **implementado agora** | caminho de arquivo em destaque; Bash mostra comando |
-| Diff colorido para Edit (`insertions/deletions_oblbPg`, `char-insert/delete`) | **implementado agora** | diff unificado simples (linhas -/+) |
+| Diff colorido para Edit (`insertions/deletions_oblbPg`, `char-insert/delete`) | **implementado agora (28/09/2026, rodada 2)** | diff unificado simples (linhas -/+) **+ destaque de caractere dentro da linha trocada** — ver nota abaixo |
 | Permission card allow/deny (`permissionRequestContainer_qlaBag`) | já tem | `cc-perm` |
 | "Sim, e não perguntar de novo" (`Yes, and don't ask again`) | já tem | `allow_always` |
 | Escopo do allow_always (session/settings) | n/a | sem UI de escopo; SDK decide |
 | AskUserQuestion com opções (`questionBlock_hONcXw`, `optionLabel`, `radio`) | **corrigido agora** | `cc-ask`/`AskAnswer`: marcar opção só seleciona, um botão "Enviar respostas" finaliza; antes o 1º clique em qualquer opção já respondia tudo (sem dar pra marcar mais de uma em pergunta `multiSelect`), e a resposta ("Você respondeu") virava o JSON cru da pergunta em vez do texto escolhido — ver bug de `2026-09-28` |
 | Navegação multi-pergunta (`navTab_hONcXw`, `navigationBar`) | n/a | renderizamos todas as perguntas em sequência, cada uma com sua própria seleção; "Enviar respostas" só habilita com todas respondidas |
-| Todo list (`todoList_xheXVQ`, `todoItem`, pending/in_progress/completed) | n/a | baixa prioridade; não implementado |
-| Subagent (`subagentRow_mpBgEA`, `innerCall_3H9AYw`) | n/a | fora de escopo |
+| Todo list (`todoList_xheXVQ`, `todoItem`, pending/in_progress/completed) | **implementado agora (28/09/2026, rodada 2)** | checklist dedicada — ver nota abaixo |
+| Subagent / tool `Task` (renderer interno "Agent", `class jD1{name="Agent"}`) | **implementado agora (28/09/2026, rodada 2)** | linha dedicada (não passa mais pelo bloco de ferramenta genérico) — ver nota abaixo |
 | Plan mode / plan review (`ExitPlanMode`, `milestone*_UxGN1Q`) | n/a | fora de escopo (pedido) |
 | Rewind / checkpoint (`rewind`, `changedFile_5FHdxw`, `checkoutButton`) | n/a | fora de escopo (arriscado) |
 | Custo · duração · turnos no result (`metaMessage_07S1Yg`, `Total duration (API)`) | já tem | `cc-result` |
 | Tokens de entrada/saída no result (`modelUsage`) | **implementado agora** | soma `modelUsage` → "N↑ / N↓ tokens" |
 | Mensagem interrompida (`interruptedMessage_07S1Yg`) | já tem | via evento de erro/result |
+
+### Diff de caractere, Todo list e Subagent — rodada de 28/09/2026 (2)
+
+Auditoria do dia comparou `Timeline.tsx`/`mapper.ts` de novo com `webview/index.js` v2.1.282
+(`/srv/orion-reference/vscode-extension/extension/webview/index.js`) e achou dois gaps reais na
+apresentação de atividade de ferramenta: o diff do Edit só marcava linha inteira (sem destaque
+dentro da linha trocada), e TodoWrite/Task caíam no bloco de ferramenta genérico sem nenhuma
+formatação dedicada. Os dois foram fechados nesta rodada, TDD (vermelho→verde confirmado, 24 testes
+novos + 2 de integração em `tests/mapper.test.ts`, suíte inteira em verde: 329 testes, `npm run
+build` limpo).
+
+**Diff de caractere (Edit/Write).** Antes de mexer, confirmei o que a extensão real faz de verdade,
+sem assumir — lendo o JS decompilado, não só o nome das classes:
+- As classes `char-insert`/`char-delete` aparecem lado a lado com `diff-review-row`,
+  `line-insert`/`line-delete`, `gutter-insert`/`gutter-delete` e `moved-blocks-lines` — ou seja, a
+  extensão roda o **editor de diff completo do Monaco** por baixo do painel (o mesmo motor do
+  VS Code), não um highlight caseiro. Isso é bem mais que "word-level": inclui gutters, minimapa,
+  blocos movidos e linhas de revisão pra acessibilidade — fora de escopo pra essa rodada de
+  paridade (confirma a entrada existente desta tabela sobre não fazer highlight de sintaxe).
+- A granularidade real das decorações, porém, é **caractere**, não palavra: `webview/index.css`
+  define `.monaco-editor .char-insert,.monaco-diff-editor .char-insert{background-color:var(--vscode-diffEditor-insertedTextBackground)}`
+  e o mesmo pra `.char-delete`; a view inline/unificada (a que se parece com a nossa, sem colunas
+  lado a lado) usa especificamente `.inline-deleted-text{text-decoration:line-through}` pro texto
+  removido.
+- **Implementado** (`web/src/claude/mapper.ts`): `charDiff(oldLine, newLine)` — LCS por code point
+  (`Array.from`, não `split('')`, pra não quebrar par substituto/emoji) que devolve os trechos
+  ctx/add/del de cada lado, já mesclados em runs. `charDiffIfSimilar` decide se vale destacar: usa
+  prefixo+sufixo comum (não a contagem de contexto do LCS) porque LCS de caractere sozinho
+  super-estima semelhança entre linhas sem nenhuma relação (letras soltas casam em qualquer posição);
+  limiar de 30% da linha mais longa como prefixo/sufixo compartilhado, e um teto de 500 caracteres
+  por linha (custo do LCS é O(n·m)). `annotateCharDiffs(lines)` pareia, dentro da saída já existente
+  de `unifiedDiff`, cada corrida de `del` com a corrida de `add` que vem logo depois (1 a 1, na
+  ordem) e anota `parts` nos pares parecidos — sem mudar `unifiedDiff` em si (os testes de diff de
+  linha existentes continuam intactos). Em `Timeline.tsx`, `EditDiff` passa a usar
+  `annotateCharDiffs`, e `DiffLineBody` renderiza os `parts` como `<span className="cc-diff-char
+  is-add/is-del">` (nome próprio, seguindo a convenção `cc-*` do resto do arquivo — não literalmente
+  `char-insert`/`char-delete` do Monaco, que é nome de classe de um editor que não existe aqui) —
+  fundo mais forte que o da linha (`claude.css`) e risco no texto removido (`text-decoration:
+  line-through`), espelhando o `.inline-deleted-text` real citado acima. 7 testes novos
+  (`charDiff`, `charDiffIfSimilar`, `annotateCharDiffs`) cobrem: linha idêntica, uma troca no meio,
+  duas trocas separadas na mesma linha, linhas sem nada em comum, add/del puro (sem parceiro) não
+  ganha destaque, e imutabilidade da lista original.
+
+**Todo list (TodoWrite).** Schema real confirmado em duas fontes concordantes: `TodoWriteInput` em
+`node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts` (`{ todos: { content: string; status:
+"pending"|"in_progress"|"completed"; activeForm: string }[] }`) e a leitura defensiva no webview
+(`function PI1($){return typeof $==="object"&&$!==null&&"todos"in $&&Array.isArray($.todos)?$.todos:void 0}`).
+A renderização real (`function gG0({todos})` + checkbox `function J65({status})`, classes
+`todoListContainer_xheXVQ`/`todoList_xheXVQ`/`todoItem_xheXVQ`/`completed_xheXVQ`/`content_xheXVQ`)
+só usa **`content` e `status`** de cada item — `activeForm` existe no schema mas não aparece na UI
+(o checkbox real é um `<input type=checkbox disabled>` com `.checked`/`.indeterminate` setados via
+`useEffect`: `completed` → marcado; `in_progress` → indeterminado/meio-marcado; `pending` → vazio; e
+o CSS risca + esmaece o texto quando completed: `.completed_xheXVQ .content_xheXVQ{text-decoration:
+line-through;opacity:.7}`). O cabeçalho real é sempre o texto fixo **"Update Todos"** (`class
+wD1{name=Vw;header(){return...children:"Update Todos"}}`), nunca dinâmico.
+**Implementado**: `parseTodos(input)` em `mapper.ts` (leitura defensiva, nunca lança, status
+desconhecido cai em `pending`) + componente `TodoList` em `Timeline.tsx` — checklist com um ícone de
+checkbox por status (`cc-todo-check is-pending/is-in_progress/is-completed`) e texto riscado+esmaecido
+quando completed, igual à extensão. Cabeçalho traduzido pro padrão PT-BR do resto da tela ("Lista de
+tarefas", mesma convenção de `AskUserQuestion` → "Pergunta"). 3 testes de `parseTodos` + 2 de
+`describeTool` (rótulo e contagem "N itens"/"1 item") + 1 de integração via `reduceSdkMessages`
+(confirma que o `input.todos` bruto chega intacto no evento).
+
+**Subagent (tool `Task`).** O nome real da tool no SDK é **`Task`**, não "Agent" — confirmado em
+`webview/index.js` (`var RE="Task"`) e no schema real (`AgentInput` em `sdk-tools.d.ts`:
+`description`/`prompt`/`subagent_type?`/`model?`/`run_in_background?`). A extensão mapeia esse nome
+internamente pro renderer registrado como `"Agent"` (`function sZ($,J){...let
+X=$==="Task"?"Agent":$,Y=Z.find((Q)=>Q.name===X)...}`) e mostra **"Agent: {description}"** no
+cabeçalho (`class jD1 extends p2{name="Agent";header($,J){return...children:"Agent:"...J.description}}`),
+com o `prompt` como corpo IN clicável (abre num visualizador) e **sem OUT**
+(`renderOutput(){return null}`) — achado que bate com a entrada pré-existente desta tabela pra
+"Agent" em `describeTool` (que nunca disparava de verdade, porque o nome real da tool sempre foi
+"Task", não "Agent" — bug de nomenclatura antigo, corrigido de passagem nesta rodada). Também existe,
+à parte, uma UI de "subagentRow" (`subagentRow_mpBgEA`, funções `lU0`/`iU0`/`dU0`) pra quando várias
+tarefas em paralelo ficam dobradas numa fileira condensada com telemetria ao vivo (tempo decorrido,
+tokens, contagem de tool calls do subagente) — isso é uma feature de dobra de múltiplas tarefas
+concorrentes com stream de progresso próprio, que o Orion não tem (nossa timeline é uma lista linear
+só); não replicada — fora do escopo desta rodada, documentado aqui pra não confundir com o resto.
+**Implementado**: `describeTool` ganhou o caso `'Task'` → `{ label: 'Agent', description:
+input.description, inputText: input.prompt }` (bate com o cabeçalho real "Agent: {description}" +
+IN = prompt). Em `Timeline.tsx`, componente `TaskAgent` dedicado (não passa mais pelo bloco de
+ferramenta genérico `Tool`) — mostra "Agent" + descrição em destaque, `subagent_type` como selo
+secundário quando existe (extra nosso, não está no cabeçalho real, mas é dado que já temos e é útil),
+e status rodando/concluído/falhou via `taskStatusLabel(e.status)` (texto de progresso simples a
+partir do `ToolStatus` que já temos — não inventamos a telemetria ao vivo da extensão real, que
+exigiria um stream de progresso por tarefa que não existe aqui). Diferente da extensão real,
+mantivemos o OUT (resultado final do subagente) dobrável — ela esconde, mas aqui é informação que o
+Bayerl efetivamente usa pra acompanhar o que o subagente fez; decisão documentada, não um gap. 4
+testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText) + 1 de integração via
+`reduceSdkMessages`.
 
 ## 5. Compositor
 
@@ -210,7 +300,7 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
   no `:focus-within` (antes só `:hover`) — o endpoint de rename já existia
   (`POST /api/claude/sessions/:id/rename`), não foi criado nada novo no servidor.
   Lógica pura testada em `mapper.test.ts` (`filterSessions`, `groupSessions`).
-- **implementado nesta rodada** (28/09/2026 — Conta e uso, ver seção 3 para os detalhes e
+- **implementado em rodada anterior (3)** (28/09/2026 — Conta e uso, ver seção 3 para os detalhes e
   evidências): suporte real a `rate_limits` do SDK quando disponível (`computeRealUsageBars`,
   `formatResetIn`, `/api/claude/usage` agora também lê `claude_events` pelo `result` mais recente
   com `rate_limits_available`) — condicional e hoje inativo na prática (token de `setup-token` não
@@ -221,8 +311,26 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
   de e-mail/CONTA foi decisão deliberada do Bayerl (commit `4a00e94`), não um gap — não recolocada.
   8 testes novos de `formatResetIn`/`computeRealUsageBars` + 2 de `computeUsageBars` com dado real,
   em `tests/mapper.test.ts`, TDD (vermelho→verde confirmado).
-- **deixados de fora (n/a)**: todo list, subagent, plan mode/plan review, rewind/checkpoint,
-  anexos, @-menções, voz, uso por modelo, atribuição de uso (`behaviors` existe no SDK mas é outra
-  função — fora do escopo), navegação multi-pergunta, worktree, "Manage", grupos personalizados
-  arrastáveis (pastas nomeadas e persistidas — "Agrupar por" cobre a necessidade prática sem exigir
-  a persistência nova).
+- **implementado nesta rodada** (28/09/2026, rodada 2 — Timeline: diff de caractere + Todo list +
+  Subagent, ver seção 4 para os detalhes e evidências): destaque de caractere dentro de linhas
+  trocadas do Edit/Write (`charDiff`/`charDiffIfSimilar`/`annotateCharDiffs` em `mapper.ts`, LCS por
+  code point com limiar de prefixo/sufixo comum pra decidir se vale destacar; classes
+  `cc-diff-char is-add/is-del` em `Timeline.tsx`/`claude.css`) — confirmado, lendo o JS decompilado,
+  que a extensão real roda o editor de diff completo do Monaco (não um highlight simples) com
+  granularidade de caractere (`char-insert`/`char-delete`); reimplementamos só a granularidade, não
+  o widget inteiro (gutters/minimapa/linhas de revisão), que é bem mais lift e continua fora de
+  escopo. Checklist dedicada pro `TodoWrite` (`parseTodos` + componente `TodoList`, schema real
+  confirmado em `sdk-tools.d.ts` e no webview). Linha dedicada pro `Task` (renomeado "Agent" na tela,
+  igual à extensão — `describeTool` ganhou o caso `'Task'`, componente `TaskAgent` não passa mais
+  pelo bloco genérico; corrigido de passagem um caso `'Agent'` morto em `describeTool` que nunca
+  disparava porque o nome real da tool sempre foi "Task"). 24 testes novos + 2 de integração via
+  `reduceSdkMessages`, TDD (vermelho→verde confirmado: 22 testes falhando por função ausente antes
+  da implementação, depois verde); suíte inteira em 329 testes, `npm run build` limpo.
+- **deixados de fora (n/a)**: plan mode/plan review, rewind/checkpoint, anexos, @-menções, voz, uso
+  por modelo, atribuição de uso (`behaviors` existe no SDK mas é outra função — fora do escopo),
+  navegação multi-pergunta, worktree, "Manage", grupos personalizados arrastáveis (pastas nomeadas e
+  persistidas — "Agrupar por" cobre a necessidade prática sem exigir a persistência nova), telemetria
+  ao vivo de subagente (tempo decorrido/tokens/tool calls — `subagentRow` real, exigiria stream de
+  progresso por tarefa que o Orion não tem), widget completo do editor de diff do Monaco (gutters,
+  minimapa, blocos movidos, linhas de revisão de acessibilidade — só a granularidade de caractere foi
+  replicada, não o widget).

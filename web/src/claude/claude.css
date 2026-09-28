@@ -247,6 +247,33 @@
 .cc-diff-line.is-del { background: color-mix(in srgb, var(--cc-failure) 16%, transparent); }
 .cc-diff-line.is-ctx { color: var(--cc-fg2); }
 
+/* Destaque de caractere dentro de uma linha trocada (ver annotateCharDiffs/charDiff em mapper.ts) —
+   granularidade igual à extensão real (decorações char-insert/char-delete do Monaco por baixo do
+   editor de diff dela); fundo mais forte que o da linha, e a parte removida ganha risco (mesmo
+   tratamento do `.inline-deleted-text` da extensão real na view inline/unificada). */
+.cc-diff-char.is-add { background: color-mix(in srgb, var(--cc-success) 42%, transparent); border-radius: 2px; }
+.cc-diff-char.is-del { background: color-mix(in srgb, var(--cc-failure) 42%, transparent); border-radius: 2px; text-decoration: line-through; }
+
+/* ===== TodoWrite: checklist ===== */
+.cc-todo { padding: 2px 0; }
+.cc-todo-head { margin-bottom: 4px; }
+.cc-todo-list { list-style: none; display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; }
+.cc-todo-item { display: flex; align-items: flex-start; gap: 8px; padding: 1px 0; }
+.cc-todo-check { flex-shrink: 0; width: 13px; height: 13px; margin-top: 2px; border-radius: 3px; border: 1px solid var(--cc-fg2); }
+.cc-todo-check.is-pending { background: transparent; }
+.cc-todo-check.is-in_progress { border-color: var(--cc-pending); background: linear-gradient(to right, var(--cc-pending) 50%, transparent 50%); }
+.cc-todo-check.is-completed { border-color: var(--cc-success); background: var(--cc-success); }
+.cc-todo-content { overflow-wrap: anywhere; }
+.cc-todo-item.is-completed .cc-todo-content { text-decoration: line-through; color: var(--cc-fg2); opacity: .8; }
+
+/* ===== Task/Agent (subagente) ===== */
+.cc-task .cc-tool-name { color: var(--cc-orange); }
+.cc-task-type { color: var(--cc-fg2); font-size: 11px; border: .5px solid var(--cc-line); border-radius: 8px; padding: 0 6px; flex-shrink: 0; }
+.cc-task-status { font-size: 11px; color: var(--cc-fg2); flex-shrink: 0; }
+.cc-task-status.is-running { color: var(--cc-pending); animation: cc-pulse 1.6s ease-in-out infinite; }
+.cc-task-status.is-failure { color: var(--cc-failure); }
+.cc-task-status.is-success { color: var(--cc-success); }
+
 /* ===== menus do compositor ===== */
 .cc-pop { position: relative; display: inline-flex; }
 .cc-menu-backdrop { position: fixed; inset: 0; z-index: 20; }
