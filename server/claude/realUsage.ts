@@ -3,54 +3,77 @@ import { KEYS, getSetting } from '../settings.js';
 import { readClaudeCredentials } from './credentialsFile.js';
 
 /**
- * Busca os limites reais de uso direto na API da Anthropic (mesmo endpoint que o plugin oficial e
- * o Orion antigo usavam: GET /api/oauth/usage), em vez de esperar um campo em algum result do SDK.
- * Exige um token com escopo `user:profile` — o token de `claude setup-token` não tem esse escopo
- * (erro `oauth_scope_insufficient`, confirmado em produção em 2026-09-28); o de `claude auth login`
- * tem. Por isso a ordem de preferência abaixo: primeiro o arquivo de credenciais do login interativo
- * (auto-renovado pelo próprio `claude` CLI a cada uso, igual o Orion antigo lia), só then o token
- * manual salvo nas Configurações (que hoje nunca vai ter esse escopo, mas não custa tentar se um dia
- * o usuário colar um token com escopo mais largo).
+ * Busca os limites reais de uso direto na API da Anthropic (mesmo endpoint que o plugin oficial usa:
+ * GET /api/oauth/usage), em vez de esperar um campo em algum result do SDK. Exige um token com
+ * escopo `user:profile` — o token de `claude setup-token` não tem esse escopo (erro
+ * `oauth_scope_insufficient`, confirmado em produção em 2026-09-28); o de `claude auth login` tem.
+ * Ordem de preferência: primeiro o arquivo de credenciais do login interativo (auto-renovado pelo
+ * próprio `claude` CLI a cada uso), só então o token manual salvo nas Configurações.
+ *
+ * Formato real da resposta (capturado ao vivo em produção em 2026-09-28, primeiro login bem
+ * sucedido — **diferente** do que a nota antiga desta função e o `usage.js` do Orion antigo
+ * assumiam, API deve ter mudado desde então):
+ * - `five_hour.utilization` e `seven_day.utilization` já vêm em **escala 0-100** (ex.: `12.0` =
+ *   12%), não 0-1 — multiplicar por 100 de novo (o bug do primeiro deploy) estoura pra 100% em
+ *   qualquer conta com uso > 1%.
+ * - Não existe `model_scoped[]` nem `subscription_type` na resposta. O limite específico de modelo
+ *   (rótulo "Fable" na captura de tela do Bayerl) vem dentro do array `limits[]`, num item com
+ *   `kind: "weekly_scoped"` e `scope.model.display_name`. Os outros dois `kind` úteis nesse array são
+ *   `"session"` (mesmo dado de `five_hour`) e `"weekly_all"` (mesmo dado de `seven_day`) — usamos os
+ *   campos de topo pra esses dois por serem mais diretos, e só o `limits[]` pro terceiro, que não
+ *   existe em nenhum outro lugar da resposta.
  */
 
 type RawWindow = { utilization?: number | null; resets_at?: string | null } | null | undefined;
+type RawLimit = {
+  kind?: string;
+  percent?: number | null;
+  resets_at?: string | null;
+  scope?: { model?: { display_name?: string | null } | null } | null;
+};
 type RawUsageResponse = {
-  subscription_type?: string | null;
   five_hour?: RawWindow;
   seven_day?: RawWindow;
-  seven_day_sonnet?: RawWindow;
-  seven_day_opus?: RawWindow;
-  model_scoped?: { display_name: string; utilization?: number | null; resets_at?: string | null }[];
+  limits?: RawLimit[];
 };
 
 type NormWindow = { utilization: number | null; resets_at: string | null };
 type RealRateLimits = {
   five_hour?: NormWindow;
   seven_day?: NormWindow;
-  seven_day_sonnet?: NormWindow;
   model_scoped?: (NormWindow & { display_name: string })[];
 };
 export type RealUsageResult = { subscription_type: string | null; rate_limits: RealRateLimits } | null;
 
-/** A API devolve utilization 0-1; o resto do Orion (computeRealUsageBars) espera 0-100. */
-function normWindow(w: RawWindow): NormWindow | null {
-  if (!w || w.utilization === null || w.utilization === undefined) return null;
-  return { utilization: Math.round(w.utilization * 100), resets_at: w.resets_at ?? null };
+function clampPct(n: number): number {
+  return Math.round(Math.min(100, Math.max(0, n)));
 }
 
-/** Monta o RealUsageResult a partir da resposta crua da API — função pura, testável sem rede. */
+/** utilization já vem em 0-100 (ver nota acima) — só arredonda e limita, nunca multiplica. */
+function normWindow(w: RawWindow): NormWindow | null {
+  if (!w || w.utilization === null || w.utilization === undefined) return null;
+  return { utilization: clampPct(w.utilization), resets_at: w.resets_at ?? null };
+}
+
+/** Acha o limite semanal específico de modelo (kind "weekly_scoped", rótulo em scope.model.display_name)
+ * — é o único lugar da resposta onde esse dado (ex.: "Fable") existe. */
+function modelScopedFromLimits(limits: RawLimit[] | undefined): (NormWindow & { display_name: string })[] {
+  if (!limits?.length) return [];
+  return limits
+    .filter(l => l.kind === 'weekly_scoped' && l.scope?.model?.display_name && l.percent !== null && l.percent !== undefined)
+    .map(l => ({ display_name: l.scope!.model!.display_name!, utilization: clampPct(l.percent!), resets_at: l.resets_at ?? null }));
+}
+
+/** Monta o RealUsageResult a partir da resposta crua da API — função pura, testável sem rede.
+ * `subscription_type` não existe nessa resposta (ver nota acima); sempre null. */
 export function parseUsageResponse(data: RawUsageResponse): RealUsageResult {
   const rate_limits: RealRateLimits = {};
   const fh = normWindow(data.five_hour); if (fh) rate_limits.five_hour = fh;
   const sd = normWindow(data.seven_day); if (sd) rate_limits.seven_day = sd;
-  const sds = normWindow(data.seven_day_sonnet); if (sds) rate_limits.seven_day_sonnet = sds;
-  if (data.model_scoped?.length) {
-    rate_limits.model_scoped = data.model_scoped
-      .map(m => { const w = normWindow(m); return w ? { display_name: m.display_name, ...w } : null; })
-      .filter((x): x is { display_name: string; utilization: number | null; resets_at: string | null } => x !== null);
-  }
+  const modelScoped = modelScopedFromLimits(data.limits);
+  if (modelScoped.length) rate_limits.model_scoped = modelScoped;
   if (!Object.keys(rate_limits).length) return null;
-  return { subscription_type: data.subscription_type ?? null, rate_limits };
+  return { subscription_type: null, rate_limits };
 }
 
 let cache: { at: number; value: RealUsageResult } | null = null;
