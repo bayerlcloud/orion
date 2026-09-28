@@ -6,3 +6,13 @@ v2.bayerl.cloud {
 http://217.76.55.249 {
 	reverse_proxy 127.0.0.1:3000
 }
+
+fisioexpert.bayerl.cloud {
+	reverse_proxy 127.0.0.1:8083 {
+		header_up Host "localhost"
+		transport http {
+			dial_timeout 120s
+			response_header_timeout 120s
+		}
+	}
+}
