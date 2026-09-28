@@ -1,10 +1,12 @@
 // Coleta o inventário da VPS e guarda um snapshot. Rodado a cada hora pelo orion-inventory.timer (como o usuário danilo).
 // Lê DATABASE_URL do ambiente (EnvironmentFile=/etc/orion/central.env), como o scripts/seed.ts.
+// Depois do snapshot, regenera os arquivos de contexto do nível 1 (server/nivel1/generate.ts) no mesmo ciclo.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPool } from '../server/db.js';
 import { migrate } from '../server/migrations.js';
 import { collectInventory, saveSnapshot, SNAPSHOTS_GUARDADOS } from '../server/inventory.js';
+import { generateNivel1 } from '../server/nivel1/generate.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +22,12 @@ async function main() {
     `${data.binarios.length} binários, ${data.pacotes.length} pacotes globais, ${data.servicos.length} unidades, ` +
     `${data.containers.length} containers, ${data.portas.length} portas, ${data.apt.length} eventos apt`);
   for (const a of data.avisos) console.log('aviso:', a);
+
+  // Nível 1: aproveita o pool e a versão do claude que o inventário acabou de coletar. Nunca lança.
+  const nivel1 = await generateNivel1(pool, data.binarios);
+  console.log(`nível 1: ${nivel1.escritos.length ? `regenerados ${nivel1.escritos.join(', ')}` : 'nada regenerado'}`);
+  for (const a of nivel1.avisos) console.log('aviso nível 1:', a);
+
   await pool.end();
 }
 
