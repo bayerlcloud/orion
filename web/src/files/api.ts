@@ -29,6 +29,11 @@ export const filesApi = {
   gitStatus: (root: number) => api<GitStatus>(`/api/files/git-status?root=${root}`),
   timeline: (root: number, path: string) => api<{ repo: boolean; commits: Commit[] }>(`/api/files/timeline?${qs(root, path)}`),
   search: (root: number, q: string) => api<{ matches: { path: string; type: 'file' | 'dir' }[]; truncated: boolean }>(`/api/files/search?root=${root}&q=${encodeURIComponent(q)}`),
+  uiState: {
+    /** `expanded_keys: null` = usuário nunca salvou preferência de árvore expandida/colapsada. */
+    get: () => api<{ expanded_keys: string[] | null }>('/api/files/ui-state'),
+    put: (expanded_keys: string[]) => api<{ ok: true }>('/api/files/ui-state', json('PUT', { expanded_keys })),
+  },
 };
 
 export async function copyText(text: string): Promise<boolean> {

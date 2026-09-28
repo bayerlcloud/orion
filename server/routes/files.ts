@@ -319,4 +319,22 @@ export async function filesRoutes(app: FastifyInstance) {
     matches.sort((a, c) => a.path.length - c.path.length || a.path.localeCompare(c.path));
     return { matches, truncated, walked };
   }));
+
+  /**
+   * Estado da árvore do explorer: quais pastas (raízes e subpastas, chave `${rootId}|${rel}`) o
+   * usuário deixou expandidas. Por usuário, sobrevive a reload e troca de dispositivo/navegador.
+   * `expanded_keys: null` = nunca salvou preferência (o front cai no padrão: raízes abertas).
+   */
+  app.get('/api/files/ui-state', guard(async (req) => {
+    const { rows } = await app.pool.query('SELECT explorer_expanded_keys FROM users WHERE id = $1', [req.user!.id]);
+    const keys = rows[0]?.explorer_expanded_keys;
+    return { expanded_keys: Array.isArray(keys) ? keys : null };
+  }));
+
+  app.put('/api/files/ui-state', guard(async (req) => {
+    const raw = b(req).expanded_keys;
+    const keys = Array.isArray(raw) ? raw.filter(x => typeof x === 'string').slice(0, 5000) : [];
+    await app.pool.query('UPDATE users SET explorer_expanded_keys = $2 WHERE id = $1', [req.user!.id, JSON.stringify(keys)]);
+    return { ok: true };
+  }));
 }

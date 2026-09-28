@@ -67,6 +67,21 @@ export function splitKey(key: string): { rootId: number; rel: string } {
   const i = key.indexOf('|');
   return { rootId: Number(key.slice(0, i)), rel: key.slice(i + 1) };
 }
+
+/**
+ * Filtra chaves de pastas expandidas persistidas (ver /api/files/ui-state), descartando lixo e
+ * chaves de uma raiz que não existe mais (projeto removido) — para não travar ao restaurar.
+ */
+export function filterStaleExpandedKeys(keys: readonly unknown[], validRootIds: Set<number> | number[]): string[] {
+  const valid = validRootIds instanceof Set ? validRootIds : new Set(validRootIds);
+  const out: string[] = [];
+  for (const k of keys) {
+    if (typeof k !== 'string' || !k.includes('|')) continue;
+    const { rootId } = splitKey(k);
+    if (Number.isFinite(rootId) && valid.has(rootId)) out.push(k);
+  }
+  return out;
+}
 export const parentRel = (rel: string) => (rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '');
 export const baseName = (rel: string) => rel.split('/').pop() ?? rel;
 export const joinRel = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);

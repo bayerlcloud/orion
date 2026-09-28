@@ -129,6 +129,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE users ADD COLUMN IF NOT EXISTS claude_active_session TEXT;
     `,
   },
+  {
+    id: '007_explorer_ui_state',
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS explorer_expanded_keys JSONB;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

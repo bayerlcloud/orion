@@ -3,7 +3,7 @@ import { copyText, filesApi } from './api';
 import ContextMenu, { type MenuItem } from './ContextMenu';
 import { Chevron, IconClose, IconCollapseAll, IconEllipsis, IconLink, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from './icons';
 import {
-  baseName, isDirLike, isIgnored, isUnder, joinRel, keyOf, parentRel, stemLength, validateNameClient,
+  baseName, filterStaleExpandedKeys, isDirLike, isIgnored, isUnder, joinRel, keyOf, parentRel, splitKey, stemLength, validateNameClient,
   type DirState, type Editing, type GitCode, type GitStatus, type RootInfo, type Row,
 } from './types';
 
@@ -156,6 +156,9 @@ const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(props, ref)
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const expandedRef = useRef(expanded);
   expandedRef.current = expanded;
+  // true depois que a preferência salva (GET /api/files/ui-state) foi aplicada — evita que o efeito
+  // de salvar abaixo grave o estado inicial (vazio) por cima do que o usuário já tinha escolhido.
+  const restoredRef = useRef(false);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -239,13 +242,31 @@ const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(props, ref)
       if (!alive) return;
       setRoots(rs);
       cb.current.onRoots(rs);
-      for (const r of rs) {
-        setExp(keyOf(r.id, ''), true);
-        if (r.exists) { loadDir(r.id, ''); loadGit(r.id); }
-      }
+      for (const r of rs) if (r.exists) loadGit(r.id);
+      // preferência de árvore expandida/colapsada (por usuário, persistida no banco — GET/PUT /api/files/ui-state)
+      return filesApi.uiState.get().then(st => st.expanded_keys).catch(() => null).then(saved => {
+        if (!alive) return;
+        if (saved === null) {
+          // nunca salvou: mantém o padrão de sempre — raízes abertas, subpastas fechadas
+          for (const r of rs) { setExp(keyOf(r.id, ''), true); if (r.exists) loadDir(r.id, ''); }
+        } else {
+          const validIds = new Set(rs.map(r => r.id));
+          for (const k of filterStaleExpandedKeys(saved, validIds)) {
+            const { rootId, rel } = splitKey(k);
+            void expandDir(rootId, rel);
+          }
+        }
+        restoredRef.current = true;
+      });
     }).catch(e => { if (alive) setRootsError((e as Error).message); });
     return () => { alive = false; };
-  }, [loadDir, loadGit, setExp]);
+  }, [expandDir, loadDir, loadGit, setExp]);
+
+  // salva a preferência a cada mudança (best-effort, sem debounce — mesmo padrão do claude ui-state)
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    filesApi.uiState.put([...expanded]).catch(() => { /* melhor esforço: não incomoda o usuário */ });
+  }, [expanded]);
 
   // git de tempos em tempos (as sessões do Claude mexem nos arquivos por fora)
   useEffect(() => {
