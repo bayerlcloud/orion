@@ -1,6 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, filterSessions, groupSessions } from '../web/src/claude/mapper';
-import type { SdkMessage, SessionSummary } from '../web/src/claude/types';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions } from '../web/src/claude/mapper';
+import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
+
+/** Payload real de um AskUserQuestion da sessão de produção "Esta ai?" (fcc5ee4b-96f2-45a5-baf3-78e9f1f71ecd,
+ * claude_approvals.id = 8cddcaaa-9e86-4db9-a038-c967ff0af86f): uma pergunta com multiSelect e 4 opções. */
+const PROD_ASK_QUESTIONS = [{
+  header: 'Tipo de poder',
+  question: "Quando você diz 'te dar mais poder', qual dessas frentes você quer destravar primeiro?",
+  multiSelect: true,
+  options: [
+    { label: 'Permissões do Claude Code aqui no CLI', description: 'Menos prompts de confirmação para bash/edição neste ambiente (settings.json), sem chegar a --dangerously-skip-permissions' },
+    { label: 'Acesso dentro do próprio Orion', description: 'O que o Central/painel Orion permite este agente fazer no sistema (rotas, projetos, contas conectadas)' },
+    { label: 'Escopo de tarefas autônomas', description: 'Deixar eu tomar mais decisões sozinho durante implementações (menos perguntas, mais ação direta)' },
+    { label: 'Outra coisa', description: "Explicar em texto livre o que você quer dizer com 'mais poder'" },
+  ],
+}];
 
 describe('describeTool', () => {
   it('Bash usa a descrição e guarda o comando', () => {
@@ -17,6 +31,74 @@ describe('describeTool', () => {
     const d = describeTool('Foo', { a: 1 });
     expect(d.label).toBe('Foo');
     expect(d.inputText).toContain('"a": 1');
+  });
+  it('AskUserQuestion nunca cai no fallback de JSON cru: inputText é um resumo legível', () => {
+    const d = describeTool('AskUserQuestion', { questions: PROD_ASK_QUESTIONS });
+    expect(d.label).toBe('Pergunta');
+    expect(d.inputText).not.toContain('{');
+    expect(d.inputText).not.toContain('multiSelect');
+    expect(d.inputText).toBe('Tipo de poder');
+  });
+});
+
+describe('formatAskAnswer', () => {
+  it('uma pergunta só: mensagem é só o(s) valor(es) escolhido(s), sem o header', () => {
+    expect(formatAskAnswer(PROD_ASK_QUESTIONS, [['Permissões do Claude Code aqui no CLI']]))
+      .toBe('Permissões do Claude Code aqui no CLI');
+  });
+  it('multiSelect: junta os labels marcados por vírgula (nunca json)', () => {
+    const msg = formatAskAnswer(PROD_ASK_QUESTIONS, [['Permissões do Claude Code aqui no CLI', 'Escopo de tarefas autônomas']]);
+    expect(msg).toBe('Permissões do Claude Code aqui no CLI, Escopo de tarefas autônomas');
+    expect(msg).not.toContain('{');
+    expect(msg).not.toContain('"label"');
+  });
+  it('várias perguntas: uma linha "header: valor" por pergunta respondida', () => {
+    const qs = [{ header: 'A', question: 'pa?', options: [] }, { header: 'B', question: 'pb?', options: [] }];
+    expect(formatAskAnswer(qs, [['x'], ['y', 'z']])).toBe('A: x\nB: y, z');
+  });
+  it('pergunta sem seleção fica de fora (não vira "header: ")', () => {
+    const qs = [{ header: 'A', question: 'pa?', options: [] }, { header: 'B', question: 'pb?', options: [] }];
+    expect(formatAskAnswer(qs, [[], ['y']])).toBe('B: y');
+  });
+  it('aceita texto livre no lugar de uma seleção', () => {
+    expect(formatAskAnswer(PROD_ASK_QUESTIONS, ['minha resposta livre'])).toBe('minha resposta livre');
+  });
+});
+
+describe('foldExpiredPermissions', () => {
+  const perm = (id: string, decision?: string, extra: Partial<Extract<ConvEvent, { kind: 'permission' }>> = {}): ConvEvent =>
+    ({ id, kind: 'permission', toolUseId: id, name: 'Bash', label: 'Bash', description: '', inputText: '', decision: decision as any, ...extra });
+
+  it('não mexe quando não há timeouts', () => {
+    const events = [perm('a', 'allow'), perm('b')];
+    expect(foldExpiredPermissions(events)).toEqual(events);
+  });
+  it('um único expirado isolado fica como está (sem contagem)', () => {
+    const events = [perm('a', 'allow'), perm('b', 'timeout'), perm('c', 'allow')];
+    const out = foldExpiredPermissions(events);
+    expect(out).toHaveLength(3);
+    expect(out[1].id).toBe('b');
+    expect(out[1].kind === 'permission' && out[1].expiredGroupCount).toBeUndefined();
+  });
+  it('3 expirados consecutivos (Bash + 2 AskUserQuestion, como na sessão "Esta ai?") colapsam num só bubble', () => {
+    // Reflete a sessão fcc5ee4b: um Bash e dois AskUserQuestion pendentes órfãos de uma janela de
+    // restarts seguidos do servidor, todos aparecendo em sequência na cauda da linha do tempo.
+    const events = [
+      perm('9dc0ed00', 'timeout', { name: 'Bash' }),
+      perm('8cddcaaa', 'timeout', { name: 'AskUserQuestion', questions: PROD_ASK_QUESTIONS }),
+      perm('bfe20541', 'timeout', { name: 'AskUserQuestion', questions: PROD_ASK_QUESTIONS }),
+      perm('603412f3', 'allow_always'),
+    ];
+    const out = foldExpiredPermissions(events);
+    expect(out.map(e => e.id)).toEqual(['9dc0ed00', '603412f3']);
+    expect(out[0]).toMatchObject({ id: '9dc0ed00', decision: 'timeout', expiredGroupCount: 3 });
+  });
+  it('expirados não-consecutivos (separados por algo resolvido) não colapsam', () => {
+    const events = [perm('a', 'timeout'), perm('mid', 'allow'), perm('b', 'timeout'), perm('c', 'timeout')];
+    const out = foldExpiredPermissions(events);
+    expect(out.map(e => e.id)).toEqual(['a', 'mid', 'b']);
+    expect(out[0].kind === 'permission' && out[0].expiredGroupCount).toBeUndefined();
+    expect(out[2]).toMatchObject({ id: 'b', expiredGroupCount: 2 });
   });
 });
 

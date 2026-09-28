@@ -15,7 +15,12 @@ export type ConvEvent =
       id: string; kind: 'tool'; toolUseId: string; name: string; label: string; description?: string;
       input: unknown; inputText?: string; output?: string; isError?: boolean; status: ToolStatus;
     }
-  | { id: string; kind: 'permission'; toolUseId: string; name: string; label: string; description: string; inputText: string; questions?: AskQuestion[]; decision?: 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout'; answer?: string }
+  | {
+      id: string; kind: 'permission'; toolUseId: string; name: string; label: string; description: string; inputText: string; questions?: AskQuestion[];
+      decision?: 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout'; answer?: string;
+      /** Quando >1: este bubble representa N pedidos expirados consecutivos, colapsados num só (ver foldExpiredPermissions). */
+      expiredGroupCount?: number;
+    }
   | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string };
 

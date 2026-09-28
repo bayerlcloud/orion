@@ -2,7 +2,7 @@ import type { ConvEvent, SdkMessage } from './types';
 import { describeTool, reduceSdkMessages } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
-export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string };
+export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string; answer?: string };
 export type LiveState = {
   status: LiveStatus; messages: SdkMessage[]; partialText: string; partialThinking: string;
   pending: PermReq[]; resolvedPerms: PermReq[]; error: string | null; lastPrompt: string | null;
@@ -48,7 +48,7 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
       case 'user_prompt': s = pushMessage(s, { type: 'user', message: { content: String(p.prompt ?? ''), attachments: Array.isArray(p.attachments) ? p.attachments : undefined } }); break;
       case 'system': case 'assistant': case 'user': case 'result': s = pushMessage(s, p as SdkMessage); break;
       case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false }); break;
-      case 'permission_resolved': { const q = reqs.get(p.id); if (q) q.decision = p.decision; break; }
+      case 'permission_resolved': { const q = reqs.get(p.id); if (q) { q.decision = p.decision; if (typeof p.message === 'string') q.answer = p.message; } break; }
       case 'error': s = { ...s, error: String(p.message ?? 'erro') }; break;
     }
   }
@@ -90,7 +90,13 @@ export function applyLive(s: LiveState, ev: any): LiveState {
     case 'permission_request':
       if (s.pending.some(p => p.id === ev.id)) return s;
       return { ...s, status: 'waiting', pending: [...s.pending, { id: ev.id, toolName: ev.toolName, input: ev.input ?? {}, hasSuggestions: !!ev.hasSuggestions }] };
-    case 'permission_resolved': return { ...s, pending: s.pending.filter(p => p.id !== ev.id) };
+    case 'permission_resolved': {
+      // Move da pendência pra resolvida (em vez de só sumir): sem isso, o bubble "Você respondeu"
+      // só aparecia depois de recarregar a página (fromRows), nunca na hora, ao vivo.
+      const q = s.pending.find(p => p.id === ev.id);
+      const resolved = q ? [...s.resolvedPerms, { ...q, decision: ev.decision, ...(typeof ev.message === 'string' ? { answer: ev.message } : {}) }] : s.resolvedPerms;
+      return { ...s, pending: s.pending.filter(p => p.id !== ev.id), resolvedPerms: resolved };
+    }
     case 'error': return { ...s, error: String(ev.message ?? 'erro'), partialText: '', partialThinking: '' };
     case 'turn_end': return { ...s, partialText: '', partialThinking: '' };
     default: return s;
@@ -106,7 +112,7 @@ export function toConvEvents(s: LiveState): ConvEvent[] {
   for (const p of [...s.resolvedPerms, ...s.pending]) {
     const d = describeTool(p.toolName, p.input);
     const isAsk = p.toolName === 'AskUserQuestion';
-    out.push({ id: p.id, kind: 'permission', toolUseId: p.id, name: p.toolName, label: d.label, description: d.description ?? '', inputText: d.inputText ?? JSON.stringify(p.input, null, 2), questions: isAsk ? parseQuestions(p.input) : undefined, decision: p.decision as any });
+    out.push({ id: p.id, kind: 'permission', toolUseId: p.id, name: p.toolName, label: d.label, description: d.description ?? '', inputText: d.inputText ?? JSON.stringify(p.input, null, 2), questions: isAsk ? parseQuestions(p.input) : undefined, decision: p.decision as any, answer: p.answer });
   }
   if (s.error && s.status === 'error') out.push({ id: 'live-error', kind: 'result', ok: false, error: s.error });
   return out;

@@ -85,6 +85,22 @@ describe('Runner', () => {
     expect(await r.decide('s3', req.id, 'allow', 1)).toBe(false);
   });
 
+  it('responder (AskUserQuestion) manda a mensagem no evento ao vivo, não só no evento persistido', async () => {
+    // Bug real: o LiveEvent 'permission_resolved' emitido via SSE não carregava `message` (só o
+    // evento gravado no banco carregava) — então, numa sessão aberta ao vivo, a tela nunca tinha a
+    // resposta pra mostrar no bubble "Você respondeu" sem recarregar a página primeiro.
+    const m = memStore(); const q = fakeQuery({ askPermission: true });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    const seen: LiveEvent[] = []; r.subscribe('s3b', e => seen.push(e));
+    r.startTurn({ ...base, sessionId: 's3b', prompt: 'x', isNew: true });
+    await until(() => r.status('s3b') === 'waiting');
+    const req = seen.find(e => e.type === 'permission_request') as any;
+    await r.decide('s3b', req.id, 'answer', 1, 'Escopo de tarefas autônomas');
+    const resolved = seen.find(e => e.type === 'permission_resolved') as any;
+    expect(resolved.decision).toBe('answer');
+    expect(resolved.message).toBe('Escopo de tarefas autônomas');
+  });
+
   it('negar com mensagem repassa a mensagem ao Claude', async () => {
     const m = memStore(); const q = fakeQuery({ askPermission: true });
     const r = new Runner({ queryFn: q.fn, store: m.store });

@@ -1,7 +1,7 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
-import type { ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff } from './mapper';
+import type { AskQuestion, ConvEvent, UserAttachment } from './types';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, formatAskAnswer, foldExpiredPermissions } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 
 function Md({ text }: { text: string }) {
@@ -98,35 +98,76 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
   );
 }
 
+/**
+ * Formulário de resposta de um AskUserQuestion: uma ou mais perguntas, cada uma com opções de
+ * escolha única ou múltipla (`multiSelect`). Só manda a decisão quando o usuário clica "Enviar
+ * respostas" (com todas as perguntas respondidas) — clicar numa opção só marca/desmarca, não
+ * finaliza mais sozinho (antes, o primeiro clique em qualquer pergunta já respondia tudo, e não
+ * dava pra marcar mais de uma opção mesmo em pergunta multiSelect).
+ */
+function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide?: (d: 'answer', msg?: string) => void }) {
+  const [picks, setPicks] = useState<Record<number, Set<number>>>({});
+  const [freeText, setFreeText] = useState('');
+
+  function toggle(qi: number, oi: number, multi: boolean) {
+    setPicks(prev => {
+      const cur = new Set(prev[qi] ?? []);
+      if (multi) { if (cur.has(oi)) cur.delete(oi); else cur.add(oi); }
+      else { cur.clear(); cur.add(oi); }
+      return { ...prev, [qi]: cur };
+    });
+  }
+  function submit() {
+    const picksArr = questions.map((q, qi) => [...(picks[qi] ?? [])].sort((a, b) => a - b).map(oi => q.options[oi].label));
+    onDecide?.('answer', formatAskAnswer(questions, picksArr));
+  }
+  const ready = questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0);
+
+  return (
+    <div className="cc-perm cc-ask">
+      {questions.map((q, qi) => (
+        <div key={qi} className="cc-ask-q">
+          {q.header && <div className="cc-ask-header">{q.header}</div>}
+          <div className="cc-ask-title">{q.question}{q.multiSelect && <span className="cc-ask-multi"> · escolha uma ou mais</span>}</div>
+          <div className="cc-ask-opts">
+            {q.options.map((o, oi) => {
+              const selected = picks[qi]?.has(oi) ?? false;
+              return (
+                <button key={oi} type="button" className={`cc-btn cc-ask-opt ${selected ? 'is-selected' : ''}`}
+                  onClick={() => toggle(qi, oi, !!q.multiSelect)} title={o.description} aria-pressed={selected}>
+                  <span className="cc-ask-opt-label">{o.label}</span>
+                  {o.description && <span className="cc-ask-opt-desc">{o.description}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="cc-ask-submit-row">
+        <button className="cc-btn cc-btn-primary" disabled={!ready} onClick={submit}>Enviar respostas</button>
+      </div>
+      <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" value={freeText} onChange={ev => setFreeText(ev.target.value)}
+        onKeyDown={ev => { if (ev.key === 'Enter' && freeText.trim()) onDecide?.('answer', freeText.trim()); }} />
+      <div className="cc-hints">Escolha as opções e clique em Enviar respostas · ou escreva a sua e Enter</div>
+    </div>
+  );
+}
+
 function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   const isAsk = !!(e.questions && e.questions.length);
   if (e.decision) {
     if (e.decision === 'answer') return <div className="cc-perm-done">Você respondeu: <b>{e.answer ?? e.inputText}</b></div>;
-    if (e.decision === 'timeout') return <div className="cc-perm-done cc-perm-exp">{isAsk ? 'Pergunta expirada (sessão reiniciou)' : 'Pedido expirado'}</div>;
+    if (e.decision === 'timeout') {
+      const n = e.expiredGroupCount ?? 1;
+      const txt = n > 1
+        ? `${n} pedidos de permissão expiraram (o painel reiniciou enquanto esperavam resposta) · peça de novo`
+        : `${isAsk ? 'Pergunta expirada (sessão reiniciou)' : 'Pedido expirado'} · peça de novo`;
+      return <div className="cc-perm-done cc-perm-exp">{txt}</div>;
+    }
     const txt = e.decision === 'deny' ? 'Negado' : e.decision === 'allow_always' ? 'Permitido, sem perguntar de novo' : 'Permitido';
     return <div className="cc-perm-done">{txt}{!isAsk && <> · <span className="cc-mono">{e.inputText}</span></>}</div>;
   }
-  if (isAsk) {
-    return (
-      <div className="cc-perm cc-ask">
-        {e.questions!.map((q, qi) => (
-          <div key={qi} className="cc-ask-q">
-            {q.header && <div className="cc-ask-header">{q.header}</div>}
-            <div className="cc-ask-title">{q.question}</div>
-            <div className="cc-ask-opts">
-              {q.options.map((o, oi) => (
-                <button key={oi} className="cc-btn cc-ask-opt" onClick={() => onDecide?.('answer', o.label)} title={o.description}>
-                  <span className="cc-ask-opt-label">{o.label}</span>
-                  {o.description && <span className="cc-ask-opt-desc">{o.description}</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" onKeyDown={ev => { const v = (ev.target as HTMLInputElement).value.trim(); if (ev.key === 'Enter' && v) onDecide?.('answer', v); }} />
-      </div>
-    );
-  }
+  if (isAsk) return <AskAnswer questions={e.questions!} onDecide={onDecide} />;
   return (
     <div className="cc-perm">
       <div className="cc-perm-head">Aguardando sua permissão</div>
@@ -175,9 +216,12 @@ function dotClass(e: ConvEvent): string {
 }
 
 export default function Timeline({ events, onDecide }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+  // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
+  // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
+  const folded = useMemo(() => foldExpiredPermissions(events), [events]);
   return (
     <div className="cc-timeline">
-      {events.map(e => {
+      {folded.map(e => {
         if (e.kind === 'system' || e.kind === 'result') return null;
         if (e.kind === 'user') return (
           <div key={e.id} className="cc-user">
