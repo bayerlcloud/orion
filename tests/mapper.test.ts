@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel } from '../web/src/claude/mapper';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
 /** Payload real de um AskUserQuestion da sessão de produção "Esta ai?" (fcc5ee4b-96f2-45a5-baf3-78e9f1f71ecd,
@@ -38,6 +38,30 @@ describe('describeTool', () => {
     expect(d.inputText).not.toContain('{');
     expect(d.inputText).not.toContain('multiSelect');
     expect(d.inputText).toBe('Tipo de poder');
+  });
+  // Task: nome real da tool no SDK é "Task" (não "Agent") — confirmado em webview/index.js v2.1.282
+  // (`var RE="Task"`) e no schema real (`AgentInput` em sdk-tools.d.ts). A extensão mapeia esse nome
+  // internamente para o renderer "Agent" (`$==="Task"?"Agent":$`) e mostra "Agent: {description}" no
+  // cabeçalho (`class jD1{name="Agent";header(){...}}`), com o prompt como corpo IN.
+  it('Task usa rótulo "Agent" (como a extensão real) e o prompt como inputText', () => {
+    const d = describeTool('Task', { description: 'Corrige o build', prompt: 'Rode npm run build e corrija os erros', subagent_type: 'general-purpose' });
+    expect(d).toEqual({ label: 'Agent', description: 'Corrige o build', inputText: 'Rode npm run build e corrija os erros' });
+  });
+  // TodoWrite: cabeçalho real é sempre o texto fixo "Update Todos" (`class wD1{name=Vw;header(){...}}`,
+  // webview/index.js v2.1.282) — nunca dinâmico. Preview em PT-BR (mesma convenção de AskUserQuestion→"Pergunta").
+  describe('TodoWrite', () => {
+    it('rótulo "Lista de tarefas" com contagem de itens (plural)', () => {
+      const d = describeTool('TodoWrite', { todos: [
+        { content: 'a', status: 'pending', activeForm: 'A' },
+        { content: 'b', status: 'completed', activeForm: 'B' },
+      ] });
+      expect(d.label).toBe('Lista de tarefas');
+      expect(d.description).toBe('2 itens');
+    });
+    it('um item só: singular', () => {
+      const d = describeTool('TodoWrite', { todos: [{ content: 'a', status: 'pending', activeForm: 'A' }] });
+      expect(d.description).toBe('1 item');
+    });
   });
 });
 
@@ -147,6 +171,25 @@ describe('reduceSdkMessages', () => {
     ]);
     expect(e).toEqual([]);
   });
+  // Ponta a ponta (mensagens do SDK → ConvEvent) pros dois gaps de paridade: confirma que o `input`
+  // bruto do TodoWrite chega intacto no evento (é o que a Timeline usa com `parseTodos`) e que o
+  // Task já sai com o rótulo/descrição/inputText certos (via describeTool) mesmo antes da Timeline
+  // decidir a renderização dedicada.
+  it('TodoWrite carrega o input.todos intacto no evento tool', () => {
+    const todos = [{ content: 'a', status: 'pending', activeForm: 'A' }, { content: 'b', status: 'completed', activeForm: 'B' }];
+    const e = reduceSdkMessages([{ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'TodoWrite', input: { todos } }] } }])[0];
+    expect(e.kind === 'tool' && e.name).toBe('TodoWrite');
+    expect(e.kind === 'tool' && e.input).toEqual({ todos });
+  });
+  it('Task sai com label "Agent", description e inputText do prompt', () => {
+    const e = reduceSdkMessages([{ type: 'assistant', message: { content: [
+      { type: 'tool_use', id: 't1', name: 'Task', input: { description: 'Investiga o bug', prompt: 'Reproduza e ache a causa raiz', subagent_type: 'general-purpose' } },
+    ] } }])[0];
+    expect(e.kind === 'tool' && e.label).toBe('Agent');
+    expect(e.kind === 'tool' && e.description).toBe('Investiga o bug');
+    expect(e.kind === 'tool' && e.inputText).toBe('Reproduza e ache a causa raiz');
+    expect(e.kind === 'tool' && e.status).toBe('running');
+  });
 });
 
 describe('formatação', () => {
@@ -203,6 +246,83 @@ describe('unifiedDiff', () => {
   it('linhas só adicionadas viram add', () => {
     const d = unifiedDiff('a', 'a\nb');
     expect(d.filter(l => l.type === 'add')).toEqual([{ type: 'add', text: 'b' }]);
+  });
+});
+
+/**
+ * Destaque de caracteres dentro de uma linha trocada — igual ao que a extensão real mostra: ela usa
+ * o editor de diff do Monaco por baixo (webview/index.js v2.1.282), e as classes de decoração
+ * `char-insert`/`char-delete` (achadas junto de `diff-review-row`/`line-insert`/`line-delete`, ou
+ * seja, é DE FATO o widget completo do Monaco, não um highlight simples) marcam INTERVALOS DE
+ * CARACTERES dentro da linha — não palavras inteiras. O CSS confirma a granularidade: `.char-insert`
+ * e `.char-delete` pintam o fundo por cima de qualquer seleção de caracteres, e a view inline usa
+ * `.inline-deleted-text{text-decoration:line-through}` para o texto removido. Reimplementamos essa
+ * granularidade (caractere, via LCS) sem o widget inteiro do Monaco (gutters, minimapa, linhas de
+ * revisão para acessibilidade) — isso é reconhecidamente fora de escopo (ver PARIDADE.md).
+ */
+describe('charDiff', () => {
+  it('linha idêntica: tudo contexto, nada destacado', () => {
+    const { oldParts, newParts } = charDiff('const x = 1;', 'const x = 1;');
+    expect(oldParts).toEqual([{ type: 'ctx', text: 'const x = 1;' }]);
+    expect(newParts).toEqual([{ type: 'ctx', text: 'const x = 1;' }]);
+  });
+  it('troca de um trecho no meio: destaca só o trecho trocado, mantém prefixo/sufixo como contexto', () => {
+    const { oldParts, newParts } = charDiff('const x = 1;', 'const x = 2;');
+    expect(oldParts).toEqual([{ type: 'ctx', text: 'const x = ' }, { type: 'del', text: '1' }, { type: 'ctx', text: ';' }]);
+    expect(newParts).toEqual([{ type: 'ctx', text: 'const x = ' }, { type: 'add', text: '2' }, { type: 'ctx', text: ';' }]);
+  });
+  it('duas trocas separadas na mesma linha: cada uma vira seu próprio trecho', () => {
+    const { oldParts } = charDiff('foo(1, 2)', 'foo(9, 8)');
+    expect(oldParts.filter(p => p.type === 'del').map(p => p.text)).toEqual(['1', '2']);
+  });
+  it('linhas sem nenhum caractere em comum: tudo del de um lado, tudo add do outro', () => {
+    const { oldParts, newParts } = charDiff('abc', 'xyz');
+    expect(oldParts).toEqual([{ type: 'del', text: 'abc' }]);
+    expect(newParts).toEqual([{ type: 'add', text: 'xyz' }]);
+  });
+});
+
+describe('charDiffIfSimilar', () => {
+  it('linhas parecidas (edição pequena): devolve os trechos de char', () => {
+    const d = charDiffIfSimilar('const x = 1;', 'const x = 2;');
+    expect(d).toBeDefined();
+    expect(d!.oldParts.some(p => p.type === 'del')).toBe(true);
+    expect(d!.newParts.some(p => p.type === 'add')).toBe(true);
+  });
+  it('linhas totalmente diferentes (não é a mesma linha editada): undefined, sem destaque de char', () => {
+    expect(charDiffIfSimilar('const x = 1;', 'return fetch(url).then(r => r.json());')).toBeUndefined();
+  });
+  it('uma das linhas vazia (não é uma edição, é add/del puro): undefined', () => {
+    expect(charDiffIfSimilar('', 'algo novo')).toBeUndefined();
+    expect(charDiffIfSimilar('algo antigo', '')).toBeUndefined();
+  });
+});
+
+describe('annotateCharDiffs', () => {
+  it('linha trocada (del seguido de add, parecidas): as duas ganham parts', () => {
+    const out = annotateCharDiffs(unifiedDiff('const x = 1;', 'const x = 2;'));
+    const del = out.find(l => l.type === 'del')!;
+    const add = out.find(l => l.type === 'add')!;
+    expect(del.parts?.some(p => p.type === 'del')).toBe(true);
+    expect(add.parts?.some(p => p.type === 'add')).toBe(true);
+  });
+  it('del/add de linhas muito diferentes: nenhuma ganha parts (fica só o destaque de linha)', () => {
+    const out = annotateCharDiffs(unifiedDiff('const x = 1;', 'return fetch(url).then(r => r.json());'));
+    expect(out.every(l => l.parts === undefined)).toBe(true);
+  });
+  it('adição pura (sem del correspondente): não ganha parts', () => {
+    const out = annotateCharDiffs(unifiedDiff('a', 'a\nb'));
+    expect(out.find(l => l.type === 'add')?.parts).toBeUndefined();
+  });
+  it('remoção pura (sem add correspondente): não ganha parts', () => {
+    const out = annotateCharDiffs(unifiedDiff('a\nb', 'a'));
+    expect(out.find(l => l.type === 'del')?.parts).toBeUndefined();
+  });
+  it('não muda a lista original de unifiedDiff (pura, sem mutação)', () => {
+    const lines = unifiedDiff('const x = 1;', 'const x = 2;');
+    const before = JSON.stringify(lines);
+    annotateCharDiffs(lines);
+    expect(JSON.stringify(lines)).toBe(before);
   });
 });
 
@@ -366,5 +486,57 @@ describe('groupSessions', () => {
   it("'recency' sem sessões antigas não mostra o balde 'Mais antigas'", () => {
     const g = groupSessions([sessions[0]], 'recency', now);
     expect(g.map(x => x.key)).toEqual(['today']);
+  });
+});
+
+/**
+ * Leitura do input do TodoWrite (`{ todos: [{content, status, activeForm}] }` — schema real em
+ * `@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts`, interface `TodoWriteInput`). A extensão real só usa
+ * `content` e `status` na tela (função `gG0`/checkbox `J65` em webview/index.js v2.1.282) — `activeForm`
+ * existe no schema mas não aparece na UI, então não carregamos ele adiante (nada pra exibir).
+ */
+describe('parseTodos', () => {
+  it('lê content e status de cada item de input.todos', () => {
+    const input = { todos: [
+      { content: 'Ler o PARIDADE.md', status: 'completed', activeForm: 'Lendo o PARIDADE.md' },
+      { content: 'Implementar diff de char', status: 'in_progress', activeForm: 'Implementando diff de char' },
+      { content: 'Escrever testes', status: 'pending', activeForm: 'Escrevendo testes' },
+    ] };
+    expect(parseTodos(input)).toEqual([
+      { content: 'Ler o PARIDADE.md', status: 'completed' },
+      { content: 'Implementar diff de char', status: 'in_progress' },
+      { content: 'Escrever testes', status: 'pending' },
+    ]);
+  });
+  it('sem todos (input vazio, undefined ou todos não é array): lista vazia', () => {
+    expect(parseTodos({})).toEqual([]);
+    expect(parseTodos(undefined)).toEqual([]);
+    expect(parseTodos({ todos: 'não é array' })).toEqual([]);
+  });
+  it('status desconhecido ou ausente vira pending (defensivo)', () => {
+    expect(parseTodos({ todos: [{ content: 'x' }] })).toEqual([{ content: 'x', status: 'pending' }]);
+    expect(parseTodos({ todos: [{ content: 'x', status: 'algo-invalido' }] })).toEqual([{ content: 'x', status: 'pending' }]);
+  });
+});
+
+/**
+ * Rótulo de status de um Task/Agent (subagente) na linha do tempo — "rodando/concluído", pedido
+ * explicitamente no gap de paridade (a extensão real não expõe esse texto exato; aqui é nosso jeito
+ * de mostrar o `ToolStatus` que já temos, sem inventar telemetria ao vivo — tempo decorrido/contagem
+ * de tool calls do subagente — que a extensão real tem (`iU0`/`lU0` no webview) mas exigiria um
+ * stream de progresso por tarefa que o Orion não tem hoje).
+ */
+describe('taskStatusLabel', () => {
+  it('running vira texto de progresso', () => {
+    expect(taskStatusLabel('running')).toBe('Executando…');
+  });
+  it('success vira "Concluído"', () => {
+    expect(taskStatusLabel('success')).toBe('Concluído');
+  });
+  it('failure vira "Falhou"', () => {
+    expect(taskStatusLabel('failure')).toBe('Falhou');
+  });
+  it('warning cai no mesmo texto de concluído (fallback)', () => {
+    expect(taskStatusLabel('warning')).toBe('Concluído');
   });
 });

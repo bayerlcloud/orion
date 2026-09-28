@@ -1,7 +1,7 @@
 import { useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, formatAskAnswer, foldExpiredPermissions } from './mapper';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 
 function Md({ text }: { text: string }) {
@@ -46,15 +46,26 @@ function toolTarget(e: Extract<ConvEvent, { kind: 'tool' }>): { mono?: string; d
   }
 }
 
+/**
+ * Corpo de uma linha do diff: se a linha ganhou destaque de caractere (par del/add reconhecido como
+ * "a mesma linha, editada" — ver `annotateCharDiffs`/`charDiffIfSimilar`), renderiza os trechos
+ * ctx/add/del com `<span>` próprio; senão, o texto puro (linha só adicionada/removida, ou trocas
+ * demais pra valer a pena destacar caractere a caractere).
+ */
+function DiffLineBody({ text, parts }: { text: string; parts?: { type: 'ctx' | 'add' | 'del'; text: string }[] }) {
+  if (!parts) return <>{text}</>;
+  return <>{parts.map((p, k) => p.type === 'ctx' ? <span key={k}>{p.text}</span> : <span key={k} className={`cc-diff-char is-${p.type}`}>{p.text}</span>)}</>;
+}
+
 function EditDiff({ oldText, newText }: { oldText: string; newText: string }) {
-  const lines = useMemo(() => unifiedDiff(oldText, newText), [oldText, newText]);
+  const lines = useMemo(() => annotateCharDiffs(unifiedDiff(oldText, newText)), [oldText, newText]);
   const adds = lines.filter(l => l.type === 'add').length;
   const dels = lines.filter(l => l.type === 'del').length;
   return (
     <div className="cc-diff">
       <div className="cc-diff-stats"><span className="cc-diff-add">+{adds}</span> <span className="cc-diff-del">−{dels}</span></div>
       <pre className="cc-diff-body">{lines.map((l, k) => (
-        <div key={k} className={`cc-diff-line is-${l.type}`}>{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' '} {l.text}</div>
+        <div key={k} className={`cc-diff-line is-${l.type}`}>{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' '} <DiffLineBody text={l.text} parts={l.parts} /></div>
       ))}</pre>
     </div>
   );
@@ -96,6 +107,84 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
       )}
     </div>
   );
+}
+
+/**
+ * Checklist do TodoWrite — igual à extensão real (`gG0`/`J65`/classes `todoListContainer_xheXVQ`,
+ * `todoList_xheXVQ`, `todoItem_xheXVQ`, `completed_xheXVQ`, `content_xheXVQ` em webview/index.js
+ * v2.1.282): um checkbox por item (marcado = completed, indeterminado/meio-marcado = in_progress,
+ * vazio = pending — a extensão usa um `<input type=checkbox disabled>` com `.indeterminate` pro
+ * estado "em andamento"; aqui é um ícone equivalente, já que não temos elemento de formulário aqui)
+ * e o texto do item riscado + esmaecido quando completed (`text-decoration:line-through` no CSS
+ * real). Cabeçalho real é sempre o texto fixo "Update Todos" — mostramos "Lista de tarefas" (PT-BR).
+ */
+function TodoList({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
+  const todos = useMemo(() => parseTodos(e.input), [e.input]);
+  if (!todos.length) return null;
+  return (
+    <div className="cc-todo">
+      <div className="cc-todo-head"><span className="cc-tool-name">Lista de tarefas</span></div>
+      <ul className="cc-todo-list">
+        {todos.map((t, k) => (
+          <li key={k} className={`cc-todo-item is-${t.status}`}>
+            <span className={`cc-todo-check is-${t.status}`} aria-hidden="true" />
+            <span className="cc-todo-content">{t.content}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Linha de subagente (tool `Task`) — a extensão real chama esse tool internamente de "Agent"
+ * (`$==="Task"?"Agent":$` em webview/index.js v2.1.282) e mostra "Agent: {description}" no
+ * cabeçalho, com o prompt como corpo IN e sem OUT (`class jD1{name="Agent";renderOutput(){return null}}`).
+ * Linha própria (não passa pelo bloco de ferramenta genérico): descrição em destaque, tipo do
+ * subagente (`subagent_type`) como selo secundário quando existe, e status rodando/concluído/falhou
+ * (`taskStatusLabel`) — a extensão tem telemetria ao vivo (tempo decorrido, tokens, contagem de tool
+ * calls do subagente) que exigiria um stream de progresso por tarefa que o Orion não tem hoje; aqui
+ * mostramos o `ToolStatus` que já temos. Mantemos IN (prompt) e OUT (resultado final do subagente,
+ * que a extensão esconde mas que aqui é informação útil) dobráveis, como os outros tool blocks.
+ */
+function TaskAgent({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
+  const i = (e.input ?? {}) as Record<string, unknown>;
+  const description = typeof i.description === 'string' ? i.description : e.label;
+  const prompt = typeof i.prompt === 'string' ? i.prompt : e.inputText;
+  const subagentType = typeof i.subagent_type === 'string' ? i.subagent_type : undefined;
+  const hasBody = !!(prompt || e.output);
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`cc-tool cc-task is-${e.status}`}>
+      <div className="cc-tool-summary" onClick={() => hasBody && setOpen(o => !o)} style={{ cursor: hasBody ? 'pointer' : 'default' }}>
+        {hasBody && <Chevron size={11} className={`cc-chev ${open ? 'is-open' : ''}`} />}
+        <span className="cc-tool-name">Agent</span>
+        {description && <span className="cc-tool-desc cc-clamp2">{description}</span>}
+        {subagentType && <span className="cc-task-type">{subagentType}</span>}
+        <span className={`cc-task-status is-${e.status}`}>{taskStatusLabel(e.status)}</span>
+        {prompt && <span className="cc-tool-copy"><CopyButton text={prompt} title="Copiar prompt" /></span>}
+      </div>
+      {hasBody && open && (
+        <div className="cc-tool-body">
+          {prompt && <div className="cc-tool-row"><span className="cc-tool-lbl">IN</span><pre className="cc-tool-pre">{prompt}</pre></div>}
+          {e.output !== undefined && (
+            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
+          )}
+          {e.status === 'running' && e.output === undefined && (
+            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className="cc-running">executando…</span></div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Escolhe a renderização de um evento `tool`: checklist dedicada pro TodoWrite, linha de subagente
+ * dedicada pro Task, bloco de ferramenta genérico pros demais. */
+function ToolBlock({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
+  if (e.name === 'TodoWrite') return <TodoList e={e} />;
+  if (e.name === 'Task') return <TaskAgent e={e} />;
+  return <Tool e={e} />;
 }
 
 /**
@@ -233,7 +322,7 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
           <div key={e.id} className={`cc-msg ${dotClass(e)}`}>
             {e.kind === 'text' && <Md text={e.text} />}
             {e.kind === 'thinking' && <Thinking e={e} />}
-            {e.kind === 'tool' && <Tool e={e} />}
+            {e.kind === 'tool' && <ToolBlock e={e} />}
             {e.kind === 'permission' && <Permission e={e} onDecide={(d, msg) => onDecide?.(e.id, d, msg)} />}
           </div>
         );

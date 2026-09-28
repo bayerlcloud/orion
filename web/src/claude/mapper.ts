@@ -21,6 +21,23 @@ export function describeTool(name: string, input: unknown): { label: string; des
     case 'WebFetch': return { label: 'Web Fetch', description: str(i.url) };
     case 'WebSearch': return { label: 'Web Search', description: str(i.query) };
     case 'Agent': return { label: 'Agent', description: str(i.description) };
+    case 'Task': {
+      // Nome real da tool no SDK é "Task" (confirmado em webview/index.js v2.1.282: `var RE="Task"`;
+      // schema real `AgentInput` em @anthropic-ai/claude-agent-sdk/sdk-tools.d.ts: description/prompt/
+      // subagent_type). A extensão mapeia esse nome internamente pro renderer "Agent"
+      // (`$==="Task"?"Agent":$`) e mostra "Agent: {description}" no cabeçalho (`class jD1{name="Agent"}`),
+      // com o prompt como corpo IN e sem OUT — aqui só o rótulo/descrição/inputText; a renderização
+      // dedicada (com status rodando/concluído) fica em Timeline.tsx.
+      return { label: 'Agent', description: str(i.description), inputText: str(i.prompt) };
+    }
+    case 'TodoWrite': {
+      // Cabeçalho real é sempre o texto fixo "Update Todos" (`class wD1{name=Vw;header(){...}}`,
+      // webview/index.js v2.1.282) — nunca dinâmico. Preview em PT-BR (mesma convenção de
+      // AskUserQuestion → "Pergunta"); a lista em si é renderizada à parte em Timeline.tsx.
+      const todos = parseTodos(input);
+      const n = todos.length;
+      return { label: 'Lista de tarefas', description: n ? `${n} ${n === 1 ? 'item' : 'itens'}` : undefined };
+    }
     case 'AskUserQuestion': {
       // Resumo legível das perguntas (nunca o JSON cru): usado como fallback de inputText quando não
       // há resposta formatada ainda — evita o bubble "Você respondeu: {...json...}" se algo além do
@@ -137,6 +154,147 @@ export function unifiedDiff(oldText: string, newText: string): DiffLine[] {
   while (i < n) out.push({ type: 'del', text: a[i++] });
   while (j < m) out.push({ type: 'add', text: b[j++] });
   return out;
+}
+
+export type CharSpan = { type: 'ctx' | 'add' | 'del'; text: string };
+
+function mergeCharSpans(spans: CharSpan[]): CharSpan[] {
+  const out: CharSpan[] = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (last && last.type === s.type) last.text += s.text;
+    else out.push({ ...s });
+  }
+  return out;
+}
+
+/**
+ * Diff de caracteres entre duas linhas (LCS por code point — `Array.from` em vez de `split('')` pra
+ * não quebrar par substituto/emoji no meio). Espelha a granularidade real da extensão: ela roda o
+ * editor de diff completo do Monaco por baixo (achado em webview/index.js v2.1.282, junto de
+ * `diff-review-row`/`line-insert`/`line-delete` — ou seja, é o widget inteiro, não um highlight
+ * caseiro), e as decorações `char-insert`/`char-delete` marcam INTERVALOS DE CARACTERES dentro da
+ * linha (confirmado no CSS: `.char-insert{background-color:var(--vscode-diffEditor-insertedTextBackground)}`,
+ * `.char-delete,.inline-deleted-text{background-color:...removedTextBackground}`,
+ * `.inline-deleted-text{text-decoration:line-through}` na view inline/unificada — a mesma forma que
+ * a nossa `EditDiff` já usa). Reimplementamos só a granularidade (caractere, via LCS), não o widget
+ * inteiro do Monaco (gutters, minimapa, linhas de revisão de acessibilidade) — fora de escopo, ver
+ * PARIDADE.md. Devolve os trechos da linha ANTIGA (ctx/del) e da NOVA (ctx/add) separadamente, pra
+ * cada uma ser renderizada na sua própria linha do diff unificado que já temos.
+ */
+export function charDiff(oldLine: string, newLine: string): { oldParts: CharSpan[]; newParts: CharSpan[] } {
+  const a = Array.from(oldLine), b = Array.from(newLine);
+  const n = a.length, m = b.length;
+  const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const oldRaw: CharSpan[] = [], newRaw: CharSpan[] = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { oldRaw.push({ type: 'ctx', text: a[i] }); newRaw.push({ type: 'ctx', text: b[j] }); i++; j++; }
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) { oldRaw.push({ type: 'del', text: a[i] }); i++; }
+    else { newRaw.push({ type: 'add', text: b[j] }); j++; }
+  }
+  while (i < n) oldRaw.push({ type: 'del', text: a[i++] });
+  while (j < m) newRaw.push({ type: 'add', text: b[j++] });
+  return { oldParts: mergeCharSpans(oldRaw), newParts: mergeCharSpans(newRaw) };
+}
+
+function commonPrefixLen(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) i++;
+  return i;
+}
+function commonSuffixLen(a: string, b: string): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[a.length - 1 - i] === b[b.length - 1 - i]) i++;
+  return i;
+}
+
+/**
+ * Decide se vale a pena destacar caracteres num par de linhas del/add — ou seja, se as duas são "a
+ * mesma linha, editada" e não duas linhas diferentes que calharam de ficar vizinhas no diff. Usa
+ * prefixo+sufixo comum (não a contagem de contexto do LCS de `charDiff`): o LCS por caractere sozinho
+ * super-estima semelhança entre linhas sem relação nenhuma, porque caracteres soltos (espaço, letras
+ * comuns) casam de qualquer jeito em qualquer posição; prefixo/sufixo comum é o sinal de que existe
+ * de fato uma região contígua igual, que é o padrão de uma edição real de código. Limiar: pelo menos
+ * 30% da linha mais longa tem que ser prefixo/sufixo compartilhado. Linhas vazias (add/del puro, não
+ * uma edição) ou muito longas (custo do LCS O(n·m)) ficam de fora.
+ */
+export function charDiffIfSimilar(oldLine: string, newLine: string): { oldParts: CharSpan[]; newParts: CharSpan[] } | undefined {
+  if (!oldLine || !newLine) return undefined;
+  const maxLen = Math.max(oldLine.length, newLine.length);
+  if (maxLen === 0 || maxLen > 500) return undefined;
+  const prefix = commonPrefixLen(oldLine, newLine);
+  const suffix = Math.min(commonSuffixLen(oldLine, newLine), maxLen - prefix);
+  if ((prefix + suffix) / maxLen < 0.3) return undefined;
+  return charDiff(oldLine, newLine);
+}
+
+export type DiffLineWithParts = DiffLine & { parts?: CharSpan[] };
+
+/**
+ * Anota o diff de linha (`unifiedDiff`) com destaque de caracteres nos pares del/add que são, de
+ * fato, a mesma linha reescrita (ver `charDiffIfSimilar`) — camada por cima, sem mudar `unifiedDiff`
+ * (mantém os testes de linha existentes intactos, igual à extensão real, que roda diff de linha do
+ * Monaco + innerChanges de caractere só quando as duas linhas são uma edição da mesma linha). Pareia
+ * cada corrida contígua de del com a corrida de add que vem logo depois, 1 a 1 na ordem (sobra de um
+ * lado fica sem parts — era add/del puro mesmo, não uma edição). Pura: devolve uma lista nova, não
+ * muda `lines`.
+ */
+export function annotateCharDiffs(lines: DiffLine[]): DiffLineWithParts[] {
+  const out: DiffLineWithParts[] = lines.map(l => ({ ...l }));
+  let i = 0;
+  while (i < out.length) {
+    if (out[i].type !== 'del') { i++; continue; }
+    let delEnd = i;
+    while (delEnd < out.length && out[delEnd].type === 'del') delEnd++;
+    let addEnd = delEnd;
+    while (addEnd < out.length && out[addEnd].type === 'add') addEnd++;
+    const pairCount = Math.min(delEnd - i, addEnd - delEnd);
+    for (let k = 0; k < pairCount; k++) {
+      const delLine = out[i + k], addLine = out[delEnd + k];
+      const d = charDiffIfSimilar(delLine.text, addLine.text);
+      if (d) { delLine.parts = d.oldParts; addLine.parts = d.newParts; }
+    }
+    i = addEnd;
+  }
+  return out;
+}
+
+export type TodoStatus = 'pending' | 'in_progress' | 'completed';
+export type TodoItem = { content: string; status: TodoStatus };
+
+/**
+ * Lê `input.todos` de um TodoWrite de forma defensiva (nunca lança). Schema real: `TodoWriteInput` em
+ * `@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts` — `{ todos: { content: string; status: "pending" |
+ * "in_progress" | "completed"; activeForm: string }[] }`. A extensão real só usa `content` e `status`
+ * na tela (função `gG0` + checkbox `J65` em webview/index.js v2.1.282): `activeForm` existe no schema
+ * mas não aparece na UI, então não carregamos ele adiante.
+ */
+export function parseTodos(input: unknown): TodoItem[] {
+  const i = (input ?? {}) as Rec;
+  if (!Array.isArray(i.todos)) return [];
+  return i.todos.map((t): TodoItem => {
+    const r = (t ?? {}) as Rec;
+    const status: TodoStatus = r.status === 'in_progress' || r.status === 'completed' ? r.status : 'pending';
+    return { content: typeof r.content === 'string' ? r.content : '', status };
+  });
+}
+
+/**
+ * Rótulo de status de um Task/Agent (subagente) na linha do tempo. A extensão real não expõe esse
+ * texto exato (ela tem telemetria ao vivo — tempo decorrido, tokens, contagem de tool calls do
+ * subagente — funções `iU0`/`lU0` no webview; exigiria um stream de progresso por tarefa que o Orion
+ * não tem hoje); aqui é o texto de progresso mínimo a partir do `ToolStatus` que já temos.
+ */
+export function taskStatusLabel(status: ToolStatus): string {
+  if (status === 'running') return 'Executando…';
+  if (status === 'failure') return 'Falhou';
+  return 'Concluído';
 }
 
 export function formatCost(usd?: number): string {
