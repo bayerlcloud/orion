@@ -94,8 +94,10 @@ export default function Sidebar({ sessions, usage, activeId, onSelect, onNew, on
             {usage.map(u => (
               <div key={u.key} className="cc-usage">
                 <div className="cc-usage-head"><span>{u.label}</span><span>{u.pct}%</span></div>
-                <div className="cc-track"><div className={`cc-fill ${u.pct >= 90 ? 'is-high' : ''}`} style={{ width: `${u.pct}%` }} /></div>
-                <div className="cc-usage-note">{u.sub}</div>
+                {/* limiar de 80% é o mesmo da extensão real (função `ee` do webview: usageFillHigh a partir de 80%) */}
+                <div className="cc-track"><div className={`cc-fill ${u.pct >= 80 ? 'is-high' : ''}`} style={{ width: `${u.pct}%` }} /></div>
+                {u.sub && <div className="cc-usage-note">{u.sub}</div>}
+                {u.resetText && <div className="cc-usage-note">Reinicia {u.resetText}</div>}
               </div>
             ))}
           </>

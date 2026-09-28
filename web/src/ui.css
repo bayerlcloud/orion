@@ -57,7 +57,7 @@ button[type=submit]:disabled { opacity: .5; }
 .avatar-item:hover { background: var(--hover); }
 .content { padding: 20px 28px; max-width: 1100px; overflow-y: auto; min-width: 0; }
 .content.is-wide { max-width: none; padding: 0; overflow: hidden; }
-.content.is-dash { max-width: 1500px; }
+.content.is-dash { max-width: none; }
 h1 { font-size: 20px; margin: 0 0 14px; font-weight: 600; }
 
 /* ===== tabelas e markdown (Spec e outros) ===== */

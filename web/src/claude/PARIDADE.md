@@ -37,17 +37,64 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
 
 ## 3. Conta e uso
 
+Rodada de 28/09/2026: reli o código real (não só a captura de tela) — `webview/index.js` da
+extensão v2.1.282 extraída em `/srv/orion-reference/vscode-extension/extension/webview/index.js` —
+em vez de confiar só nas linhas antigas desta tabela (o próprio arquivo já avisa que memória/doc pode
+ficar velha). Achados relevantes, todos verificados lendo a função `L$5` (o componente do painel
+Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o tipo
+`SDKResultMessage.rate_limits` em `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` (SDK
+0.3.283, mesma versão do CLI 2.1.283 rodando no servidor):
+
+- A extensão real **não tem 3 barras fixas**. A lista é dinâmica: "Session (5hr)" (`rate_limits.five_hour`),
+  "Weekly (7 day)" (`rate_limits.seven_day`), "Weekly Sonnet" (`rate_limits.seven_day_sonnet`) **só
+  quando** `subscription_type` é `max`, `team` ou `null`, e uma barra "Weekly {display_name}" **por
+  entrada** de `rate_limits.model_scoped[]` — é daí que vem o rótulo "Fable" da captura de tela do
+  Bayerl (o servidor manda `display_name: "Fable"` numa entrada de `model_scoped`, não é um nome fixo
+  no código). Janela com `utilization: null` é pulada. Nenhuma barra mostra custo em US$ — só %
+  (`Math.floor`) e, quando a janela tem `resets_at`, uma linha "Resets {texto}".
+- **"Resets {tempo}"**: confirmado, existe de verdade (funções `iS`/`b$5` no webview: "in Xm" se
+  < 1h, "in Xh" se < 24h, senão "in Xd"). A fonte é `resets_at` (ISO 8601) dentro de cada janela de
+  `rate_limits`.
+- Esse `rate_limits` (com `utilization` 0-100 e `resets_at` ISO 8601 por janela) é um campo real do
+  **result** do SDK atual (`SDKResultMessage.rate_limits`, populado "from the claude.ai usage
+  endpoint" quando `rate_limits_available` é `true`) — e o runner do Orion (`server/claude/runner.ts`)
+  **já grava o result inteiro** em `claude_events.payload` para toda sessão, então o dado, quando
+  existir, já está no nosso banco sem nenhuma chamada nova.
+- Verificado ao vivo: consultei os 10 `result` mais recentes no Postgres de produção (3 dias, sessões
+  diferentes) — nenhum tem `rate_limits`/`rate_limits_available`/`subscription_type` no payload (as
+  chaves nem aparecem, não é só `null`). O próprio `.d.ts` do SDK documenta a causa: esse campo é
+  `false`/ausente "for API key, Bedrock, Vertex, **or missing profile scope**". O Orion autentica só
+  via token de `claude setup-token` (setting `claude_oauth_token`, vira env `CLAUDE_CODE_OAUTH_TOKEN`)
+  — confirmei que não existe `~/.claude/.credentials.json` (sessão de login interativo) para o
+  usuário `danilo`. Ou seja: é exatamente o cenário "profile scope ausente" que o SDK descreve — o
+  token de automação não carrega escopo de conta/perfil, só de inferência (bate com a suspeita antiga
+  desta tabela, agora confirmada na fonte em vez de assumida).
+- **Implementado nesta rodada** (`web/src/claude/mapper.ts`: `computeRealUsageBars`,
+  `formatResetIn`; `computeUsageBars` agora aceita um 2º argumento `real` opcional e prefere os dados
+  reais quando existem, caindo para o proxy por custo — inalterado — quando não): quando
+  `/api/claude/usage` encontrar um `result` com `rate_limits_available` e `rate_limits`, a barra usa o
+  **% real** e mostra "Reinicia {tempo}" embaixo, igual à extensão. **Hoje isso nunca acontece** (ver
+  item acima), então a UI continua idêntica a antes — é um caminho testado (`tests/mapper.test.ts`) e
+  pronto, não um enfeite: liga sozinho, sem mexer em código de novo, se o Orion um dia autenticar via
+  login interativo em vez de `setup-token` (mudança de infra maior, fora do escopo desta rodada — só
+  documentando o caminho).
+- **Não fabricado**: o proxy por custo (3 barras fixas "Sessão (5h)" / "Semanal (7 dias)" / "Limite
+  Fable", contra referência de US$ 5/25/100) **continua sem "Reinicia {tempo}"** — não inventamos reset
+  pra ele. Os nomes fixos do proxy são só uma aproximação nossa (não correspondem 1:1 à lista dinâmica
+  real acima) e já foram revisados pelo Bayerl; não mexi neles.
+
 | Elemento | no nosso v2? | Nota |
 |---|---|---|
-| Seção "Account" recolhível (`sectionTitle`, `sectionChevron_djirOA`) | **implementado agora** | chevron recolhe "CONTA E USO" |
-| Linha CONTA / Email (`accountInfo`, `accountRow`, `accountValue_JuUW3A`) | **implementado agora** | e-mail via `GET /api/me` |
+| Seção "Account" recolhível (`sectionTitle`, `sectionChevron_djirOA`) | já tem | chevron recolhe "CONTA E USO" |
+| Linha CONTA / Email (`accountInfo`, `accountRow`, `accountValue_JuUW3A`) | **removido de propósito** | foi implementado numa rodada anterior e depois **removido pelo próprio Bayerl** (commit `4a00e94`, "Remove o label de conta ... indevidos") junto com o aviso de proxy; o CSS (`cc-account*`, `cc-usage-hint`) ficou no arquivo sem uso — não é um gap, não recolocar sem pedido explícito |
 | Link "Manage" (`manageLink_JuUW3A`, `openAccountUsage`) | n/a | não há tela de conta acessível daqui |
-| Barras de uso rotuladas (`usageBars_JuUW3A`, `usageFill_8s5nuw`, `usageLabel`, `usagePercent`) | **implementado agora** | 3 barras: "Sessão (5h)", "Semanal (7 dias)", "Limite Fable" |
-| Rótulos reais (`Session (5hr)`, `Weekly (7 day)`, `Weekly Sonnet`, `weekly Opus limit`, `Fable…`) | n/a | são os nomes oficiais; adaptados p/ PT |
-| "Resets {tempo}" (`resetText_8s5nuw`) | n/a | plano não expõe reset; subtítulo vira o custo real |
-| % real do limite do plano | n/a | token OAuth é inference-scoped; usamos **custo como proxy** com aviso |
+| Barras de uso rotuladas (`usageBars_JuUW3A`, `usageFill_8s5nuw`, `usageLabel`, `usagePercent`) | já tem | lista dinâmica na extensão real (ver notas acima); Orion usa 3 barras fixas como proxy quando não há dado real |
+| Rótulos reais (`Session (5hr)`, `Weekly (7 day)`, `Weekly Sonnet`, `Weekly {display_name}` por `model_scoped`) | n/a | confirmado no código real (função `L$5`); não é uma lista fixa — ver notas acima |
+| Cor de aviso da barra a partir de 80% (`usageFillHigh` na função `ee`) | **implementado agora** | Orion usava 90% (`is-high`); a extensão real muda em 80% — corrigido em `Sidebar.tsx` |
+| "Resets {tempo}" (`resetText_8s5nuw`) | **implementado agora (condicional)** | `formatResetIn` + `computeRealUsageBars` em `mapper.ts`; só aparece com dado real (hoje nunca — ver notas acima); nunca inventado para o proxy |
+| % real do limite do plano | **implementado agora (condicional)** | `computeRealUsageBars` usa o `utilization` real do SDK quando presente; hoje o token de `setup-token` não traz esse campo (ver notas acima, com evidência) — continuamos com **custo como proxy** nesse caso |
 | Uso por modelo (`modelUsage_JuUW3A`, `modelUsageDetail`) | n/a | baixa prioridade |
-| Atribuição por skill/agent/plugin (`attribution*_QET5Ow`, `behavior*`) | n/a | dado indisponível |
+| Atribuição por skill/agent/plugin (`attribution*_QET5Ow`, `behavior*`) | n/a | dado indisponível (campo `behaviors` existe no SDK mas é outra função, fora do escopo desta rodada) |
 
 ## 4. Timeline (linha do tempo)
 
@@ -110,7 +157,7 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
   rotuladas + chevron, tokens do thinking, resumo 2 linhas, copiar, colapsar IN/OUT,
   render Read/Edit/Write/Bash, diff do Edit, tokens no result, seletor de esforço,
   seletor de modo em menu, menu de comandos, Esc).
-- **implementado nesta rodada** (microfunções da lista de sessões — filtro, grupo,
+- **implementado em rodada anterior (2)** (microfunções da lista de sessões — filtro, grupo,
   renomear): filtro por projeto (`cc-select` "Todos os projetos"/por projeto — extra
   nosso, já que o v2 é multi-projeto e a extensão real é 1 workspace só); controle
   "Agrupar por" Nenhum/Projeto/Atividade com cabeçalho colapsável por grupo
@@ -119,8 +166,19 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
   no `:focus-within` (antes só `:hover`) — o endpoint de rename já existia
   (`POST /api/claude/sessions/:id/rename`), não foi criado nada novo no servidor.
   Lógica pura testada em `mapper.test.ts` (`filterSessions`, `groupSessions`).
+- **implementado nesta rodada** (28/09/2026 — Conta e uso, ver seção 3 para os detalhes e
+  evidências): suporte real a `rate_limits` do SDK quando disponível (`computeRealUsageBars`,
+  `formatResetIn`, `/api/claude/usage` agora também lê `claude_events` pelo `result` mais recente
+  com `rate_limits_available`) — condicional e hoje inativo na prática (token de `setup-token` não
+  traz esse campo, confirmado ao vivo no Postgres de produção), mas testado e pronto para quando o
+  dado existir, sem fabricar % nem reset; corrigido o limiar de cor de aviso da barra de 90% pra 80%
+  (batendo com a extensão real); revisado (e corrigido) o entendimento anterior de que as 3 barras
+  seriam fixas — a extensão real tem lista dinâmica (ver seção 3); confirmado que a remoção da linha
+  de e-mail/CONTA foi decisão deliberada do Bayerl (commit `4a00e94`), não um gap — não recolocada.
+  8 testes novos de `formatResetIn`/`computeRealUsageBars` + 2 de `computeUsageBars` com dado real,
+  em `tests/mapper.test.ts`, TDD (vermelho→verde confirmado).
 - **deixados de fora (n/a)**: todo list, subagent, plan mode/plan review, rewind/checkpoint,
-  anexos, @-menções, voz, uso por modelo, atribuição de uso, navegação multi-pergunta,
-  worktree, "Manage", % real do plano (token inference-scoped — usamos custo como proxy),
-  grupos personalizados arrastáveis (pastas nomeadas e persistidas — "Agrupar por" cobre
-  a necessidade prática sem exigir a persistência nova).
+  anexos, @-menções, voz, uso por modelo, atribuição de uso (`behaviors` existe no SDK mas é outra
+  função — fora do escopo), navegação multi-pergunta, worktree, "Manage", grupos personalizados
+  arrastáveis (pastas nomeadas e persistidas — "Agrupar por" cobre a necessidade prática sem exigir
+  a persistência nova).

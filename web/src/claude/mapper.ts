@@ -154,12 +154,79 @@ export function formatDuration(ms?: number): string {
 }
 
 export type UsageRow = { cost_5h: string | number; cost_7d: string | number; cost_total: string | number };
-export type UsageBar = { key: string; label: string; pct: number; sub: string };
+export type UsageBar = { key: string; label: string; pct: number; sub?: string; resetText?: string };
+
+/** Uma janela de limite real (rate_limits.* do result do SDK): % de uso 0-100 e reset ISO 8601; qualquer um pode vir null. */
+export type RealRateLimitWindow = { utilization: number | null; resets_at: string | null } | null | undefined;
+/** Entrada de rate_limits.model_scoped[]: mesma janela, mais o rótulo que o servidor manda (ex.: "Fable"). */
+export type RealModelScopedWindow = { display_name: string; utilization: number | null; resets_at: string | null };
 /**
- * Barras de uso a partir do custo real por janela (proxy). O plano não expõe o % real
- * (token OAuth é inference-scoped), então usamos o custo contra uma referência.
+ * Formato de `rate_limits` do result do SDK (`SDKResultMessage.rate_limits` em
+ * `@anthropic-ai/claude-agent-sdk`), só vem preenchido quando `rate_limits_available` é true.
+ * Na prática (28/09/2026) nunca vem — ver nota "% real do limite do plano" em PARIDADE.md.
  */
-export function computeUsageBars(rows: UsageRow[]): UsageBar[] {
+export type RealRateLimits = {
+  five_hour?: RealRateLimitWindow;
+  seven_day?: RealRateLimitWindow;
+  seven_day_sonnet?: RealRateLimitWindow;
+  model_scoped?: RealModelScopedWindow[];
+} | null | undefined;
+/** O que `/api/claude/usage` devolve quando encontrou um result recente com limites reais. */
+export type RealUsage = { subscription_type: string | null; rate_limits: RealRateLimits } | null | undefined;
+
+/**
+ * Texto "em Xm/Xh/Xd" a partir de um reset ISO 8601 real — espelha a função de formatação de reset
+ * da extensão real (`b$5` no webview decompilado v2.1.282: minutos se < 1h, horas se < 24h, senão
+ * dias; "em breve" se já passou). Só deve ser chamada com um `resets_at` que a API de fato mandou —
+ * nunca para inventar um reset para o proxy por custo.
+ */
+export function formatResetIn(resetsAtIso: string | null | undefined, now = Date.now()): string | undefined {
+  if (!resetsAtIso) return undefined;
+  const t = Date.parse(resetsAtIso);
+  if (Number.isNaN(t)) return undefined;
+  const diffMs = t - now;
+  if (diffMs <= 0) return 'em breve';
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 1) return 'em breve';
+  if (min < 60) return `em ${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `em ${h}h`;
+  return `em ${Math.floor(h / 24)}d`;
+}
+
+/**
+ * Barras de uso a partir dos limites REAIS da conta, quando `/api/claude/usage` encontrou um result
+ * com `rate_limits_available: true`. Espelha a lista exata da extensão real (função `L$5` do webview
+ * decompilado v2.1.282): "Sessão (5h)" ← five_hour, "Semanal (7 dias)" ← seven_day, "Semanal Sonnet"
+ * ← seven_day_sonnet (só quando o plano é max/team/desconhecido — mesma condição da extensão), e uma
+ * barra "Semanal {display_name}" por entrada de `model_scoped` (é daí que vem o rótulo "Fable" da
+ * captura de tela). Janelas com `utilization` null são puladas, igual à extensão. Sem % nem reset
+ * inventados — só o que a API mandou.
+ */
+export function computeRealUsageBars(real: RealRateLimits, subscriptionType: string | null | undefined, now = Date.now()): UsageBar[] {
+  if (!real) return [];
+  const sonnetEligible = subscriptionType === 'max' || subscriptionType === 'team' || subscriptionType == null;
+  const entries: { key: string; label: string; window: RealRateLimitWindow }[] = [
+    { key: '5h', label: 'Sessão (5h)', window: real.five_hour },
+    { key: '7d', label: 'Semanal (7 dias)', window: real.seven_day },
+    ...(sonnetEligible ? [{ key: '7d-sonnet', label: 'Semanal Sonnet', window: real.seven_day_sonnet }] : []),
+    ...(real.model_scoped ?? []).map((m, i) => ({ key: `model-${i}`, label: `Semanal ${m.display_name}`, window: { utilization: m.utilization, resets_at: m.resets_at } as RealRateLimitWindow })),
+  ];
+  const bars: UsageBar[] = [];
+  for (const e of entries) {
+    if (!e.window || e.window.utilization === null || e.window.utilization === undefined) continue;
+    const pct = Math.round(Math.min(100, Math.max(0, e.window.utilization)));
+    bars.push({ key: e.key, label: e.label, pct, resetText: formatResetIn(e.window.resets_at, now) });
+  }
+  return bars;
+}
+
+/**
+ * Barras de uso a partir do custo real por janela (proxy), usado quando a API não devolveu limites
+ * reais — hoje é sempre o caso (ver `computeUsageBars`/PARIDADE.md). O plano não expõe o % real nesse
+ * caso, então usamos o custo contra uma referência.
+ */
+function computeProxyUsageBars(rows: UsageRow[]): UsageBar[] {
   const sum = (k: keyof UsageRow) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
   const c5 = sum('cost_5h'), c7 = sum('cost_7d'), ct = sum('cost_total');
   const bar = (key: string, label: string, cost: number, ref: number): UsageBar =>
@@ -218,6 +285,17 @@ export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
     i++;
   }
   return out;
+}
+
+/**
+ * Barras de uso da barra lateral: usa os limites reais da conta quando `/api/claude/usage` os
+ * encontrou (`computeRealUsageBars`); cai para o proxy por custo (`computeProxyUsageBars`) quando
+ * não há dado real — que é o caso hoje, com o token de `claude setup-token` (ver PARIDADE.md).
+ */
+export function computeUsageBars(rows: UsageRow[], real?: RealUsage, now = Date.now()): UsageBar[] {
+  const realBars = real ? computeRealUsageBars(real.rate_limits, real.subscription_type, now) : [];
+  if (realBars.length) return realBars;
+  return computeProxyUsageBars(rows);
 }
 
 export function relativeTime(ts: number, now = Date.now()): string {
