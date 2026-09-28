@@ -74,6 +74,58 @@ describe('fromRows', () => {
     expect(toConvEvents(fromRows(rows, 'error', [])).at(-1)).toMatchObject({ kind: 'result', ok: false, error: 'sem login' });
     expect(toConvEvents(fromRows(rows, 'idle', []))).toEqual([]);
   });
+
+  /**
+   * Regressão do bug corrigido em 28/09/2026 (achado por auditoria dedicada, ver PARIDADE.md): o
+   * botão Parar aborta o turno; o runner acabava gravando um evento genérico 'error' e status 'idle'
+   * (não 'error') — e tanto `fromRows` quanto `toConvEvents` só mostravam erro/interrupção quando
+   * `status === 'error'` literalmente, então num stop manual (status idle) o texto nunca aparecia, e
+   * como mensagens parciais de streaming nunca eram persistidas em claude_events, não sobrava nem
+   * rastro pra reconstruir ao recarregar a página — o turno simplesmente sumia. A correção: o runner
+   * agora persiste um tipo de evento PRÓPRIO ('interrupted', nunca 'error') com o texto parcial já
+   * acumulado, e a reconstrução aqui não depende de `status` pra decidir se mostra — só de existir ou
+   * não o evento (exatamente porque status 'idle' É o resultado correto de um stop, ao contrário de
+   * um erro genuíno). Os testes abaixo usam a shape exata que `server/claude/runner.ts` persiste (ver
+   * `tests/runner.test.ts` "stop persiste um evento 'interrupted'...").
+   */
+  it('stop manual (status idle após abort): o texto parcial da resposta cortada sobrevive ao reload, tagueado como interrompido — nunca escondido atrás do gate is-error', () => {
+    const rows = [
+      { seq: 1, type: 'user_prompt', payload: { prompt: 'liste os arquivos do projeto' } },
+      { seq: 2, type: 'system', payload: { type: 'system', subtype: 'init', model: 'claude-test' } },
+      { seq: 3, type: 'interrupted', payload: { message: 'Interrompido pelo usuário', duringTool: false, partialText: 'Vou listar os arquivos do projeto', partialThinking: '' } },
+    ];
+    const s = fromRows(rows, 'idle', []);
+    expect(s.status).toBe('idle');
+    expect(s.interrupted).toMatchObject({ message: 'Interrompido pelo usuário', duringTool: false, text: 'Vou listar os arquivos do projeto' });
+    // Continua null: interrupção não é o mesmo caminho de erro genuíno (evita reabrir bugs antigos ali).
+    expect(s.error).toBeNull();
+    const ev = toConvEvents(s);
+    const textEv = ev.find(e => e.kind === 'text');
+    expect(textEv).toMatchObject({ kind: 'text', text: 'Vou listar os arquivos do projeto', interrupted: 'Interrompido' });
+  });
+  it('stop durante uso de ferramenta (duringTool: true): rótulo "Ferramenta interrompida", distinto do stop em geração de texto', () => {
+    const rows = [{ seq: 1, type: 'interrupted', payload: { message: 'Interrompido pelo usuário', duringTool: true, partialText: 'vou rodar um comando', partialThinking: '' } }];
+    const ev = toConvEvents(fromRows(rows, 'idle', []));
+    expect(ev.find(e => e.kind === 'text')).toMatchObject({ interrupted: 'Ferramenta interrompida' });
+  });
+  it('interrupção sem nenhum texto parcial (cortado antes de gerar qualquer coisa) ainda mostra o selo — rastro visível de que o turno foi cortado', () => {
+    const rows = [{ seq: 1, type: 'interrupted', payload: { message: 'Interrompido pelo usuário', duringTool: false, partialText: '', partialThinking: '' } }];
+    const ev = toConvEvents(fromRows(rows, 'idle', []));
+    expect(ev.find(e => e.kind === 'text')).toMatchObject({ text: '', interrupted: 'Interrompido' });
+  });
+  it('uma nova mensagem do usuário limpa a interrupção do turno anterior (não fica marcando pra sempre)', () => {
+    const rows = [
+      { seq: 1, type: 'interrupted', payload: { message: 'Interrompido pelo usuário', duringTool: false, partialText: 'meio caminho', partialThinking: '' } },
+      { seq: 2, type: 'user_prompt', payload: { prompt: 'continua' } },
+      { seq: 3, type: 'assistant', payload: { type: 'assistant', message: { content: [{ type: 'text', text: 'terminei dessa vez' }] } } },
+    ];
+    const s = fromRows(rows, 'idle', []);
+    expect(s.interrupted).toBeNull();
+    const textEvs = toConvEvents(s).filter(e => e.kind === 'text');
+    expect(textEvs).toHaveLength(1);
+    expect(textEvs[0]).toMatchObject({ text: 'terminei dessa vez' });
+    expect((textEvs[0] as any).interrupted).toBeUndefined();
+  });
 });
 
 describe('applyLive', () => {
@@ -128,6 +180,27 @@ describe('applyLive', () => {
     expect(toConvEvents(s).at(-1)).toMatchObject({ kind: 'result', ok: false });
     s = applyLive(s, { type: 'status', status: 'running' });
     expect(s.error).toBeNull();
+  });
+  it('stop manual ao vivo (sem reload): o parcial já acumulado no streaming vira o texto interrompido, tagueado, e nunca conflita com erro genuíno', () => {
+    let s = applyLive(emptyLive(), { type: 'status', status: 'running' });
+    s = applyLive(s, { type: 'partial', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Vou ' } } });
+    s = applyLive(s, { type: 'partial', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'rodar' } } });
+    expect(s.partialText).toBe('Vou rodar');
+    s = applyLive(s, { type: 'interrupted', message: 'Interrompido pelo usuário', duringTool: false, partialText: 'Vou rodar', partialThinking: '' });
+    expect(s.partialText).toBe('');
+    expect(s.interrupted).toMatchObject({ message: 'Interrompido pelo usuário', duringTool: false, text: 'Vou rodar' });
+    expect(s.error).toBeNull();
+    const ev = toConvEvents(s);
+    expect(ev.find(e => e.kind === 'text')).toMatchObject({ text: 'Vou rodar', interrupted: 'Interrompido' });
+    // status volta a idle (não error) e a interrupção continua visível — é o comportamento certo.
+    s = applyLive(s, { type: 'status', status: 'idle' });
+    expect(s.interrupted).not.toBeNull();
+  });
+  it('novo turno rodando limpa a interrupção do turno anterior', () => {
+    let s = applyLive(emptyLive(), { type: 'interrupted', message: 'x', duringTool: false, partialText: 'a', partialThinking: '' });
+    expect(s.interrupted).not.toBeNull();
+    s = applyLive(s, { type: 'status', status: 'running' });
+    expect(s.interrupted).toBeNull();
   });
   it('evento desconhecido não altera nada', () => {
     const s = emptyLive();

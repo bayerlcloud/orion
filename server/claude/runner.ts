@@ -10,6 +10,21 @@ export type LiveEvent =
   | { type: 'permission_request'; id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean }
   | { type: 'permission_resolved'; id: string; decision: Decision; message?: string }
   | { type: 'error'; message: string }
+  /**
+   * Turno abortado manualmente (botão Parar) — distinto de 'error' de propósito (ver runner.stop()/
+   * catch de run()): um erro genuíno do SDK continua emitindo só 'error' com status 'error'; um stop
+   * do usuário emite só 'interrupted' com status 'idle', pra não conflitar os dois casos na tela nem
+   * nos dados persistidos (bug corrigido em 28/09/2026, ver PARIDADE.md). `partialText`/`partialThinking`
+   * é o que já tinha sido gerado no streaming até o abort (acumulado em `run()` a partir dos
+   * `stream_event`) — sem isso, o texto parcial se perde pra sempre ao recarregar a página, porque
+   * mensagens parciais nunca são persistidas em `claude_events` (só a mensagem completa seria, e ela
+   * nunca chega quando o turno é interrompido no meio). `duringTool`: havia um pedido de permissão de
+   * ferramenta pendente no momento do stop() — proxy pro que a extensão real distingue lendo o texto
+   * literal "[Request interrupted by user for tool use]" (rótulo "Tool interrupted"; ver `Qw` no
+   * webview decompilado) — aqui não existe esse sentinela (a interrupção é uma exceção de
+   * AbortController, não um bloco de texto do SDK), então usamos o sinal equivalente que já temos.
+   */
+  | { type: 'interrupted'; message: string; duringTool: boolean; partialText: string; partialThinking: string }
   | { type: 'turn_end'; costUsd: number; turns: number; ok: boolean }
   | { type: 'commands'; commands: SlashCommand[] };
 
@@ -83,6 +98,8 @@ type Live = {
   stderr: string[];
   /** Últimos comandos de barra conhecidos (Query.supportedCommands() do SDK) — só em memória, como `pending`; some se o processo reiniciar (mesma limitação já aceita para permissões, ver mapper.ts/foldExpiredPermissions). */
   commands: SlashCommand[];
+  /** `stop()` marca aqui se havia pedido(s) de permissão de ferramenta pendente(s) no momento do abort — lido uma única vez pelo catch de `run()` (evento 'interrupted') e resetado em seguida. */
+  stopHadPendingTool: boolean;
 };
 
 export class Runner {
@@ -91,7 +108,7 @@ export class Runner {
 
   private get(id: string): Live {
     let l = this.live.get(id);
-    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [] }; this.live.set(id, l); }
+    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false }; this.live.set(id, l); }
     return l;
   }
 
@@ -127,6 +144,10 @@ export class Runner {
   async stop(id: string): Promise<void> {
     const l = this.get(id);
     l.queue = [];
+    // Antes de negar as pendências (o que esvazia l.pending): se havia pedido(s) de permissão de
+    // ferramenta esperando resposta, o catch de run() usa isso pra rotular a interrupção como "durante
+    // uso de ferramenta" (ver LiveEvent 'interrupted').
+    l.stopHadPendingTool = l.pending.size > 0;
     for (const [pid, p] of l.pending) { clearTimeout(p.timer); p.resolve({ behavior: 'deny', message: 'Sessão interrompida pelo usuário', interrupt: true }); l.pending.delete(pid); this.emit(id, { type: 'permission_resolved', id: pid, decision: 'deny' }); }
     l.abort?.abort();
   }
@@ -198,6 +219,14 @@ export class Runner {
     };
 
     let ok = false, cost = 0, turns = 0;
+    // Acumula o texto/thinking parcial do streaming (deltas de 'stream_event') pra poder persistir
+    // no evento 'interrupted' se o turno for abortado no meio de uma resposta ainda incompleta — sem
+    // isso, esse texto se perde pra sempre ao recarregar a página: mensagens parciais nunca são
+    // gravadas em claude_events (só a mensagem completa seria, e ela nunca chega quando o turno é
+    // interrompido). Mesma lógica de reset/acúmulo do lado cliente (ver applyLive/pushMessage em
+    // web/src/claude/live.ts), reimplementada aqui porque o servidor não vê os eventos que ele mesmo
+    // emite.
+    let partialText = '', partialThinking = '';
     try {
       // Sem anexos: mantém o prompt string (não muda o comportamento antigo).
       // Com anexos: monta UMA SDKUserMessage com [texto, ...imagens] e o texto ganha as notas dos arquivos.
@@ -210,7 +239,19 @@ export class Runner {
       }
       const q = this.deps.queryFn({ prompt: promptArg, options });
       for await (const m of q as AsyncIterable<SDKMessage>) {
-        if (m.type === 'stream_event') { this.emit(id, { type: 'partial', event: m.event }); continue; }
+        if (m.type === 'stream_event') {
+          const se = (m.event ?? {}) as { type?: string; content_block?: { type?: string }; delta?: { type?: string; text?: string; thinking?: string } };
+          if (se.type === 'message_start') { partialText = ''; partialThinking = ''; }
+          else if (se.type === 'content_block_start') {
+            if (se.content_block?.type === 'text') partialText = '';
+            else if (se.content_block?.type === 'thinking') partialThinking = '';
+          } else if (se.type === 'content_block_delta') {
+            if (se.delta?.type === 'text_delta') partialText += se.delta.text ?? '';
+            else if (se.delta?.type === 'thinking_delta') partialThinking += se.delta.thinking ?? '';
+          }
+          this.emit(id, { type: 'partial', event: m.event });
+          continue;
+        }
         if (m.type === 'system' && m.subtype === 'init') {
           await this.deps.store.updateSession(id, { model: m.model });
           // Lista real de comandos de barra (/clear, /compact, skills, comandos de projeto em
@@ -232,16 +273,30 @@ export class Runner {
         }
         await this.deps.store.appendEvent(id, m.type, m);
         this.emit(id, { type: 'message', message: m });
+        // Mensagem completa: mesmo reset que o lado cliente faz em pushMessage() ao ver 'assistant'/
+        // 'result' — o que estava acumulado em partialText/partialThinking já virou (ou vai virar)
+        // conteúdo definitivo dessa mensagem, não sobra parcial órfão pro próximo bloco.
+        if (m.type === 'assistant' || m.type === 'result') { partialText = ''; partialThinking = ''; }
         if (m.type === 'result') { ok = !m.is_error; cost = m.total_cost_usd ?? 0; turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }
       }
       await this.setStatus(id, ok ? 'idle' : 'error', { costUsd: cost, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
       this.emit(id, { type: 'turn_end', costUsd: cost, turns, ok });
     } catch (e: any) {
-      const msg = abort.signal.aborted ? 'Interrompido pelo usuário' : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
+      const interrupted = abort.signal.aborted;
+      const msg = interrupted ? 'Interrompido pelo usuário' : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
       this.deps.log?.(`sessão ${id}: ${msg}`);
-      await this.deps.store.appendEvent(id, 'error', { message: msg });
-      this.emit(id, { type: 'error', message: msg });
-      await this.setStatus(id, abort.signal.aborted ? 'idle' : 'error', { lastError: msg });
+      if (interrupted) {
+        // Stop manual do usuário: evento e persistência PRÓPRIOS ('interrupted'), nunca 'error' — ver
+        // LiveEvent.interrupted e PARIDADE.md ("Mensagem interrompida", corrigido 28/09/2026). Carrega
+        // o texto parcial já gerado (senão ele se perde ao recarregar) e se havia ferramenta pendente.
+        const duringTool = l.stopHadPendingTool; l.stopHadPendingTool = false;
+        await this.deps.store.appendEvent(id, 'interrupted', { message: msg, duringTool, partialText, partialThinking });
+        this.emit(id, { type: 'interrupted', message: msg, duringTool, partialText, partialThinking });
+      } else {
+        await this.deps.store.appendEvent(id, 'error', { message: msg });
+        this.emit(id, { type: 'error', message: msg });
+      }
+      await this.setStatus(id, interrupted ? 'idle' : 'error', { lastError: msg });
       this.emit(id, { type: 'turn_end', costUsd: cost, turns, ok: false });
     } finally {
       l.abort = null;

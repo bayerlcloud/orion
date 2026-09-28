@@ -32,6 +32,26 @@ function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
   );
 }
 
+/**
+ * Mensagem de texto do assistente — Markdown + botão de copiar revelado no hover (mesmo padrão de
+ * `cc-tool-copy`/`CopyButton` já usado nos blocos de ferramenta; espelha `copyResponseButton_07S1Yg`/
+ * `assistantActions_07S1Yg` da extensão real, que mostra "Copy response" ao lado da mensagem só depois
+ * dela terminar — por isso `!e.streaming` aqui também). Quando o texto é o resto de um turno
+ * interrompido (botão Parar — ver `live.ts`/`interruptedLabel`), mostra o selo logo abaixo, num
+ * estilo neutro/aviso (`cc-interrupted`), nunca vermelho — não é um erro, é só um turno cortado.
+ */
+function AssistantText({ e }: { e: Extract<ConvEvent, { kind: 'text' }> }) {
+  return (
+    <>
+      <div className="cc-text-row">
+        <Md text={e.text} />
+        {!e.streaming && e.text && <span className="cc-text-copy"><CopyButton text={e.text} title="Copiar resposta" /></span>}
+      </div>
+      {e.interrupted && <div className="cc-interrupted">{e.interrupted}</div>}
+    </>
+  );
+}
+
 /** Alvo principal (caminho de arquivo, comando) mostrado em destaque por tipo de ferramenta. */
 function toolTarget(e: Extract<ConvEvent, { kind: 'tool' }>): { mono?: string; desc?: string } {
   const i = (e.input ?? {}) as Record<string, unknown>;
@@ -320,7 +340,7 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
         );
         return (
           <div key={e.id} className={`cc-msg ${dotClass(e)}`}>
-            {e.kind === 'text' && <Md text={e.text} />}
+            {e.kind === 'text' && <AssistantText e={e} />}
             {e.kind === 'thinking' && <Thinking e={e} />}
             {e.kind === 'tool' && <ToolBlock e={e} />}
             {e.kind === 'permission' && <Permission e={e} onDecide={(d, msg) => onDecide?.(e.id, d, msg)} />}

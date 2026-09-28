@@ -164,6 +164,49 @@ describe('Runner', () => {
     expect(m.sessions.get('s8').lastError).toBe('Interrompido pelo usuário');
   });
 
+  it('stop persiste um evento "interrupted" (nunca "error") com o texto parcial já gerado — bug corrigido 28/09/2026: antes esse texto se perdia pra sempre, porque mensagens parciais nunca são gravadas em claude_events e o catch de run() só gravava um "error" genérico sem o texto', async () => {
+    // fakeQuery sem askPermission emite o stream_event de texto parcial ('oi') antes do wait(slow) e
+    // do checkpoint de aborted — então, no momento do stop(), esse texto já está acumulado no runner.
+    const m = memStore(); const q = fakeQuery({ slow: 100 });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 's8b', prompt: 'x', isNew: true });
+    await until(() => r.status('s8b') === 'running');
+    await r.stop('s8b');
+    await until(() => m.sessions.get('s8b')?.status === 'idle', 3000);
+    const ev = m.events.find(e => e.sessionId === 's8b' && e.type === 'interrupted');
+    expect(ev).toBeTruthy();
+    expect(ev!.payload).toMatchObject({ message: 'Interrompido pelo usuário', duringTool: false, partialText: 'oi', partialThinking: '' });
+    // Nunca um 'error' genérico pra esse caminho — os dois tipos não se conflitam (ver runner.ts).
+    expect(m.events.some(e => e.sessionId === 's8b' && e.type === 'error')).toBe(false);
+  });
+
+  it('stop durante um pedido de permissão pendente marca a interrupção como "durante uso de ferramenta" (duringTool)', async () => {
+    // Fake bespoke (não o fakeQuery compartilhado): pede permissão e só verifica o abort DEPOIS do
+    // canUseTool resolver — reproduz o real: stop() nega a pendência com interrupt:true E chama
+    // abort() antes de devolver; a Query real jogaria uma exceção nesse ponto por causa do
+    // AbortController já abortado (o fakeQuery genérico não modela esse timing, por isso um fake à parte).
+    const m = memStore();
+    const fn: QueryFn = ({ options }) => {
+      async function* gen() {
+        yield { type: 'system', subtype: 'init', model: 'm' } as any;
+        yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'vou rodar um comando' } } } as any;
+        await options!.canUseTool!('Bash', { command: 'ls' }, { signal: options!.abortController!.signal, suggestions: [] } as any);
+        if (options!.abortController!.signal.aborted) throw new Error('aborted');
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'não deveria chegar aqui' }] } } as any;
+        yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, num_turns: 1, duration_ms: 1 } as any;
+      }
+      return gen() as any;
+    };
+    const r = new Runner({ queryFn: fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 's8c', prompt: 'x', isNew: true });
+    await until(() => r.status('s8c') === 'waiting');
+    await r.stop('s8c');
+    await until(() => m.sessions.get('s8c')?.status === 'idle', 3000);
+    const ev = m.events.find(e => e.sessionId === 's8c' && e.type === 'interrupted');
+    expect(ev).toBeTruthy();
+    expect(ev!.payload).toMatchObject({ message: 'Interrompido pelo usuário', duringTool: true, partialText: 'vou rodar um comando' });
+  });
+
   it('sem Query.supportedCommands() (fake burro, como todos os outros testes acima): commandsFor fica [] e nada quebra', async () => {
     const m = memStore(); const q = fakeQuery();
     const r = new Runner({ queryFn: q.fn, store: m.store });

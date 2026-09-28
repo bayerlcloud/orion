@@ -1,17 +1,30 @@
 import type { ConvEvent, SdkMessage, SlashCommandInfo } from './types';
-import { describeTool, reduceSdkMessages } from './mapper';
+import { describeTool, interruptedLabel, reduceSdkMessages } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
 export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string; answer?: string };
+/**
+ * Turno terminado por stop manual (botão Parar) — separado de `error` de propósito (ver
+ * server/claude/runner.ts: evento/tipo persistido 'interrupted', nunca 'error', nesse caso). `text`/
+ * `thinking` é o que já tinha sido gerado até o abort (o runner acumula a partir dos `stream_event` e
+ * persiste no próprio evento — sem isso, esse texto some pra sempre ao recarregar, porque mensagens
+ * parciais nunca são gravadas em claude_events). `duringTool`: havia pedido de permissão de
+ * ferramenta pendente no momento do stop — mesmo espírito da distinção real da extensão entre
+ * "Interrupted" e "Tool interrupted" (tabela `Qw` no webview decompilado v2.1.282), adaptado porque o
+ * runner do Orion não tem o sentinela de texto que a extensão usa pra detectar isso.
+ */
+export type InterruptedState = { message: string; duringTool: boolean; text: string; thinking: string };
 export type LiveState = {
   status: LiveStatus; messages: SdkMessage[]; partialText: string; partialThinking: string;
   pending: PermReq[]; resolvedPerms: PermReq[]; error: string | null; lastPrompt: string | null;
   /** Comandos de barra reais da sessão (server/claude/runner.ts, via Query.supportedCommands()); vazio até o servidor mandar (evento 'hello' ou 'commands'). */
   commands: SlashCommandInfo[];
+  /** Último stop manual desta sessão, se o turno mais recente terminou assim — null no caso normal (turno completo, ou erro genuíno, que continua em `error`). Limpo quando o usuário manda uma nova mensagem (ver pushMessage). */
+  interrupted: InterruptedState | null;
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [] });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null });
 
 const ATTACH_NOTE = '\n\n[arquivo anexado:';
 
@@ -33,7 +46,9 @@ function pushMessage(s: LiveState, m: SdkMessage): LiveState {
     const t = userText(m);
     if (t !== undefined) {
       if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return s;
-      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '' };
+      // Nova mensagem do usuário: a interrupção do turno anterior (se houve) não vale mais pro que
+      // vem a seguir — mesma janela de vida do erro genuíno (limpo quando volta a rodar, ver 'status').
+      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null };
     }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
@@ -52,6 +67,9 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
       case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false }); break;
       case 'permission_resolved': { const q = reqs.get(p.id); if (q) { q.decision = p.decision; if (typeof p.message === 'string') q.answer = p.message; } break; }
       case 'error': s = { ...s, error: String(p.message ?? 'erro') }; break;
+      // Stop manual persistido (ver server/claude/runner.ts) — texto parcial reconstruído aqui, do
+      // próprio payload do evento (nunca das mensagens parciais de streaming, que não são persistidas).
+      case 'interrupted': s = { ...s, interrupted: { message: String(p.message ?? 'Interrompido pelo usuário'), duringTool: !!p.duringTool, text: String(p.partialText ?? ''), thinking: String(p.partialThinking ?? '') } }; break;
     }
   }
   const pendingSet = new Set(pendingIds.map(x => x.id));
@@ -74,7 +92,10 @@ export function applyLive(s: LiveState, ev: any): LiveState {
       return { ...s, status: ev.status ?? s.status, pending, commands: Array.isArray(ev.commands) && ev.commands.length ? ev.commands : s.commands };
     }
     case 'commands': return { ...s, commands: Array.isArray(ev.commands) ? ev.commands : s.commands };
-    case 'status': return { ...s, status: ev.status, error: ev.status === 'running' ? null : s.error };
+    // Novo turno rodando: a interrupção do turno anterior (se houve) não vale mais — mesma janela de
+    // vida do erro genuíno logo abaixo (redundante com o reset em pushMessage no caminho normal, mas
+    // essa é a primeira coisa que o servidor emite ao começar um turno — defesa a mais).
+    case 'status': return { ...s, status: ev.status, error: ev.status === 'running' ? null : s.error, interrupted: ev.status === 'running' ? null : s.interrupted };
     case 'message': return pushMessage(s, ev.message);
     case 'partial': {
       const e = ev.event ?? {};
@@ -103,6 +124,22 @@ export function applyLive(s: LiveState, ev: any): LiveState {
       return { ...s, pending: s.pending.filter(p => p.id !== ev.id), resolvedPerms: resolved };
     }
     case 'error': return { ...s, error: String(ev.message ?? 'erro'), partialText: '', partialThinking: '' };
+    // Stop manual (ver server/claude/runner.ts) — ao vivo, o parcial já acumulado em s.partialText/
+    // s.partialThinking é a fonte mais atual (o servidor manda o mesmo texto no payload, útil só pra
+    // quem reconstrói via fromRows sem ter visto os 'partial' ao vivo); nunca mexe em s.error (evento
+    // ortogonal, não é o mesmo caminho de erro genuíno).
+    case 'interrupted':
+      return {
+        ...s,
+        interrupted: {
+          message: String(ev.message ?? 'Interrompido pelo usuário'),
+          duringTool: !!ev.duringTool,
+          text: s.partialText || (typeof ev.partialText === 'string' ? ev.partialText : ''),
+          thinking: s.partialThinking || (typeof ev.partialThinking === 'string' ? ev.partialThinking : ''),
+        },
+        partialText: '',
+        partialThinking: '',
+      };
     case 'turn_end': return { ...s, partialText: '', partialThinking: '' };
     default: return s;
   }
@@ -113,6 +150,15 @@ export function toConvEvents(s: LiveState): ConvEvent[] {
   const out = reduceSdkMessages(s.messages);
   if (s.partialThinking) out.push({ id: 'partial-thinking', kind: 'thinking', text: s.partialThinking, streaming: true });
   if (s.partialText) out.push({ id: 'partial-text', kind: 'text', text: s.partialText, streaming: true });
+  // Stop manual: o que sobrou da resposta cortada, tagueado como interrompido (nunca some — ver bug
+  // corrigido 28/09/2026, PARIDADE.md). Ao contrário do parcial "ao vivo" acima (streaming: true,
+  // sem rótulo), este é um texto definitivo (o turno já terminou) com o selo amigável em
+  // `interrupted` — mostrado mesmo sem texto (interrupção antes de gerar qualquer coisa), pra sempre
+  // deixar rastro visível de que o turno foi cortado, tanto ao vivo quanto depois de recarregar.
+  if (s.interrupted) {
+    if (s.interrupted.thinking) out.push({ id: 'interrupted-thinking', kind: 'thinking', text: s.interrupted.thinking });
+    out.push({ id: 'interrupted-text', kind: 'text', text: s.interrupted.text, interrupted: interruptedLabel(s.interrupted.duringTool) });
+  }
   const parseQuestions = (input: Record<string, unknown>) => Array.isArray((input as any)?.questions) ? (input as any).questions : undefined;
   for (const p of [...s.resolvedPerms, ...s.pending]) {
     const d = describeTool(p.toolName, p.input);

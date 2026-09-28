@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, messageHistory, cycleMessageIndex } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex } from '../web/src/claude/mapper';
 import { matchModelAlias } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
@@ -539,6 +539,15 @@ describe('taskStatusLabel', () => {
   });
   it('warning cai no mesmo texto de concluído (fallback)', () => {
     expect(taskStatusLabel('warning')).toBe('Concluído');
+  });
+});
+
+describe('interruptedLabel', () => {
+  it('sem ferramenta pendente no momento do stop: "Interrompido" (equivalente PT-BR de "Interrupted", tabela Qw da extensão real)', () => {
+    expect(interruptedLabel(false)).toBe('Interrompido');
+  });
+  it('com ferramenta pendente no momento do stop: "Ferramenta interrompida" (equivalente PT-BR de "Tool interrupted")', () => {
+    expect(interruptedLabel(true)).toBe('Ferramenta interrompida');
   });
 });
 
