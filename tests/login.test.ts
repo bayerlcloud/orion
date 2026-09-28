@@ -45,4 +45,39 @@ describe('LoginFlow com um comando falso', () => {
     const g = new LoginFlow({ onToken: async () => {}, command: 'sleep 5', timeoutMs: 5000 });
     g.start(); g.cancel('teste'); expect(g.state).toBe('error'); expect(g.error).toBe('teste');
   });
+
+  it('login concluído sem token na tela cai pro arquivo de credenciais (onFileAuth, não onToken)', async () => {
+    const tokenSaves: string[] = [];
+    let fileAuthCalled = false;
+    const f = new LoginFlow({
+      onToken: async (t) => { tokenSaves.push(t); },
+      onFileAuth: async () => { fileAuthCalled = true; },
+      readCredentialsFallback: async () => 'algum-access-token-do-arquivo',
+      command: `printf 'Opening browser to sign in\\xe2\\x80\\xa6\\nhttps://claude.com/cai/oauth/authorize?code=true&scope=user%3Aprofile&state=1\\nPaste code here if prompted > '; read c; printf 'Login successful\\n'`,
+      timeoutMs: 5000,
+    });
+    f.start();
+    for (let i = 0; i < 100 && !f.url; i++) await new Promise(r => setTimeout(r, 30));
+    expect(f.state).toBe('awaiting_code');
+    f.submitCode('abc123');
+    for (let i = 0; i < 100 && f.state !== 'done' && f.state !== 'error'; i++) await new Promise(r => setTimeout(r, 30));
+    expect(f.state).toBe('done');
+    expect(fileAuthCalled).toBe(true);
+    expect(tokenSaves).toEqual([]); // nunca guarda um snapshot estático nesse caminho
+    expect(f.token).toBeNull();
+  });
+
+  it('login concluído sem token na tela e sem arquivo de credenciais vira erro (não trava em sucesso falso)', async () => {
+    const f = new LoginFlow({
+      onToken: async () => {},
+      readCredentialsFallback: async () => null,
+      command: `printf 'https://claude.com/cai/oauth/authorize?code=true&state=1\\nPaste code here if prompted > '; read c; printf 'terminou\\n'`,
+      timeoutMs: 5000,
+    });
+    f.start();
+    for (let i = 0; i < 100 && !f.url; i++) await new Promise(r => setTimeout(r, 30));
+    f.submitCode('abc123');
+    for (let i = 0; i < 100 && f.state !== 'done' && f.state !== 'error'; i++) await new Promise(r => setTimeout(r, 30));
+    expect(f.state).toBe('error');
+  });
 });

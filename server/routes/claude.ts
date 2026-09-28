@@ -13,6 +13,7 @@ import { Runner, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt } from '../claude/header.js';
 import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
+import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
 
 const execFile = promisify(execFileCb);
@@ -131,16 +132,20 @@ export async function claudeRoutes(app: FastifyInstance) {
               COALESCE(SUM(s.cost_usd) FILTER (WHERE s.updated_at > now() - interval '7 days'), 0) AS cost_7d,
               COALESCE(SUM(s.cost_usd), 0) AS cost_total, COUNT(s.id) AS sessions
          FROM users u LEFT JOIN claude_sessions s ON s.user_id = u.id GROUP BY u.id ORDER BY u.id`);
-    // Limites reais da conta (campo `rate_limits` do result do SDK, já persistido em claude_events
-    // junto com o resto da mensagem — nenhuma chamada nova). Só existe quando o CLI expõe a API de
-    // uso da conta (hoje não expõe com o token de `claude setup-token`; ver PARIDADE.md). O limite é
-    // da conta, não da sessão, então pega o result mais recente entre TODAS as sessões.
-    const { rows: rlRows } = await app.pool.query(
-      `SELECT payload->'rate_limits' AS rate_limits, payload->>'subscription_type' AS subscription_type
-         FROM claude_events
-        WHERE type = 'result' AND payload->>'rate_limits_available' = 'true' AND payload->'rate_limits' IS NOT NULL
-        ORDER BY ts DESC LIMIT 1`);
-    const real = rlRows[0] ? { subscription_type: rlRows[0].subscription_type ?? null, rate_limits: rlRows[0].rate_limits } : null;
+    // Limites reais da conta: chamada direta em /api/oauth/usage (mesmo endpoint que o plugin oficial
+    // e o Orion antigo usam), preferindo o arquivo de credenciais do `claude auth login` (tem o escopo
+    // `user:profile`; o token de `claude setup-token` não tem — ver claude/realUsage.ts e PARIDADE.md).
+    // Se por algum motivo a chamada direta falhar, cai pro que já tiver persistido num result do SDK
+    // (mesmo campo `rate_limits`, se algum dia vier preenchido) antes de desistir.
+    let real = await fetchRealUsage(app.pool);
+    if (!real) {
+      const { rows: rlRows } = await app.pool.query(
+        `SELECT payload->'rate_limits' AS rate_limits, payload->>'subscription_type' AS subscription_type
+           FROM claude_events
+          WHERE type = 'result' AND payload->>'rate_limits_available' = 'true' AND payload->'rate_limits' IS NOT NULL
+          ORDER BY ts DESC LIMIT 1`);
+      real = rlRows[0] ? { subscription_type: rlRows[0].subscription_type ?? null, rate_limits: rlRows[0].rate_limits } : null;
+    }
     return { usage: rows, real };
   });
 
