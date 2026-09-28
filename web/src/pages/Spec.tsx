@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
 import { api, type User } from '../api';
 import { explicaApt, explicaBinario, explicaContainer, explicaPacote, explicaPorta, explicaUnidade } from './glossario';
+import SpecMemoria from './SpecMemoria';
 
 type Doc = { id: string; title: string; markdown: string };
 
@@ -79,6 +80,7 @@ export default function Spec({ user }: { user: User }) {
   const tabs = useMemo(() => [
     ...docs.map(d => ({ id: d.id, label: d.title })),
     { id: 'instalado', label: 'Instalado' },
+    { id: 'memoria', label: 'Arquitetura de Memória' },
   ], [docs]);
 
   const doc = docs.find(d => d.id === tab);
@@ -97,6 +99,7 @@ export default function Spec({ user }: { user: User }) {
         {tabs.map(t => <button key={t.id} className={t.id === tab ? 'active' : ''} onClick={() => setTab(t.id)}>{t.label}</button>)}
       </div>
       {doc && <article className="md" dangerouslySetInnerHTML={{ __html: html }} />}
+      {tab === 'memoria' && <SpecMemoria />}
       {tab === 'instalado' && (
         !inv || !s ? <p className="muted">coletando…</p> : (
           <div className="md">
