@@ -101,6 +101,16 @@ type Live = {
   commands: SlashCommand[];
   /** `stop()` marca aqui se havia pedido(s) de permissão de ferramenta pendente(s) no momento do abort — lido uma única vez pelo catch de `run()` (evento 'interrupted') e resetado em seguida. */
   stopHadPendingTool: boolean;
+  /**
+   * A Query viva do turno atual — só existe entre o `queryFn(...)` de `run()` e o `finally` que a
+   * fecha (null quando a sessão está ociosa entre turnos). Guardada aqui (e não só na variável local
+   * `q` de dentro de `run()`, que já é usada pra `supportedCommands()` fire-and-forget) pra que
+   * `setPermissionModeLive`/`setModelLive`/`setEffortLive` — chamados por uma rota HTTP a qualquer
+   * momento, fora do `for await` do turno — consigam achar a Query certa. Mesma vida útil em memória
+   * de `pending`/`commands`: some se o processo reiniciar (aceito, mesma limitação já documentada
+   * pra permissões pendentes).
+   */
+  query: Query | null;
 };
 
 export class Runner {
@@ -109,7 +119,7 @@ export class Runner {
 
   private get(id: string): Live {
     let l = this.live.get(id);
-    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false }; this.live.set(id, l); }
+    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null }; this.live.set(id, l); }
     return l;
   }
 
@@ -119,6 +129,68 @@ export class Runner {
   }
   /** Comandos de barra reais da sessão, do último `Query.supportedCommands()` (ou push `commands_changed`) que chegou — [] antes do primeiro turno rodar neste processo. */
   commandsFor(id: string): SlashCommand[] { return this.live.get(id)?.commands ?? []; }
+
+  /**
+   * Troca o modo de permissão AO VIVO, sem esperar a próxima mensagem — bug real reportado pelo
+   * Bayerl em 28/09/2026 (sessão c4380a41-d263-408e-9543-4be08d1aea01, confirmado ao vivo no
+   * Postgres de produção, read-only: `status: 'waiting'`, `permission_mode: 'acceptEdits'`, com um
+   * `permission_request` pendente — a UI mostrava "Auto" selecionado, mas o Postgres nunca via a
+   * troca, porque `onMode` só atualizava `useState` local em `ClaudePage.tsx`; o valor novo só seria
+   * mandado ao servidor no PRÓXIMO `create`/`send`). Usa `Query.setPermissionMode()` do SDK — control
+   * method que existe exatamente pra isso (`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`);
+   * a extensão real faz o mesmo (webview decompilado: o `onSelect` do menu de modo chama
+   * `connection.setPermissionMode(...)` na hora, nunca espera a próxima mensagem).
+   *
+   * Sem Query viva agora (sessão ociosa entre turnos, ou nunca rodou neste processo): não há o que
+   * aplicar aqui — devolve `false` sem lançar. A rota (`server/routes/claude.ts`) sempre persiste o
+   * modo novo no Postgres primeiro, então o PRÓXIMO turno já nasce certo de qualquer forma (mesmo
+   * comportamento de antes desta correção, preservado). Mesma checagem defensiva de
+   * `typeof === 'function'` já usada acima pra `supportedCommands()`: um fake de teste "burro" (ou
+   * uma versão do CLI que não tenha esse control method) não deve derrubar o runner.
+   *
+   * @returns `true` quando havia uma Query viva e o método de controle foi chamado; `false` quando
+   * não havia nada ao vivo pra atualizar (só a persistência no Postgres, feita pela rota, vale).
+   */
+  async setPermissionModeLive(sessionId: string, mode: TurnParams['permissionMode']): Promise<boolean> {
+    const q = this.live.get(sessionId)?.query as unknown as Partial<Query> | undefined;
+    if (!q || typeof q.setPermissionMode !== 'function') return false;
+    await q.setPermissionMode(mode);
+    return true;
+  }
+
+  /**
+   * Troca o modelo AO VIVO — mesmo bug/mesma correção de `setPermissionModeLive` acima, aplicado ao
+   * seletor de modelo do compositor (`onModel`/`setModel` em `ClaudePage.tsx`, implementado antes
+   * desta rodada só como "vale pro próximo turno"). Usa `Query.setModel()` do SDK (mesmo arquivo
+   * `sdk.d.ts`, mesma vizinhança de `setPermissionMode`); a extensão real também aplica na hora
+   * (webview: `setModel` da classe de conexão chama o control method direto, sem esperar mensagem
+   * nova). `undefined` = "sem override" (volta pro modelo padrão da sessão/conta), igual ao
+   * `model?: string` do control method real.
+   */
+  async setModelLive(sessionId: string, model: string | undefined): Promise<boolean> {
+    const q = this.live.get(sessionId)?.query as unknown as Partial<Query> | undefined;
+    if (!q || typeof q.setModel !== 'function') return false;
+    await q.setModel(model);
+    return true;
+  }
+
+  /**
+   * Troca o esforço de raciocínio AO VIVO. Diferente de modo/modelo, o SDK não tem um `setEffort()`
+   * dedicado — o control method real é o genérico `Query.applyFlagSettings()`, que aceita
+   * `effortLevel` entre as chaves que mescla na camada de settings da sessão (`sdk.d.ts`). Confirmado
+   * que é exatamente esse o caminho que a extensão real usa, lendo o webview decompilado: o handler
+   * `setEffortLevel` da classe de conexão chama `this.applySettings({ effortLevel: $ })` na hora, o
+   * mesmo padrão "aplica agora" de modo/modelo — não "só no próximo turno" como se poderia supor por
+   * não existir um método com nome dedicado. `effort` nem é persistido por sessão no Postgres (é
+   * sempre reenviado explicitamente em cada `create`/`send`, ver `EFFORTS` em `server/routes/claude.ts`),
+   * então esta chamada só tem o lado "ao vivo" — não há nada pra persistir aqui.
+   */
+  async setEffortLive(sessionId: string, effort: TurnParams['effort']): Promise<boolean> {
+    const q = this.live.get(sessionId)?.query as unknown as Partial<Query> | undefined;
+    if (!q || typeof q.applyFlagSettings !== 'function') return false;
+    await q.applyFlagSettings({ effortLevel: effort });
+    return true;
+  }
 
   subscribe(id: string, fn: (e: LiveEvent) => void): () => void {
     const l = this.get(id); l.subscribers.add(fn);
@@ -240,6 +312,10 @@ export class Runner {
         promptArg = (async function* () { yield userMsg; })();
       }
       const q = this.deps.queryFn({ prompt: promptArg, options });
+      // Guardada em l.query (não só na variável local `q`) pra que setPermissionModeLive/setModelLive/
+      // setEffortLive — chamados por uma rota HTTP a qualquer momento, fora deste for-await — consigam
+      // achar a Query certa enquanto o turno está rodando. Limpa no finally, junto de l.abort.
+      l.query = q as unknown as Query;
       for await (const m of q as AsyncIterable<SDKMessage>) {
         if (m.type === 'stream_event') {
           const se = (m.event ?? {}) as { type?: string; content_block?: { type?: string }; delta?: { type?: string; text?: string; thinking?: string } };
@@ -302,6 +378,7 @@ export class Runner {
       this.emit(id, { type: 'turn_end', costUsd: cost, turns, ok: false });
     } finally {
       l.abort = null;
+      l.query = null;
       for (const [pid, pend] of l.pending) { clearTimeout(pend.timer); l.pending.delete(pid); }
       const next = l.queue.shift();
       if (next) void this.run({ ...next, isNew: false });

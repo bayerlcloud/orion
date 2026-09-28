@@ -24,9 +24,14 @@ async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); whil
  * testes deste arquivo — sem essa opção — reproduzem de propósito um fake "burro" sem métodos de
  * controle, pra garantir que o runner nunca quebra chamando um método que não existe).
  * `commandsChanged`, quando passado, emite um `system/commands_changed` (push do SDK) no meio do turno.
+ * `liveControls`, quando passado, expõe `setPermissionMode`/`setModel`/`applyFlagSettings` no objeto
+ * Query devolvido (mesmo padrão defensivo de `commands` acima) — cada chamada é registrada em
+ * `liveCalls` (devolvido junto de `fn`/`calls`) pra os testes de `setPermissionModeLive`/
+ * `setModelLive`/`setEffortLive` conferirem o que foi chamado, com quais argumentos.
  */
-function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[] } = {}): { fn: QueryFn; calls: any[] } {
+function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
   const calls: any[] = [];
+  const liveCalls: any[] = [];
   const fn: QueryFn = ({ prompt, options }) => {
     calls.push({ prompt, options });
     async function* gen() {
@@ -45,9 +50,14 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
     }
     const g = gen();
     if (opts.commands) (g as any).supportedCommands = async () => opts.commands;
+    if (opts.liveControls) {
+      (g as any).setPermissionMode = async (mode: string) => { liveCalls.push({ type: 'setPermissionMode', mode }); };
+      (g as any).setModel = async (model?: string) => { liveCalls.push({ type: 'setModel', model }); };
+      (g as any).applyFlagSettings = async (settings: any) => { liveCalls.push({ type: 'applyFlagSettings', settings }); };
+    }
     return g as any;
   };
-  return { fn, calls };
+  return { fn, calls, liveCalls };
 }
 
 const base = { cwd: '/tmp/x', permissionMode: 'acceptEdits' as const, systemAppend: 'h' };
@@ -236,6 +246,79 @@ describe('Runner', () => {
     r.startTurn({ ...base, sessionId: 's11', prompt: 'x', isNew: true });
     await until(() => m.sessions.get('s11')?.status === 'idle');
     expect(r.commandsFor('s11')).toEqual(changed);
+  });
+
+  // setPermissionModeLive/setModelLive/setEffortLive — bug real reportado pelo Bayerl ao vivo em
+  // 28/09/2026 (sessão c4380a41-d263-408e-9543-4be08d1aea01, confirmado no Postgres de produção,
+  // read-only: status 'waiting' com um permission_request pendente, permission_mode ainda
+  // 'acceptEdits' — a troca pra "Auto" na UI nunca chegava ao servidor, porque só atualizava
+  // useState local até a PRÓXIMA mensagem). As 3 chamadas ao vivo espelham os control methods reais
+  // do SDK (setPermissionMode/setModel/applyFlagSettings, sdk.d.ts) com o mesmo padrão defensivo já
+  // usado acima pra supportedCommands(): sem Query viva, ou com uma Query que não tem o método
+  // (fake "burro"), devolvem false sem lançar — só quando o método existe de verdade é que aplicam e
+  // devolvem true.
+  describe('setPermissionModeLive / setModelLive / setEffortLive (troca ao vivo, mid-turno)', () => {
+    it('sem Query viva (sessão desconhecida, nunca rodou neste processo): as 3 chamadas devolvem false, sem lançar', async () => {
+      const m = memStore(); const r = new Runner({ queryFn: fakeQuery().fn, store: m.store });
+      expect(await r.setPermissionModeLive('nunca-existiu', 'plan')).toBe(false);
+      expect(await r.setModelLive('nunca-existiu', 'sonnet')).toBe(false);
+      expect(await r.setEffortLive('nunca-existiu', 'high')).toBe(false);
+    });
+
+    it('Query viva mas sem nenhum control method (fake "burro", como os outros testes deste arquivo): as 3 chamadas devolvem false, sem lançar', async () => {
+      const m = memStore(); const q = fakeQuery({ slow: 150 }); // sem liveControls
+      const r = new Runner({ queryFn: q.fn, store: m.store });
+      r.startTurn({ ...base, sessionId: 'lc1', prompt: 'x', isNew: true });
+      // Espera a Query de verdade existir (não só status 'running', que fica visível um instante
+      // antes — l.query só é atribuída depois que queryFn() de fato retorna, dentro de run()).
+      await until(() => q.calls.length > 0);
+      expect(await r.setPermissionModeLive('lc1', 'plan')).toBe(false);
+      expect(await r.setModelLive('lc1', 'sonnet')).toBe(false);
+      expect(await r.setEffortLive('lc1', 'high')).toBe(false);
+      await r.stop('lc1');
+    });
+
+    it('setPermissionModeLive: Query viva com setPermissionMode — chama com o modo novo e devolve true', async () => {
+      const m = memStore(); const q = fakeQuery({ slow: 150, liveControls: true });
+      const r = new Runner({ queryFn: q.fn, store: m.store });
+      r.startTurn({ ...base, sessionId: 'lc2', prompt: 'x', isNew: true });
+      await until(() => q.calls.length > 0);
+      expect(await r.setPermissionModeLive('lc2', 'auto')).toBe(true);
+      expect(q.liveCalls).toContainEqual({ type: 'setPermissionMode', mode: 'auto' });
+      await r.stop('lc2');
+    });
+
+    it('setModelLive: Query viva com setModel — chama com o modelo novo (ou undefined pra "sem override") e devolve true', async () => {
+      const m = memStore(); const q = fakeQuery({ slow: 150, liveControls: true });
+      const r = new Runner({ queryFn: q.fn, store: m.store });
+      r.startTurn({ ...base, sessionId: 'lc3', prompt: 'x', isNew: true });
+      await until(() => q.calls.length > 0);
+      expect(await r.setModelLive('lc3', 'sonnet')).toBe(true);
+      expect(await r.setModelLive('lc3', undefined)).toBe(true);
+      expect(q.liveCalls).toContainEqual({ type: 'setModel', model: 'sonnet' });
+      expect(q.liveCalls).toContainEqual({ type: 'setModel', model: undefined });
+      await r.stop('lc3');
+    });
+
+    it('setEffortLive: Query viva com applyFlagSettings — chama com { effortLevel } e devolve true (SDK não tem setEffort() dedicado)', async () => {
+      const m = memStore(); const q = fakeQuery({ slow: 150, liveControls: true });
+      const r = new Runner({ queryFn: q.fn, store: m.store });
+      r.startTurn({ ...base, sessionId: 'lc4', prompt: 'x', isNew: true });
+      await until(() => q.calls.length > 0);
+      expect(await r.setEffortLive('lc4', 'xhigh')).toBe(true);
+      expect(q.liveCalls).toContainEqual({ type: 'applyFlagSettings', settings: { effortLevel: 'xhigh' } });
+      await r.stop('lc4');
+    });
+
+    it('depois que o turno termina, a Query não fica mais acessível — as 3 chamadas voltam a devolver false', async () => {
+      const m = memStore(); const q = fakeQuery({ liveControls: true });
+      const r = new Runner({ queryFn: q.fn, store: m.store });
+      r.startTurn({ ...base, sessionId: 'lc5', prompt: 'x', isNew: true });
+      await until(() => m.sessions.get('lc5')?.status === 'idle');
+      expect(await r.setPermissionModeLive('lc5', 'plan')).toBe(false);
+      expect(await r.setModelLive('lc5', 'opus')).toBe(false);
+      expect(await r.setEffortLive('lc5', 'low')).toBe(false);
+    });
   });
 });
 
