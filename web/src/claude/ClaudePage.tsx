@@ -199,6 +199,31 @@ export default function ClaudePage() {
     try { await claudeApi.permission(activeId, { approval_id: approvalId, decision: d, message: msg }); } catch (e: any) { setErro(e.message); }
   }
   async function stop() { if (activeId && !isDraft(activeId)) { try { await claudeApi.stop(activeId); } catch (e: any) { setErro(e.message); } } }
+  /**
+   * Troca de modo/modelo/esforço no compositor: sempre atualiza o estado local na hora (pro próprio
+   * seletor mostrar a escolha e pra já valer no próximo create/send, como antes) e, quando o valor
+   * realmente mudou E há uma sessão de verdade aberta (não rascunho — ainda não existe Query nem
+   * linha no Postgres pra atualizar), também dispara a troca AO VIVO (`claudeApi.setMode`/`setModel`/
+   * `setEffort`) — bug corrigido em 28/09/2026 (ver PARIDADE.md): antes, mudar o modo com um turno já
+   * em andamento não tinha efeito nenhum até a próxima mensagem, sem nenhum aviso ao usuário. Falha
+   * na chamada ao vivo (rede/servidor) só um aviso no console — nunca reverte o estado local (a
+   * intenção do usuário continua valendo pro próximo turno de qualquer forma) nem quebra a tela.
+   */
+  function handleMode(m: Mode) {
+    setMode(m);
+    if (m === mode || !activeId || isDraft(activeId)) return;
+    claudeApi.setMode(activeId, m).catch(e => console.warn('troca de modo ao vivo falhou:', e?.message ?? e));
+  }
+  function handleModel(m: ModelAlias) {
+    setModel(m);
+    if (m === model || !activeId || isDraft(activeId)) return;
+    claudeApi.setModel(activeId, m !== 'default' ? m : undefined).catch(e => console.warn('troca de modelo ao vivo falhou:', e?.message ?? e));
+  }
+  function handleEffort(e: Effort) {
+    setEffort(e);
+    if (e === effort || !activeId || isDraft(activeId)) return;
+    claudeApi.setEffort(activeId, e).catch(err => console.warn('troca de esforço ao vivo falhou:', err?.message ?? err));
+  }
   async function rename() {
     if (!active) return;
     const t = window.prompt('Novo título da sessão', active.title);
@@ -265,8 +290,8 @@ export default function ClaudePage() {
           {activeId && <Timeline events={events} onDecide={decide} />}
         </div>
         {activeId && (
-          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={setMode} effort={effort} onEffort={setEffort}
-            model={model} onModel={setModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
+          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
+            model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
             projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
             onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
         )}

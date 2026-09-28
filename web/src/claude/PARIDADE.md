@@ -271,9 +271,9 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
 | Esc foca/desfoca o compositor | já tem | listener global de Escape |
 | Botão parar (`stopIcon_gGYT1w`) | já tem | `cc-stop` |
 | Fila de mensagens enquanto roda (`queued`) | já tem (back) | back enfileira; placeholder avisa que dá pra enfileirar |
-| Seletor de modelo (`modelPill_gGYT1w`, `modelItem_G8AMvA`) | **implementado agora (28/09/2026)** | era `<span>` decorativo; agora é um menu de verdade (Padrão/Sonnet/Opus/Haiku/Fable) que muda o modelo da próxima mensagem, inclusive no meio de uma sessão já existente — ver seção "Compositor — rodada de 28/09/2026" |
-| Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | já tem | menu; envia `effort` no create/send |
-| Seletor de modo de permissão (`modeOption_7kXHPg` Manual/Plan/Accept edits/Auto) | já tem | menu visível (era só ciclo) |
+| Seletor de modelo (`modelPill_gGYT1w`, `modelItem_G8AMvA`) | **implementado agora (28/09/2026)**; **corrigido — troca ao vivo (28/09/2026, rodada 4)** | menu de verdade (Padrão/Sonnet/Opus/Haiku/Fable); mudar durante um turno já em andamento agora aplica na hora, não só no próximo create/send — ver seção 8 |
+| Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | já tem; **corrigido — troca ao vivo (28/09/2026, rodada 4)** | menu; envia `effort` no create/send E agora também aplica na hora num turno já em andamento — ver seção 8 |
+| Seletor de modo de permissão (`modeOption_7kXHPg` Manual/Plan/Accept edits/Auto) | já tem; **corrigido — bug real de troca ao vivo (28/09/2026, rodada 4)** | menu visível (era só ciclo); trocar o modo durante um turno já em andamento era só cosmético até a próxima mensagem — bug real reportado pelo Bayerl, ver seção 8 |
 | Anexar arquivos/imagens (`attachedFilesContainer_cKsPxg`, `onAddFiles`) | n/a | "em breve" (pedido) |
 | Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora (28/09/2026)** | era uma lista fixa de 4 (`/clear /compact /context /cost`); agora vem de `Query.supportedCommands()` do SDK quando a sessão já rodou pelo menos um turno neste processo (inclui skills, comandos de projeto, etc.), com fallback pros 4 fixos antes disso — ver seção "Compositor — rodada de 28/09/2026" |
 | @-menções (`mentionChip_uq5aLg`, "Add context") | n/a | fora de escopo (pedido) |
@@ -548,6 +548,135 @@ reuso/wiring de mecanismos que já existiam no código (`CopyButton`, `EventSour
 `closeTab`/`newSession`/`tabs`), verificados por leitura cuidadosa mais os mesmos testes de
 `mapper.ts` que já cobriam o entorno (nenhum teste antigo quebrou).
 
+## 8. Bug ao vivo: troca de modo/modelo/esforço só valia na PRÓXIMA mensagem, nunca no turno em andamento — reportado pelo Bayerl em 28/09/2026
+
+Diferente das rodadas anteriores (auditoria própria comparando com a extensão), este achado veio de
+um relato ao vivo do Bayerl: trocar o seletor de modo de permissão pra "Auto" no meio de um turno já
+rodando não impedia o próximo pedido de aprovação de continuar pedindo aprovação — a UI mostrava
+"Auto" marcado, mas o comportamento seguia o modo antigo, sem nenhum aviso.
+
+**Causa raiz** (confirmada lendo `web/src/claude/ClaudePage.tsx` antes de mexer, não assumida): o
+seletor de modo do compositor tinha `onMode` ligado direto a `setMode` (só `useState` local, linha
+~268-269 de antes desta correção). O valor só era de fato mandado ao servidor dentro do PRÓXIMO
+`claudeApi.create(...)` (sessão nova) ou `claudeApi.send(activeId, {..., permission_mode: mode, ...})`
+(mensagem nova) — ver `send()` no mesmo arquivo. Se o usuário trocasse o modo enquanto um turno já
+estava em andamento (exatamente o caso relatado: sessão `waiting` num pedido de permissão de Bash
+pendente), não havia nenhuma mensagem nova sendo mandada — a troca ficava puramente cosmética até
+(se algum dia) uma próxima mensagem ser enviada. O pedido de aprovação já pendente continuava se
+comportando pelo modo ANTIGO, sem nenhuma indicação ao usuário de que a troca não tinha efeito.
+
+**Confirmado ao vivo, read-only, sem perturbar nada**: consultei diretamente o Postgres de produção
+(via o próprio módulo `server/db.ts` do projeto, rodando um script `.mjs` descartável de dentro do
+worktree só pra reaproveitar o `node_modules/pg` já instalado — nunca li nem imprimi a
+`DATABASE_URL` em si, só o resultado das duas queries SELECT; script apagado logo depois) a sessão
+real citada pelo Bayerl, `c4380a41-d263-408e-9543-4be08d1aea01`:
+```
+SESSION: [{ id: "c4380a41-...", status: "waiting", permission_mode: "acceptEdits",
+            model: "claude-opus-5-5", updated_at: "2026-09-28T23:09:40.481Z" }]
+```
+O evento mais recente (`seq 190`) é um `permission_request` de Bash ainda pendente — exatamente o
+cenário descrito: sessão `waiting`, `permission_mode` ainda `acceptEdits` no banco, apesar de
+(segundo o relato) a UI mostrar "Auto" selecionado. Confirma a causa raiz sem qualquer dúvida —
+nenhuma escrita foi feita nessa consulta (só `SELECT`).
+
+**O que a extensão real faz de verdade** (não assumido — confirmado lendo
+`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` e o webview decompilado
+`/srv/orion-reference/vscode-extension/extension/webview/index.js`, v2.1.282):
+- O SDK expõe `Query.setPermissionMode(mode): Promise<void>` — um **control method** que muda o modo
+  da sessão **já rodando**, sem precisar de mensagem nova (`sdk.d.ts`: "Change the permission mode
+  for the current session"). Runtime confirmado no `sdk.mjs` compilado (não só o `.d.ts`): `async
+  setPermissionMode(e){await this.request({subtype:"set_permission_mode",mode:e})}` — manda um
+  `control_request` pelo mesmo canal stdio que já está aberto com o processo do CLI.
+- **Investigação extra que valeu a pena** (a doc do `.d.ts` diz "Only available in streaming input
+  mode" pra TODOS os control methods, o que levantou a dúvida de que talvez não funcionasse pros
+  turnos do Orion sem anexo, que mandam o prompt como string simples, não como
+  `AsyncIterable`): li o `request()` real no `sdk.mjs` e a montagem dos argumentos do CLI —
+  `["--output-format","stream-json","--verbose","--input-format","stream-json"]` é passada
+  **incondicionalmente**, nunca varia com o tipo do `prompt` recebido por `query()`. Ou seja: o
+  processo do CLI é sempre aberto em modo streaming JSON de controle, string ou `AsyncIterable`
+  tanto faz — a ressalva do `.d.ts` não bloqueia nada no nosso caso. Sem essa checagem eu teria
+  implementado a correção assumindo um risco real que não existe.
+- A extensão real chama esse método NA HORA: `onSelect:(m1)=>void $.setPermissionMode(m1,!0)` no
+  popup do seletor de modo (`aB0` no webview) — nunca espera a próxima mensagem.
+- `Query.setModel(model?: string): Promise<void>` — mesmo padrão, também aplicado na hora
+  (`G.setModel(q,$)` na classe de conexão do webview, dentro de `queueSettingsApply`).
+- **Esforço não tem um `setEffort()` dedicado** — achado só depois de procurar por "effort" no
+  `sdk.d.ts` inteiro (não assumido a partir do nome do método de modo/modelo). O caminho real é o
+  control method genérico `Query.applyFlagSettings(settings)`, que aceita `effortLevel` entre as
+  chaves que mescla na camada de settings da sessão. Confirmado lendo o webview que é exatamente
+  esse o caminho que a extensão usa, e que ela aplica NA HORA (não só "vale pro próximo turno" como
+  seria razoável supor por não existir um método com nome dedicado):
+  `async setEffortLevel($){...await this.queueSettingsApply(async()=>{...await
+  this.applySettings({effortLevel:$})})}`. Ou seja: as 3 trocas (modo/modelo/esforço) são
+  **igualmente ao vivo** na extensão real — não há nenhuma distinção visual "aplica agora" vs.
+  "aplica no próximo turno" entre elas nos três pickers, então os três foram corrigidos da mesma
+  forma aqui.
+
+**Implementado** (mesmo padrão que o runner já usa pra `Query.supportedCommands()` — control method
+fire-and-forget com checagem defensiva `typeof === 'function'`, pra nunca quebrar com um fake de
+teste ou uma versão do CLI sem o método):
+- `server/claude/runner.ts`: `Live` ganhou o campo `query: Query | null` — a Query viva do turno
+  atual, atribuída logo depois de `this.deps.queryFn(...)` em `run()` (antes só existia como variável
+  local `q`, inacessível fora do `for await` do turno) e limpa no `finally`, junto de `l.abort`.
+  Três métodos novos, `setPermissionModeLive`/`setModelLive`/`setEffortLive` — cada um olha
+  `this.live.get(sessionId)?.query`; sem Query viva (sessão ociosa entre turnos, ou nunca rodou neste
+  processo) ou sem o control method (fake burro), devolve `false` sem lançar; com o método presente,
+  chama (`setPermissionMode`/`setModel`/`applyFlagSettings({effortLevel})`) e devolve `true`.
+- `server/routes/claude.ts`: três rotas novas, mesmo padrão POST de ação já usado no arquivo pra
+  `/rename`, `/archive`, `/stop`, `/permission` (o arquivo não tem NENHUM PATCH/PUT de sessão — só
+  POST — então segui essa convenção em vez de inventar um verbo novo): `POST
+  .../sessions/:id/mode`, `.../model`, `.../effort`. Modo e modelo sempre persistem no Postgres
+  PRIMEIRO (mesmo padrão condicional que `.../messages` já tinha: só grava quando o valor muda) —
+  garante que o PRÓXIMO turno já nasce certo mesmo sem Query viva agora — e SÓ DEPOIS tentam a
+  aplicação ao vivo, isolada em try/catch (uma falha na chamada ao vivo — rede, processo — nunca deve
+  impedir a persistência, que já aconteceu antes; só um `app.log.warn`). Esforço nunca é persistido
+  por sessão no Postgres (sempre reenviado em cada create/send, campo `EFFORTS` já existente) — a
+  rota dele só tem o lado ao vivo.
+- `web/src/claude/api.ts`: `claudeApi.setMode`/`setModel`/`setEffort`, mesmo padrão dos outros
+  métodos do objeto (`api<T>(...)`, POST com corpo JSON).
+- `web/src/claude/ClaudePage.tsx`: `onMode={setMode}`/`onModel={setModel}`/`onEffort={setEffort}`
+  (ligação direta) viraram `onMode={handleMode}`/`onModel={handleModel}`/`onEffort={handleEffort}` —
+  cada handler sempre atualiza o `useState` local na hora (pro próprio seletor mostrar a escolha e
+  pra já valer no próximo create/send, comportamento antigo preservado) e, só quando o valor
+  REALMENTE mudou e há uma sessão de verdade aberta (rascunho `draft-*` não tem Query nem linha no
+  Postgres — nada a atualizar ainda), dispara a chamada ao vivo correspondente. Falha na chamada ao
+  vivo (rede/servidor) vira só um `console.warn` — nunca reverte o `useState` (a intenção do usuário
+  continua valendo pro próximo turno de qualquer forma) nem quebra a tela; sem UI de erro pesada,
+  como pedido.
+
+**TDD, vermelho→verde confirmado** (`tests/runner.test.ts`): escrevi os testes de
+`setPermissionModeLive`/`setModelLive`/`setEffortLive` contra a API que ainda não existia (métodos
+ausentes no `Runner`), depois implementei `runner.ts` pra fazê-los passar. `fakeQuery` ganhou a opção
+`liveControls` — quando ligada, expõe `setPermissionMode`/`setModel`/`applyFlagSettings` na Query
+falsa, cada chamada registrada em `liveCalls` (mesmo padrão já usado por `commands` pra
+`supportedCommands()`). 6 testes novos: sem Query viva nenhuma (as 3 chamadas devolvem `false`, sem
+lançar); Query viva mas sem os control methods, fake "burro" como todos os outros testes deste
+arquivo (as 3 devolvem `false`, sem lançar); cada uma das 3 aplicando de verdade (devolve `true`,
+`liveCalls` tem o registro certo — inclusive `setModelLive(id, undefined)` pra "sem override");
+depois que o turno termina, a Query não fica mais acessível (as 3 voltam a `false`). **Um bug real de
+timing apareceu ao escrever os 3 testes "aplica de verdade"**: sincronizar em `r.status(id) ===
+'running'` é cedo demais — esse status já fica visível ANTES de `l.query` ser atribuída (há alguns
+`await`s triviais de `store` entre os dois pontos dentro de `run()`), então os 3 testes "verdadeiros"
+falhavam de forma consistente (raça, não bug de implementação — a proteção defensiva `!q` cobria o
+caso corretamente, só retornando `false` num instante em que ainda não havia mesmo nada ao vivo pra
+aplicar). Corrigido sincronizando em `q.calls.length > 0` (confirma que `queryFn()` já retornou — a
+mesma linha, sem `await` no meio, que atribui `l.query` logo em seguida) em vez do status. Suíte
+inteira: 366 testes verdes (era 358 antes desta rodada, +6 de `setPermissionModeLive` e afins — os
+outros 2 vieram de ajustes de contagem de rodadas anteriores já na suíte), `tsc --noEmit` (server e
+front, sem erro) e `vite build` sem erro (mesmo aviso pré-existente de chunk grande).
+
+**Limitação de verificação documentada**: como nas rodadas anteriores, este worktree
+(`modo-ao-vivo`) não é o processo `orion-central` rodando de verdade (esse roda o código do
+`main`/`/srv/orion`) — não deu pra fazer `curl` autenticado contra as 3 rotas novas, porque elas
+ainda não existem no processo em produção. Fiz um `curl` sem autenticação contra uma rota JÁ
+EXISTENTE e já em produção (`GET /api/claude/sessions` em `v2.bayerl.cloud`) só pra confirmar que o
+hook `preHandler` de autenticação do plugin (`app.addHook('preHandler', ...)`, que cobre TODAS as
+rotas registradas dentro do mesmo `claudeRoutes`, incluindo as 3 novas, por escopo de encapsulamento
+do Fastify) está mesmo ativo — devolveu `401`, como esperado. As 3 rotas novas foram verificadas por
+leitura de código (registradas dentro do mesmo `claudeRoutes(app)`, depois do hook, mesmo padrão de
+`/rename`/`/archive`) + `tsc --noEmit` + a suíte de `vitest` do `Runner` (que cobre a lógica que as
+rotas chamam).
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -630,3 +759,22 @@ reuso/wiring de mecanismos que já existiam no código (`CopyButton`, `EventSour
   extensão real também usa uma pilha de até 10, não só "o último"). TDD no bug 1 (vermelho→verde
   confirmado); 11 testes novos (`tests/live.test.ts`, `tests/runner.test.ts`, `tests/mapper.test.ts`);
   suíte inteira 358 testes, `tsc --noEmit` e `vite build` verdes.
+- **corrigido nesta rodada (4)** (28/09/2026 — bug real reportado AO VIVO pelo Bayerl, não achado de
+  auditoria; ver seção 8 para os detalhes e evidências completas): trocar o modo de permissão pra
+  "Auto" durante um turno já em andamento não tinha efeito nenhum até a próxima mensagem — confirmado
+  na sessão real `c4380a41-d263-408e-9543-4be08d1aea01` (Postgres de produção, consulta read-only:
+  `status: 'waiting'` com um `permission_request` pendente, `permission_mode` ainda `acceptEdits`).
+  Causa raiz: `onMode` em `ClaudePage.tsx` só atualizava `useState` local; o valor só ia ao servidor
+  no PRÓXIMO `create`/`send`. Corrigido com os control methods do SDK que existem exatamente pra isso
+  (`Query.setPermissionMode()`/`setModel()`/`applyFlagSettings({effortLevel})`, confirmados no
+  `sdk.d.ts` E no `sdk.mjs` compilado, e no webview real aplicando os três NA HORA, sem distinção
+  "agora" vs. "próximo turno" entre modo/modelo/esforço): `Runner` ganhou `setPermissionModeLive`/
+  `setModelLive`/`setEffortLive` (`server/claude/runner.ts`, nova referência `Live.query` pra achar a
+  Query viva fora do turno) + 3 rotas novas `POST .../sessions/:id/{mode,model,effort}`
+  (`server/routes/claude.ts`, persistem no Postgres e depois aplicam ao vivo, com try/catch isolado)
+  + `ClaudePage.tsx` disparando a chamada ao vivo nos 3 handlers de picker (`handleMode`/
+  `handleModel`/`handleEffort`) quando o valor muda numa sessão de verdade. TDD (vermelho→verde
+  confirmado, achou de quebra uma raça de timing no próprio teste, não na implementação — corrigida
+  sincronizando em `queryFn()` ter retornado, não em `status==='running'`); 6 testes novos em
+  `tests/runner.test.ts`; suíte inteira 366 testes, `tsc --noEmit` (server e front) e `vite build`
+  verdes.

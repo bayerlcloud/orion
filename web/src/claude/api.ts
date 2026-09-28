@@ -35,6 +35,20 @@ export const claudeApi = {
     return data as { attachments: Attachment[] };
   },
   permission: (id: string, b: { approval_id: string; decision: 'allow' | 'allow_always' | 'deny' | 'answer'; message?: string }) => api<{ ok: true }>(`/api/claude/sessions/${id}/permission`, { method: 'POST', body: JSON.stringify(b) }),
+  /**
+   * Troca de modo/modelo/esforço AO VIVO (mid-turno) — bug real reportado pelo Bayerl ao vivo em
+   * 28/09/2026 (ver PARIDADE.md): antes, `onMode`/`onModel`/`onEffort` em `ClaudePage.tsx` só
+   * atualizavam `useState` local; o valor novo só era mandado ao servidor no PRÓXIMO create/send, sem
+   * nenhum efeito num turno já em andamento (a extensão real aplica na hora, via control methods do
+   * SDK — `Query.setPermissionMode`/`setModel`/`applyFlagSettings`). `live` na resposta indica se
+   * havia uma Query rodando agora pra aplicar de verdade (sessão ociosa entre turnos: `false`, mas o
+   * valor já foi persistido/vai junto no próximo turno de qualquer forma).
+   */
+  setMode: (id: string, mode: Mode) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/mode`, { method: 'POST', body: JSON.stringify({ mode }) }),
+  /** `model` omitido/vazio = "sem override" (volta pro modelo padrão da sessão/conta ao vivo, sem mexer no que já está persistido — mesma semântica de `send`). */
+  setModel: (id: string, model?: string) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model }) }),
+  /** Esforço nunca é persistido por sessão (sempre reenviado em create/send) — esta chamada só tem o lado ao vivo. */
+  setEffort: (id: string, effort: Effort) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/effort`, { method: 'POST', body: JSON.stringify({ effort }) }),
   stop: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/stop`, { method: 'POST' }),
   rename: (id: string, title: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/rename`, { method: 'POST', body: JSON.stringify({ title }) }),
   archive: (id: string, archived: boolean) => api<{ ok: true; archived: boolean }>(`/api/claude/sessions/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),

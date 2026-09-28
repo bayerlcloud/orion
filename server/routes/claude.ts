@@ -249,6 +249,70 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { ok: true, queued: runner.status(s.id) !== 'idle' };
   });
 
+  /**
+   * Troca de modo de permissão AO VIVO (mid-turno), sem esperar a próxima mensagem — bug real
+   * reportado pelo Bayerl ao vivo em 28/09/2026: trocar o seletor pra "Auto" durante um turno já em
+   * andamento não tinha efeito nenhum até a próxima mensagem, porque `onMode` em `ClaudePage.tsx` só
+   * atualizava `useState` local; o pedido de permissão já pendente continuava se comportando pelo
+   * modo antigo, sem nenhum aviso. Confirmado ao vivo (read-only) na sessão real
+   * c4380a41-d263-408e-9543-4be08d1aea01: `claude_sessions.permission_mode` continuava `acceptEdits`
+   * com a sessão em `waiting` num `permission_request` pendente, mesmo a UI mostrando "Auto"
+   * selecionado — o valor só seria gravado no PRÓXIMO `create`/`send` (ver POST .../messages acima).
+   *
+   * Sempre persiste no Postgres primeiro (mesmo padrão condicional de .../messages: só grava quando
+   * o valor muda) — garante que o PRÓXIMO turno já nasce certo mesmo sem Query viva agora (sessão
+   * ociosa entre turnos). Depois, se há uma Query rodando agora, aplica na hora via
+   * `Runner.setPermissionModeLive` (control method `Query.setPermissionMode()` do SDK — só existe
+   * numa Query já criada; ver runner.ts). A chamada ao vivo é isolada em try/catch: uma falha nela
+   * (ex. hiccup de rede/processo) nunca deve impedir a persistência, que já aconteceu antes.
+   */
+  app.post<{ Params: { id: string }; Body: { mode?: string } }>('/api/claude/sessions/:id/mode', async (req, reply) => {
+    const mode = req.body?.mode;
+    if (!MODES.has(mode ?? '')) return reply.code(400).send({ error: 'modo inválido' });
+    const { rows } = await app.pool.query('SELECT permission_mode FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
+    if (mode !== rows[0].permission_mode) await app.pool.query('UPDATE claude_sessions SET permission_mode = $2 WHERE id = $1', [req.params.id, mode]);
+    let live = false;
+    try { live = await runner.setPermissionModeLive(req.params.id, mode as 'default' | 'acceptEdits' | 'plan' | 'auto'); }
+    catch (e: any) { app.log.warn(`setPermissionMode ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    return { ok: true, live };
+  });
+
+  /** Troca de modelo AO VIVO — mesma correção/mesmo motivo do endpoint de modo acima, aplicada ao
+   * seletor de modelo do compositor (`onModel`/`setModel`, `ClaudePage.tsx`). Mesma semântica de
+   * override do POST .../messages: string vazia/ausente = "sem override" (não mexe no que já está
+   * persistido, o modelo resolvido pelo SDK no último system/init) — só um valor de verdade grava.
+   * 'default' do seletor (sem override) já chega aqui como corpo sem `model` (ver claudeApi.setModel
+   * em web/src/claude/api.ts), nunca como a string literal "default". Aplica na hora via
+   * `Runner.setModelLive` (control method `Query.setModel()` do SDK) quando há Query viva agora. */
+  app.post<{ Params: { id: string }; Body: { model?: string } }>('/api/claude/sessions/:id/model', async (req, reply) => {
+    const { rows } = await app.pool.query('SELECT model FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
+    const model = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+    if (model && model !== rows[0].model) await app.pool.query('UPDATE claude_sessions SET model = $2 WHERE id = $1', [req.params.id, model]);
+    let live = false;
+    try { live = await runner.setModelLive(req.params.id, model || undefined); }
+    catch (e: any) { app.log.warn(`setModel ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    return { ok: true, live };
+  });
+
+  /** Troca de esforço AO VIVO. Diferente de modo/modelo, `effort` nunca é persistido por sessão no
+   * Postgres — é sempre reenviado explicitamente em cada create/send (ver EFFORTS acima) — então esta
+   * rota só tem o lado ao vivo, via `Runner.setEffortLive` (control method `Query.applyFlagSettings()`
+   * do SDK, que aceita `effortLevel`; o SDK não tem um `setEffort()` dedicado, mas a extensão real
+   * também aplica na hora por esse caminho — ver runner.ts). Sem Query viva agora, não há o que fazer
+   * aqui: o valor já vai certo no próximo create/send, que já manda `effort` explicitamente. */
+  app.post<{ Params: { id: string }; Body: { effort?: string } }>('/api/claude/sessions/:id/effort', async (req, reply) => {
+    const effort = req.body?.effort;
+    if (!EFFORTS.has(effort ?? '')) return reply.code(400).send({ error: 'esforço inválido' });
+    const { rowCount } = await app.pool.query('SELECT 1 FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    let live = false;
+    try { live = await runner.setEffortLive(req.params.id, effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'); }
+    catch (e: any) { app.log.warn(`setEffort ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    return { ok: true, live };
+  });
+
   app.post<{ Params: { id: string }; Body: { approval_id?: string; decision?: string; message?: string } }>('/api/claude/sessions/:id/permission', async (req, reply) => {
     const d = req.body?.decision;
     if (d !== 'allow' && d !== 'allow_always' && d !== 'deny' && d !== 'answer') return reply.code(400).send({ error: 'decisão inválida' });
