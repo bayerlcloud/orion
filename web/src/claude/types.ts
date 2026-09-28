@@ -9,7 +9,13 @@ export type UserAttachment = { kind: 'image' | 'file'; name: string; media_type?
 
 export type ConvEvent =
   | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[] }
-  | { id: string; kind: 'text'; text: string; streaming?: boolean }
+  /**
+   * `interrupted`: rótulo amigável ("Interrompido"/"Ferramenta interrompida") quando este texto é o
+   * que restou de uma resposta cortada por um stop manual (botão Parar) — distinto de erro: renderiza
+   * em estilo neutro/aviso, não vermelho (ver Timeline.tsx `.cc-interrupted`, mapper.ts `interruptedLabel`).
+   * Ausente/undefined no caso normal (texto completo, sem interrupção).
+   */
+  | { id: string; kind: 'text'; text: string; streaming?: boolean; interrupted?: string }
   | { id: string; kind: 'thinking'; text: string; streaming?: boolean }
   | {
       id: string; kind: 'tool'; toolUseId: string; name: string; label: string; description?: string;

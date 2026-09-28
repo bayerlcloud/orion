@@ -31,10 +31,23 @@ export default function ClaudePage() {
   const [model, setModel] = useState<ModelAlias>('default');
   const [draftProject, setDraftProject] = useState<number | undefined>(undefined);
   const [erro, setErro] = useState('');
+  // true até o primeiro fetch de sessões terminar (sucesso ou falha) — enquanto isso, a lateral
+  // mostra "Carregando sessões…" em vez de pular direto pra "Nenhuma sessão" (ver Sidebar.tsx;
+  // espelha localSessionsLoaded/disconnectedState da extensão real).
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  // Estado da conexão SSE da sessão aberta — só pra avisar visualmente quando cai (o EventSource
+  // nativo já reconecta sozinho; antes o onerror era um no-op puro, silêncio total pro usuário).
+  const [streamStatus, setStreamStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const scrollRef = useRef<HTMLDivElement>(null);
   const draftCounter = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const restoredRef = useRef(false);
+  // Pilha de sessões fechadas recentemente (só ids reais, nunca rascunho) — estilo aba de navegador
+  // pro Ctrl/Cmd+Shift+T: cada fechamento empilha, reabrir desempilha o mais recente. Cap de 10, igual
+  // ao `recentlyClosedSessions`/rk0 da extensão real (extension.js) — é de fato uma pilha pequena, não
+  // só "o último", confirmado lendo o código: o context key `lastClosedWasSession` que gate a tecla é
+  // só `recentlyClosedSessions.length>0`, mas o array em si guarda até 10.
+  const closedStack = useRef<string[]>([]);
 
   const refreshSessions = useCallback(async () => {
     try { const r = await claudeApi.sessions(); setSessions(r.sessions); } catch (e: any) { setErro(e.message); }
@@ -62,6 +75,7 @@ export default function ClaudePage() {
         setErro((sessRes.reason as Error).message);
       }
       restoredRef.current = true;
+      setSessionsLoading(false);
     });
     void refreshUsage();
     claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
@@ -84,12 +98,17 @@ export default function ClaudePage() {
     esRef.current?.close(); esRef.current = null;
     if (!activeId || isDraft(activeId)) return;
     let alive = true;
+    setStreamStatus('connecting');
     claudeApi.get(activeId).then(r => {
       if (!alive) return;
       setLive(l => ({ ...l, [activeId]: fromRows(r.events, r.session.status, r.pending) }));
       const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
       es.onmessage = (m) => { try { const ev = JSON.parse(m.data); setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) })); if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions(); if (ev.type === 'turn_end') void refreshUsage(); } catch { /* ignora */ } };
-      es.onerror = () => { /* o navegador reconecta sozinho */ };
+      // O EventSource nativo reconecta sozinho — isso só avisa visualmente que a conexão caiu (antes
+      // era um no-op puro, silêncio total). onopen dispara de novo quando a reconexão automática do
+      // navegador der certo (dispara também na primeira conexão, por isso 'connecting' antes disso).
+      es.onopen = () => { setStreamStatus('connected'); };
+      es.onerror = () => { setStreamStatus('disconnected'); };
       esRef.current = es;
       const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
       setModel(matchModelAlias(s.model));
@@ -108,17 +127,52 @@ export default function ClaudePage() {
   const running = state.status === 'running' || state.status === 'waiting';
 
   function open(id: string) {
+    // Sessão voltou a estar aberta: não é mais "fechada recentemente" (senão Ctrl+Shift+T podia
+    // oferecer reabrir uma aba que o usuário já reabriu manualmente pelo clique na lateral).
+    closedStack.current = closedStack.current.filter(x => x !== id);
     setActiveId(id);
     setTabs(t => t.some(x => x.id === id) ? t : [...t, { id }]);
   }
   function closeTab(id: string) {
     setTabs(t => { const next = t.filter(x => x.id !== id); if (id === activeId) setActiveId(next.length ? next[next.length - 1].id : null); return next; });
+    // Só sessões de verdade entram na pilha de "fechadas recentemente" (rascunho fechado não é uma
+    // sessão pra reabrir — a extensão real também só rastreia `sessionId`, nunca uma aba vazia).
+    if (!isDraft(id)) {
+      closedStack.current = [...closedStack.current.filter(x => x !== id), id];
+      if (closedStack.current.length > 10) closedStack.current.shift();
+    }
+  }
+  /** Ctrl/Cmd+Shift+T: reabre a sessão fechada mais recentemente (estilo aba de navegador — desempilha; ver closedStack acima). Pula ids que não existem mais (arquivada/removida) até achar uma válida ou esvaziar. */
+  function reopenLastClosed() {
+    while (closedStack.current.length) {
+      const id = closedStack.current.pop()!;
+      if (sessions.some(s => s.id === id)) { open(id); return; }
+    }
   }
   function newSession() {
     const id = `draft-${++draftCounter.current}`;
     setTabs(t => [...t, { id, draft: true, projectId: draftProject }]);
     setActiveId(id);
   }
+
+  // Atalhos globais da aba Claude (package.json da extensão real, contributes.keybindings):
+  // Ctrl/Cmd+N → newConversation (nova sessão, quando o painel do Claude está em foco — aqui, a
+  // página inteira, já que não existe outro painel concorrendo); Ctrl/Cmd+Shift+T →
+  // reopenClosedSession (reabre a última sessão fechada, estilo aba de navegador — ver closedStack/
+  // reopenLastClosed acima). Alguns navegadores reservam essas combinações pra si (nova
+  // janela/reabrir aba) e não deixam preventDefault interceptar — mesma limitação que a extensão real
+  // não tem dentro do VS Code/Electron; aqui é o melhor esforço possível numa página web comum.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (!e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newSession(); return; }
+      if (e.shiftKey && e.key.toLowerCase() === 't') { e.preventDefault(); reopenLastClosed(); }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [draftProject, sessions]);
+
   async function send(text: string, files: File[] = []) {
     setErro('');
     try {
@@ -167,7 +221,7 @@ export default function ClaudePage() {
 
   return (
     <div className="cc">
-      <Sidebar sessions={summaries} usage={usage} activeId={activeId} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
+      <Sidebar sessions={summaries} usage={usage} activeId={activeId} loading={sessionsLoading} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
       <main className="cc-main">
         <div className="cc-tabs">
           {tabs.map(t => {
@@ -197,6 +251,9 @@ export default function ClaudePage() {
           {active && <span className="cc-head-meta">{active.project_name ?? ''} · {active.user_name} · {formatCost(Number(active.cost_usd))} · {active.turns} turnos · <span className={`cc-dot is-${toSummary(active).status}`} /> {active.status}</span>}
         </div>
         {erro && <div className="cc-error-bar">{erro}</div>}
+        {activeId && streamStatus === 'disconnected' && (
+          <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
+        )}
         <div className="cc-scroll" ref={scrollRef}>
           {!activeId && (
             <div className="cc-empty-state">

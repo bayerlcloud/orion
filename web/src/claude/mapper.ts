@@ -297,6 +297,21 @@ export function taskStatusLabel(status: ToolStatus): string {
   return 'Concluído';
 }
 
+/**
+ * Rótulo amigável de um turno interrompido manualmente (botão Parar) — espelha o mapeamento real da
+ * extensão (tabela `Qw` no webview decompilado v2.1.282: `"[Request interrupted by user]"` →
+ * `"Interrupted"`, `"[Request interrupted by user for tool use]"` → `"Tool interrupted"`), traduzido
+ * pro PT-BR do resto da tela. A extensão real distingue as duas variantes lendo o texto literal que o
+ * próprio CLI grava no bloco de conteúdo interrompido (a última coisa da mensagem, se for exatamente
+ * um desses dois sentinelas). O runner do Orion não tem esse sentinela — a interrupção aqui é uma
+ * exceção de AbortController capturada no catch de `run()`, não um bloco de texto do SDK — então
+ * `duringTool` vem de um sinal equivalente que já temos: havia pedido de permissão de ferramenta
+ * pendente no momento do `stop()` (ver `Runner.stop`/`stopHadPendingTool` em server/claude/runner.ts).
+ */
+export function interruptedLabel(duringTool: boolean): string {
+  return duringTool ? 'Ferramenta interrompida' : 'Interrompido';
+}
+
 export function formatCost(usd?: number): string {
   if (usd === undefined) return '—';
   return `US$ ${usd.toFixed(usd < 0.1 ? 4 : 2)}`;

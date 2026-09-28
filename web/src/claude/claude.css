@@ -40,6 +40,9 @@
 .cc-badge { margin-left: auto; background: var(--cc-pending); color: #fff; border-radius: 10px; font-size: 11px; padding: 0 7px; line-height: 16px; }
 .cc-list { display: grid; gap: 2px; }
 .cc-empty { color: var(--cc-fg2); padding: 10px 8px; font-size: 12px; }
+/* "Carregando sessões…" — espelha disconnectedState/reconnectSpinner da extensão real (mostrado no
+   lugar da lista enquanto localSessionsLoaded é falso), em vez de pular direto pra "Nenhuma sessão". */
+.cc-loading { display: flex; align-items: center; gap: 8px; padding: 14px 8px; color: var(--cc-fg2); font-size: 12px; }
 .cc-item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: var(--r); width: 100%; text-align: left; min-width: 0; }
 .cc-item:hover { background: var(--cc-hover); }
 .cc-item.is-active { background: var(--cc-active); }
@@ -175,6 +178,13 @@
 /* ===== adições: modo real ===== */
 .cc-banner { background: #3f3225; color: var(--cc-warning); padding: 8px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
 .cc-error-bar { background: #3a1f1c; color: #f0b3a8; padding: 6px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
+/* Banner "conexão perdida" do stream ao vivo (SSE) — espelha disconnectedText/reconnectSpinner da
+   extensão real (webview/index.js v2.1.282): o navegador já reconecta sozinho (EventSource nativo),
+   isso é só pra avisar que aconteceu, não silêncio total. */
+.cc-banner.cc-reconnect { display: flex; align-items: center; gap: 8px; }
+/* Spinner genérico (também usado no "Carregando sessões…" da lateral) — reaproveita @keyframes
+   cc-spin, já existia no arquivo sem nenhum uso até agora. */
+.cc-spinner { width: 12px; height: 12px; border: 1.5px solid var(--cc-line); border-top-color: currentColor; border-radius: 50%; animation: cc-spin .7s linear infinite; flex-shrink: 0; }
 .cc-head { display: flex; align-items: center; gap: 12px; }
 .cc-head-meta { color: var(--cc-fg2); font-weight: 400; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .cc-empty-state { max-width: 520px; margin: 60px auto; text-align: center; }
@@ -235,6 +245,15 @@
 .cc-copy { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
 .cc-copy:hover { background: var(--cc-hover); color: var(--cc-fg); }
 .cc-tool-inline { display: inline-block; margin-top: 2px; font-size: 12px; }
+
+/* ===== mensagem de texto do assistente: copiar (mesmo padrão hover de .cc-tool-copy) ===== */
+.cc-text-row { display: flex; align-items: flex-start; gap: 6px; }
+.cc-text-row .cc-md { flex: 1; min-width: 0; }
+.cc-text-copy { opacity: 0; flex-shrink: 0; }
+.cc-msg:hover .cc-text-copy { opacity: 1; }
+/* Turno interrompido por stop manual (botão Parar) — aviso, não erro: mesma cor de .cc-warning/
+   .cc-perm-exp, nunca a vermelha de .cc-result.is-error (ver interruptedLabel em mapper.ts). */
+.cc-interrupted { color: var(--cc-warning); font-size: 11px; margin-top: 2px; }
 
 /* ===== diff simples (Edit) ===== */
 .cc-diff { padding: 3px 6px; min-width: 0; overflow: auto; max-height: 40vh; }

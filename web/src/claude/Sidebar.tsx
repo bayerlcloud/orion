@@ -49,8 +49,8 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   );
 }
 
-export default function Sidebar({ sessions, usage, activeId, onSelect, onNew, onRename, onArchive }:
-  { sessions: SessionSummary[]; usage: UsageBar[]; activeId: string | null;
+export default function Sidebar({ sessions, usage, activeId, loading, onSelect, onNew, onRename, onArchive }:
+  { sessions: SessionSummary[]; usage: UsageBar[]; activeId: string | null; loading?: boolean;
     onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void; }) {
   const [where, setWhere] = useState<'local' | 'web'>('local');
   const [open, setOpen] = useState(true);
@@ -138,6 +138,10 @@ export default function Sidebar({ sessions, usage, activeId, onSelect, onNew, on
             </div>
             {where === 'web' ? (
               <div className="cc-empty">Sessões na nuvem em breve</div>
+            ) : loading ? (
+              // Estado de carregamento inicial (localSessionsLoaded=false na extensão real) — antes
+              // pulava direto pra "Nenhuma sessão" enquanto o primeiro fetch ainda estava em voo.
+              <div className="cc-loading"><span className="cc-spinner" /> Carregando sessões…</div>
             ) : (
               <>
                 {groups.map(g => (

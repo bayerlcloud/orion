@@ -15,6 +15,8 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
 | Menu de ações da sessão (renomear) | já tem | Dots → `rename()` (prompt) |
 | Título da sessão + meta (projeto · usuário · custo · turnos · dot de status) | já tem | `cc-head` / `cc-head-meta` |
 | Cabeçalho fixo ao rolar (`stickyHeader_07S1Yg`) | n/a | baixo valor |
+| Atalho Ctrl/Cmd+N — nova sessão (`claude-vscode.newConversation`, `package.json` real) | **implementado agora (28/09/2026, rodada 3)** | listener global em `ClaudePage.tsx`, chama `newSession()` já existente — ver seção nova abaixo |
+| Atalho Ctrl/Cmd+Shift+T — reabre a última sessão fechada (`claude-vscode.reopenClosedSession`) | **implementado agora (28/09/2026, rodada 3)** | pilha `closedStack` (até 10, estilo aba de navegador) alimentada por `closeTab()` — ver seção nova abaixo |
 
 ## 2. Barra lateral de sessões
 
@@ -34,6 +36,7 @@ estilo. Coluna **no nosso v2?**: `já tem` · `falta` · `n/a` (fora de escopo/s
 | Hora relativa (`sessionTime_OOQiHg`) | já tem | `relativeTime()` |
 | Pill de worktree (`worktreePill_OOQiHg`) | n/a | sem worktrees no nosso fluxo |
 | Sessão aberta em outro lugar (`statusDotElsewhere`) | n/a | irrelevante no nosso modelo (1 painel) |
+| Estado de carregamento inicial da lista (`disconnectedState_OOQiHg`/`reconnectSpinner_OOQiHg`, texto "Loading sessions…") | **implementado agora (28/09/2026, rodada 3)** | `cc-loading` + spinner (`cc-spinner`, reaproveita `@keyframes cc-spin` que já existia sem uso) em vez de pular direto pra "Nenhuma sessão" enquanto o primeiro fetch está em voo — ver seção nova abaixo |
 
 ## 3. Conta e uso
 
@@ -166,7 +169,8 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Rewind / checkpoint (`rewind`, `changedFile_5FHdxw`, `checkoutButton`) | n/a | fora de escopo (arriscado) |
 | Custo · duração · turnos no result (`metaMessage_07S1Yg`, `Total duration (API)`) | já tem | `cc-result` |
 | Tokens de entrada/saída no result (`modelUsage`) | **implementado agora** | soma `modelUsage` → "N↑ / N↓ tokens" |
-| Mensagem interrompida (`interruptedMessage_07S1Yg`) | já tem | via evento de erro/result |
+| Mensagem interrompida (`interruptedMessage_07S1Yg`) | **corrigido agora (28/09/2026, rodada 3)** | **era um bug, não "já tem"** — stop manual perdia o texto parcial de vez (some ao recarregar); ver seção nova abaixo |
+| Botão copiar resposta (`assistantActions_07S1Yg`/`copyResponseButton_07S1Yg`, hover-revelado ao lado da mensagem) | **implementado agora (28/09/2026, rodada 3)** | reaproveita o `CopyButton` de Timeline.tsx (já usado em ferramentas/Task) nas mensagens de texto do assistente — ver seção nova abaixo |
 
 ### Diff de caractere, Todo list e Subagent — rodada de 28/09/2026 (2)
 
@@ -366,6 +370,183 @@ implementar qualquer coisa — não só a tabela antiga.
 | Barra de status: projeto · cwd · versão · ativas (`status-bar`) | já tem | `cc-status` |
 | Banner de login/token ausente | já tem | extra nosso |
 | Estado vazio (`emptyState_07S1Yg`) | já tem | `cc-empty-state` |
+| Aviso de desconexão/reconexão do stream ao vivo (`disconnectedText_OOQiHg`/`reconnectSpinner_OOQiHg`, "Reconnecting"/"Connecting…") | **implementado agora (28/09/2026, rodada 3)** | `es.onerror`/`es.onopen` do `EventSource` (antes `onerror` era um no-op puro) → banner `cc-banner cc-reconnect` — ver seção nova abaixo |
+
+## 7. Auditoria de segundo nível — rodada de 28/09/2026 (3)
+
+Os 4 itens abaixo foram achados por um agente de auditoria dedicado, num segundo passe sobre a aba
+Claude do Orion comparado à extensão real (2026-09-28) — depois das rodadas de "Conta e uso",
+"Timeline" e "Compositor" já registradas nas seções anteriores. Um deles (mensagem interrompida) era
+um bug de verdade, não um gap de paridade: a linha 169 antiga desta tabela dizia "já tem" pro item,
+o que era falso — está corrigido abaixo, com a entrada da tabela já atualizada na seção 4.
+
+### Bug: stop manual descartava a resposta em andamento silenciosamente
+
+**Causa raiz** (confirmada lendo `server/claude/runner.ts` antes de mexer, não assumida): o catch de
+`run()` tratava abort manual (botão Parar) e erro genuíno do SDK pelo mesmo tipo de evento
+(`'error'`), diferenciando só o `status` final que `setStatus` grava (`idle` no abort, `error` no
+erro de verdade). Só que `web/src/claude/live.ts` só mostrava esse texto quando `status==='error'`
+literalmente — `toConvEvents` (`if (s.error && s.status === 'error')`) e `fromRows`
+(`error: status === 'error' ? s.error : null`). Resultado: um stop manual (status `idle`, de
+propósito — a sessão devia continuar utilizável) escondia a mensagem de interrupção, e pior: como as
+mensagens PARCIAIS do streaming (`stream_event`) nunca eram persistidas em `claude_events` (só a
+mensagem completa seria — e ela nunca chega quando o turno é cortado no meio), não sobrava nem
+rastro no banco pra reconstruir ao recarregar a página. O turno simplesmente sumia, sem deixar
+vestígio nenhum.
+
+**Extensão real**: li o webview decompilado (`/srv/orion-reference/vscode-extension/extension/webview/index.js`,
+v2.1.282) em vez de assumir a partir da descrição do bug. A função `Oz` consulta uma tabela literal
+(`Qw`) de dois sentinelas que o próprio CLI grava no bloco de texto quando interrompido:
+```
+var Qw={"[Request interrupted by user]":"Interrupted","[Request interrupted by user for tool use]":"Tool interrupted"};
+```
+Renderizado como `<div className={f0.interruptedMessage}>{c.friendlyMessage}</div>` — um bloco
+próprio, estilo neutro (`interruptedMessage_07S1Yg`, não a classe de erro), no lugar onde o sentinela
+apareceria no conteúdo da mensagem; o texto já gerado ANTES da interrupção continua normal, no bloco
+anterior — nunca é apagado. Achei também `assistantActions_07S1Yg`/`copyResponseButton_07S1Yg` (ver
+próxima seção) lendo o mesmo trecho.
+
+**Diferença de arquitetura**: o Orion não passa pelo sentinela de texto — a interrupção aqui é uma
+exceção de `AbortController` capturada no catch de `run()`, nunca um bloco de texto que o próprio
+CLI grava sozinho no meio da mensagem (o SDK do Orion lança, não retorna uma mensagem terminada com
+esse texto). Corrigido de forma nativa ao modelo de eventos que o Orion já tem, sem copiar
+literalmente a extensão:
+
+- `server/claude/runner.ts`: novo tipo de evento **próprio**, `'interrupted'` — nunca mais `'error'`
+  no caminho de abort manual (`{ type: 'interrupted', message, duringTool, partialText,
+  partialThinking }`), persistido via `appendEvent(id, 'interrupted', ...)` e emitido ao vivo. `run()`
+  passou a acumular `partialText`/`partialThinking` localmente a partir dos próprios `stream_event`
+  que já processava (mesmo reset em `message_start`/`content_block_start` e mesma limpeza ao ver uma
+  mensagem `assistant`/`result` completa que o lado cliente já fazia em `applyLive`/`pushMessage`) —
+  só assim esse texto existe pra persistir no evento de interrupção, já que ele nunca seria
+  persistido de outra forma. `duringTool`: `Runner.stop()` agora grava
+  `l.stopHadPendingTool = l.pending.size > 0` **antes** de negar as permissões pendentes — sinal
+  equivalente ao que a extensão lê do sentinela "for tool use", adaptado porque o runner não tem
+  esse texto (limitação documentada abaixo).
+- `web/src/claude/live.ts`: `LiveState` ganhou `interrupted: InterruptedState | null` (mensagem,
+  `duringTool`, texto/thinking parciais). `fromRows` trata o novo tipo de evento persistido **sem
+  depender de `status`** (diferente de `error`, de propósito — status `idle` é o resultado CORRETO
+  de um stop, não deveria esconder nada atrás dele). `applyLive` trata o evento ao vivo
+  (`case 'interrupted'`), congelando o que já estava em `partialText`/`partialThinking` como
+  `interrupted.text`/`.thinking` e limpando os campos de streaming. `pushMessage` (nova mensagem do
+  usuário) e o caso `'status'` com `status==='running'` limpam `interrupted` — mesma janela de vida
+  do erro genuíno logo ali ao lado: o marcador não fica preso na tela pra sempre depois que a
+  conversa continua. `toConvEvents` gera um evento `kind:'text'` com o texto parcial preservado e uma
+  propriedade nova, `interrupted: <rótulo>` — nunca apaga o texto, e mostra o selo mesmo com texto
+  vazio (interrupção antes de gerar qualquer coisa), pra sempre deixar rastro visível de que o turno
+  foi cortado.
+- `web/src/claude/mapper.ts`: `interruptedLabel(duringTool)` → `"Interrompido"`/`"Ferramenta
+  interrompida"` (tradução PT-BR dos dois rótulos reais confirmados na tabela `Qw` acima).
+- `web/src/claude/types.ts`: `ConvEvent` (`kind:'text'`) ganhou o campo opcional `interrupted?: string`.
+- `web/src/claude/Timeline.tsx`/`claude.css`: classe `.cc-interrupted` — cor de aviso
+  (`var(--cc-warning)`), a mesma família visual de `.cc-perm-exp` (pedido expirado), nunca a
+  vermelha de `.cc-result.is-error` — não é um erro, é um turno cortado pelo próprio usuário.
+
+**TDD, vermelho→verde confirmado**: escrevi os testes de `fromRows`/`applyLive` reproduzindo a shape
+exata que o runner persiste/emite (status `idle`, evento `'interrupted'` com o texto parcial) antes
+de existir o código que os faz passar; rodei pra confirmar que falhavam (função/caso ausente —
+`s.interrupted` undefined, `TypeError`), só depois implementei `runner.ts`/`live.ts`/`mapper.ts`. 4
+testes novos em `tests/live.test.ts` (`fromRows`: sobrevive ao reload mesmo com status `idle` —
+exatamente o cenário do bug; rótulo `duringTool: true`; interrupção sem nenhum texto ainda mostra o
+selo; nova mensagem do usuário limpa a interrupção do turno anterior) + 2 em `applyLive` (ao vivo,
+sem reload; novo turno limpa) + 3 em `tests/runner.test.ts` (persiste `'interrupted'` com o parcial
+já acumulado, nunca `'error'`; `duringTool: true` quando havia permissão de ferramenta pendente no
+momento do stop — fake bespoke que reproduz o timing real de `stop()`: nega a pendência com
+`interrupt:true` e aborta antes de devolver) + 2 de `interruptedLabel` em `tests/mapper.test.ts`.
+Suíte inteira: 358 testes verdes, `tsc --noEmit` (server e front) e `vite build` sem erro.
+
+**Limitação documentada**: `duringTool` é um proxy (havia permissão de ferramenta pendente no
+momento exato do `stop()`), não uma detecção 1:1 do sentinela real da extensão — uma ferramenta
+AUTO-aprovada (sem pedido de permissão, ex. modo `acceptEdits`) que estivesse executando no momento
+do stop não aciona essa variante, cai no rótulo genérico "Interrompido". Aceitável: não há sinal
+melhor disponível no runner sem reescrever a integração com o SDK só pra rastrear tool_use↔tool_result
+em voo — fora de proporção para esse bug.
+
+### Gap: sem botão de copiar na resposta do assistente
+
+`Timeline.tsx` renderizava `e.kind==='text'` como `<Md text={e.text}/>` puro — sem nenhuma
+affordance de copiar, diferente dos blocos de ferramenta/Task, que já tinham `CopyButton` (definido
+localmente no próprio arquivo, hover-revelado via `.cc-tool-copy`/`.cc-tool-summary:hover`).
+
+Extensão real (mesmo trecho do webview lido pro bug acima): `assistantActions_07S1Yg`/
+`copyResponseButton_07S1Yg` — um bloco `data-message-actions` renderizado depois do conteúdo da
+mensagem, condicionado a ela não estar mais em progresso (`q!=="progress"`); botão "Copy response"
+hover-revelado ao lado da mensagem.
+
+**Implementado**: componente `AssistantText` novo em `Timeline.tsx`, que reaproveita o `CopyButton`
+já existente (mesmo padrão hover: `.cc-text-copy` some/aparece junto de `.cc-msg:hover`, igual a
+`.cc-tool-copy`/`.cc-tool-summary:hover` já usados pelas ferramentas) — escondido enquanto
+`e.streaming` (mesma condição "não em progresso" da extensão real) e quando não há texto. Nenhum
+componente de UI novo inventado, só reuso correto do que já existia no arquivo.
+
+### Gap: sem feedback de desconexão/carregamento
+
+`ClaudePage.tsx` tinha `es.onerror = () => { /* o navegador reconecta sozinho */ }` — um no-op
+literal. `Sidebar.tsx` pulava direto pra "Nenhuma sessão" enquanto o primeiro fetch de sessões ainda
+estava em voo, sem nenhum estado de carregamento.
+
+Extensão real (mesmo webview v2.1.282): classes `disconnectedState_OOQiHg`/`disconnectedText_OOQiHg`/
+`reconnectSpinner_OOQiHg` — um spinner (função `FF0`, um `<div>` que gira via `setInterval`/
+`performance.now()`) mais o texto **"Loading sessions…"** enquanto `!localSessionsLoaded`; pro caso
+remoto (sem equivalente direto no Orion, que não tem sessões na nuvem implementadas — toggle Web
+"em breve"), **"Connecting…"** ou **"Remote server is not connected"** + botão **"Reconnect"**.
+
+**Implementado**, adaptado ao que o Orion realmente tem (stream por sessão via `EventSource`, não um
+canal remoto separado com botão de reconectar manual):
+- `Sidebar.tsx`: prop `loading` nova; enquanto verdadeira, mostra `cc-loading` (spinner + "Carregando
+  sessões…") no lugar da lista, em vez de pular direto pra "Nenhuma sessão".
+- `ClaudePage.tsx`: `sessionsLoading` (`true` até o primeiro fetch terminar, sucesso ou falha — nunca
+  mais reativado nos refreshes periódicos de 8s, só no carregamento inicial, igual à extensão real).
+  `streamStatus` (`'connecting'|'connected'|'disconnected'`) ligado a `es.onopen`/`es.onerror` do
+  `EventSource` nativo (que já reconecta sozinho — isso é só pra avisar visualmente que aconteceu,
+  nunca silêncio total) — banner `cc-banner cc-reconnect` mostrado só quando `'disconnected'`, não
+  durante o `'connecting'` inicial de cada troca de sessão (evitaria um flash constante).
+- `claude.css`: `.cc-spinner` reaproveita `@keyframes cc-spin`, que já existia no arquivo sem nenhum
+  uso até agora (confirmado com grep antes de escrever a regra nova).
+
+### Gap: 2 atalhos de teclado ausentes (Ctrl/Cmd+N, Ctrl/Cmd+Shift+T)
+
+Confirmado em `contributes.keybindings` do `package.json` real
+(`/srv/orion-reference/vscode-extension/extension/package.json`, lido via `json.load` em vez de
+grep, pra não errar a estrutura): `claude-vscode.newConversation` → `cmd+n`/`ctrl+n`, condição
+"painel do Claude em foco"; `claude-vscode.reopenClosedSession` → `cmd+shift+t`/`ctrl+shift+t`,
+condição `claude-vscode.lastClosedWasSession`. `ClaudePage.tsx` só escutava Escape (na verdade esse
+listener vive em `Composer.tsx`, não em `ClaudePage.tsx` — a descrição original do gap estava
+imprecisa nesse detalhe; os dois atalhos novos foram adicionados num listener próprio em
+`ClaudePage.tsx`, onde `newSession()`/`tabs` já vivem).
+
+**Pilha ou só "o último"?** — verificado em `extension.js` (não assumido): `lastClosedWasSession` é
+só um context key booleano que libera a tecla, mas o que ele reflete,
+`this.recentlyClosedSessions`, é de fato um array (`.push`/`.splice`/`.shift`, cap
+`var rk0=10`) — uma pilha pequena, estilo aba de navegador (Ctrl+Shift+T repetido reabre cada vez
+mais fundo no histórico), **não** um único "último fechado" isolado.
+
+**Implementado** em `ClaudePage.tsx`: `closedStack` (ref, array de até 10 ids — só sessões de
+verdade, nunca rascunho `draft-*`) alimentada por `closeTab()` (empilha ao fechar) e consumida por
+`reopenLastClosed()` (desempilha o topo, pulando ids que não existem mais — sessão arquivada/removida
+— até achar um válido ou esvaziar a pilha). Mapeado 1:1 pra `newSession()`/`tabs`/`open()` já
+existentes, sem estrutura de estado nova além da pilha em si. `open()` também remove o id da pilha
+(uma sessão reaberta manualmente pelo clique na lateral não deveria continuar "oferecível" pelo
+atalho depois). Listener `keydown` global no próprio `ClaudePage.tsx`, mesmo padrão já usado pro Esc
+em `Composer.tsx` (`window.addEventListener` + cleanup no `useEffect`).
+
+**Limitação documentada**: alguns navegadores reservam Ctrl/Cmd+N (nova janela) e Ctrl+Shift+T
+(reabrir aba fechada do próprio navegador) pra si e não deixam `preventDefault()` interceptar antes —
+limitação da plataforma web que a extensão real não tem, rodando dentro do título nativo do VS
+Code/Electron. Melhor esforço possível numa página web comum; documentado aqui pra não parecer um
+bug se algum navegador específico engolir a tecla antes da nossa página ver o evento.
+
+### Verificação (rodada de 28/09/2026, 3)
+
+Sem navegador/visual-testing neste ambiente — verificação por leitura cuidadosa de código (webview
+decompilado + `package.json`/`extension.js` reais, não só a descrição do gap) + `vitest` (358 testes,
+suíte inteira verde, 11 novos desta rodada: 4+2 de `live.test.ts`, 3 de `runner.test.ts`, 2 de
+`mapper.test.ts`) + `tsc --noEmit` (server e front, sem erro) + `vite build` (bundle gera sem erro,
+mesmo aviso pré-existente de chunk grande, não relacionado a esta rodada). TDD no bug 1
+(vermelho→verde confirmado antes de implementar, ver acima); os outros três itens são principalmente
+reuso/wiring de mecanismos que já existiam no código (`CopyButton`, `EventSource` nativo,
+`closeTab`/`newSession`/`tabs`), verificados por leitura cuidadosa mais os mesmos testes de
+`mapper.ts` que já cobriam o entorno (nenhum teste antigo quebrou).
 
 ## Resumo
 
@@ -432,3 +613,20 @@ implementar qualquer coisa — não só a tabela antiga.
   Orion não tem), widget completo do editor de diff do Monaco (gutters, minimapa, blocos movidos,
   linhas de revisão de acessibilidade — só a granularidade de caractere foi replicada, não o
   widget).
+- **corrigido/implementado nesta rodada (3)** (28/09/2026 — achados de uma auditoria de segundo
+  nível dedicada; ver seção 7 para os detalhes e evidências completas): **bug real, não gap** —
+  stop manual (botão Parar) descartava a resposta em andamento sem deixar rastro, porque o catch de
+  `run()` conflava abort manual com erro genuíno (mesmo evento `'error'`, só o `status` final
+  diferia) e `live.ts` só mostrava esse texto quando `status==='error'` literalmente, além de as
+  mensagens parciais do streaming nunca serem persistidas — corrigido com um tipo de evento PRÓPRIO
+  (`'interrupted'`, nunca `'error'`) que carrega o texto parcial já gerado, reconstruível de
+  `claude_events` mesmo com status `idle` (`runner.ts`, `live.ts`, `mapper.ts`: `interruptedLabel`);
+  rótulo "Interrompido"/"Ferramenta interrompida" espelha a tabela real `Qw` do webview decompilado.
+  Botão de copiar resposta nas mensagens de texto do assistente (`AssistantText` em `Timeline.tsx`,
+  reaproveitando o `CopyButton` já existente). Feedback de "Carregando sessões…" na lateral
+  (`Sidebar.tsx`, prop `loading`) e banner de "conexão perdida — reconectando…" quando o
+  `EventSource` da sessão aberta cai (`es.onerror`, antes um no-op puro). Atalhos Ctrl/Cmd+N (nova
+  sessão) e Ctrl/Cmd+Shift+T (reabre a última sessão fechada — pilha `closedStack`, confirmado que a
+  extensão real também usa uma pilha de até 10, não só "o último"). TDD no bug 1 (vermelho→verde
+  confirmado); 11 testes novos (`tests/live.test.ts`, `tests/runner.test.ts`, `tests/mapper.test.ts`);
+  suíte inteira 358 testes, `tsc --noEmit` e `vite build` verdes.
