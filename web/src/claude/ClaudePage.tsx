@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SessionGroupInfo, SessionSummary } from './types';
+import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
@@ -357,6 +357,14 @@ export default function ClaudePage() {
       }
     } catch (e: any) { setErro(e.message); throw e; }
   }
+  /** Reenvio de um prompt que um hook rejeitou (card "Mensagem não entregue", Timeline.tsx): os anexos já estão no servidor, não sobe nada de novo. */
+  async function resend(text: string, attachments?: UserAttachment[]) {
+    if (!activeId || isDraft(activeId)) return;
+    setErro('');
+    const atts = attachments?.filter((a): a is Attachment => !!a.path && !!a.media_type);
+    try { await claudeApi.send(activeId, { prompt: text, permission_mode: mode, model: model !== 'default' ? model : undefined, effort, attachments: atts?.length ? atts : undefined }); }
+    catch (e: any) { setErro(e.message); }
+  }
   async function decide(approvalId: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) {
     if (!activeId) return;
     try { await claudeApi.permission(activeId, { approval_id: approvalId, decision: d, message: msg }); } catch (e: any) { setErro(e.message); }
@@ -532,7 +540,7 @@ export default function ClaudePage() {
                 <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
               </div>
             )}
-            {activeId && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} />}
+            {activeId && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
                 `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
                 `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer

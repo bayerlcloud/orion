@@ -80,6 +80,13 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
         if (m.cwd) parts.push(`pasta ${m.cwd}`);
         out.push({ id: nid(), kind: 'system', text: parts.join(' · ') });
       }
+      // Hook UserPromptSubmit rejeitou o prompt (ver ConvEvent 'blocked' em types.ts): a extensão real
+      // mostra o texto do bloqueio em vermelho; aqui além disso fica o botão Reenviar.
+      else if ((m as Record<string, unknown>).prevent_continuation === true && typeof (m as Record<string, unknown>).content === 'string') {
+        const last = [...out].reverse().find(e => e.kind === 'user');
+        const u = last?.kind === 'user' ? last : undefined;
+        out.push({ id: nid(), kind: 'blocked', reason: hookBlockReason((m as Record<string, unknown>).content as string), prompt: u?.text ?? '', attachments: u?.attachments });
+      }
       continue;
     }
     if (m.type === 'assistant') {
@@ -122,6 +129,19 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
 }
 
 /** Estimativa grosseira de tokens: ~4 caracteres por token (como a extensão exibe no thinking). */
+/**
+ * Motivo curto de um bloqueio de hook. O SDK manda
+ * "UserPromptSubmit operation blocked by hook:\n[<comando inteiro do hook>]: <motivo>\n\nOriginal prompt: ..."
+ * — fica só o <motivo>. ponytail: o `]: ` final antes de "Original prompt" é o separador; se um
+ * comando de hook tiver "]: " dentro, o motivo vem com um pedaço a mais (nunca some).
+ */
+export function hookBlockReason(content: string): string {
+  const semPrompt = content.split('\n\nOriginal prompt:')[0];
+  const i = semPrompt.lastIndexOf(']: ');
+  const motivo = (i >= 0 ? semPrompt.slice(i + 3) : semPrompt.replace(/^UserPromptSubmit operation blocked by hook:\s*/, '')).trim();
+  return motivo.length > 400 ? motivo.slice(0, 400) + '…' : motivo;
+}
+
 export function estimateTokens(text: string): number {
   return Math.ceil((text?.length ?? 0) / 4);
 }

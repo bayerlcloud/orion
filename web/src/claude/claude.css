@@ -765,3 +765,7 @@
 .cc-style-save-dest { display: grid; gap: 4px; border: 1px solid var(--cc-line); border-radius: var(--r); background: var(--cc-bg2); padding: 8px 10px; font-size: 12px; }
 .cc-style-actions { display: flex; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--cc-line); }
 
+/* ===== prompt rejeitado por hook (ConvEvent 'blocked', mapper.ts hookBlockReason) ===== */
+.cc-blocked { color: var(--cc-failure); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.cc-blocked-reason { color: var(--cc-fg2); white-space: pre-wrap; }
+.cc-blocked-btn { width: auto; align-self: flex-start; }

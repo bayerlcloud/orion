@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, hookBlockReason, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -1307,5 +1307,31 @@ describe('composeDictationText', () => {
     const r = composeDictationText('a', 'z', 'meio', '');
     expect(r.value).toBe('a meio z');
     expect(r.cursor).toBe('a meio'.length);
+  });
+});
+
+describe('prompt bloqueado por hook UserPromptSubmit (system com prevent_continuation)', () => {
+  // Payload real da sessão "[Orion] Ui do Claude" (576d3d6c…, seq 745, 2026-09-29): o comando do hook
+  // ocupa a 1ª linha inteira, o motivo vem depois do "]: " e o prompt original no fim.
+  const content = 'UserPromptSubmit operation blocked by hook:\n[node "$_P/scripts/bun-runner.js" "$_P/scripts/worker-service.cjs" hook claude-code session-init]: claude-mem worker unreachable for 3 consecutive hooks.\n\nThis hook comes from the claude-mem@inline plugin.\n\nOriginal prompt: [Danilo] o que são essas bolinhas?';
+  const ev = reduceSdkMessages([
+    { type: 'user', message: { content: '[Danilo] o que são essas bolinhas?', attachments: [{ kind: 'image', name: 'a.png', media_type: 'image/png', path: '/srv/claude-uploads/1/a.png' }] } },
+    { type: 'system', subtype: 'informational', level: 'warning', prevent_continuation: true, content },
+    { type: 'result', subtype: 'success', is_error: false, num_turns: 0 },
+  ]);
+  const b = ev.find(e => e.kind === 'blocked');
+  it('vira um evento blocked com motivo curto e o prompt/anexos pra reenviar', () => {
+    expect(b?.kind === 'blocked' && b.reason).toBe('claude-mem worker unreachable for 3 consecutive hooks.\n\nThis hook comes from the claude-mem@inline plugin.');
+    expect(b?.kind === 'blocked' && b.prompt).toBe('[Danilo] o que são essas bolinhas?');
+    expect(b?.kind === 'blocked' && b.attachments?.[0]?.path).toBe('/srv/claude-uploads/1/a.png');
+  });
+  it('fica logo depois do bubble do usuário', () => {
+    expect(ev.map(e => e.kind)).toEqual(['user', 'blocked', 'result']);
+  });
+  it('system comum (sem prevent_continuation) continua invisível', () => {
+    expect(reduceSdkMessages([{ type: 'system', subtype: 'informational', level: 'info', content: 'x' }])).toEqual([]);
+  });
+  it('hookBlockReason sem o separador tira só o prefixo', () => {
+    expect(hookBlockReason('UserPromptSubmit operation blocked by hook: motivo')).toBe('motivo');
   });
 });

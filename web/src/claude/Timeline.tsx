@@ -632,7 +632,7 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
   );
 }
 
-export default function Timeline({ events, onDecide, agentTasks }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[] }) {
+export default function Timeline({ events, onDecide, agentTasks, onResend }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
   const folded = useMemo(() => foldExpiredPermissions(events), [events]);
@@ -655,6 +655,21 @@ export default function Timeline({ events, onDecide, agentTasks }: { events: Con
         // Pedidos de permissão nunca viram linha na conversa (igual à extensão: vivem só no card flutuante).
         if (e.kind === 'permission') return null;
         if (e.kind === 'busy') return <ThinkingIndicator key={e.id} />;
+        if (e.kind === 'blocked') {
+          // O prompt guardado vem com o prefixo "[Nome] " que o servidor põe (header.ts); no reenvio
+          // ele põe de novo, então sai aqui.
+          const pm = /^\[([^\]\n]{1,40})\]\s*/.exec(e.prompt);
+          const texto = pm ? e.prompt.slice(pm[0].length) : e.prompt;
+          return (
+            <div key={e.id} className="cc-msg dot-failure">
+              <div className="cc-blocked">
+                <div><b>Mensagem não entregue.</b> Um hook bloqueou o envio e o Claude não viu esta mensagem.</div>
+                <div className="cc-blocked-reason">{e.reason}</div>
+                {onResend && (texto || e.attachments?.length) ? <button type="button" className="cc-btn cc-blocked-btn" onClick={() => onResend(texto, e.attachments)}>Reenviar</button> : null}
+              </div>
+            </div>
+          );
+        }
         if (e.kind === 'user') {
           // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira foto + nome ao lado da bolha.
           const m = /^\[([^\]\n]{1,40})\]\s*/.exec(e.text);
