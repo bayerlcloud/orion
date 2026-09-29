@@ -14,7 +14,7 @@ import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { composicaoPara } from '../tools/skillPrefs.js';
-import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
+import { KEYS, ensureSettingsTable, getSetting, githubMcpServers, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
 
@@ -100,9 +100,10 @@ export async function claudeRoutes(app: FastifyInstance) {
     return attachments.length ? { text, attachments } : text;
   }
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
-  // MCPs de toda sessão: hostinger (quando há token) + orion-memory (sempre, com o contexto da sessão).
+  // MCPs de toda sessão: hostinger e github (quando há token) + orion-memory (sempre, com o contexto da sessão).
   const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number) => ({
     ...(hostingerMcpServers(await getSetting(app.pool, KEYS.hostingerToken)) ?? {}),
+    ...(githubMcpServers(await getSetting(app.pool, KEYS.githubToken)) ?? {}),
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { KEYS, deleteSetting, ensureSettingsTable, getSetting, looksLikeClaudeToken, maskToken, sdkEnv, setSetting } from '../settings.js';
+import { KEYS, deleteSetting, ensureSettingsTable, getSetting, looksLikeClaudeToken, looksLikeGithubToken, maskToken, sdkEnv, setSetting } from '../settings.js';
 import { LoginFlow } from '../claude/login.js';
 import { readClaudeCredentials, credentialsPath } from '../claude/credentialsFile.js';
 import { unlink } from 'node:fs/promises';
@@ -16,8 +16,8 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/settings', async () => {
-    const [token, mode, model, budget] = await Promise.all([
-      getSetting(app.pool, KEYS.claudeToken), getSetting(app.pool, KEYS.defaultMode), getSetting(app.pool, KEYS.defaultModel), getSetting(app.pool, KEYS.maxBudgetUsd)]);
+    const [token, mode, model, budget, gh] = await Promise.all([
+      getSetting(app.pool, KEYS.claudeToken), getSetting(app.pool, KEYS.defaultMode), getSetting(app.pool, KEYS.defaultModel), getSetting(app.pool, KEYS.maxBudgetUsd), getSetting(app.pool, KEYS.githubToken)]);
     // Duas formas de estar conectado: token estático (`claude setup-token`, salvo aqui no Postgres)
     // ou sessão do login normal (`claude auth login`, vive em ~/.claude/.credentials.json e se renova
     // sozinha — nunca copiada pra cá, ver claude/login.ts). Ambas fazem sdkEnv/turnEnv funcionarem.
@@ -30,6 +30,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         via: token ? 'token' : (fileCreds ? 'login' : null),
         linux_user: process.env.USER ?? null,
       },
+      github: { token_set: !!gh, token_hint: maskToken(gh) },
       defaults: { permission_mode: mode ?? 'acceptEdits', model: model ?? '', max_budget_usd: budget ? Number(budget) : 5 },
       meta: rows,
     };
@@ -97,6 +98,30 @@ export async function settingsRoutes(app: FastifyInstance) {
     return flow.snapshot();
   });
   app.post('/api/settings/claude-login/cancel', async () => { flow?.cancel(); return flow ? flow.snapshot() : { state: 'idle' }; });
+
+  /** GitHub: um PAT da conta vira o conector MCP oficial em toda sessão (ver githubMcpServers). */
+  app.put<{ Body: { token?: string } }>('/api/settings/github-token', async (req, reply) => {
+    const token = (req.body?.token ?? '').trim();
+    if (!looksLikeGithubToken(token)) return reply.code(400).send({ error: 'isso não parece um token do GitHub (ghp_… ou github_pat_…)' });
+    await setSetting(app.pool, KEYS.githubToken, token, req.user!.id);
+    return { ok: true, token_hint: maskToken(token) };
+  });
+  app.delete('/api/settings/github-token', async (req) => {
+    await deleteSetting(app.pool, KEYS.githubToken);
+    app.log.info(`token do GitHub removido por ${req.user!.email}`);
+    return { ok: true };
+  });
+  /** Teste barato: GET /user na API do GitHub com o token salvo; devolve o login. */
+  app.post('/api/settings/github-token/test', async () => {
+    const token = await getSetting(app.pool, KEYS.githubToken);
+    if (!token) return { ok: false, login: null, error: 'sem token' };
+    try {
+      const r = await fetch('https://api.github.com/user', { headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'orion-central' } });
+      if (!r.ok) return { ok: false, login: null, error: `GitHub respondeu ${r.status}` };
+      const u = await r.json() as { login: string };
+      return { ok: true, login: u.login, error: null };
+    } catch (e: any) { return { ok: false, login: null, error: String(e?.message ?? e) }; }
+  });
 
   app.put<{ Body: { permission_mode?: string; model?: string; max_budget_usd?: number } }>('/api/settings/defaults', async (req, reply) => {
     const b = req.body ?? {};
