@@ -390,16 +390,6 @@
    Posição igual à extensão real (`.micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`) —
    canto superior direito do campo, não na barra de rodapé com os outros botões. */
 .cc-mic-wrap { position: absolute; z-index: 2; top: 5px; right: 4px; }
-/* ===== legenda de esforço/fast mode no canto do composer =====
-   Cópia de `sparkLegend/sparkIcon/sparkCooldown_cKsPxg` reais (webview v2.1.283): fica em cima da
-   borda superior direita, só aparece com o composer em foco (:focus-within), a faixinha ::before de
-   3px "corta" a borda atrás dela (o real usa --app-root-background; aqui --cc-bg). O raio (sparkIcon)
-   usa a cor de aviso e acinzenta no cooldown. Ver Composer.tsx e PARIDADE-seletor.md. */
-.cc-spark-legend { position: absolute; display: none; z-index: 10; align-items: center; gap: 8px; height: 12px; padding: 0 4px; line-height: 0; top: -7px; right: 12px; color: var(--cc-fg2); }
-.cc-spark-legend::before { content: ""; position: absolute; background: var(--cc-bg); z-index: -1; pointer-events: none; height: 3px; top: 5px; left: 0; right: 0; }
-.cc-composer:focus-within .cc-spark-legend { display: flex; }
-.cc-spark-icon { color: var(--cc-warning); }
-.cc-spark-legend.is-cooldown .cc-spark-icon { color: var(--cc-fg2); }
 .cc-mic { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 5px; color: var(--cc-fg2); }
 .cc-mic:hover:not(:disabled) { background: var(--cc-hover); color: var(--cc-fg); }
 .cc-mic:disabled { color: var(--cc-fg2); opacity: .4; cursor: not-allowed; }

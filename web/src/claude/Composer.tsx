@@ -142,27 +142,6 @@ function EffortSlider({ effort, onSelect, onSelectUltracode }: { effort: EffortC
   );
 }
 
-/** Fileira de 5 pontinhos do nível de esforço — cópia do `fV0` real (svg 30×12, círculos r=2.5 a cada 6px, opacidade 0.15 nos não preenchidos). Ultracode conta como xhigh (4 pontos), igual à real (`effortLevel` fica "xhigh" com Ultracode ligado). */
-const EFFORT_DOT_COUNT: Record<Effort, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
-function EffortDots({ effort }: { effort: EffortChoice }) {
-  const n = EFFORT_DOT_COUNT[effort === 'ultracode' ? 'xhigh' : effort];
-  return (
-    <svg width="30" height="12" viewBox="0 0 30 12" style={{ display: 'block' }}>
-      {Array.from({ length: 5 }, (_, i) => (
-        <circle key={i} cx={2.5 + 1 + i * 6} cy="6" r="2.5" fill="currentColor" opacity={i < n ? 1 : 0.15} />
-      ))}
-    </svg>
-  );
-}
-
-/** Tooltip da legenda do canto do composer — cópia do `cZ5` real ("Effort: X · Fast mode enabled/cooling down"), em pt-BR como o resto do painel. */
-function sparkTitle(effort: EffortChoice, fast: FastModeState): string {
-  const parts = [`Esforço: ${effortPillLabel(effort)}`];
-  if (fast === 'on') parts.push('Modo rápido ativado');
-  else if (fast === 'cooldown') parts.push('Modo rápido esfriando');
-  return parts.join(' · ');
-}
-
 /** Ícone pequeno do modo de permissão — `iconV2Small` real por modo (FP1/sB0/tB0/iB0). */
 function ModeIcon({ mode }: { mode: Mode }) {
   if (mode === 'acceptEdits') return <ModeAcceptEdits />;
@@ -426,21 +405,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
       onDrop={onDrop}
       {...(fastMode && fastMode !== 'off' ? { 'data-spark': fastMode } : {})}>
-      {/*
-        Legenda do canto superior direito do composer — cópia do `<legend>` real (classes
-        `sparkLegend/sparkIcon/sparkCooldown_cKsPxg`, ver PARIDADE-seletor.md): pontinhos do nível de
-        esforço + raio quando o fast mode está 'on'/'cooldown' (cooldown acinzenta o raio), visível só
-        com o composer em foco (CSS :focus-within, igual à real). Tooltip = `cZ5` real em pt-BR.
-        `data-spark` no container espelha o `data-spark` do fieldset real. Hoje `fastMode` fica 'off'
-        (o SDK não manda `fast_mode_state` pros turnos do Orion) — o raio nunca aparece; a estrutura
-        liga sozinha quando o dado vier.
-      */}
-      {onEffort && (
-        <span className={`cc-spark-legend ${fastMode === 'cooldown' ? 'is-cooldown' : ''}`} title={sparkTitle(effort ?? 'medium', fastMode ?? 'off')}>
-          <EffortDots effort={effort ?? 'medium'} />
-          {(fastMode === 'on' || fastMode === 'cooldown') && <Bolt size={12} className="cc-spark-icon" />}
-        </span>
-      )}
+      {/* Legenda de esforço (pontinhos no canto do composer, cópia do sparkLegend real) removida a pedido do Danilo em 29/09/2026: parecia bug. */}
       <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
       {attachments.length > 0 && (
         <div className="cc-attach-row">
