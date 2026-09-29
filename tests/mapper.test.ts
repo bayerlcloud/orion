@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus } from '../web/src/claude/mapper';
-import { matchModelAlias } from '../web/src/claude/api';
+import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
 /** Payload real de um AskUserQuestion da sessão de produção "Esta ai?" (fcc5ee4b-96f2-45a5-baf3-78e9f1f71ecd,
@@ -694,6 +694,31 @@ describe('matchModelAlias', () => {
 
   it('modelo desconhecido: cai pro default em vez de quebrar', () => {
     expect(matchModelAlias('gpt-5')).toBe('default');
+  });
+});
+
+// Paridade de persistência de esforço (28/09/2026, rodada de follow-up ao vivo do Bayerl): igual
+// matchModelAlias acima, mas pra claude_sessions.effort (nullable, sessão sem escolha explícita ou
+// criada antes da coluna existir). Nunca confia cegamente no valor do banco; 'medium' é o mesmo
+// padrão do useState<Effort>('medium') inicial em ClaudePage.tsx.
+describe('matchEffort', () => {
+  it('sem esforço (null/undefined/vazio): medium', () => {
+    expect(matchEffort(null)).toBe('medium');
+    expect(matchEffort(undefined)).toBe('medium');
+    expect(matchEffort('')).toBe('medium');
+  });
+
+  it('valor válido: mantém', () => {
+    expect(matchEffort('low')).toBe('low');
+    expect(matchEffort('medium')).toBe('medium');
+    expect(matchEffort('high')).toBe('high');
+    expect(matchEffort('xhigh')).toBe('xhigh');
+    expect(matchEffort('max')).toBe('max');
+  });
+
+  it('valor desconhecido/corrompido: cai pro medium em vez de quebrar', () => {
+    expect(matchEffort('urgent')).toBe('medium');
+    expect(matchEffort('LOW')).toBe('medium'); // case-sensitive de propósito — mesmos literais que EFFORTS valida no server
   });
 });
 

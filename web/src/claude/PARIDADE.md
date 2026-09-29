@@ -275,7 +275,7 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
 | Botão parar (`stopIcon_gGYT1w`) | já tem | `cc-stop` |
 | Fila de mensagens enquanto roda (`queued`) | já tem (back) | back enfileira; placeholder avisa que dá pra enfileirar |
 | Seletor de modelo (`modelPill_gGYT1w`, `modelItem_G8AMvA`) | **implementado agora (28/09/2026)**; **corrigido — troca ao vivo (28/09/2026, rodada 4)** | menu de verdade (Padrão/Sonnet/Opus/Haiku/Fable); mudar durante um turno já em andamento agora aplica na hora, não só no próximo create/send — ver seção 8 |
-| Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | já tem; **corrigido — troca ao vivo (28/09/2026, rodada 4)** | menu; envia `effort` no create/send E agora também aplica na hora num turno já em andamento — ver seção 8 |
+| Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | já tem; **corrigido — troca ao vivo (28/09/2026, rodada 4)**; **corrigido — persistência (28/09/2026, follow-up)** | menu; envia `effort` no create/send, aplica na hora num turno já em andamento (seção 8) E agora sobrevive a reload/troca de aba, igual modo/modelo (coluna `claude_sessions.effort` — seção 10) |
 | Seletor de modo de permissão (`modeOption_7kXHPg` Manual/Plan/Accept edits/Auto) | já tem; **corrigido — bug real de troca ao vivo (28/09/2026, rodada 4)** | menu visível (era só ciclo); trocar o modo durante um turno já em andamento era só cosmético até a próxima mensagem — bug real reportado pelo Bayerl, ver seção 8 |
 | Anexar arquivos/imagens (`attachedFilesContainer_cKsPxg`, `onAddFiles`) | n/a | "em breve" (pedido) |
 | Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora (28/09/2026)** | era uma lista fixa de 4 (`/clear /compact /context /cost`); agora vem de `Query.supportedCommands()` do SDK quando a sessão já rodou pelo menos um turno neste processo (inclui skills, comandos de projeto, etc.), com fallback pros 4 fixos antes disso — ver seção "Compositor — rodada de 28/09/2026" |
@@ -1016,6 +1016,128 @@ dois momentos, nenhum teste existente alterado ou quebrado + `npm run typecheck`
 tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`, sem erro) + `npm run build` (`vite
 build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta mudança).
 
+## 10. Persistência do esforço entre reload/troca de aba — follow-up pedido pelo Bayerl em 28/09/2026
+
+Depois da rodada 4 (seção 8 acima), que trouxe modo/modelo/esforço a paridade de aplicação AO VIVO
+(`Query.setPermissionMode`/`setModel`/`applyFlagSettings`), o Bayerl pediu explicitamente um
+follow-up no mesmo dia: aquela rodada não cobria **persistência**. `permission_mode` e `model` já
+eram colunas de `claude_sessions` (`server/migrations.ts`) e já eram restaurados no efeito de carga
+de sessão de `ClaudePage.tsx` (`s.permission_mode`/`matchModelAlias(s.model)`) — cada sessão lembra
+seu próprio modo/modelo mesmo depois de reload ou troca de aba. `effort` não tinha equivalente
+nenhum: sem coluna em `server/migrations.ts` (confirmado por grep antes de mexer, não assumido), sem
+nenhuma linha tocando `effort` no efeito de carga, backed só por um `useState<Effort>('medium')`
+compartilhado entre qualquer aba ativa — resetava pra `'medium'` a cada reload/troca de aba,
+confirmado ao vivo pelo Bayerl (motivo explícito do pedido).
+
+**Implementado**, mesmo padrão persist-then-live-apply que a seção 8 já tinha estabelecido pra
+modo/modelo, agora estendido a `effort`:
+
+- **Migração `009_claude_effort`** (`server/migrations.ts`, seguinte à `008_tools_details`, última
+  usada): `ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS effort TEXT` — nullable, sem
+  `DEFAULT`, mesmo tipo de `model` (não de `permission_mode`, que é `NOT NULL DEFAULT
+  'acceptEdits'`): sessão sem esforço explícito escolhido é um estado válido ("sem override", deixa o
+  SDK/conta decidir), não um valor ausente que precisa de um default fixo gravado no banco. Conferido
+  ao vivo, read-only, contra o Postgres de produção (`information_schema.columns` de
+  `claude_sessions` + `schema_migrations`) antes de implementar: produção ainda em `008_tools_details`
+  (migração nova ainda não rodou lá — este worktree não é o processo `orion-central` de verdade,
+  mesma limitação já documentada nas rodadas anteriores), `model` é de fato `TEXT` nullable sem
+  default, confirmando que a tipagem nova replica exatamente esse padrão.
+- **`POST /api/claude/sessions`** (criação): passou a gravar `effort` no `INSERT`, junto de
+  `model`/`permission_mode` — antes só era passado pro `runner.startTurn`, nunca persistido em
+  Postgres nenhum.
+- **`POST /api/claude/sessions/:id/messages`** (mensagem numa sessão existente): já lia `effort` do
+  corpo e repassava pro turno (`EFFORTS.has(...)`), mas nunca persistia nem considerava o valor já
+  salvo. Reescrito no mesmo padrão condicional que a rota já usava pra `model`
+  (`modelOverride`/`s.model`): `effortOverride` só grava no Postgres quando veio um valor válido E é
+  diferente do já persistido; sem override no corpo, o turno passa a usar `s.effort` (o que já estava
+  salvo) em vez de sempre `undefined` como antes — mesma continuidade que `model` já tinha.
+- **`POST /api/claude/sessions/:id/effort`** (rota de troca AO VIVO, criada na rodada 4 — seção 8):
+  até aqui só chamava `Runner.setEffortLive`, sem tocar no Postgres. Reescrita pra copiar
+  **exatamente** a estrutura da rota irmã `.../mode` (comparei as duas lado a lado antes de escrever,
+  não só de memória): `SELECT` do valor atualmente persistido → `UPDATE` só se o valor mudou → só
+  DEPOIS tenta a aplicação ao vivo, isolada em try/catch (uma falha nela — rede, processo — nunca
+  deve impedir a persistência, que já aconteceu antes; só um `app.log.warn`, mesmo texto de log que
+  as rotas de modo/modelo já usavam). Doc comment da rota reescrito (o antigo afirmava "esforço nunca
+  é persistido", não é mais verdade).
+- **`GET /api/claude/sessions`** (lista da barra lateral): `s.effort` adicionado ao `SELECT` — não
+  estava explicitamente no pedido original, mas sem isso o tipo `ApiSession.effort` (usado por ambas
+  as rotas, a de lista e a de detalhe) mentiria sobre os itens vindos da lista (sempre `undefined` na
+  prática ali, nunca `null` como o tipo promete) — mesmo padrão que `model`/`permission_mode` já
+  seguiam (os dois já estavam nesse `SELECT`, nunca só no de detalhe). Conferido que nada hoje lê
+  `.effort` a partir da lista (`Composer.tsx` sempre mostra o `effort` local do estado da aba, nunca
+  `active.effort` — diferente de `model`, que tem um fallback de rótulo `active?.model` quando não há
+  override escolhido, usado em `ClaudePage.tsx`), mas deixar o contrato de tipo incorreto seria um
+  jeito fácil de introduzir um bug depois, então corrigido de passagem.
+- **`web/src/claude/api.ts`**: `ApiSession` ganhou o campo `effort: string | null`, ao lado de
+  `model`/`permission_mode`. Nova função pura `matchEffort(effort)`, ao lado de `matchModelAlias` já
+  existente e com a mesma ideia: nunca confia cegamente no valor do banco (nullable), sempre resolve
+  pra um `Effort` concreto e válido — `'medium'` quando ausente/inválido.
+- **`ClaudePage.tsx`**: terceira linha no efeito de carga de sessão, ao lado de `setMode`/`setModel`
+  já existentes: `setEffort(matchEffort(s.effort))`.
+  - **Decisão que se afasta levemente da instrução literal do pedido** (documentando porque é uma
+    escolha, não só mecânica): o pedido descrevia "validar contra a união conhecida de `Effort` do
+    mesmo jeito que `permission_mode` é validado" — que no código de `mode` é um `if` que só chama
+    `setMode` quando o valor já é válido, sem tocar no estado quando não é. Copiei essa validação
+    (mesma lista de literais conhecidos), mas com uma diferença deliberada na consequência de falhar:
+    `permission_mode` é `NOT NULL DEFAULT` no banco, então esse `if` nunca falha na prática — não há
+    vazamento possível entre sessões. `effort` é nullable e MUITAS sessões (todas as existentes antes
+    desta migração, e qualquer sessão nova sem escolha explícita de esforço) vão ter `null`. Um guard
+    equivalente ao de `mode` (só chama `setEffort` quando o valor já é válido, sem `else`) deixaria o
+    `useState` do composer com o valor da sessão ANTERIOR "vazado" pra dentro de uma sessão sem
+    esforço persistido — pior: esse esforço vazado seria mandado como override explícito no próximo
+    `send()`/`create()` daquela aba, sem o usuário ter escolhido nada ali. Troquei o "modelo de
+    validação" pedido (guard de `mode`, que nunca reseta) pelo "modelo de resolução" que o mesmo
+    arquivo já usa pro caso nullable mais parecido (`matchModelAlias`, que sempre resolve pra um valor
+    concreto, nunca deixa de chamar `setModel`) — `matchEffort` segue esse segundo padrão. Mais
+    correto pro caso real (coluna nullable), sem inventar um terceiro estilo.
+- **`server/claude/runner.ts`**: só o comentário de `setEffortLive` foi atualizado (afirmava "effort
+  nem é persistido por sessão no Postgres" — não é mais verdade); nenhuma linha de lógica mudou
+  nesse arquivo — `setEffortLive` continua exatamente igual, só o lado ao vivo; a persistência
+  acontece na rota HTTP, antes de chamar esse método, igual já valia pra modo/modelo.
+
+**TDD, vermelho→verde confirmado** (`superpowers:test-driven-development`): escrevi 3 testes novos em
+`tests/mapper.test.ts` (`describe('matchEffort', ...)`, logo depois de `matchModelAlias`, mesmo
+padrão de casos: sem valor → `'medium'`, valor válido → mantém, valor desconhecido/corrompido → cai
+pro `'medium'` em vez de quebrar) contra a função que ainda não existia — rodei `npx vitest run
+tests/mapper.test.ts -t matchEffort` e confirmei a falha esperada (`TypeError: matchEffort is not a
+function`, 3/3 falhando pelo motivo certo, não erro de digitação), só depois implementei
+`matchEffort` em `api.ts` e confirmei verde (3/3, e a suíte completa de `mapper.test.ts`: 138/138).
+
+**Por que não há mais testes novos além desses 3**: `server/routes/claude.ts` não tem NENHUMA rota
+testada por `vitest` em lugar nenhum do repo (confirmado por grep antes de escrever qualquer coisa:
+nenhum arquivo em `tests/` importa `claudeRoutes` nem usa `app.inject`/`fastify.inject` contra ele) —
+mesma limitação já documentada na rodada 4 (seção 8 acima, "Limitação de verificação documentada").
+`ClaudePage.tsx` também não tem teste — nenhum componente React tem nenhum no repo inteiro;
+`package.json` não lista `@testing-library/react`, `jsdom` nem qualquer harness de DOM, só `vitest`
+puro em ambiente node. Extrair a lógica de restauração numa função pura testável (`matchEffort`,
+espelhando `matchModelAlias`) foi o jeito de trazer TDD de verdade pra essa mudança sem inventar uma
+infraestrutura de teste nova fora do escopo pedido ("Keep the diff scoped to this one gap" — criar um
+harness de rotas Fastify ou de componentes React do zero seria uma mudança bem maior que este gap).
+
+**Verificado**:
+- `npm run typecheck` (`tsc -p tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`)
+  limpo, sem erro, rodado depois de cada arquivo alterado.
+- `npx vitest run`: suíte inteira **432 testes verdes** (23 arquivos) — eram 429 antes desta rodada,
+  +3 de `matchEffort`; nenhum teste existente quebrou.
+- `npm run build` (`vite build` + `tsc -p tsconfig.server.json`): bundle gera sem erro (mesmo aviso
+  pré-existente de chunk grande, sem relação com esta mudança).
+- `curl -s -o /dev/null -w "%{http_code}" https://v2.bayerl.cloud/api/claude/sessions` sem
+  autenticação → `401` — confirma que o hook `preHandler` de autenticação do plugin (mesmo padrão já
+  usado na rodada 4) segue ativo em produção; as rotas alteradas ficam dentro do mesmo
+  `claudeRoutes(app)`, depois do hook, mesmo escopo de encapsulamento do Fastify que já protegia
+  `.../mode` e `.../model`.
+- Consulta read-only ao Postgres de produção (`information_schema.columns` + `schema_migrations`, via
+  um script `.mjs` descartável reaproveitando o `pg` já instalado no worktree — nunca leu nem
+  imprimiu `DATABASE_URL` em si, só o resultado das duas queries `SELECT`; script apagado logo
+  depois): usado só pra confirmar o estado ANTES desta mudança (ver migração acima) — não pra aplicar
+  a migração nova em produção, que fica pra quando este worktree for integrado ao `main`/`/srv/orion`
+  (fora do escopo deste worktree, que não é o processo `orion-central` rodando de verdade).
+- **Não verificado end-to-end num navegador real** (criar sessão → reload → efeito de carga
+  restaura `effort`): sem ferramenta de browser/visual-testing neste ambiente, mesma limitação de
+  todas as rodadas anteriores deste documento. Verificação foi por leitura cuidadosa de código
+  (comparando linha a linha com o padrão de `mode`/`model` já em produção e funcionando) + os
+  testes/typecheck/build acima.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -1135,3 +1257,21 @@ build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta
   repassado, novo `ToolStatus` `'waiting'` ligado pelo id real, nunca um heurístico). 43 testes
   novos, confirmado via `git diff` (31 `mapper.test.ts`, 11 `live.test.ts`, 1 `runner.test.ts`);
   suíte inteira 403 testes, `tsc --noEmit` e `vite build` verdes.
+- **implementado nesta rodada** (28/09/2026, follow-up ao vivo pedido pelo Bayerl — persistência do
+  esforço, ver seção 10 para os detalhes e evidências completas): `effort` trazido a paridade total
+  com `permission_mode`/`model` — coluna nova `claude_sessions.effort` (migração `009_claude_effort`,
+  nullable, sem default, mesmo tipo de `model`), persistida no `INSERT` de criação, threaded com o
+  padrão "só grava se mudou" em `.../messages`, e a rota `.../effort` (que a rodada 4 tinha deixado só
+  com o lado ao vivo) agora persiste PRIMEIRO e só depois aplica ao vivo — mesma estrutura exata da
+  rota irmã `.../mode`. `ClaudePage.tsx` restaura `effort` no efeito de carga de sessão
+  (`matchEffort(s.effort)`, nova função pura em `api.ts`, mesma ideia de `matchModelAlias` já
+  existente: nunca confia no valor do banco, sempre resolve pra um `Effort` concreto). Corrige o bug
+  relatado ao vivo: o seletor de esforço resetava pra 'medium' a cada reload/troca de aba porque era
+  só um `useState` compartilhado sem persistência nenhuma — agora sobrevive, uma sessão de cada vez,
+  igual modo/modelo já faziam. 3 testes novos TDD (`matchEffort` em `mapper.test.ts`, vermelho→verde
+  confirmado); suíte inteira 432 testes, `tsc --noEmit` (server e front) e `vite build` verdes; sem
+  harness de teste pra rotas Fastify nem componentes React neste repo (confirmado por grep antes de
+  assumir), então a verificação de `server/routes/claude.ts`/`ClaudePage.tsx` foi por leitura
+  cuidadosa comparando linha a linha com o padrão de modo/modelo já em produção, mais `curl` (401
+  esperado, sem auth) e consulta read-only ao Postgres de produção (schema ainda em
+  `008_tools_details`, confirmando que a migração nova ainda não rodou lá).
