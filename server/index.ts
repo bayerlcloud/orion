@@ -48,9 +48,6 @@ async function main() {
     req.user = rows[0] ?? null;
   });
 
-  // Ao subir, reconcilia sessões órfãs: nada roda em memória depois de um restart.
-  await pool.query("UPDATE claude_sessions SET status = 'idle', last_error = COALESCE(last_error, 'sessão interrompida por reinício do servidor') WHERE status IN ('running','waiting')").catch(() => {});
-
   app.get('/api/health', async () => ({ ok: true }));
   await app.register(authRoutes);
   await app.register(specRoutes);
@@ -64,7 +61,10 @@ async function main() {
   await app.register(tasksRoutes);
   await app.register(toolsRoutes);
 
-  await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: false });
+  // wildcard: true = lê o disco a cada pedido. Com false, só os arquivos que existiam no boot tinham
+  // rota: um `npm run build` sem restart deixava o index.html novo apontando pra assets sem rota
+  // (tela em branco, 29/09/2026). Arquivo inexistente cai no setNotFoundHandler abaixo.
+  await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: true });
   app.setNotFoundHandler((req, reply) => {
     if (req.method === 'GET' && !req.url.startsWith('/api/')) return reply.sendFile('index.html');
     return reply.code(404).send({ error: 'não encontrado' });

@@ -41,6 +41,14 @@ export function isUnderRoot(real: string, root: string): boolean {
   return real === root || real.startsWith(root + path.sep);
 }
 
+export const RESUME_PROMPT = 'O servidor do Orion reiniciou no meio do seu turno (deploy ou queda) e ele foi cortado. Continue de onde parou. Se o reinício foi causado por você mesmo (ex.: systemctl restart orion-central), ele já aconteceu com sucesso: não reinicie de novo, só confira o resultado e siga.';
+
+/** Retoma a sessão cortada? Não, se o último prompt já era uma retomada de menos de 10 min (evita loop de restart). */
+export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now: Date): boolean {
+  if (!lastPrompt?.includes(RESUME_PROMPT) || !lastTs) return true;
+  return now.getTime() - lastTs.getTime() > 10 * 60_000;
+}
+
 type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
 
 export async function claudeRoutes(app: FastifyInstance) {
@@ -77,6 +85,15 @@ export async function claudeRoutes(app: FastifyInstance) {
   }
 
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
+  type SessionRow = { id: string; cwd: string; project_id: number | null; project_name: string | null; rules: string | null; creator: string };
+  /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
+  async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max') {
+    runner.startTurn({
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, userId), maxBudgetUsd: (await defaults()).budget,
+      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)) }),
+    });
+  }
+
   function buildPrompt(userName: string, prompt: string, attachments: Attachment[]): TurnPrompt {
     const text = prefixPrompt(userName, prompt);
     return attachments.length ? { text, attachments } : text;
@@ -315,10 +332,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const effortOverride = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     if (effortOverride && effortOverride !== s.effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [s.id, effortOverride]);
     const effort = effortOverride || s.effort || undefined;
-    runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, req.user!.id), maxBudgetUsd: (await defaults()).budget,
-      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, req.user!.id)) }),
-    });
+    await startFor(s, req.user!.id, buildPrompt(req.user!.name, prompt, attachments), mode, model, effort);
     return { ok: true, queued: runner.status(s.id) !== 'idle' };
   });
 
@@ -429,4 +443,26 @@ export async function claudeRoutes(app: FastifyInstance) {
     await app.pool.query('DELETE FROM claude_sessions WHERE id = $1', [req.params.id]);
     return { ok: true };
   });
+
+  // Turnos cortados por restart do servidor (deploy, crash): nada roda em memória depois do boot,
+  // então retoma cada sessão que estava 'running'/'waiting' com um "continue" em nome do Orion, pra
+  // ninguém precisar voltar lá e cutucar. O SDK retoma a conversa pelo id (resume).
+  const { rows: cortadas } = await app.pool.query(
+    `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator,
+            (SELECT e.payload->>'prompt' FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 1) AS last_prompt,
+            (SELECT e.ts FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 1) AS last_prompt_ts
+       FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id
+      WHERE s.status IN ('running','waiting')`).catch(() => ({ rows: [] as any[] }));
+  await app.pool.query("UPDATE claude_sessions SET status = 'idle' WHERE status IN ('running','waiting')").catch(() => {});
+  for (const s of cortadas) {
+    if (!shouldResume(s.last_prompt, s.last_prompt_ts ? new Date(s.last_prompt_ts) : null, new Date())) {
+      await app.pool.query('UPDATE claude_sessions SET last_error = $2 WHERE id = $1', [s.id, 'sessão interrompida por reinício do servidor']).catch(() => {});
+      continue;
+    }
+    app.log.warn(`retomando sessão ${s.id} cortada por restart`);
+    const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
+    void startFor(s, s.user_id, prefixPrompt('Orion', RESUME_PROMPT), mode, s.model ?? undefined, s.effort ?? undefined)
+      .catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
+  }
+
 }
