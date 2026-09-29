@@ -9,7 +9,8 @@ type Cloudflare = { id: number; label: string; account_id: string; account_name:
 type Kind = 'tool' | 'skill' | 'mcp';
 type ToolItem = { id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo'; link: string | null; details: string; created_by_name: string | null };
 type Prov = 'github' | 'cloudflare';
-type Tipo = Prov | Kind;
+type Hostinger = { conectado: boolean; token_hint: string | null; mcps: string[] };
+type Tipo = Prov | 'hostinger' | Kind;
 /** Linha do card: rótulo, valor inteiro (copiar/popup) e, se houver, versão curta para o card. */
 type Linha = [string, string, string?];
 type Card = { tipo: Tipo; id: number; label: string; sub: string; linhas: Linha[]; notas: string; detalhes?: string; icone: ReactNode; status?: 'ativo' | 'inativo'; autor?: string | null };
@@ -17,14 +18,28 @@ type Card = { tipo: Tipo; id: number; label: string; sub: string; linhas: Linha[
 const TIPO: Record<Tipo, { titulo: string; badge: string; classe: string }> = {
   github: { titulo: 'GitHub', badge: 'MCP', classe: 'is-mcp' },
   cloudflare: { titulo: 'Cloudflare', badge: 'Conector', classe: 'is-conector' },
+  hostinger: { titulo: 'Hostinger', badge: 'MCP', classe: 'is-mcp' },
   mcp: { titulo: 'MCP', badge: 'MCP', classe: 'is-mcp' },
   tool: { titulo: 'Tool', badge: 'Tool', classe: 'is-tool' },
   skill: { titulo: 'Skill', badge: 'Skill', classe: 'is-skill' },
 };
 const API: Record<Prov, string> = { github: '/api/tools/github', cloudflare: '/api/tools/cloudflare' };
 const KINDS: Kind[] = ['mcp', 'tool', 'skill'];
-const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'mcp', 'tool', 'skill'];
+const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'hostinger', 'mcp', 'tool', 'skill'];
 const ehConta = (t: Tipo): t is Prov => t === 'github' || t === 'cloudflare';
+
+const HOSTINGER_NOTAS = `Um token da API Hostinger vira 8 MCPs oficiais em toda sessão. Cada um tem search (acha a operação), execute e multi-execute: dentro da área, o Claude lê E altera tudo que a API permite.
+
+• hostinger-dns: criar, alterar e apagar registros DNS (bayerl.cloud incluso). Sempre registro A explícito.
+• hostinger-domains: domínios, disponibilidade, WHOIS, nameservers, compra.
+• hostinger-hosting: sites, bancos MySQL, FTP, builds Node.js e variáveis de ambiente.
+• hostinger-vps-studio: VPS (ligar, desligar, reiniciar, firewall, snapshots, backups, chaves SSH, reinstalar SO).
+• hostinger-wordpress: instalar WordPress, plugins, temas, core.
+• hostinger-billing: assinaturas, pagamentos, pedidos (pode gerar cobrança).
+• hostinger-ecommerce: lojas Hostinger.
+• hostinger-reach: e-mail marketing.
+
+Atenção: billing, compra de domínio e ações de VPS mexem com dinheiro ou derrubam servidor. Confirmar antes.`;
 
 const contaVazia = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
 const catVazio = () => ({ kind: 'mcp' as Kind, name: '', description: '', icon: '⚙️', link: '', details: '' });
@@ -37,6 +52,8 @@ export default function ToolsConectores({ user }: { user: User }) {
   const [gh, setGh] = useState<Github[]>([]);
   const [cf, setCf] = useState<Cloudflare[]>([]);
   const [cat, setCat] = useState<ToolItem[]>([]);
+  const [host, setHost] = useState<Hostinger | null>(null);
+  const [formHost, setFormHost] = useState<string | null>(null);
   const [erro, setErro] = useState('');
   const [busy, setBusy] = useState(false);
   const [filtro, setFiltro] = useState<Tipo | 'todos'>('todos');
@@ -47,8 +64,8 @@ export default function ToolsConectores({ user }: { user: User }) {
 
   async function load() {
     try {
-      const [g, c, t] = await Promise.all([api<{ contas: Github[] }>(API.github), api<{ contas: Cloudflare[] }>(API.cloudflare), api<{ tools: ToolItem[] }>('/api/tools')]);
-      setGh(g.contas); setCf(c.contas); setCat(t.tools); setErro('');
+      const [g, c, t, h] = await Promise.all([api<{ contas: Github[] }>(API.github), api<{ contas: Cloudflare[] }>(API.cloudflare), api<{ tools: ToolItem[] }>('/api/tools'), api<Hostinger>('/api/tools/hostinger')]);
+      setGh(g.contas); setCf(c.contas); setCat(t.tools); setHost(h); setErro('');
     } catch (e: any) { setErro(e.message); }
   }
   useEffect(() => { void load(); }, []);
@@ -58,9 +75,11 @@ export default function ToolsConectores({ user }: { user: User }) {
       linhas: [['tools', `mcp__${c.mcp}__*`], ['token', c.token_hint]] })),
     ...cf.map((c): Card => ({ tipo: 'cloudflare', id: c.id, label: c.label, sub: c.email || c.account_name, notas: c.notes, icone: <IcoCloudflare />,
       linhas: [['account', c.account_id], ['proxy', c.url, c.url.replace(/^https?:\/\/[^/]+/, '')], ['token', c.token_hint]] })),
+    ...(host ? [{ tipo: 'hostinger' as const, id: 0, label: 'hostinger', sub: host.conectado ? `${host.mcps.length} MCPs em toda sessão` : 'sem token: nenhum MCP ativo', notas: 'DNS, domínios, VPS, hosting, WordPress, billing, e-commerce e e-mail marketing.', detalhes: HOSTINGER_NOTAS, icone: '🌐',
+      linhas: [['tools', host.mcps.map(m => `mcp__${m}__*`).join('\n'), 'mcp__hostinger-*__*'], ['token', host.token_hint ?? 'nenhum']] as Linha[] }] : []),
     ...cat.map((t): Card => ({ tipo: t.kind, id: t.id, label: t.name, sub: '', notas: t.description, detalhes: t.details, icone: t.icon, status: t.status, autor: t.created_by_name,
       linhas: t.link ? [['link', t.link, t.link.replace(/^https?:\/\//, '')]] : [] })),
-  ], [gh, cf, cat]);
+  ], [gh, cf, cat, host]);
   const contagem = useMemo(() => {
     const c: Record<string, number> = { todos: cards.length };
     for (const k of cards) c[k.tipo] = (c[k.tipo] ?? 0) + 1;
@@ -114,14 +133,25 @@ export default function ToolsConectores({ user }: { user: User }) {
     catch (e: any) { setErro(e.message); }
   }
 
-  function editar(c: Card) { ehConta(c.tipo) ? editarConta(c) : editarCat(c); }
+  async function salvarHost() {
+    if (formHost === null) return;
+    setBusy(true); setErro('');
+    try { await api('/api/tools/hostinger', { method: 'PUT', body: JSON.stringify({ token: formHost }) }); setFormHost(null); await load(); }
+    catch (e: any) { setErro(e.message); } finally { setBusy(false); }
+  }
+
+  function editar(c: Card) {
+    if (c.tipo === 'hostinger') { setOpen(null); setFormConta(null); setFormCat(null); setFormHost(''); return; }
+    ehConta(c.tipo) ? editarConta(c) : editarCat(c);
+  }
   async function remover(c: Card) {
     const msg = ehConta(c.tipo) ? `Remover a conta ${TIPO[c.tipo].titulo} "${c.label}"? As sessões novas deixam de enxergar essa conta.` : `Apagar "${c.label}"?`;
     if (!window.confirm(msg)) return;
     try { await api(ehConta(c.tipo) ? `${API[c.tipo]}/${c.id}` : `/api/tools/${c.id}`, { method: 'DELETE' }); setOpen(null); await load(); }
     catch (e: any) { setErro(e.message); }
   }
-  const podeMexer = (c: Card) => admin || !ehConta(c.tipo);
+  const podeMexer = (c: Card) => admin || (!ehConta(c.tipo) && c.tipo !== 'hostinger');
+  const podeApagar = (c: Card) => podeMexer(c) && c.tipo !== 'hostinger';
 
   return (
     <>
@@ -136,6 +166,7 @@ export default function ToolsConectores({ user }: { user: User }) {
       <p className="muted small">
         <b>GitHub</b>: cada conta vira um MCP oficial em toda sessão (repos, issues, PRs, código).
         <b> Cloudflare</b>: conector simples, o Claude chama a API (Pages, DNS, Workers, R2, D1…) por um proxy local do Orion que injeta o token; o token nunca entra na sessão.
+        <b> Hostinger</b>: um token vira os MCPs oficiais (DNS, domínios, VPS, hosting, WordPress, billing).
         <b> Outros</b>: MCPs, tools e skills anotados à mão (o que é, permissões, link); o Claude também pode cadastrar via API.
       </p>
       {erro && <div className="erro">{erro}</div>}
@@ -174,6 +205,19 @@ export default function ToolsConectores({ user }: { user: User }) {
           <div className="tls-form-actions">
             <button className="btn-primary" onClick={salvarConta} disabled={busy || !podeSalvarConta}>{busy ? 'Validando…' : formConta.id ? 'Salvar' : 'Conectar'}</button>
             <button onClick={() => setFormConta(null)} disabled={busy}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {formHost !== null && (
+        <div className="tls-form">
+          <div className="tls-sec-head"><h2 style={{ fontSize: 14 }}>Trocar token da Hostinger</h2></div>
+          <label>token de API (hPanel → Perfil → API). Vale para os 8 MCPs hostinger-* nas sessões novas.
+            <input type="password" value={formHost} onChange={e => setFormHost(e.target.value)} autoComplete="off" autoFocus />
+          </label>
+          <div className="tls-form-actions">
+            <button className="btn-primary" onClick={salvarHost} disabled={busy || formHost.trim().length < 20}>{busy ? 'Validando…' : 'Salvar'}</button>
+            <button onClick={() => setFormHost(null)} disabled={busy}>Cancelar</button>
           </div>
         </div>
       )}
@@ -233,7 +277,7 @@ export default function ToolsConectores({ user }: { user: User }) {
                 <span className="tls-spacer" />
                 {podeMexer(c) && c.status && <button className="tls-icon-btn" onClick={() => alternarStatus(c)} title={c.status === 'ativo' ? 'Marcar inativo' : 'Marcar ativo'}>{c.status === 'ativo' ? '⏸' : '▶'}</button>}
                 {podeMexer(c) && <button className="tls-icon-btn" onClick={() => editar(c)} title="Editar">✎</button>}
-                {podeMexer(c) && <button className="tls-icon-btn" onClick={() => remover(c)} title={ehConta(c.tipo) ? 'Remover' : 'Apagar'}>🗑</button>}
+                {podeApagar(c) && <button className="tls-icon-btn" onClick={() => remover(c)} title={ehConta(c.tipo) ? 'Remover' : 'Apagar'}>🗑</button>}
               </div>
             </div>
           ); })}

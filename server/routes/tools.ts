@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { cp, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { KEYS, getSetting, sdkEnv } from '../settings.js';
+import { HOSTINGER_MCPS, KEYS, getSetting, hostingerVpsCount, maskToken, sdkEnv, setSetting } from '../settings.js';
 import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type SkillItem } from '../tools/skillsScan.js';
 import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
 import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
@@ -182,6 +182,22 @@ export async function toolsRoutes(app: FastifyInstance) {
     const del = await app.pool.query('DELETE FROM github_accounts WHERE id = $1', [id]);
     if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
     return { ok: true };
+  });
+
+  // ---------- conta Hostinger (um token só, na tabela settings; vira os MCPs hostinger-* em toda sessão) ----------
+  app.get('/api/tools/hostinger', async () => {
+    const token = await getSetting(app.pool, KEYS.hostingerToken);
+    return { conectado: !!token, token_hint: maskToken(token), mcps: HOSTINGER_MCPS };
+  });
+
+  app.put<{ Body: { token?: string } }>('/api/tools/hostinger', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const token = (req.body?.token ?? '').trim();
+    if (token.length < 20) return reply.code(400).send({ error: 'token vazio ou curto demais' });
+    if (await hostingerVpsCount(token) === null) return reply.code(400).send({ error: 'a Hostinger recusou esse token' });
+    await setSetting(app.pool, KEYS.hostingerToken, token, req.user!.id);
+    app.log.info(`token da Hostinger trocado por ${req.user!.email}`);
+    return { conectado: true, token_hint: maskToken(token), mcps: HOSTINGER_MCPS };
   });
 
   // ---------- contas Cloudflare (conector simples; tabela e rotas no desenho das contas GitHub) ----------

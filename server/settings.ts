@@ -56,6 +56,19 @@ const HOSTINGER_MCP_BINS: Record<string, string> = {
   'hostinger-ecommerce': 'hostinger-ecommerce-mcp',
 };
 
+/** Nomes dos MCPs da Hostinger que entram em toda sessão (para o card de Conectores). */
+export const HOSTINGER_MCPS = Object.keys(HOSTINGER_MCP_BINS);
+
+/** Valida o token na API da Hostinger (lista as VPS). null = recusado; senão, quantas VPS a conta tem. */
+export async function hostingerVpsCount(token: string): Promise<number | null> {
+  try {
+    const r = await fetch('https://developers.hostinger.com/api/vps/v1/virtual-machines', { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return Array.isArray(j) ? j.length : 0;
+  } catch { return null; }
+}
+
 /** MCP servers da Hostinger pras sessões do Claude — undefined sem token configurado. */
 export function hostingerMcpServers(token: string | null): Record<string, StdioMcpServerConfig> | undefined {
   if (!token) return undefined;
