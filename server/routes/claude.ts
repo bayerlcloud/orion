@@ -14,7 +14,8 @@ import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { composicaoPara } from '../tools/skillPrefs.js';
-import { KEYS, ensureSettingsTable, getSetting, githubMcpServers, hostingerMcpServers, sdkEnv } from '../settings.js';
+import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
+import { githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
 
@@ -93,7 +94,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // vira o escopo padrão do salvar. Skills e memórias do header seguem com quem pediu o turno.
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
-      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)) }),
+      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)) }),
     });
   }
 
@@ -102,10 +103,10 @@ export async function claudeRoutes(app: FastifyInstance) {
     return attachments.length ? { text, attachments } : text;
   }
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
-  // MCPs de toda sessão: hostinger e github (quando há token) + orion-memory (sempre, com o contexto da sessão).
+  // MCPs de toda sessão: hostinger (quando há token) + um github por conta cadastrada na aba Tools + orion-memory (sempre).
   const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number) => ({
     ...(hostingerMcpServers(await getSetting(app.pool, KEYS.hostingerToken)) ?? {}),
-    ...(githubMcpServers(await getSetting(app.pool, KEYS.githubToken)) ?? {}),
+    ...githubMcpServers(await listarContasGithub(app.pool)),
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
@@ -284,7 +285,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
       sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), maxBudgetUsd: d.budget,
-      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
+      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)) }),
     });
     return { id, title: titleFromPrompt(prompt) };
   });

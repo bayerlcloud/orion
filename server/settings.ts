@@ -21,7 +21,6 @@ export const KEYS = {
   defaultModel: 'claude_default_model',
   maxBudgetUsd: 'claude_max_budget_usd',
   hostingerToken: 'hostinger_api_token',
-  githubToken: 'github_token',
 } as const;
 
 /** Token de `claude setup-token`: começa com sk-ant- e é longo. Só validação de forma. */
@@ -41,19 +40,6 @@ export function sdkEnv(token: string | null): Record<string, string> | undefined
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   env.CLAUDE_CODE_OAUTH_TOKEN = token;
   return env;
-}
-
-/** Só forma: PAT clássico (ghp_) ou fine-grained (github_pat_). */
-export function looksLikeGithubToken(t: string): boolean {
-  return /^(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{40,})$/.test(t.trim());
-}
-
-export type HttpMcpServerConfig = { type: 'http'; url: string; headers: Record<string, string> };
-
-/** MCP remoto oficial do GitHub (github/github-mcp-server hospedado) — undefined sem token configurado. */
-export function githubMcpServers(token: string | null): Record<string, HttpMcpServerConfig> | undefined {
-  if (!token) return undefined;
-  return { github: { type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: `Bearer ${token}` } } };
 }
 
 export type StdioMcpServerConfig = { type: 'stdio'; command: string; args: string[]; env: Record<string, string> };
