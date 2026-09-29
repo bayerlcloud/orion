@@ -124,6 +124,7 @@
 .tls-modal .tls-rows { margin: 10px 0; }
 .tls-modal .tls-rows dd { white-space: normal; overflow-wrap: anywhere; }
 .tls-card.is-conta .tls-name { font-size: 15px; }
+.tls-eyebrow { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--fg2); margin-bottom: 2px; }
 .tls-sub { color: var(--fg2); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tls-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; margin: 0; font-size: 12px; align-items: baseline; }
 .tls-rows dt { color: var(--fg2); margin: 0; }

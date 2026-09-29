@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type User } from '../api';
 import ToolsSkills from './ToolsSkills';
-import ToolsGithub from './ToolsGithub';
-import ToolsCloudflare from './ToolsCloudflare';
+import ToolsConectores from './ToolsConectores';
 import './tools.css';
 
 type Kind = 'tool' | 'skill' | 'mcp';
@@ -87,7 +86,7 @@ export default function Tools({ user }: { user: User }) {
         {ABAS.map(([id, label]) => <button key={id} className={aba === id ? 'active' : ''} onClick={() => setAba(id)}>{label}</button>)}
       </div>
 
-      {aba === 'conectores' && <><ToolsGithub user={user} /><ToolsCloudflare user={user} /></>}
+      {aba === 'conectores' && <ToolsConectores user={user} />}
       {aba === 'skills' && <ToolsSkills user={user} />}
       {aba === 'catalogo' && <>
       <div className="tls-sec-head"><h2>Catálogo manual</h2></div>
