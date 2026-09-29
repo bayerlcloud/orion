@@ -97,6 +97,19 @@ if ! saudavel; then
   exit 1
 fi
 
+etapa 'helper root'
+# Ponte de root do chat (server/claude/rootTool.ts): cópia root do helper fora do alcance do danilo,
+# pastas de pedido/resposta do danilo, units instaladas/atualizadas só quando mudam.
+install -d -m 0755 /usr/local/lib/orion
+install -m 0755 -o root -g root "$DIR/deploy/root-run.py" /usr/local/lib/orion/root-run.py
+install -d -m 0770 -o danilo -g orion /srv/root /srv/root/pedidos /srv/root/respostas
+MUDOU=
+for u in orion-root.service orion-root.path; do
+  cmp -s "$DIR/deploy/$u" "/etc/systemd/system/$u" || { install -m 0644 "$DIR/deploy/$u" "/etc/systemd/system/$u"; MUDOU=1; }
+done
+[ -n "$MUDOU" ] && systemctl daemon-reload
+systemctl enable --now orion-root.path || echo "ATENÇÃO: orion-root.path não subiu"
+
 etapa 'limpeza'
 # Mantém os 3 builds mais novos; nunca apaga o que está no ar nem o anterior. Logs e .json ficam (histórico).
 for d in $(ls -dt "$BUILDS"/*/ 2>/dev/null | tail -n +4); do

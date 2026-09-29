@@ -1,0 +1,7 @@
+[Unit]
+Description=Orion: executa como root os pedidos aprovados no chat (ver server/claude/rootTool.ts)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/orion/root-run.py
+TimeoutStartSec=1800
