@@ -1,6 +1,6 @@
 /**
  * API do botão Deploy. GET mostra main x no ar, o build atual, o pedido na fila e o histórico;
- * POST (só owner) escreve o pedido; o systemd (orion-deploy.path) constrói e publica.
+ * POST (qualquer usuário logado) escreve o pedido; o systemd (orion-deploy.path) constrói e publica.
  * Trigger sem sudo: o painel roda com NoNewPrivileges, então não escala; só deixa um arquivo.
  */
 import type { FastifyInstance } from 'fastify';
@@ -49,7 +49,6 @@ export async function deployRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: { ref?: string } }>('/api/deploy', async (req, reply) => {
-    if (req.user!.role !== 'owner') return reply.code(403).send({ error: 'só o admin publica' });
     const ref = validarRef(req.body?.ref);
     if (!ref) return reply.code(400).send({ error: 'ref precisa ser "main" ou um sha' });
     const pedido = await pedidoPendente();

@@ -111,7 +111,7 @@ export function renderCapacidades(versaoClaude: string | null, custom: Customiza
 - Modos: default / acceptEdits / plan / auto. Modelo e esforço selecionáveis por sessão.
 
 ## Publicar o Orion (deploy com fila)
-- Botão "Publicar main" em Configurações (só owner) ou, de qualquer sessão: escrever /srv/builds/pedido.json com {"ref":"main","por":"<seu nome>"}. O systemd constrói num checkout limpo, roda typecheck e testes, troca /srv/orion-live e reinicia; falhou, volta sozinho. Um por vez; estado em /srv/builds/status.json.
+- Qualquer pessoa publica: pelo botão "Publicar main" em Configurações, pelo botão "Publicar" da tarefa integrada, ou pedindo no chat (o Claude escreve /srv/builds/pedido.json com {"ref":"main","por":"<seu nome>"}). O systemd constrói num checkout limpo, roda typecheck e testes, troca /srv/orion-live e reinicia; falhou, volta sozinho. Um por vez; estado em /srv/builds/status.json.
 - Nunca rodar npm run build na pasta /srv/orion nem reiniciar o serviço na mão.
 
 ## MCPs e integrações

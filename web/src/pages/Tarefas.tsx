@@ -410,7 +410,7 @@ export default function Tarefas({ user }: { user: User }) {
             <button className="tk-btn" onClick={() => verDiff(selected.id)} disabled={!selected.worktree_path}>
               Ver diff
             </button>
-            {user.role === 'owner' && selected.integration_status === 'integrada' && (
+            {selected.integration_status === 'integrada' && (
               <button className="tk-btn tk-primary" onClick={() => publicar()} disabled={publicando} title="Pede o build da main (fila, testes, troca com rollback)">
                 {publicando ? <span className="tk-spin" /> : null} Publicar
               </button>
