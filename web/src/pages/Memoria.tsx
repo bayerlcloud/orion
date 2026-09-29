@@ -48,13 +48,15 @@ type Memory = ListItem & {
 type Meta = { projects: { id: number; name: string }[]; users: { id: number; name: string }[] };
 type Toast = { kind: 'ok' | 'bad'; text: string } | null;
 
+type EscopoNovo = { scope_project_id?: number | null; scope_user_id?: number | null };
 type Proposta = {
   id: number;
-  tipo: 'promocao' | 'reescrita' | 'delecao' | 'conflito';
+  tipo: 'promocao' | 'reescrita' | 'delecao' | 'conflito' | 'reescopo';
   payload: {
     memoria_ids?: number[];
     memorias?: { id: number; code: string; title: string; level: number; nota: number | null }[];
     texto?: string;
+    escopo_novo?: EscopoNovo;
     justificativa?: string;
   };
   status: 'pendente' | 'aprovada' | 'rejeitada';
@@ -70,7 +72,21 @@ const TIPO_LABEL: Record<Proposta['tipo'], string> = {
   reescrita: 'Reescrita',
   delecao: 'Deleção',
   conflito: 'Conflito',
+  reescopo: 'Reescopo',
 };
+
+/** Escopo proposto num reescopo, em texto legível (resolve nomes pelo meta; cai no id se sumiu). */
+function escopoLabel(e: EscopoNovo, meta: Meta): string {
+  if (e.scope_project_id != null) {
+    const p = meta.projects.find((x) => x.id === e.scope_project_id);
+    return `projeto ${p?.name ?? `#${e.scope_project_id}`}`;
+  }
+  if (e.scope_user_id != null) {
+    const u = meta.users.find((x) => x.id === e.scope_user_id);
+    return `usuário ${u?.name ?? `#${e.scope_user_id}`}`;
+  }
+  return 'universal (todos os projetos e usuários)';
+}
 type NivelFilter = '' | '0' | '1' | '2' | '3' | '4';
 type ScopeFilter = '' | 'universais' | 'projeto' | 'usuario';
 
@@ -120,6 +136,7 @@ export default function Memoria({ user }: { user: User }) {
   const [erro, setErro] = useState('');
   const [syncProj, setSyncProj] = useState<number | null>(null);
   const [curadoria, setCuradoria] = useState<Curadoria>({ pendentes: [], decididas: [] });
+  const [curErro, setCurErro] = useState<{ id: number; msg: string } | null>(null);
   const readerRef = useRef<HTMLDivElement>(null);
 
   async function loadCuradoria() {
@@ -131,12 +148,15 @@ export default function Memoria({ user }: { user: User }) {
   async function decidirProposta(id: number, acao: 'aprovar' | 'rejeitar') {
     setBusy(true);
     setToast(null);
+    setCurErro(null);
     try {
       const r = await api<{ ok: boolean; resultado?: string }>(`/api/curadoria/${id}/${acao}`, { method: 'POST' });
       setToast({ kind: 'ok', text: r.resultado ?? (acao === 'aprovar' ? 'Proposta aprovada.' : 'Proposta rejeitada.') });
       await Promise.all([loadCuradoria(), loadList()]);
     } catch (e: any) {
-      setToast({ kind: 'bad', text: e.message });
+      // A mensagem do servidor (409/400/403) fica visível no card da proposta, não só no toast
+      // do leitor (que some quando nenhuma memória está aberta).
+      setCurErro({ id, msg: e.message });
       await loadCuradoria();
     } finally {
       setBusy(false);
@@ -308,6 +328,9 @@ export default function Memoria({ user }: { user: User }) {
           </span>
           <span className="muted small">o curador diário propõe; só o admin aplica</span>
         </div>
+        {curErro && !curadoria.pendentes.some((p) => p.id === curErro.id) && (
+          <p className="mem-cur-erro">{curErro.msg}</p>
+        )}
         {curadoria.pendentes.length > 0 && (
           <div className="mem-cur-cards">
             {curadoria.pendentes.map((p) => (
@@ -337,6 +360,12 @@ export default function Memoria({ user }: { user: User }) {
                     <pre className="mono small">{p.payload.texto}</pre>
                   </details>
                 )}
+                {p.tipo === 'reescopo' && p.payload.escopo_novo && (
+                  <p className="mem-cur-escopo">
+                    escopo proposto: <strong>{escopoLabel(p.payload.escopo_novo, meta)}</strong>
+                  </p>
+                )}
+                {curErro?.id === p.id && <p className="mem-cur-erro">{curErro.msg}</p>}
                 <div className="mem-cur-actions">
                   {user.role === 'owner' && (
                     <button className="btn-primary" onClick={() => decidirProposta(p.id, 'aprovar')} disabled={busy}>Aprovar</button>
