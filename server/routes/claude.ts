@@ -86,11 +86,13 @@ export async function claudeRoutes(app: FastifyInstance) {
   }
 
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
-  type SessionRow = { id: string; cwd: string; project_id: number | null; project_name: string | null; rules: string | null; creator: string };
+  type SessionRow = { id: string; cwd: string; project_id: number | null; user_id?: number; project_name: string | null; rules: string | null; creator: string };
   /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
   async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max') {
+    // A tool orion-memory recebe o contexto da SESSÃO (projeto + criador, s.user_id): é ele que
+    // vira o escopo padrão do salvar. Skills e memórias do header seguem com quem pediu o turno.
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)) }),
     });
   }
@@ -316,7 +318,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const attachments = await sanitizeAttachments(req.body?.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const { rows } = await app.pool.query(
-      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.project_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
+      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
     const mode = MODES.has(req.body?.permission_mode ?? '') ? (req.body!.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (s.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto');

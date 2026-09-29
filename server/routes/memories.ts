@@ -16,6 +16,7 @@ import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { claudeMemoryDir, parseFrontmatter, toMarkdown, isSafeMdName } from '../memories/markdown.js';
+import { gravarEmbedding } from '../memories/embed.js';
 
 // Colunas completas (leitor da direita) já com os nomes de projeto e usuário resolvidos.
 const FULL_SELECT = `
@@ -192,6 +193,8 @@ export async function memoriesRoutes(app: FastifyInstance) {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
         [code, title, summary, body_md, level, nota, rewritable, keywords, scope_project_id, scope_user_id],
       );
+      // Embedding em segundo plano (best-effort): sem a migração pgvector é um no-op.
+      void gravarEmbedding((sql, params) => app.pool.query(sql, params as any[]), rows[0].id, title, summary, body_md);
       const { rows: fresh } = await app.pool.query(`${FULL_SELECT} WHERE m.id = $1`, [rows[0].id]);
       return reply.code(201).send({ memory: fresh[0] });
     }),
@@ -231,6 +234,11 @@ export async function memoriesRoutes(app: FastifyInstance) {
           WHERE id=$1`,
         [id, title, summary, body_md, level, nota, rewritable, keywords, scope_project_id, scope_user_id],
       );
+      // Corpo (ou título/resumo) mudou: recalcula o embedding em segundo plano (best-effort;
+      // sem a migração pgvector é um no-op e o backfill do deploy cobre).
+      if (bodyChanged || title !== c.title || summary !== c.summary) {
+        void gravarEmbedding((sql, params) => app.pool.query(sql, params as any[]), id, title, summary, body_md);
+      }
       const { rows: fresh } = await app.pool.query(`${FULL_SELECT} WHERE m.id = $1`, [id]);
       return { memory: fresh[0] };
     }),

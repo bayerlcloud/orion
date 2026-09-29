@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buscarMemorias, salvarMemoria, type MemQuery, type MemoryToolCtx } from '../server/claude/memoryTool.js';
+import type { Embedder } from '../server/memories/embed.js';
 
 const ctx: MemoryToolCtx = { sessionId: 'sess-1', projectId: 1, userId: 1 };
 
@@ -14,6 +15,27 @@ function fakeQuery(responder: (sql: string, params?: unknown[]) => { rows: any[]
   };
   return { q, calls };
 }
+
+/** Mesmo responder, mas com a coluna embedding "existindo" (pós-migração pgvector). */
+function comColuna(responder: (sql: string, params?: unknown[]) => { rows: any[]; rowCount: number | null } | undefined) {
+  return fakeQuery((sql, params) => {
+    if (sql.includes('information_schema.columns')) return { rows: [{ ok: 1 }], rowCount: 1 };
+    return responder(sql, params);
+  });
+}
+
+const embedderFixo = (vetor: number[]): Embedder & { textos: string[] } => {
+  const fn = (async (texto: string) => {
+    fn.textos.push(texto);
+    return vetor;
+  }) as Embedder & { textos: string[] };
+  fn.textos = [];
+  return fn;
+};
+
+const embedderQuebrado: Embedder = async () => {
+  throw new Error('modelo indisponível');
+};
 
 const memRow = (p: Partial<Record<string, unknown>> = {}) => ({
   id: 42, code: 'orion-coletor-cpu-sem-iowait', level: 4, nota: 5,
@@ -72,6 +94,68 @@ describe('buscar', () => {
     await expect(buscarMemorias(q, ctx, { consulta: 'x', nivel: 1 })).rejects.toThrow(/2 a 4/);
     await expect(buscarMemorias(q, ctx, { consulta: '  ' })).rejects.toThrow(/consulta/);
   });
+
+  it('sem a coluna embedding (pré-migração) não roda a query vetorial', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('plainto_tsquery') && sql.trimStart().startsWith('SELECT')) return { rows: [memRow({ level: 3, nota: null })], rowCount: 1 };
+      return undefined;
+    });
+    const emb = embedderFixo([0.5]);
+    const r = await buscarMemorias(q, ctx, { consulta: 'iowait' }, emb);
+    expect(r).toHaveLength(1);
+    expect(calls.some((c) => c.sql.includes('<=>'))).toBe(false);
+    expect(emb.textos).toEqual([]); // nem embeda: feature-detect vem antes do modelo
+  });
+});
+
+describe('buscar híbrida (pós-migração pgvector)', () => {
+  const linha = (id: number, code: string) => memRow({ id, code, level: 3, nota: null });
+
+  it('funde full-text e vetorial por reciprocal rank fusion (quem aparece nas duas sobe)', async () => {
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('<=>')) return { rows: [linha(3, 'c'), linha(1, 'a')], rowCount: 2 };
+      if (sql.includes('plainto_tsquery') && sql.trimStart().startsWith('SELECT')) {
+        return { rows: [linha(1, 'a'), linha(2, 'b')], rowCount: 2 };
+      }
+      return undefined;
+    });
+    const emb = embedderFixo([0.1, 0.2]);
+    const r = await buscarMemorias(q, ctx, { consulta: 'iowait no coletor' }, emb);
+    // a: 1/61 + 1/62; c: 1/61; b: 1/62 -> a, c, b
+    expect(r.map((m) => m.code)).toEqual(['a', 'c', 'b']);
+
+    const vetorial = calls.find((c) => c.sql.includes('<=>'))!;
+    expect(vetorial.sql).toContain('embedding IS NOT NULL');
+    expect(vetorial.sql).toContain('level BETWEEN 2 AND 4');
+    expect(vetorial.params?.[0]).toBe('[0.1,0.2]'); // literal do pgvector
+    expect(vetorial.params?.[1]).toBeNull();
+    expect(emb.textos).toEqual(['iowait no coletor']); // o embedder recebe a consulta crua (o prefixo e5 "query: " vive em embedConsulta)
+
+    // o rastro cobre as três memórias fundidas
+    const rastro = calls.find((c) => c.sql.includes('last_accessed_session'))!;
+    expect(rastro.params?.[0]).toEqual([1, 3, 2]);
+  });
+
+  it('embedder falhando não derruba a busca: segue no full-text puro', async () => {
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('plainto_tsquery') && sql.trimStart().startsWith('SELECT')) return { rows: [linha(1, 'a')], rowCount: 1 };
+      return undefined;
+    });
+    const r = await buscarMemorias(q, ctx, { consulta: 'iowait' }, embedderQuebrado);
+    expect(r.map((m) => m.code)).toEqual(['a']);
+    expect(calls.some((c) => c.sql.includes('<=>'))).toBe(false);
+  });
+
+  it('full-text vazio mas vetorial achando: não cai no ILIKE', async () => {
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('<=>')) return { rows: [linha(9, 'so-vetorial')], rowCount: 1 };
+      if (sql.trimStart().startsWith('SELECT')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    const r = await buscarMemorias(q, ctx, { consulta: 'sinônimo que o tsquery não pega' }, embedderFixo([1]));
+    expect(r.map((m) => m.code)).toEqual(['so-vetorial']);
+    expect(calls.some((c) => c.sql.includes('ILIKE'))).toBe(false);
+  });
 });
 
 describe('salvar', () => {
@@ -82,7 +166,7 @@ describe('salvar', () => {
     await expect(salvarMemoria(q, ctx, { titulo: 'x', corpo: 'y', nivel: 7 })).rejects.toThrow(/2 a 4/);
   });
 
-  it('sem nível vira micro-fato (4) e nasce com nota 5; código único vem do slug do título', async () => {
+  it('sem nível vira micro-fato (4) com nota 5, e HERDA o projeto da sessão como escopo padrão', async () => {
     const { q, calls } = fakeQuery((sql) => {
       if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
       return undefined;
@@ -90,7 +174,51 @@ describe('salvar', () => {
     const r = await salvarMemoria(q, ctx, { titulo: 'VNC exposto na c2', corpo: 'fechar a porta' });
     expect(r).toEqual({ code: 'vnc-exposto-na-c2', nivel: 4, nota: 5 });
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
-    expect(insert.params).toEqual(['vnc-exposto-na-c2', 'VNC exposto na c2', '', 'fechar a porta', 4, 5, [], null, null]);
+    expect(insert.params).toEqual(['vnc-exposto-na-c2', 'VNC exposto na c2', '', 'fechar a porta', 4, 5, [], 1, null]);
+  });
+
+  it('universal: true grava sem escopo nenhum (exceção consciente)', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    await salvarMemoria(q, ctx, { titulo: 'Vale pra tudo', corpo: 'c', universal: true });
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.params?.[7]).toBeNull(); // scope_project_id
+    expect(insert.params?.[8]).toBeNull(); // scope_user_id
+  });
+
+  it('sobre_pessoa: true grava o criador da sessão como escopo de usuário (e sai do projeto)', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    await salvarMemoria(q, ctx, { titulo: 'Danilo prefere pt-br', corpo: 'c', nivel: 2, sobre_pessoa: true });
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.params?.[7]).toBeNull(); // scope_project_id
+    expect(insert.params?.[8]).toBe(1); // scope_user_id = criador (ctx.userId)
+  });
+
+  it('sessão sem projeto e sem flags: nasce universal (não tem o que herdar)', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    await salvarMemoria(q, { ...ctx, projectId: null }, { titulo: 'x', corpo: 'y' });
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.params?.[7]).toBeNull();
+    expect(insert.params?.[8]).toBeNull();
+  });
+
+  it('escopo explícito continua valendo mais que o padrão da sessão', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    await salvarMemoria(q, ctx, { titulo: 'x', corpo: 'y', nivel: 3, escopo_projeto_id: 7, escopo_usuario_id: 9 });
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.params?.[7]).toBe(7);
+    expect(insert.params?.[8]).toBe(9);
   });
 
   it('nível 3 nasce sem nota; resumo estoura 144 e é cortado; keywords passam de 4 e sobram 4', async () => {
@@ -118,5 +246,43 @@ describe('salvar', () => {
   it('exige título', async () => {
     const { q } = fakeQuery(() => undefined);
     await expect(salvarMemoria(q, ctx, { titulo: '  ', corpo: 'y' })).rejects.toThrow(/título/);
+  });
+
+  it('com a coluna embedding, a memória nasce embedada (passage: título + resumo + corpo)', async () => {
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    const emb = embedderFixo([0.1, 0.2, 0.3]);
+    await salvarMemoria(q, ctx, { titulo: 'Título', corpo: 'corpo md', resumo: 'resumo' }, emb);
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.sql).toContain('embedding');
+    expect(insert.sql).toContain('::vector');
+    expect(insert.params?.[9]).toBe('[0.1,0.2,0.3]');
+    expect(emb.textos).toEqual(['Título\nresumo\ncorpo md']);
+  });
+
+  it('embedder quebrado não impede o salvar: grava com embedding nulo', async () => {
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    const r = await salvarMemoria(q, ctx, { titulo: 'x', corpo: 'y' }, embedderQuebrado);
+    expect(r.code).toBe('x');
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.sql).toContain('embedding');
+    expect(insert.params?.[9]).toBeNull();
+  });
+
+  it('sem a coluna embedding, o INSERT nem menciona a coluna (pré-migração, zero erro)', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      return undefined;
+    });
+    const emb = embedderFixo([1]);
+    await salvarMemoria(q, ctx, { titulo: 'x', corpo: 'y' }, emb);
+    const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
+    expect(insert.sql).not.toContain('embedding');
+    expect(emb.textos).toEqual([]);
   });
 });

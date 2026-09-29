@@ -19,7 +19,8 @@ const SYSTEM_PROMPT = [
   '2. proponha promoção (propor, tipo promocao) para toda memória nível 4 com nota 10;',
   '3. proponha reescrita (tipo reescrita) de memória desatualizada marcada rewritable, enviando o texto novo completo;',
   '4. proponha deleção (tipo delecao) do que está obviamente morto;',
-  '5. registre conflito (tipo conflito) quando duas memórias se contradizem.',
+  '5. registre conflito (tipo conflito) quando duas memórias se contradizem;',
+  '6. memória universal que claramente pertence a um projeto específico: proponha reescopo (tipo reescopo, com escopo_novo apontando um projeto da lista de listar); seja conservador, na dúvida não proponha.',
   'Seja conservador: na dúvida, não faça nada. Não invente fatos. Justifique toda proposta em uma ou duas frases.',
   'Você só tem as tools do servidor curadoria; não tente ler arquivos, rodar comandos nem usar outras ferramentas.',
 ].join('\n');

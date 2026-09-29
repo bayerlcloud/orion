@@ -180,6 +180,13 @@
   margin: 6px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg2); white-space: pre-wrap; max-height: 240px; overflow: auto;
 }
+.mem-cur-escopo { margin: 0; font-size: 12px; color: var(--fg2); }
+.mem-cur-escopo strong { color: var(--fg); font-weight: 600; }
+.mem-cur-erro {
+  margin: 0; font-size: 12px; color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line));
+  background: var(--bg2); border-radius: 6px; padding: 6px 10px;
+}
 .mem-cur-actions { display: flex; gap: 8px; }
 .mem-cur-hist summary { cursor: pointer; color: var(--fg2); }
 .mem-cur-hist-list { margin: 6px 0 0; padding-left: 18px; color: var(--fg2); }
