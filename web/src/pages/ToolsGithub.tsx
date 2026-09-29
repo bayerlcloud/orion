@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 import ToolsNotas, { copiar } from './ToolsNotas';
+import ToolsContaModal from './ToolsContaModal';
 
 type Conta = { id: number; label: string; login: string; email: string; notes: string; mcp: string; token_hint: string };
 const vazio = () => ({ label: '', token: '', email: '', notes: '' });
@@ -13,6 +14,7 @@ export default function ToolsGithub({ user }: { user: User }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Conta | null>(null);
   const [form, setForm] = useState(vazio());
+  const [open, setOpen] = useState<Conta | null>(null);
   const admin = user.role === 'owner';
 
   async function load() {
@@ -75,19 +77,19 @@ export default function ToolsGithub({ user }: { user: User }) {
       ) : (
         <div className="tls-grid">
           {contas.map(c => (
-            <div key={c.id} className="tls-card is-mcp is-conta">
+            <div key={c.id} className="tls-card is-mcp is-conta" onClick={() => setOpen(c)}>
               <div className="tls-card-top"><span className="tls-icon">🐙</span><span className="tls-badge is-mcp">MCP</span></div>
               <div>
                 <div className="tls-name">{c.label}</div>
                 <div className="tls-sub" title={c.email}>{c.login}{c.email && ` · ${c.email}`}</div>
               </div>
               <dl className="tls-rows">
-                <dt>tools</dt><dd className="cp" title="clique para copiar" onClick={() => copiar(`mcp__${c.mcp}__`)}>mcp__{c.mcp}__*</dd>
+                <dt>tools</dt><dd className="cp" title="clique para copiar" onClick={e => { e.stopPropagation(); copiar(`mcp__${c.mcp}__`); }}>mcp__{c.mcp}__*</dd>
                 <dt>token</dt><dd>{c.token_hint}</dd>
               </dl>
               <ToolsNotas texto={c.notes} />
               {admin && (
-                <div className="tls-card-foot">
+                <div className="tls-card-foot" onClick={e => e.stopPropagation()}>
                   <span className="tls-spacer" />
                   <button className="tls-icon-btn" onClick={() => startEdit(c)} title="Editar nome e explicação">✎</button>
                   <button className="tls-icon-btn" onClick={() => remove(c)} title="Remover">🗑</button>
@@ -96,6 +98,12 @@ export default function ToolsGithub({ user }: { user: User }) {
             </div>
           ))}
         </div>
+      )}
+
+      {open && (
+        <ToolsContaModal icone="🐙" badge="MCP" badgeClass="is-mcp" titulo={open.label} sub={`login ${open.login}${open.email ? ` · ${open.email}` : ''}`}
+          linhas={[['tools', `mcp__${open.mcp}__*`], ['token', open.token_hint]]} notas={open.notes}
+          onEdit={admin ? () => { setOpen(null); startEdit(open); } : undefined} onClose={() => setOpen(null)} />
       )}
     </>
   );

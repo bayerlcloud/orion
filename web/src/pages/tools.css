@@ -120,7 +120,9 @@
 .tls-toggles select { font: inherit; font-size: 12px; text-transform: none; letter-spacing: 0; padding: 2px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 5px; }
 
 /* cards de conta (aba Conectores): nome + subtítulo, linhas rótulo/valor com reticências, explicação com "ver mais" */
-.tls-card.is-conta { gap: 10px; }
+.tls-card.is-conta { gap: 10px; cursor: pointer; }
+.tls-modal .tls-rows { margin: 10px 0; }
+.tls-modal .tls-rows dd { white-space: normal; overflow-wrap: anywhere; }
 .tls-card.is-conta .tls-name { font-size: 15px; }
 .tls-sub { color: var(--fg2); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tls-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; margin: 0; font-size: 12px; align-items: baseline; }
