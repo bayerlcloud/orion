@@ -1,10 +1,39 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch } from './icons';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch, Mic } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { cycleMessageIndex, validateWorktreeName, type CycleState } from './mapper';
+import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, type CycleState } from './mapper';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 import Lightbox, { type LightboxImage } from './Lightbox';
+
+/**
+ * Ditado por voz (ver PARIDADE.md, mapper.ts) — a extensão real delega a captura de áudio pro
+ * processo da extensão (fora do sandbox do webview); o Orion não tem esse processo, então usa a Web
+ * Speech API do próprio navegador (`SpeechRecognition`/`webkitSpeechRecognition`, client-side, sem
+ * servidor novo). Tipos mínimos e locais — de propósito NÃO usa os nomes globais `SpeechRecognition`/
+ * `SpeechRecognitionEvent` (alguns `lib.dom.d.ts` já os declaram; nomes próprios aqui evitam depender
+ * de uma versão específica do TypeScript/lib os ter ou não, e evitam qualquer choque de declaração).
+ */
+type MicResult = { readonly isFinal: boolean; readonly length: number; readonly [index: number]: { readonly transcript: string } };
+type MicResultList = { readonly length: number; readonly [index: number]: MicResult };
+type MicEvent = { readonly resultIndex: number; readonly results: MicResultList };
+type MicErrorEvent = { readonly error: string };
+interface MicRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((e: MicEvent) => void) | null;
+  onerror: ((e: MicErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type MicRecognitionCtor = new () => MicRecognition;
+function getMicRecognitionCtor(): MicRecognitionCtor | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const w = window as unknown as { SpeechRecognition?: MicRecognitionCtor; webkitSpeechRecognition?: MicRecognitionCtor };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition;
+}
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -89,6 +118,22 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const ta = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // Ditado por voz (ver PARIDADE.md/mapper.ts pro achado completo). `micSupported`: calculado 1x —
+  // navegador sem Web Speech API (ex. Firefox) esconde o botão inteiro, mesmo padrão de
+  // `X.speechToTextEnabled &&` da extensão real (feature-flag esconde tudo, não só desabilita).
+  const micSupported = useMemo(() => !!getMicRecognitionCtor(), []);
+  const [micRecording, setMicRecording] = useState(false);
+  const [micInterim, setMicInterim] = useState('');
+  const [micError, setMicError] = useState<string>();
+  // Negação permanente de permissão (equivalente a `speechToTextMicDenied` real) — desabilita o botão
+  // até o usuário mudar a permissão no navegador; diferente de um erro passageiro.
+  const [micDenied, setMicDenied] = useState(false);
+  const micRecognitionRef = useRef<MicRecognition | null>(null);
+  // Texto antes/depois do cursor no INÍCIO da gravação, mais o texto final já acumulado nesta
+  // gravação — `composeDictationText` sempre recalcula a partir daqui, nunca do valor atual do campo
+  // (ver limitação documentada em mapper.ts: digitar durante o ditado pode ser sobrescrito).
+  const micBaseRef = useRef<{ before: string; after: string; final: string } | null>(null);
+
   // Trocou de sessão: sai de um ciclo em andamento (o histórico agora é de outra conversa).
   useEffect(() => { setCycle({ index: -1, saved: '' }); }, [sessionId]);
   // Rascunho ficou vazio (enviado, apagado à mão, ou o próprio ciclo restaurou ''): sai do ciclo —
@@ -157,6 +202,87 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   function onDrop(e: DragEvent<HTMLDivElement>) { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer?.files); }
   function pickSlash(cmd: string) { setText(cmd + ' '); setMenu(''); ta.current?.focus(); }
 
+  /** Para o reconhecimento em andamento (se houver) e limpa o estado de gravação — usado tanto pelo alternar manual quanto pelos efeitos de troca de sessão/desmontagem abaixo. */
+  function stopMic() {
+    micRecognitionRef.current?.stop();
+    micRecognitionRef.current = null;
+    setMicRecording(false);
+    setMicInterim('');
+  }
+  function startMic() {
+    const Ctor = getMicRecognitionCtor();
+    if (!Ctor || micDenied) return;
+    const el = ta.current;
+    const value = el?.value ?? text;
+    const selStart = el?.selectionStart ?? value.length;
+    const selEnd = el?.selectionEnd ?? value.length;
+    micBaseRef.current = { before: value.slice(0, selStart), after: value.slice(selEnd), final: '' };
+    setMicError(undefined);
+    setMicInterim('');
+    let recognition: MicRecognition;
+    try { recognition = new Ctor(); } catch { setMicError('Não foi possível iniciar o reconhecimento de voz'); return; }
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+    recognition.onresult = (e) => {
+      const base = micBaseRef.current;
+      if (!base) return;
+      let interim = '';
+      let final = base.final;
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        const chunk = r[0]?.transcript ?? '';
+        if (r.isFinal) final = accumulateFinalTranscript(final, chunk);
+        else interim += chunk;
+      }
+      micBaseRef.current = { ...base, final };
+      setMicInterim(interim);
+      const composed = composeDictationText(base.before, base.after, final, interim);
+      setText(composed.value);
+      setTimeout(() => ta.current?.setSelectionRange(composed.cursor, composed.cursor), 0);
+    };
+    recognition.onerror = (e) => {
+      if (isMicPermissionError(e.error)) setMicDenied(true);
+      else setMicError(micErrorMessage(e.error));
+      micRecognitionRef.current = null;
+      setMicRecording(false);
+      setMicInterim('');
+    };
+    recognition.onend = () => {
+      // Instância antiga (já trocada por um novo start ou por um stop manual) — ignora, não pisa no estado atual.
+      if (micRecognitionRef.current !== recognition) return;
+      micRecognitionRef.current = null;
+      setMicRecording(false);
+      setMicInterim('');
+    };
+    micRecognitionRef.current = recognition;
+    try { recognition.start(); setMicRecording(true); }
+    catch { setMicError('Não foi possível iniciar o reconhecimento de voz'); micRecognitionRef.current = null; }
+  }
+  function toggleMic() {
+    if (!micSupported || micDenied) return;
+    if (micRecording) stopMic(); else startMic();
+  }
+  // Trocou de sessão: para qualquer ditado em andamento (a gravação era pra outra conversa).
+  useEffect(() => { if (micRecording) stopMic(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Desmontagem: nunca deixa o microfone do navegador "preso" ligado.
+  useEffect(() => () => { micRecognitionRef.current?.stop(); }, []);
+  // Atalho de teclado ⌘D/Ctrl+D — mesmo achado na extensão real (`micTooltipShortcut`, função `j11()`
+  // decide qual mostrar). Alterna gravação (liga/desliga); ver mapper.ts pra simplificação deliberada
+  // em relação ao gesto de segurar-e-soltar (push-to-talk) real, não replicado aqui.
+  useEffect(() => {
+    if (!micSupported) return;
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (micDenied || e.repeat || e.shiftKey || e.altKey) return;
+      const mod = isMacPlatform(navigator) ? e.metaKey : e.ctrlKey;
+      if (!mod || e.key.toLowerCase() !== 'd') return;
+      e.preventDefault();
+      toggleMic();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [micSupported, micDenied, micRecording]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Esc foca/desfoca o compositor.
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
@@ -197,6 +323,31 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       <Lightbox images={images} index={preview} onClose={closePreview} />
       <textarea ref={ta} value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
         placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Claude está trabalhando… você pode enfileirar a próxima mensagem' : 'Escreva para o Claude. Enter envia, Shift+Enter quebra linha, Esc foca/desfoca'} />
+      {/*
+        Ditado por voz — canto superior direito do campo, igual à extensão real
+        (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).
+        Escondido inteiro (não só desabilitado) quando o navegador não suporta Web Speech API — mesmo
+        padrão do `X.speechToTextEnabled &&` real (feature-flag esconde tudo).
+      */}
+      {micSupported && (
+        <div className="cc-mic-wrap">
+          <button type="button" className={`cc-mic ${micRecording ? 'is-recording' : ''}`} disabled={micDenied} onClick={toggleMic}
+            aria-label={micError ? `Erro de ditado: ${micError}` : micDenied ? 'Acesso ao microfone negado' : micRecording ? 'Parar gravação' : 'Ditado por voz'}>
+            <Mic size={14} className="cc-mic-icon" />
+          </button>
+          <span className={`cc-mic-tooltip ${micError ? 'is-error' : ''}`} aria-hidden="true">
+            {micError
+              ? `Erro de ditado: ${micError}`
+              : micDenied
+                ? 'Acesso ao microfone negado — permita no navegador'
+                : micRecording
+                  ? 'Toque para parar'
+                  : <>Toque para ditar<span className="cc-mic-tooltip-shortcut">{micShortcutLabel(isMacPlatform(navigator))}</span></>}
+          </span>
+        </div>
+      )}
+      {/* Transcrição parcial ("interim") — itálico/cinza, some assim que o trecho é confirmado e vira texto normal no campo (ver composeDictationText em mapper.ts). */}
+      {micRecording && micInterim && <span className="cc-mic-interim">{micInterim}</span>}
       <div className="cc-composer-foot">
         <button className="cc-icon" title="Anexar arquivos ou imagens" onClick={() => fileInput.current?.click()}><Plus /></button>
         <div className="cc-pop">
