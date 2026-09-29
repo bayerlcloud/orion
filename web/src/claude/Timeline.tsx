@@ -350,6 +350,18 @@ export function PermissionDock({ event, onDecide }: { event?: Extract<ConvEvent,
  * mesmo `Lightbox` do compositor ao clicar. Anexos antigos (sem `path`) ou não-imagem continuam com
  * o chip de ícone + nome de sempre — nunca um `<img>` quebrado.
  */
+/** Foto de quem escreveu (rota por nome); sem foto, cai na inicial. */
+function UserAvatar({ name }: { name: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <div className="cc-user-avatar" title={name} aria-hidden="true">
+      {failed
+        ? <span>{name.charAt(0).toUpperCase()}</span>
+        : <img src={`/api/profile/avatar/by-name/${encodeURIComponent(name)}`} alt="" loading="lazy" onError={() => setFailed(true)} />}
+    </div>
+  );
+}
+
 function Attachments({ items }: { items: UserAttachment[] }) {
   const [preview, setPreview] = useState<number | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
@@ -449,12 +461,24 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
         // teria NENHUM jeito de saber que aquele pedido nunca mais vai ser respondido.
         if (e.kind === 'permission' && e.decision !== 'timeout') return null;
         if (e.kind === 'busy') return <ThinkingIndicator key={e.id} />;
-        if (e.kind === 'user') return (
-          <div key={e.id} className="cc-user">
-            {e.text && <div className="cc-user-text">{e.text}</div>}
-            {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
-          </div>
-        );
+        if (e.kind === 'user') {
+          // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira foto + nome ao lado da bolha.
+          const m = /^\[([^\]\n]{1,40})\]\s*/.exec(e.text);
+          const bubble = (
+            <div className="cc-user">
+              {m && <div className="cc-user-name">{m[1]}</div>}
+              {e.text && <div className="cc-user-text">{m ? e.text.slice(m[0].length) : e.text}</div>}
+              {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
+            </div>
+          );
+          if (!m) return <div key={e.id}>{bubble}</div>;
+          return (
+            <div key={e.id} className="cc-user-row">
+              <UserAvatar name={m[1]} />
+              {bubble}
+            </div>
+          );
+        }
         return (
           <div key={e.id} className={`cc-msg ${dotClass(e)}`}>
             {e.kind === 'text' && <AssistantText e={e} />}

@@ -151,6 +151,15 @@ export async function profileRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Avatar pelo nome do prefixo "[Nome]" das mensagens do chat; redireciona para a rota por id.
+  app.get<{ Params: { name: string } }>('/api/profile/avatar/by-name/:name', async (req, reply) => {
+    const { rows } = await app.pool.query<{ id: number }>(
+      'SELECT id FROM users WHERE lower(name) = lower($1) AND avatar_ext IS NOT NULL ORDER BY id LIMIT 1', [req.params.name]);
+    if (!rows[0]) return reply.code(404).send({ error: 'sem foto' });
+    reply.header('Cache-Control', 'private, max-age=60');
+    return reply.redirect(`/api/profile/avatar/${rows[0].id}`);
+  });
+
   // Qualquer usuário logado pode ver o avatar de qualquer um (para a barra lateral).
   app.get<{ Params: { id: string } }>('/api/profile/avatar/:id', async (req, reply) => {
     const id = Number(req.params.id);
