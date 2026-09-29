@@ -3,13 +3,11 @@ import { api, type User } from '../api';
 
 type Settings = {
   claude: { token_set: boolean; token_hint: string | null; via: 'token' | 'login' | null; linux_user: string | null };
-  github: { token_set: boolean; token_hint: string | null };
   defaults: { permission_mode: string; model: string; max_budget_usd: number };
   meta: { key: string; updated_at: string; updated_by: string | null }[];
 };
 type LoginSnap = { state: 'idle' | 'starting' | 'awaiting_code' | 'exchanging' | 'done' | 'error'; url: string | null; error: string | null; output_tail: string };
 type TestResult = { ok: boolean; model: string; reply: string; cost_usd: number; ms: number; error: string | null; via: string };
-type GhTest = { ok: boolean; login: string | null; error: string | null };
 
 export default function Config({ user }: { user: User }) {
   const [s, setS] = useState<Settings | null>(null);
@@ -22,8 +20,6 @@ export default function Config({ user }: { user: User }) {
   const [budget, setBudget] = useState(5);
   const [login, setLogin] = useState<LoginSnap | null>(null);
   const [code, setCode] = useState('');
-  const [ghToken, setGhToken] = useState('');
-  const [ghTest, setGhTest] = useState<GhTest | null>(null);
 
   async function load() {
     try {
@@ -69,19 +65,6 @@ export default function Config({ user }: { user: User }) {
     } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
   async function cancelLogin() { try { setLogin(await api<LoginSnap>('/api/settings/claude-login/cancel', { method: 'POST' })); } catch { /* ignora */ } }
-  async function saveGh() {
-    setBusy(true); setMsg(''); setGhTest(null);
-    try { await api('/api/settings/github-token', { method: 'PUT', body: JSON.stringify({ token: ghToken }) }); setGhToken(''); setMsg('Token do GitHub salvo. Vale a partir da próxima mensagem de cada sessão.'); await load(); }
-    catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
-  }
-  async function removeGh() {
-    if (!window.confirm('Remover o token do GitHub? As sessões perdem o conector.')) return;
-    setBusy(true); try { await api('/api/settings/github-token', { method: 'DELETE' }); setGhTest(null); setMsg('Token do GitHub removido.'); await load(); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
-  }
-  async function testGh() {
-    setBusy(true); setGhTest(null); setMsg('');
-    try { setGhTest(await api<GhTest>('/api/settings/github-token/test', { method: 'POST' })); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
-  }
   async function saveDefaults() {
     setBusy(true); setMsg('');
     try { await api('/api/settings/defaults', { method: 'PUT', body: JSON.stringify({ permission_mode: mode, model, max_budget_usd: budget }) }); setMsg('Padrões salvos.'); await load(); }
@@ -137,28 +120,6 @@ export default function Config({ user }: { user: User }) {
           </label>
           <div className="cfg-actions"><button onClick={saveToken} disabled={busy || !token.trim()}>Salvar token</button></div>
         </details>
-      </section>
-
-      <section className="cfg-box">
-        <h2>GitHub</h2>
-        <p>Um token pessoal (PAT) da conta do GitHub. Com ele, toda sessão ganha o conector MCP oficial do GitHub (repos, issues, PRs, código).</p>
-        <table><tbody>
-          <tr><th>situação</th><td>{s ? (s.github.token_set ? <>token configurado <span className="mono">{s.github.token_hint}</span></> : 'sem token') : '…'}</td></tr>
-        </tbody></table>
-        <label>token
-          <input type="password" value={ghToken} onChange={e => setGhToken(e.target.value)} placeholder="github_pat_… ou ghp_…" autoComplete="off" />
-        </label>
-        <div className="cfg-actions">
-          <button className="btn-primary" onClick={saveGh} disabled={busy || !ghToken.trim()}>Salvar token</button>
-          {s?.github.token_set && <button onClick={testGh} disabled={busy}>Testar conexão</button>}
-          {s?.github.token_set && <button onClick={removeGh} disabled={busy}>Remover</button>}
-        </div>
-        {ghTest && (
-          <div className={`cfg-test ${ghTest.ok ? '' : 'is-bad'}`}>
-            {ghTest.ok ? <>Funcionou. Conta <span className="mono">{ghTest.login}</span>.</> : <>Falhou: <span className="mono">{ghTest.error}</span></>}
-          </div>
-        )}
-        <p className="muted small">Gere em github.com → Settings → Developer settings → Personal access tokens, com acesso aos repositórios da organização bayerlcloud.</p>
       </section>
 
       <section className="cfg-box">
