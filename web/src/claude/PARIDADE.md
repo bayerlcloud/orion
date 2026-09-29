@@ -3288,3 +3288,513 @@ código seguro.
   por transparência na seção 20: um teste contra o arquivo de credenciais real (sem backup antes) achou
   os tokens (login E ~80 plugins MCP) vazios — provavelmente não causado por este código (que nunca
   toca `mcpOAuth`), mas sem certeza absoluta; Bayerl refez o login manualmente, confirmado válido.
+
+
+## 21. Trilha par/seletor — barra de título fora, degrau Ultracode, fast mode e "% do uso" por modelo (29/09/2026)
+
+Quatro peças visuais na casca da aba Claude, pedidas ao vivo pelo Bayerl em 29/09/2026 ("remove essa
+barra de titulo entre as abas e o chat... e vamos rodar a solucao que deixa a ui do chat e a
+experiencia 100% identicas do plugin do antigravity"). Referência canônica lida ANTES de cada peça:
+`/srv/orion-reference-2.1.283/webview/index.{js,css}` (a mesma extensão v2.1.283 do inventário da
+seção 13 do PARIDADE.md; os itens 1, 6 e 14 daquela seção são exatamente estas peças). Documento
+separado do PARIDADE.md de propósito: várias trilhas paralelas no mesmo dia, o integrador anexa.
+
+### 1. Barra de título entre as abas e o chat: REMOVIDA
+
+A extensão real não tem NENHUMA faixa entre a fileira de abas e a área de mensagens (basta olhar o
+JSX do container: tabs → banners condicionais → `chatContainer`). A barra do Orion
+(`.cc-head`: "título · projeto · criador · US$ X · N turnos · dot status") era invenção nossa.
+
+Removida em `ClaudePage.tsx` (o bloco `<div className="cc-head">`) e `claude.css` (as duas regras
+`.cc-head` + `.cc-head-meta`). **Nenhuma informação ficou sem destino**:
+
+| O que a barra mostrava | Destino |
+|---|---|
+| Título da sessão | já é o texto da própria aba e o título na lateral; segue como 1º item do tooltip da aba |
+| Projeto · criador | **tooltip da aba** (`title="título · projeto · criador"`, novo) e o projeto também na barra de status de baixo (`.cc-status`, já existia) |
+| US$ X · N turnos | linha "Concluído · US$ … · N turnos" de cada result na timeline (já existia) e agregado na seção Conta e Uso da lateral (já existia) |
+| Dot + texto de status | **dot na própria aba** (`.cc-tab-dot`, novo — mesma escala de cores `.cc-dot is-*` da lateral) e o dot da lateral (já existia) |
+
+### 2. Degrau "Ultracode" no seletor de esforço
+
+Evidência na referência (tudo string literal, `index.js`):
+
+- `IV0="Ultracode"`, ``fe=`${IV0} - xhigh + workflows` `` — o rótulo completo é exatamente
+  **"Ultracode - xhigh + workflows"** (hífen simples, sem travessão).
+- `kV0(supportsEffort, level, ultracodeSelected)`: com Ultracode selecionado o pill mostra só `IV0`
+  ("Ultracode"), senão o rótulo do nível.
+- `enableUltracode()`: `this.effortLevel.value="xhigh"` + `applySettings({effortLevel:"xhigh"})` +
+  `applySettings({[pf1]:!0},{flagsOnly:!0})` — ou seja, **xhigh de verdade + uma flag** que liga o
+  motor de workflows da extensão.
+- Slider (componente `ye`, classes `toggle/fill/fillUltracode/notch/notchUltracode/thumb_P1HaRA`):
+  trilho 76×18px, thumb 14px, notches de 4px; com `showUltracode` o total de degraus é
+  `levels.length + 1` e o ÚLTIMO índice chama `onSelectUltracode` (clique ou arrasto com pointer
+  capture); o último notch usa sempre `notchUltracode` (cor própria) e o fill vira `fillUltracode`
+  quando Ultracode está selecionado. Cor: `--app-ultracode-color → --app-chart-5 →
+  var(--vscode-charts-purple,#a855f7)`.
+- No popup real (componente `eB0`), a linha `effortRow` mostra "Effort (rótulo)" + o slider; o texto
+  inline é `q?fe:CF(Y)` — a string completa `fe` aparece ali quando Ultracode está ligado.
+
+O que foi implementado no Orion:
+
+- **Composer.tsx**: componente `EffortSlider` (cópia do `ye`: mesmos cálculos `calc()` com
+  `--thumb-size/--thumb-inset`, clique+arrasto por pointer capture, último degrau = Ultracode) numa
+  linha `.cc-effort-row` no topo do menu de esforço, com o texto inline "(Ultracode - xhigh +
+  workflows)" quando selecionado; os itens de menu por nível que o Orion já tinha continuam, com um
+  item novo ACIMA de "Máximo" na intensidade (último da lista), rótulo exato `Ultracode - xhigh +
+  workflows`; o pill mostra "Ultracode" (mesmo `kV0`). CSS em `claude.css`
+  (`.cc-effort-toggle/fill/notch/thumb`, token novo `--cc-ultracode: #a855f7`).
+- **api.ts**: tipo `EffortChoice = Effort | 'ultracode'`, `ULTRACODE_LABEL`/`ULTRACODE_MENU_LABEL`
+  (strings da referência), `effortPillLabel`, `matchEffort` agora restaura `'ultracode'` persistido.
+- **server/claude/ultracode.ts** (novo): `resolveUltracode('ultracode') → { effort: 'xhigh',
+  ultracode: true }` + `withUltracodeAppend` que acrescenta `ULTRACODE_APPEND` (instrução curta de
+  orquestração agressiva de subagentes, em pt-BR) ao systemAppend do turno.
+- **server/routes/claude.ts**: `EFFORTS` aceita `'ultracode'`; o valor de fio é persistido como está
+  em `claude_sessions.effort` (o seletor restaura a escolha ao reabrir — mesma migração
+  009_claude_effort de antes, coluna texto, sem migração nova), e SEMPRE traduzido por
+  `resolveUltracode` antes de chegar ao SDK (create, messages/startFor, retomada pós-restart e a
+  rota de troca ao vivo).
+
+**Simplificações deliberadas (documentadas, não gaps escondidos):**
+
+- O motor de workflows da extensão (a flag `pf1` que o `enableUltracode` real liga) **não existe no
+  Agent SDK**. Semântica no Orion: esforço `xhigh` real + `ULTRACODE_APPEND` no systemAppend do
+  turno (texto em `server/claude/ultracode.ts`). É a mesma promessa do rótulo ("xhigh + workflows"),
+  cumprida com o que o SDK oferece.
+- Troca pra Ultracode com turno EM ANDAMENTO: o esforço vira xhigh na hora
+  (`Query.applyFlagSettings({effortLevel})`, como qualquer nível), mas a instrução de orquestração só
+  entra no PRÓXIMO turno — o system prompt de um turno já rodando não pode ser trocado no meio.
+- `effortNotice` do nível max (`EV0` real, "May use excessive tokens…") não foi portado: na
+  referência ele é gated por experimento (`tengu_proud_clover`) e fora do pedido desta trilha.
+- O seletor do Orion mantém os itens de menu por nível (padrão que já tinha) ALÉM do slider; a
+  extensão real só tem o slider + a linha que cicla. Decisão de continuidade, não de fidelidade: o
+  menu já era o jeito do Orion e os dois caminhos selecionam os mesmos valores.
+
+### 3. Indicador de fast mode com cooldown (sparkLegend)
+
+Evidência na referência:
+
+- Classes `sparkLegend/sparkIcon/sparkCooldown_cKsPxg`; CSS real: `position:absolute; display:none;
+  top:-7px; right:12px`, `::before` de 3px com `--app-root-background` cortando a borda, e
+  `.inputContainer:focus-within .sparkLegend{display:flex}`. `sparkIcon` na cor
+  `--app-warning-accent` (#e5a54b); `.sparkCooldown .sparkIcon` acinzentado.
+- JSX real: `<legend className={sparkLegend + (fastModeState==="cooldown" ? sparkCooldown : "")}
+  title={cZ5(effortLevel, fastModeState)}>` com a fileira de pontinhos do esforço (`fV0`: svg 30×12,
+  5 círculos r=2.5, opacidade 0.15 nos vazios) + o raio quando fast mode ativo; o fieldset ganha
+  `data-spark={fastModeState}` quando != "off".
+- `cZ5`: tooltip "Effort: X" + "Fast mode enabled" (on) / "Fast mode cooling down" (cooldown),
+  juntados com " · ".
+- Fonte do dado: `fastModeState` alimentado por `fast_mode_state` do system/init e do result
+  (`FastModeState = 'off' | 'cooldown' | 'on'` no sdk.d.ts — campo real do SDK 0.3.x).
+
+Implementado no Orion (pt-BR): `live.ts` ganhou `fastMode` no `LiveState` (+ `fastModeFrom`, leitura
+defensiva do campo em qualquer mensagem que passe por `pushMessage` — cobre histórico e ao vivo);
+`Composer.tsx` renderiza `.cc-spark-legend` (pontinhos `EffortDots` + raio `Bolt` reutilizado de
+icons.tsx) com tooltip `sparkTitle` ("Esforço: X · Modo rápido ativado/esfriando") e `data-spark` no
+`.cc-composer`; CSS espelhado em `claude.css` (aparece só com o composer em foco, igual à real).
+
+**Estado real hoje**: verificado no `sdk.d.ts` que o campo existe nos tipos, mas os results das
+sessões do Orion não têm trazido `fast_mode_state` (mesma classe de ausência do `rate_limits`
+documentada na seção 3 do PARIDADE.md). Com o campo ausente o estado fica `'off'` e **o raio nunca
+aparece** — o que aparece com o composer em foco é só a fileira de pontinhos do esforço (que na real
+também aparece sempre que o modelo suporta esforço). Paridade estrutural pronta: quando o SDK mandar
+o campo, o indicador (e o cooldown acinzentado) ligam sozinhos, sem mexer em código.
+
+### 4. "% do uso" por modelo na Conta e Uso
+
+Evidência na referência: componente `J11({title, items, label})` — header com o título do grupo +
+`<span className={attributionPct}>"% of usage"</span>`, linhas `attributionRow` (nome com ellipsis +
+`Math.round(pct)%`), ordenação desc por pct (`iW0`), truncamento com contador ("+N mais" no
+levantamento da seção 13; o bundle atual usa reticências + "N more" com corte em 8). Classes
+`attributionGroup/HeaderRow/Title/List/Row/Name/Pct/More_QET5Ow`. Na extensão os grupos são
+Skills/Subagents/Plugins/MCP servers, alimentados por telemetria de atribuição do servidor deles
+(campo que o Orion não recebe).
+
+Implementado no Orion com o dado que JÁ existe: custo por modelo.
+
+- **server/routes/claude.ts** (`GET /api/claude/usage`): agrega `SUM(cost_usd)` por
+  `claude_sessions.model` na janela de 7 dias → campo novo `by_model` na resposta.
+- **mapper.ts**: `computeModelAttribution` (pura, testada) — agrupa ids de modelo pelo rótulo do
+  seletor (`claude-sonnet-* → "Sonnet"` via `matchModelAlias`/`MODEL_LABEL`; id desconhecido fica
+  cru; `model` null é pulado), calcula % do total, `Math.round`, ordena desc. Lista vazia sem custo
+  (nada de divisão por zero).
+- **Sidebar.tsx**: bloco novo na seção CONTA E USO, abaixo das barras — header "Por modelo (7
+  dias)" + "% do uso", até **4 linhas + "+N mais"** (corte pedido nesta trilha; o bundle real corta
+  em 8 com "… N more" — divergência deliberada e registrada), classes `.cc-attr-*` espelhando o CSS
+  real (opacidades, `tabular-nums`, ellipsis).
+
+**Simplificações**: (a) a fonte é custo, não a telemetria de atribuição real (o Orion não a recebe —
+mesma limitação de escopo já documentada pro `rate_limits` na seção 3 do PARIDADE.md); (b) strings
+em pt-BR ("% do uso", "+N mais"), seguindo o padrão do painel inteiro (como "Resets" → "Reinicia");
+a string literal da referência é "% of usage".
+
+### Testes e verificação
+
+- `tests/seletor.test.ts` (novo, pra não conflitar com as outras trilhas nos arquivos de teste
+  compartilhados): `resolveUltracode` (mapeamento ultracode→xhigh+flag, níveis reais, lixo),
+  `withUltracodeAppend`, `matchEffort('ultracode')`, rótulos exatos (`Ultracode`,
+  `Ultracode - xhigh + workflows`), `computeModelAttribution` (agrupamento por alias, %, ordenação,
+  null/lixo/zero) e `fastModeFrom`/`fastMode` no `applyLive`.
+- `npm run typecheck` e `npm test` verdes na worktree `/home/danilo/wt-par-seletor` antes do commit.
+- Sem build de produção e sem restart de serviço nesta trilha (regra do orquestrador).
+
+## 22. Paridade — trilha par/marketplace (29/09/2026)
+
+Anexo do PARIDADE.md (arquivo separado de propósito: várias trilhas paralelas editando o PARIDADE.md
+principal dariam conflito garantido; o integrador anexa). Duas janelas grandes do inventário da
+seção 13 portadas nesta trilha, lendo a referência canônica em `/srv/orion-reference-2.1.283/`
+(webview/index.js e index.css minificados): o diálogo **Manage Plugins** (plugins + marketplaces),
+a lista de **servidores MCP** e o menu/assistente de **Output styles**.
+
+### 1. Marketplace de plugins ("Gerenciar plugins")
+
+#### O que a extensão real tem (webview v2.1.283, decompilado)
+
+- Um diálogo `overlay`+`dialog` com título **"Manage Plugins"**, `tabBar` com abas **Plugins** e
+  **Marketplaces** (badge de contagem na aba), e aviso "Restart Claude to apply plugin changes".
+- Métodos da conexão: `listPlugins({includeAvailable})`, `listMarketplaces()`,
+  `installPlugin(id, scope)`, `uninstallPlugin(id)`, `updatePlugin(id, scope)`,
+  `setPluginEnabled(id, enabled)`, `addMarketplace(source)`, `removeMarketplace(id)`,
+  `refreshMarketplace(id)`, `reloadPlugins()` — todos requests pro processo da extensão
+  (`{type:"install_plugin"}` etc.).
+- Aba Marketplaces: formulário `addMarketplaceForm` (input com placeholder
+  `"GitHub repo, URL, or path…"` + botão `Add`/`Adding…`), empty state
+  `"No marketplaces configured. Add one above to discover plugins."`, lista `pluginList` com
+  `pluginItem` por marketplace (nome + badge `officialBadge` com title
+  `"Official Claude Code marketplace"`, descrição/link da fonte `Source:`), ações com
+  `ariaLabel:"Refresh marketplace"` e `"Remove marketplace"`/`"Removing…"`.
+- Aba Plugins: busca (`searchContainer`/`searchInput`), seção **Available** (plugins dos
+  marketplaces ainda não instalados), instalação com `scopeSelector` e o AVISO de confiança
+  (`scopeWarning`): "Make sure you trust a plugin before installing… Anthropic does not control
+  what MCP servers, files, or other software are included in plugins…", botões de
+  atualizar/desinstalar (`"Uninstall and remove plugin"`), dot de estado
+  (`statusDotEnabled`/`statusDotDisabled`).
+- Servidores MCP: OUTRO diálogo (`mcpServerList`/`mcpServerItem`, status
+  `connected`/`failed`/`needs-auth`/`pending`, `serverDetail` com `"← Back to list"`, formulário
+  "Add MCP server", `"No MCP servers configured."`).
+
+#### O que o Orion tem por baixo (e por que a porta é DIFERENTE da real)
+
+A extensão real gerencia o `~/.claude` de UM usuário. O Orion é multi-usuário com um único login
+Linux (danilo) — a sessão Base (main `690b817`) já tinha resolvido isso assim:
+
+- Plugins instalados ficam no **catálogo do sistema**: `/srv/claude/catalog/plugins/<nome>`
+  (cada um com `.claude-plugin/plugin.json`).
+- A composição POR PESSOA (`server/tools/skillPrefs.ts`) monta `/srv/claude/compose/<user_id>` a
+  cada turno e entrega ao SDK via `Options.plugins` + `disallowedTools` (`Skill(plugin:nome)` pra
+  skill desligada). Preferências em `skill_prefs` (pessoa > padrão "todos" do admin > ligada).
+
+A UI portada monta o diálogo real EM CIMA dessa infra (um painel, três abas — mesmo precedente do
+SkillsHooksPanel, que já fundiu dois diálogos reais em um painel com abas):
+
+- **Plugins** (`GET /api/claude/marketplace/plugins`): os plugins do catálogo, com descrição/versão/
+  autor do `plugin.json`, contagem de skills/commands/agents (da MESMA varredura `scanRaiz` que a
+  composição usa) e o estado por pessoa. O `setPluginEnabled` real virou
+  `PUT /api/claude/marketplace/plugins/:nome` gravando a chave **`plugin:<nome>`** em `skill_prefs`
+  (escopo "eu" qualquer usuário; "todos" só admin — igual à aba Tools).
+  `planoDeComposicao` ganhou UMA linha: plugin com `plugin:<nome>` efetivamente `false` pra pessoa
+  não carrega (nem hooks), mesmo com skills individualmente ligadas. Testes em
+  `tests/marketplace.test.ts` (precedência pessoa > todos inclusa).
+- **Marketplaces** (`GET/POST/DELETE /api/claude/marketplace/marketplaces`, `POST …/:nome/refresh`):
+  a lista vem de `~/.claude/plugins/known_marketplaces.json` + o
+  `.claude-plugin/marketplace.json` clonado de cada um (nome, descrição, fonte, plugins
+  oferecidos). Mutações rodam o CLI real: `claude plugin marketplace add|remove|update` — via
+  `execFile` com array de args e **whitelist de subcomandos** (`server/tools/marketplace.ts`,
+  `runClaudePlugin`), NUNCA shell arbitrário. Só admin.
+- **Instalar** (`POST /api/claude/marketplace/install`, só admin, com diálogo de confirmação na UI
+  contendo o aviso de confiança do `scopeWarning` real traduzido): `claude plugin install
+  nome@marketplace` (SEM `-y`: se o marketplace declara comando de instalação, o CLI recusa e a
+  recusa aparece crua pro admin — nunca aceitamos comando declarado automaticamente), cópia de
+  `~/.claude/plugins/cache/<mp>/<plugin>/<versão mais nova>` pro catálogo, e `claude plugin
+  uninstall` de volta (melhor esforço) pra casa do danilo ficar limpa — a ativação é da preferência
+  por pessoa, não do settings dele.
+- **Servidores MCP** (`GET /api/claude/marketplace/mcp`): a lista real `mcpServerList` + detalhe
+  `serverDetail` ("← Voltar pra lista"), montada do que o runner REALMENTE injeta em toda sessão
+  (`turnMcpServers` em `server/routes/claude.ts`): os 8 MCPs da Hostinger (com token em
+  Configurações), um GitHub e um Cloudflare por conta da aba Tools, e o `orion-memory` (em
+  processo, sempre). Tokens nunca aparecem.
+
+#### Fontes de validação (`server/tools/marketplace.ts`, testadas)
+
+- `nomeValido`: `[A-Za-z0-9][A-Za-z0-9._-]{0,99}` — nada de `/`, espaço, `;` etc.
+- `fonteValida`: `dono/repo` do GitHub ou URL git **https**. O charset estreito é a barreira de
+  injeção; caminho local é recusado de propósito (no placeholder real existe "path", mas aqui
+  seria leitura de qualquer pasta do servidor por quem tem o painel).
+- `ehOficial`: fonte sob `anthropics/` ganha o badge (title "Marketplace oficial do Claude Code").
+
+#### Simplificações deliberadas (documentadas, upgrade path claro)
+
+1. **Sem "Restart Claude to apply plugin changes"**: cada turno recompõe a sessão do zero
+   (`composicaoPara` roda a cada turno, cache de 30 s) — não existe processo vivo pra reiniciar.
+2. **Sem `scope` user/project na instalação** (o `scopeSelector` real): o destino é sempre o
+   catálogo compartilhado; o escopo de VERDADE é o liga/desliga por pessoa.
+3. **Status MCP é "configurado", não connected/failed ao vivo**: o estado vivo só existe dentro de
+   uma Query rodando (`mcp_status` control request). Upgrade: pedir `mcpServerStatus()` numa sessão
+   ativa e cruzar com a lista. Sem formulário "Add MCP server" na UI: os canais de adicionar MCP do
+   Orion já existem e são as contas da aba Tools + token Hostinger em Configurações (cada um com
+   validação própria) — um formulário genérico duplicaria isso com menos validação.
+4. **`claude plugin uninstall` pós-cópia é melhor esforço**: se falhar, sobra um plugin habilitado
+   no settings do danilo (efeito: skills dele apareceriam duplicadas na aba Tools até limpar à
+   mão). A cópia no catálogo, que é o que importa, já aconteceu.
+5. **Remover marketplace não remove plugins já copiados** pro catálogo (o real também não
+   desinstala plugins ao remover o marketplace; ele só some da lista de fontes).
+
+### 2. Output styles
+
+#### Investigação (como o Claude Code representa)
+
+- **Arquivo**: estilo custom = `.md` com frontmatter em `~/.claude/output-styles/` (usuário) ou
+  `.claude/output-styles/` (projeto). O identificador é o NOME DO ARQUIVO sem `.md` (por isso o
+  help real do assistente: "Shows in the Output styles menu and becomes the file name"). Chaves de
+  frontmatter REAIS achadas no binário do CLI 2.x: `name`, `description` ("Shown in the Output
+  style picker in /config") e **`keep-coding-instructions`** ("If true, the default coding
+  instructions stay in the system prompt alongside the …") — exatamente o checkbox "Include the
+  coding instructions" do assistente real.
+- **Embutidos** do CLI 2.x (strings `outputStyle:<Nome>` no binário): `Explanatory`, `Learning`,
+  `Concise`, `Proactive` (+ "default" = sem estilo).
+- **Canal no Agent SDK — DIRETO, sem gambiarra de systemAppend**:
+  - No início do turno: `Options.settings` (equivalente documentado do `--settings` do CLI,
+    sdk.d.ts ~2209) aceita um objeto `Settings`, e `Settings.outputStyle` existe ("Controls the
+    output style for assistant responses", sdk.d.ts ~8533). O runner manda
+    `settings: { outputStyle }` quando a sessão tem estilo (TurnParams.outputStyle).
+  - Ao vivo: `Query.applyFlagSettings({ outputStyle })` — mesma camada de settings de flag, mesmo
+    caminho que o esforço já usava (`setEffortLive`); `null` volta pro padrão. Existe ainda
+    `updateSettings('localSettings', {outputStyle})` (allowlist explícita do SDK) e
+    `reloadOutputStyles()`, não usados aqui: gravam por PROJETO, e o Orion quer por SESSÃO.
+- **Como a extensão real faz**: `getOutputStyle` → `{outputStyle, availableStyles}`;
+  `setOutputStyle(nome)` grava na camada de settings; picker com "Select an output style" e a
+  linha "Build a custom style"; assistente QW0 de 4 etapas `["name","description","instructions",
+  "save"]` com "Step X of Y", validações (`Enter a name`, `A name can't contain / \ : * ? " < > |
+  or ---`, `A description can't contain ---`), "Save to Project/User", "Switch to this style now",
+  "Saved. The style will appear in the Output styles menu in new sessions.",
+  `create_output_style {draft, level, replace}`.
+
+#### A porta no Orion
+
+- **Catálogo compartilhado**: custom salvo em `/srv/claude/catalog/output-styles/<slug>.md`
+  (`slugDeNome` do nome digitado = o arquivo, como a real) com `criado-por: <email>` no
+  frontmatter (o CLI ignora chaves desconhecidas — criador registrado sem tabela nova). Um
+  **symlink** em `~/.claude/output-styles/<slug>.md` faz o CLI resolver o nome em qualquer sessão
+  (o runner usa `settingSources: ['user','project']`). Arquivo REAL preexistente no dir do usuário
+  nunca é sobrescrito (só symlinks são refeitos) — `gravarEstilo`, testado.
+- **Por sessão**: coluna `claude_sessions.output_style` (nullable; `ALTER TABLE IF NOT EXISTS` em
+  `routes/claude.ts`, mesmo padrão do `archived` — sem disputar `migrations.ts`).
+  `POST /api/claude/sessions/:id/output-style` segue o contrato EXATO das irmãs modo/modelo/
+  esforço: valida contra a lista real (`estiloConhecido`), persiste primeiro, depois
+  `Runner.setOutputStyleLive` em try/catch. O turno seguinte nasce certo via
+  `Options.settings.outputStyle` (startFor lê a coluna).
+- **UI**: pill "Estilo" no compositor (mesmo `cc-pop`/`Menu` dos vizinhos) com "Selecione um
+  estilo de saída", check no atual, "Nenhum estilo de saída disponível" e a linha "Construir um
+  estilo personalizado"; o assistente (`OutputStyles.tsx`) tem as 4 etapas na MESMA ordem, os
+  textos traduzidos ("Etapa X de 4", "Voltar"/"Avançar"/"Salvar"/"Substituir"/"Concluído", helps e
+  erros idênticos, placeholder "Diagrams first" mantido), o checkbox "Incluir as instruções de
+  código", "Trocar para este estilo agora" e o 409 "Já existe um arquivo de estilo chamado X." →
+  botão **Substituir**.
+- **Permissões**: criar estilo é de QUALQUER usuário autenticado (a real deixa qualquer um
+  construir; o catálogo registra o criador). SUBSTITUIR estilo existente: só admin ou o criador
+  registrado — a parte destrutiva de mudar o catálogo compartilhado.
+
+#### Simplificações deliberadas
+
+1. **"Save to Project/User" virou um destino só** (catálogo compartilhado): o "User" real seria o
+   `~/.claude` do danilo (global pra todo mundo de qualquer forma) e o "Project" gravaria dentro
+   do repo do projeto (poluiria worktrees/commits). A etapa 4 mostra o destino explicitamente.
+2. **Rascunho de sessão não tem seletor de estilo** (o pill some): não existe linha no Postgres
+   pra persistir antes do 1º turno. Upgrade: guardar no Tab local e mandar no create, como o
+   worktreeName faz.
+3. **Lista de embutidos é estática** (5 nomes conferidos no binário do CLI da c3): sem sessão viva
+   não há `availableStyles` pra perguntar — mesma decisão de escopo do seletor de modelo
+   (PARIDADE.md seção 5). Upgrade: cruzar com `get_output_style` de uma Query ativa.
+4. **Sem excluir estilo pela UI** (a real também não tem delete no assistente); apagar =
+   remover o .md do catálogo à mão.
+
+### 3. Arquivos da trilha
+
+- `server/tools/marketplace.ts` (novo) + `server/tools/outputStyles.ts` (novo) — puras + disco/CLI.
+- `server/routes/marketplace.ts` (novo) + `server/routes/outputStyles.ts` (novo) — registradas em
+  `server/index.ts`.
+- `server/tools/skillPrefs.ts` — `chavePlugin` + gate de plugin inteiro em `planoDeComposicao`.
+- `server/claude/runner.ts` — `TurnParams.outputStyle` → `Options.settings`; `setOutputStyleLive`.
+- `server/routes/claude.ts` — coluna `output_style`, SELECTs, `startFor`, rota
+  `POST /:id/output-style`.
+- `tests/marketplace.test.ts`, `tests/outputStyles.test.ts` (novos; os existentes continuam verdes).
+- `web/src/claude/Marketplace.tsx`, `web/src/claude/OutputStyles.tsx` (novos);
+  `ClaudePage.tsx` (gatilho + estado + restauração por sessão), `Composer.tsx` (seletor "Estilo"),
+  `api.ts` (tipos + chamadas), `icons.tsx` (Puzzle), `claude.css` (blocos cc-mkt-*/cc-style-*).
+
+## 23. Trilha par/agentmap — refino do Mapa de agentes (29/09/2026)
+
+Anexo da trilha `par/agentmap` pro PARIDADE.md principal (seção 14 é a base; itens 5 e 8 da seção
+13 são o escopo). Fonte canônica lida ANTES de cada peça: webview decompilado v2.1.283 em
+`/srv/orion-reference-2.1.283/webview/index.js` (funções citadas por nome minificado, com o trecho
+literal conferido no bundle). Quatro entregas: (1) agents pill, (2) tool calls aninhadas por
+subagente, (3) linhas dobráveis com overflow, (4) veredito do Teleport (só documentação, nada
+construído).
+
+### 1. Agents pill — gatilho do Mapa de agentes no rodapé do compositor
+
+**Como o mapa abria antes desta trilha**: só pelo botão de ícone na faixa de ações das abas
+(`.cc-tab-actions`, `ClaudePage.tsx`: `<button className="cc-icon" title="Mapa de agentes" ...>`),
+adicionado na rodada da seção 14. Esse botão continua existindo; o pill NOVO é o gatilho idêntico ao
+real, que vive no rodapé do compositor.
+
+**O real, função por função (v2.1.283)**:
+- `pB0({session,onOpen})` monta o pill lendo `session.agentMapAgents` e `vS(permissionRequests)`;
+  renderizado no rodapé do compositor imediatamente ANTES do bloco do model picker
+  (`...F(gB0,{session:$}), <remote control>, w0&&F(pB0,{session:$,onOpen:q}), j!==2&&F(XP1,...)`).
+- `vJ5({count,dot,onOpen})` é o botão em si: `className={`${N7.modelPill} ${Fv.agentsPill}`}`
+  (literalmente a classe do model pill + a própria), `"data-agents-dot":J`, `title=CJ5(dot)`,
+  `aria-label=`${$P1(count)} · ${CJ5(dot)}``, filhos: ícone `U11` (svg 20x20, fill currentColor),
+  dot `rY` (`span` com `data-status-dot` + classe por estado) e o rótulo `$P1(count)`.
+- `pS(agents)`: contagem = só agentes com `status==="working"` (`r41`).
+- `oE1(agents, waitingIds)`: `"waiting"` se algum agente working está no Set de pedidos de permissão
+  pendentes (`vS` = Set de `agentId` dos `permissionRequests`); senão `"running"` se algum working;
+  senão `"failed"` se algum failed; senão `"idle"`.
+- `$P1(n)`: `"${n} agent(s)"`. `CJ5(dot)`: "An agent is waiting for your permission · Click to open
+  the agent map" / "Agents are working · ..." / "An agent failed · ..." / "Click to open the agent
+  map".
+
+**Portado no Orion**: `agentsPillDot`/`agentsPillCount`/`agentsPillCountLabel`/`agentsPillTitle` em
+`mapper.ts` (puras, testadas em `tests/agentmapParity.test.ts`); botão em `Composer.tsx`
+(`.cc-pill.cc-agents-pill`, `data-agents-dot`, mesmo aria-label composto), logo antes do model pill
+— mesma vizinhança do real; ícone `AgentsPill` em `icons.tsx` com o **path literal** do `U11` real
+(copiado byte a byte do bundle, não redesenhado). Textos em PT-BR (convenção do painel; a tabela
+CJ5 foi traduzida, não inventada). O `onOpen` abre o MESMO painel `AgentMap` de sempre
+(`setAgentMapOpen(true)` em `ClaudePage.tsx`).
+
+**Adaptação documentada (permissão → agente)**: o real liga permissão↔agente por `agentId` no
+próprio pedido; o pedido do Orion não tem `agentId`, mas tem o `toolUseID` real do SDK (repassado
+pelo runner desde 28/09). `applyPendingToAgentTasks` (mapper.ts) faz a ligação equivalente: um
+pedido pendente cujo `toolUseId` é uma tool call aninhada do subagente (ver item 2) — ou o próprio
+`Task` — pinta agente e call de `waiting`. É o `vS`+`CS` real, pelo id que o Orion de fato tem.
+
+**Suposição documentada (gate `w0`)**: a condição exata `w0` que liga o pill no real não foi
+recuperável do bundle minificado (o nome `w0` colide com dezenas de escopos; nenhum grep isolou a
+atribuição do componente do rodapé). Como `agentMapAgents` nasce vazio e `oE1` tem os estados
+"failed"/"idle" (que só existem com agentes JÁ terminados visíveis), o comportamento coerente — e o
+adotado — é: pill visível quando a sessão tem ≥1 subagente (qualquer status), nunca numa sessão sem
+`Task` nenhum. Se alguém recuperar o `w0` real e for outra coisa (ex.: flag de config), ajustar é
+uma linha em `Composer.tsx`.
+
+### 2. Tool calls aninhadas por subagente (`innerCall*`)
+
+**O que o stream do SDK entrega (investigado antes de construir)**: `SDKAssistantMessage`/
+`SDKUserMessage` têm `parent_tool_use_id` (campo real do `sdk.d.ts`) — `null` no agente raiz, o
+`tool_use.id` do `Task` pai quando a mensagem pertence ao transcript do SUBAGENTE. O runner do Orion
+sempre persistiu a mensagem INTEIRA (`appendEvent(id, m.type, m)` em `server/claude/runner.ts`),
+então o campo já chegava ao front por `fromRows`/SSE — **zero mudança de backend**.
+
+**`mapper.ts`/`live.ts` já agrupavam por `parent_tool_use_id`? NÃO** — lido antes, confirmado: o
+campo não aparecia em NENHUM arquivo de `web/src/`. Pior: `reduceSdkMessages` tratava mensagem de
+subagente como mensagem comum, então o transcript inteiro do subagente (texto, thinking e tool
+calls dele) **vazava misturado na timeline principal**, como se fosse do agente raiz. A extensão
+real roteia essas mensagens só pro transcript do próprio agente. Corrigido na raiz:
+- `reduceSdkMessages` pula `assistant`/`user` com `parent_tool_use_id` truthy (a timeline principal
+  volta a ser só do agente raiz);
+- `noteAgentTask` ganhou os dois ramos com parent: `tool_use` do subagente vira `AgentToolCall`
+  (`{toolUseId,name,label,description,status}`, label/description via o `describeTool` já
+  existente) em `AgentTask.toolCalls`; `tool_result` do subagente fecha a call casada
+  (success/failure), nunca regride uma já fechada (mesma proteção de replay do fechamento de task).
+  Parent desconhecido = ignora, mesma referência (nunca inventa task).
+
+**Diferença de arquitetura, documentada**: o real NEM usa `parent_tool_use_id` pra isso — o host da
+extensão tem um stream de progresso dedicado por tarefa (`handleTaskProgress`/
+`handleTaskNotification` no bundle: eventos com `task_id`, `tool_use_id`, `usage.total_tokens`,
+`recentTools`, `summary`). O Orion não tem esse canal; `parent_tool_use_id` nas mensagens já
+persistidas entrega o equivalente funcional das tool calls (e a contagem ao vivo delas) sem canal
+novo. O que ESSE caminho não entrega: `summary` (frase de progresso gerada) e tokens ao vivo POR
+subagente antes do `tool_use_result` final — continuam vindo só no fechamento, quando o SDK manda.
+
+**UI**: componente `InnerCallList` (AgentMap.tsx, exportado; Timeline.tsx importa) — espelho da
+lista real (`div.innerCallList > div.innerCall` com `innerCallComplete`/`innerCallError` por fase,
+`span.innerCallHeader` com o cabeçalho da tool e, enquanto roda, `F("span",{className:
+oj.innerCallSpinner,children:"…"})` — o spinner real é o LITERAL "…", não um ícone animado; aqui
+"…" com `cc-pulse`). Aparece em dois lugares, os dois do pedido ("mapa/timeline"): expandindo o
+card de um subagente no Mapa de agentes (`AgentCard` agora dobrável, chevron no título) e
+expandindo a linha `TaskAgent` da timeline (linha `TOOLS` acima de IN/OUT — `Timeline` recebeu a
+prop `agentTasks` de `ClaudePage`). Estados: rodando (spinner), `waiting` (permissão pendente pra
+call, via `applyPendingToAgentTasks`), completa (`is-complete`, esmaecida), erro (`is-error`,
+vermelha) — o `cG0` real (`phase start/executing sem resultado → spinner`) mapeado pro ciclo de
+`ToolStatus` que o Orion já tem.
+
+### 3. Linhas dobráveis com overflow (`focus-subagent-row`)
+
+**O real**: `MA1({tasks})` renderiza, enquanto subagentes rodam, `h95` por agente visível
+(`data-testid="focus-subagent-row"`: `label` = `sU0` — `description` ou `"description: {summary ??
+recentTools.at(-1)}"` — e `span` = `$V0` — `[tokens, tools,] decorrido`, formato `XM`: `"57s"`,
+`"2m 5s"`) e, quando há overflow, `y95` (`data-testid="focus-subagent-overflow-row"`: `tU0` =
+`"+N more agent(s)"` + `eU0` = `"[tokens · tools ·] {duração somada} combined"`). Split real
+`oU0`/`HA1=3`: até 4 linhas todas visíveis; 5+ → 3 visíveis + resto no overflow. A linha de
+recolher real é `focus-fold-end-row`: `label` "Collapse", `aria-label` "Collapse {PA1(...)}",
+`role="button"`, Enter/Espaço.
+
+**Portado**: `AGENT_ROWS_VISIBLE`/`splitAgentRows`/`agentRowLabel`/`agentRowMeta`/
+`agentOverflowLabel`/`agentOverflowMeta` em mapper.ts (portas 1:1, testadas); componente
+`SubagentRows` em Timeline.tsx com os MESMOS testids reais (`focus-subagent-row`,
+`focus-subagent-overflow-row`, `focus-fold-end-row` — identificadores de máquina, mantidos
+idênticos), renderizado no fim da timeline enquanto existe subagente ativo (running/waiting — a
+mesma seleção do fold real, que só lista agentes trabalhando; concluídos já têm a linha `TaskAgent`
+normal). Clicar no overflow expande todas; expandido, a última linha recolhe de volta (contagem dos
+que se escondem no `aria-label`). Tique de 1s pro decorrido, só enquanto o componente está montado.
+Rótulos visíveis em PT-BR ("+N outros agentes", "Recolher", "combinados", "ferramentas") — decisão
+de convenção do painel (contexto da trilha: textos em PT-BR); os testids/atributos ficam iguais ao
+real. `sU0` usa o `summary`/`recentTools` do canal de progresso dedicado que o Orion não tem (ver
+item 2) — aqui o "último tool" vem da última call aninhada observada, dado real do stream.
+
+### 4. Teleport (item 8 da seção 13) — VEREDITO, nada construído
+
+**O que a real faz** (lido no bundle, estados na classe da store de sessões):
+- `pendingRemoteTeleport`: guarda o id de uma sessão REMOTA (de outra máquina/host, via Remote
+  Control) que deve ser "teleportada" pra este painel; um efeito espera `remoteSessions` carregar,
+  acha a sessão e dispara a ativação (com diálogo de branch — `teleport_branch_dialog_shown` — e
+  `finalizeTeleport`); se as remotas carregaram e o id não existe, desiste e limpa.
+- `unresolvedBootRemoteId`: o painel abriu já apontando pra uma sessão remota que ainda não virou
+  cópia local — usado por `tabOpenElsewhere`/`focusTabShowing` pra não abrir o mesmo host duas
+  vezes, e limpo quando resolve; `notifyPanelTeleportResolved/Abandoned` avisam o host do desfecho.
+- `teleportError`: banner dispensável de erro (`teleportErrorBanner*` no CSS) quando
+  `teleportSession(...)` falha; `teleportingSession` segura a sessão em trânsito.
+- Mecânica de fundo: a sessão VIVE no host de origem; teleportar = copiar transcript/estado pro
+  host local (`teleportSession` na conexão, com `openExistingLocalSession`/`reusedExisting` quando
+  já existe cópia).
+
+**O que o Orion já tem** (`GET /api/claude/ui-state/stream`, commit 631aee9 + o que está em
+`ClaudePage.tsx`): as sessões moram TODAS no servidor (c3, Postgres + runner) — nenhum navegador é
+"dono" de sessão nenhuma. Qualquer guia/dispositivo abre qualquer sessão por id; o stream de
+ui-state sincroniza a lista de abas abertas + ativa entre guias/dispositivos em tempo real (com
+supressão de eco por `CLIENT_ID`), e o SSE por sessão faz replay do histórico a cada (re)conexão.
+
+**Veredito: COBERTO POR ARQUITETURA no cenário que existe hoje; gap real só num cenário que o
+Orion não tem.** O problema que o teleport real resolve — "continuar ESTA sessão em outra
+janela/dispositivo" — no Orion não precisa de cópia nenhuma: abrir a sessão já É o teleport, porque
+o estado nunca esteve no cliente. Os três sinais reais não têm o que espelhar: não há
+`pendingRemoteTeleport` (não existe "esperar a lista remota carregar pra achar a sessão" — a lista
+é uma só, do servidor), não há `unresolvedBootRemoteId` (não existe "cópia local por resolver"),
+não há `teleportError` (não existe operação de cópia pra falhar; erros de conexão já têm o banner
+de reconexão do SSE). **Parcialmente coberto / gap real apenas SE** o Orion um dia federar mais de
+um host de execução (ex.: sessões rodando na c1 E na c3 com painéis distintos): aí migrar uma
+sessão ENTRE servidores exigiria exatamente o que a real tem — cópia de transcript/estado, diálogo
+de branch, banner de erro dedicado. Hoje isso não existe e não está pedido; nenhuma UI foi
+construída, conforme a instrução da trilha.
+
+### Arquivos tocados / verificação
+
+- `web/src/claude/types.ts` — `parent_tool_use_id` nos SdkMessage, `AgentToolCall`,
+  `AgentTask.toolCalls`.
+- `web/src/claude/mapper.ts` — skip de mensagens de subagente em `reduceSdkMessages`; ramos com
+  parent em `noteAgentTask`; `applyPendingToAgentTasks`, `agentsPill*`, `splitAgentRows`,
+  `agentRow*`, `agentOverflow*`.
+- `web/src/claude/AgentMap.tsx` — `InnerCallList` (compartilhado), `AgentCard` dobrável.
+- `web/src/claude/Timeline.tsx` — prop `agentTasks`, `TOOLS` aninhado no `TaskAgent`,
+  `SubagentRows` (linhas dobráveis).
+- `web/src/claude/Composer.tsx` — agents pill (props `agents`/`onAgents`).
+- `web/src/claude/ClaudePage.tsx` — `applyPendingToAgentTasks` na lista, props novas pra
+  Timeline/Composer.
+- `web/src/claude/icons.tsx` — `AgentsPill` (path literal do `U11` real).
+- `web/src/claude/claude.css` — `.cc-agents-pill/.cc-agents-dot`, `.cc-innercall*`,
+  `.cc-subagent-row*` (tokens `--cc-*` já existentes, tema claro/escuro herdado).
+- `tests/agentmapParity.test.ts` — vitest do agrupamento/split/pill (arquivo próprio, de propósito:
+  `tests/mapper.test.ts` é alvo de conflito entre trilhas paralelas).
+
+Verificação nesta worktree: `npm run typecheck` e `npm test` verdes (nenhum teste existente
+alterado). Lacuna de verificação herdada da seção 14: sem sessão real com subagentes rodando neste
+ambiente, o fluxo foi validado por testes puros + leitura do bundle real, não ao vivo em produção.
