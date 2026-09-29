@@ -518,6 +518,37 @@
 .cc-agentmap-dot.is-failure { background: var(--cc-failure); opacity: 1; }
 .cc-agentmap-dot.is-warning { background: var(--cc-warning); opacity: 1; }
 
+/* Agents pill do compositor (gatilho do Mapa de agentes perto do model pill — ver Composer.tsx e
+   PARIDADE-agentmap.md, classes reais `agentsPill/dot/icon/label` do webview v2.1.283). Dot reusa
+   as mesmas cores dos dots do mapa acima; "failed" = mesma cor de is-failure. */
+.cc-agents-pill { display: inline-flex; align-items: center; gap: 5px; }
+.cc-agents-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
+.cc-agents-dot.is-running { background: var(--cc-busy); opacity: 1; animation: cc-pulse 1.6s ease-in-out infinite; }
+.cc-agents-dot.is-waiting { background: var(--cc-pending); opacity: 1; }
+.cc-agents-dot.is-failed { background: var(--cc-failure); opacity: 1; }
+
+/* Tool calls aninhadas de um subagente (`innerCallList/innerCall/innerCallHeader/innerCallComplete/
+   innerCallError/innerCallSpinner` reais — ver InnerCallList em AgentMap.tsx). Spinner é o literal
+   "…" do bundle real, não um ícone animado. */
+.cc-innercall-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; min-width: 0; }
+.cc-innercall { display: flex; align-items: baseline; gap: 6px; font-size: 11px; min-width: 0; }
+.cc-innercall-header { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; }
+.cc-innercall-name { font-weight: 600; flex-shrink: 0; }
+.cc-innercall-desc { color: var(--cc-fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-innercall.is-complete { opacity: .65; }
+.cc-innercall.is-error .cc-innercall-name, .cc-innercall.is-error .cc-innercall-desc { color: var(--cc-failure); }
+.cc-innercall-spinner { color: var(--cc-fg2); animation: cc-pulse 1.2s ease-in-out infinite; flex-shrink: 0; }
+
+/* Linhas dobráveis de subagente com overflow na timeline (`focus-subagent-row`/
+   `focus-subagent-overflow-row`/`focus-fold-end-row` reais — ver SubagentRows em Timeline.tsx). */
+.cc-subagent-rows { display: flex; flex-direction: column; gap: 2px; margin: 6px 0 2px; }
+.cc-subagent-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--cc-fg2); padding: 2px 6px; border-radius: 4px; min-width: 0; }
+.cc-subagent-row .cc-subagent-label { color: var(--cc-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cc-subagent-row .cc-subagent-meta { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.cc-subagent-row.is-toggle { cursor: pointer; }
+.cc-subagent-row.is-toggle:hover { background: var(--cc-hover); }
+.cc-subagent-row.is-toggle .cc-subagent-label { color: var(--cc-fg2); cursor: pointer; }
+
 /* Painel de skills + lista de hooks (SkillsHooksPanel.tsx, PARIDADE.md seção 16) — reusa a moldura
    `.cc-agentmap` (overlay, cabeçalho, corpo com scroll) e só acrescenta o essencial: as abas
    internas e as linhas de hook/skill. */

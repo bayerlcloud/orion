@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, sessionWorktreeName, type UsageBar } from './mapper';
+import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
@@ -211,7 +211,16 @@ export default function ClaudePage() {
   // Mapa de agentes: subagentes (Task) desta sessão, ordenados por ordem de disparo (ver
   // agentTaskList/AgentTask em mapper.ts/types.ts), e o total de tokens já gastos na sessão (soma dos
   // "result" de cada turno concluído — undefined antes do 1º turno terminar, nunca "0" fabricado).
-  const agentTasks = useMemo(() => agentTaskList(state.agentTasks), [state.agentTasks]);
+  // `applyPendingToAgentTasks` (29/09/2026, ver PARIDADE-agentmap.md): pinta de 'waiting' o
+  // subagente/tool call aninhada com permissão pendente AGORA — mesma correção de view que
+  // `applyPendingToolWaitStatus` já faz pra timeline, ligada pelo toolUseId real do SDK.
+  const agentTasks = useMemo(() => {
+    const pendingIds = state.pending.map(p => p.toolUseId).filter((x): x is string => !!x);
+    return applyPendingToAgentTasks(agentTaskList(state.agentTasks), pendingIds);
+  }, [state.agentTasks, state.pending]);
+  // Agents pill do compositor (gatilho do Mapa de agentes perto do model pill — portas de
+  // `pS`/`oE1` reais, ver mapper.ts): contagem de ativos + estado agregado do dot.
+  const agentsPill = useMemo(() => ({ total: agentTasks.length, count: agentsPillCount(agentTasks), dot: agentsPillDot(agentTasks) }), [agentTasks]);
   const sessionTokens = useMemo(() => sumSessionTokens(events), [events]);
   // Reobserva sempre que a sessão ativa muda: `.cc-float` (ver JSX abaixo) só existe com `activeId`
   // truthy — é condicional, igual `.cc-dock` já era antes dele — então o nó do DOM observado troca a
@@ -481,7 +490,7 @@ export default function ClaudePage() {
                 <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
               </div>
             )}
-            {activeId && <Timeline events={events} onDecide={decide} />}
+            {activeId && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
                 `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
                 `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer
@@ -499,7 +508,8 @@ export default function ClaudePage() {
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
                 onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }}
-                worktreeName={activeTab?.worktreeName} onWorktreeName={activeTab?.draft ? setDraftWorktreeName : undefined} />
+                worktreeName={activeTab?.worktreeName} onWorktreeName={activeTab?.draft ? setDraftWorktreeName : undefined}
+                agents={agentsPill} onAgents={() => setAgentMapOpen(true)} />
             </div>
           )}
         </div>

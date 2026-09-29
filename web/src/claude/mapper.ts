@@ -1,4 +1,5 @@
-import type { AgentTask, AgentTaskUsage, ConvEvent, HookEntry, SdkContentBlock, SdkMessage, SessionGroupInfo, SessionSummary, ToolStatus } from './types';
+import type { AgentTask, AgentTaskUsage, AgentToolCall, ConvEvent, HookEntry, SdkContentBlock, SdkMessage, SessionGroupInfo, SessionSummary, ToolStatus } from './types';
+import { matchModelAlias, MODEL_LABEL } from './api';
 
 type Rec = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -64,6 +65,13 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
   const nid = () => `e${++n}`;
 
   for (const m of messages) {
+    // Mensagem de SUBAGENTE (`parent_tool_use_id` = o tool_use da tool `Task` pai — campo real do
+    // SDK, ver types.ts): nunca entra na timeline principal. Antes desta rodada (29/09/2026, ver
+    // PARIDADE-agentmap.md) o campo era ignorado e o transcript inteiro do subagente vazava misturado
+    // na conversa principal (texto, thinking e tool calls dele apareciam como se fossem do agente
+    // raiz) — a extensão real roteia essas mensagens só pro transcript do próprio agente; aqui elas
+    // alimentam `noteAgentTask` (tool calls aninhadas em `AgentTask.toolCalls`).
+    if ((m.type === 'assistant' || m.type === 'user') && m.parent_tool_use_id) continue;
     if (m.type === 'system') {
       if (m.subtype === 'init' && !sawInit) {
         sawInit = true;
@@ -634,6 +642,36 @@ export function computeUsageBars(rows: UsageRow[], real?: RealUsage, now = Date.
   return computeProxyUsageBars(rows);
 }
 
+/** Linha de `by_model` de GET /api/claude/usage: custo somado (7 dias) por id de modelo da coluna `claude_sessions.model`. */
+export type ModelCostRow = { model: string | null; cost: string | number };
+export type ModelAttribution = { name: string; pct: number };
+/**
+ * Breakdown "% do uso" por modelo da tela Conta e Uso — paridade com o bloco de atribuição da
+ * extensão real (string "% of usage", classes `attribution*_QET5Ow`, componente `J11` no webview
+ * v2.1.283; ver PARIDADE-seletor.md). Lá a fonte é telemetria de atribuição do servidor deles; aqui
+ * o proxy é o custo por modelo que o Orion já tem (`claude_sessions.model` + `cost_usd`, janela de
+ * 7 dias agregada no servidor). Ids de modelo diferentes com o mesmo alias conhecido são somados sob
+ * o rótulo do seletor (ex.: claude-sonnet-* → "Sonnet", via `matchModelAlias`/`MODEL_LABEL`); id sem
+ * alias conhecido fica com o id cru; sessão sem modelo resolvido (null) é pulada — sem rótulo não há
+ * o que atribuir. Ordena por % desc (mesma `iW0` real) e arredonda como a real (`Math.round`).
+ * Lista vazia quando não há custo nenhum — o bloco não aparece (sem % inventado de divisão por zero).
+ */
+export function computeModelAttribution(rows: ModelCostRow[] | null | undefined): ModelAttribution[] {
+  const byName = new Map<string, number>();
+  for (const r of rows ?? []) {
+    if (!r.model) continue;
+    const alias = matchModelAlias(r.model);
+    const name = alias !== 'default' ? MODEL_LABEL[alias] : r.model;
+    byName.set(name, (byName.get(name) ?? 0) + (Number(r.cost) || 0));
+  }
+  let total = 0;
+  for (const v of byName.values()) total += v;
+  if (total <= 0) return [];
+  return [...byName.entries()]
+    .map(([name, cost]) => ({ name, pct: Math.round((cost / total) * 100) }))
+    .sort((a, b) => b.pct - a.pct);
+}
+
 export function relativeTime(ts: number, now = Date.now()): string {
   const d = Math.max(0, now - ts);
   const min = Math.round(d / 60_000);
@@ -852,6 +890,25 @@ export function parseAgentTaskUsage(toolUseResult: unknown): AgentTaskUsage | un
  */
 export function noteAgentTask(tasks: Record<string, AgentTask>, message: SdkMessage, when: number): Record<string, AgentTask> {
   if (message.type === 'assistant') {
+    // Mensagem DO PRÓPRIO subagente (`parent_tool_use_id` aponta pro Task pai — ver types.ts):
+    // cada `tool_use` dela vira uma tool call aninhada em `AgentTask.toolCalls` (a lista
+    // `innerCallList` real, ver PARIDADE-agentmap.md), nunca uma entrada nova no mapa de tasks.
+    // Parent desconhecido (histórico truncado, ou mensagem chegou antes do tool_use do Task —
+    // não deveria acontecer, o SDK emite o Task primeiro): ignora, nunca inventa um task.
+    const parent = message.parent_tool_use_id;
+    if (parent) {
+      const cur = tasks[parent];
+      if (!cur) return tasks;
+      let calls: AgentToolCall[] | undefined;
+      for (const b of message.message.content) {
+        if (b.type !== 'tool_use') continue;
+        const existing = calls ?? cur.toolCalls ?? [];
+        if (existing.some(x => x.toolUseId === b.id)) continue;
+        const d = describeTool(b.name, b.input);
+        calls = [...existing, { toolUseId: b.id, name: b.name, label: d.label, description: d.description, status: 'running' }];
+      }
+      return calls ? { ...tasks, [parent]: { ...cur, toolCalls: calls } } : tasks;
+    }
     let next: Record<string, AgentTask> | undefined;
     for (const b of message.message.content) {
       if (b.type !== 'tool_use' || b.name !== 'Task' || tasks[b.id] || next?.[b.id]) continue;
@@ -870,6 +927,26 @@ export function noteAgentTask(tasks: Record<string, AgentTask>, message: SdkMess
   if (message.type === 'user') {
     const c = message.message.content;
     if (typeof c === 'string') return tasks;
+    // tool_result DE DENTRO do subagente (mesmo `parent_tool_use_id`): fecha a tool call aninhada
+    // casada por `tool_use_id` — nunca regride uma call já fechada (mesma proteção de replay do
+    // fechamento de task logo abaixo). O tool_result que fecha o PRÓPRIO Task vem sem parent
+    // (mensagem do agente raiz) e segue no caminho de sempre.
+    const parent = message.parent_tool_use_id;
+    if (parent) {
+      const cur = tasks[parent];
+      if (!cur?.toolCalls?.length) return tasks;
+      let calls = cur.toolCalls;
+      let changed = false;
+      for (const b of c) {
+        if (b.type !== 'tool_result') continue;
+        const i = calls.findIndex(x => x.toolUseId === b.tool_use_id);
+        if (i === -1 || (calls[i].status !== 'running' && calls[i].status !== 'waiting')) continue;
+        const status: ToolStatus = b.is_error ? 'failure' : 'success';
+        calls = calls.map((x, k) => (k === i ? { ...x, status } : x));
+        changed = true;
+      }
+      return changed ? { ...tasks, [parent]: { ...cur, toolCalls: calls } } : tasks;
+    }
     let next: Record<string, AgentTask> | undefined;
     for (const b of c) {
       if (b.type !== 'tool_result') continue;
@@ -932,6 +1009,129 @@ export function sumSessionTokens(events: ConvEvent[]): number | undefined {
  * `noteAgentTask` sempre grava um `startedAt`) vão por último, de forma estável. */
 export function agentTaskList(tasks: Record<string, AgentTask>): AgentTask[] {
   return Object.values(tasks).sort((a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity));
+}
+
+/**
+ * Correção de view dos subagentes a partir dos pedidos de permissão pendentes AGORA — mesmo papel de
+ * `applyPendingToolWaitStatus` acima, só que pro mapa de agentes: uma tool call aninhada cujo
+ * `toolUseId` tem permissão pendente vira `'waiting'`, e o próprio subagente (se ainda `'running'`)
+ * vira `'waiting'` quando é ELE que está travado (o Task em si pendente, ou alguma call aninhada
+ * dele). Espelha o `vS(permissionRequests)` real (webview v2.1.283: um Set de `agentId` dos pedidos
+ * pendentes, consultado por `oE1`/`CS` pra pintar o dot de "waiting") — adaptado: o Orion não tem
+ * `agentId` no pedido, mas tem o `toolUseID` real do SDK (repassado por server/claude/runner.ts
+ * desde a correção de 28/09), e o agrupamento por `parent_tool_use_id` liga esse id à call do
+ * subagente dono. Pura, referência preservada quando nada muda; nunca regride um status final.
+ */
+export function applyPendingToAgentTasks(tasks: AgentTask[], pendingToolUseIds: ReadonlySet<string> | readonly string[]): AgentTask[] {
+  const ids = pendingToolUseIds instanceof Set ? pendingToolUseIds : new Set(pendingToolUseIds);
+  if (ids.size === 0) return tasks;
+  let changed = false;
+  const out = tasks.map(t => {
+    let calls = t.toolCalls;
+    let callsChanged = false;
+    if (calls?.length) {
+      const mapped = calls.map(c => (c.status === 'running' && ids.has(c.toolUseId) ? { ...c, status: 'waiting' as ToolStatus } : c));
+      if (mapped.some((c, i) => c !== calls![i])) { calls = mapped; callsChanged = true; }
+    }
+    const waitingSelf = t.status === 'running' && (ids.has(t.toolUseId) || (calls?.some(c => c.status === 'waiting') ?? false));
+    if (!callsChanged && !waitingSelf) return t;
+    changed = true;
+    return { ...t, ...(waitingSelf ? { status: 'waiting' as ToolStatus } : {}), ...(callsChanged ? { toolCalls: calls } : {}) };
+  });
+  return changed ? out : tasks;
+}
+
+/**
+ * Estado do dot do "agents pill" (gatilho do Mapa de agentes no rodapé do compositor, perto do model
+ * pill — ver PARIDADE-agentmap.md). Porta `oE1` real (webview v2.1.283): "waiting" se algum agente
+ * trabalha travado numa permissão, senão "running" se algum trabalha, senão "failed" se algum falhou,
+ * senão "idle". Espera a lista JÁ corrigida por `applyPendingToAgentTasks` (o `'waiting'` daqui é o
+ * `J.has(Y.taskId)` de lá).
+ */
+export type AgentsPillDot = 'waiting' | 'running' | 'failed' | 'idle';
+export function agentsPillDot(tasks: AgentTask[]): AgentsPillDot {
+  let running = false, failed = false;
+  for (const t of tasks) {
+    if (t.status === 'waiting') return 'waiting';
+    if (t.status === 'running') running = true;
+    else if (t.status === 'failure') failed = true;
+  }
+  return running ? 'running' : failed ? 'failed' : 'idle';
+}
+
+/** Contagem do pill — porta `pS` real (`r41`: `status==="working"`): só agentes ATIVOS contam; o
+ * `'waiting'` do Orion é um "working travado em permissão", então conta também. */
+export function agentsPillCount(tasks: AgentTask[]): number {
+  return tasks.filter(t => t.status === 'running' || t.status === 'waiting').length;
+}
+
+/** Rótulo do pill — porta `$P1` real (`"${N} agent(s)"`), em PT-BR como o resto da tela. */
+export function agentsPillCountLabel(n: number): string {
+  return `${n} ${n === 1 ? 'agente' : 'agentes'}`;
+}
+
+/** Tooltip/aria do pill por estado do dot — porta a tabela `CJ5` real, traduzida. */
+export function agentsPillTitle(dot: AgentsPillDot): string {
+  switch (dot) {
+    case 'waiting': return 'Um agente aguarda sua permissão · Clique para abrir o Mapa de agentes';
+    case 'running': return 'Agentes trabalhando · Clique para abrir o Mapa de agentes';
+    case 'failed': return 'Um agente falhou · Clique para abrir o Mapa de agentes';
+    default: return 'Clique para abrir o Mapa de agentes';
+  }
+}
+
+/**
+ * Linhas dobráveis de subagente com overflow (`focus-subagent-row`/`focus-subagent-overflow-row`
+ * reais — ver PARIDADE-agentmap.md): até 3 linhas visíveis; com 4, todas (a 4ª no lugar da linha de
+ * overflow — não vale a pena esconder UMA atrás de uma linha do mesmo tamanho); com 5+, 3 visíveis e
+ * o resto colapsado numa linha "+N outros agentes". Porta exata de `oU0`/`HA1=3` do webview v2.1.283.
+ */
+export const AGENT_ROWS_VISIBLE = 3;
+export function splitAgentRows<T>(tasks: T[]): { visible: T[]; overflow: T[] } {
+  if (tasks.length <= AGENT_ROWS_VISIBLE + 1) return { visible: tasks, overflow: [] };
+  return { visible: tasks.slice(0, AGENT_ROWS_VISIBLE), overflow: tasks.slice(AGENT_ROWS_VISIBLE) };
+}
+
+/** Rótulo de uma linha de subagente — porta `sU0` real (`summary ?? recentTools.at(-1)`; igual à
+ * descrição ou ausente → só a descrição): aqui o "último tool" vem da última call aninhada já vista
+ * (`toolCalls`, dado real do stream — o Orion não tem o campo `summary` do progress dedicado real). */
+export function agentRowLabel(task: AgentTask): string {
+  const last = task.toolCalls?.at(-1);
+  const recent = last ? (last.description ?? last.label) : undefined;
+  if (recent === undefined || recent === task.description) return task.description;
+  return `${task.description}: ${recent}`;
+}
+
+/** Meta de uma linha de subagente — porta `$V0`+`nU0` reais: `[tokens, ferramentas,] decorrido`.
+ * Sem `usage` do SDK (o caso comum ao vivo), a contagem de ferramentas vem das calls aninhadas já
+ * observadas — dado real do stream, não inventado; sem nada, só o decorrido. */
+export function agentRowMeta(task: AgentTask, now: number): string {
+  const elapsed = formatAgentDuration(Math.max(0, (task.endedAt ?? now) - (task.startedAt ?? now)));
+  const u = task.usage;
+  if (u?.totalTokens !== undefined && u.totalTokens > 0) {
+    const tools = u.toolUses ?? task.toolCalls?.length ?? 0;
+    return [`${formatTokens(u.totalTokens)} tokens`, `${tools} ${tools === 1 ? 'ferramenta' : 'ferramentas'}`, elapsed].join(' · ');
+  }
+  const n = task.toolCalls?.length ?? 0;
+  return n > 0 ? `${n} ${n === 1 ? 'ferramenta' : 'ferramentas'} · ${elapsed}` : elapsed;
+}
+
+/** Rótulo da linha de overflow — porta `tU0` real (`"+N more agent(s)"`), em PT-BR. */
+export function agentOverflowLabel(n: number): string {
+  return n === 1 ? '+1 outro agente' : `+${n} outros agentes`;
+}
+
+/** Meta da linha de overflow — porta `eU0` real: duração COMBINADA (soma dos decorridos) sempre;
+ * tokens+ferramentas somados na frente só quando algum `usage` real chegou (tokens > 0). */
+export function agentOverflowMeta(tasks: AgentTask[], now: number): string {
+  let tokens = 0, tools = 0, combined = 0;
+  for (const t of tasks) {
+    if (t.usage) { tokens += t.usage.totalTokens ?? 0; tools += t.usage.toolUses ?? 0; }
+    if (t.startedAt !== undefined) combined += Math.max(0, (t.endedAt ?? now) - t.startedAt);
+  }
+  const comb = `${formatAgentDuration(combined)} combinados`;
+  if (tokens <= 0) return comb;
+  return [`${formatTokens(tokens)} tokens`, `${tools} ${tools === 1 ? 'ferramenta' : 'ferramentas'}`, comb].join(' · ');
 }
 
 /**
