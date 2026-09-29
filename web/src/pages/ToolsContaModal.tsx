@@ -3,11 +3,11 @@ import { copiar } from './ToolsNotas';
 
 type Props = {
   icone: ReactNode; badge: string; badgeClass: string; titulo: string; sub?: string;
-  linhas: [string, string][]; notas: string; onEdit?: () => void; onClose: () => void;
+  linhas: [string, string][]; notas: string; secao?: string; onEdit?: () => void; onClose: () => void;
 };
 
 /** Popup de uma conta (GitHub, Cloudflare): mesmo visual do popup do catálogo, com os valores inteiros e a explicação completa. */
-export default function ToolsContaModal({ icone, badge, badgeClass, titulo, sub, linhas, notas, onEdit, onClose }: Props) {
+export default function ToolsContaModal({ icone, badge, badgeClass, titulo, sub, linhas, notas, secao, onEdit, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -24,10 +24,10 @@ export default function ToolsContaModal({ icone, badge, badgeClass, titulo, sub,
         </div>
         <h2 className="tls-modal-title">{titulo}</h2>
         {sub && <p className="tls-desc">{sub}</p>}
-        <dl className="tls-rows">
+        {linhas.length > 0 && <dl className="tls-rows">
           {linhas.map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd className="cp" title="clique para copiar" onClick={() => copiar(v)}>{v}</dd></Fragment>)}
-        </dl>
-        <div className="tls-modal-sec">Explicação (entra no prompt de toda sessão)</div>
+        </dl>}
+        <div className="tls-modal-sec">{secao ?? 'Explicação (entra no prompt de toda sessão)'}</div>
         {notas.trim() ? <div className="tls-details">{notas}</div> : <p className="muted small">Nada descrito ainda.{onEdit && ' Clique em ✎ para preencher.'}</p>}
         {onEdit && <div className="tls-form-actions"><button onClick={onEdit}>✎ Editar</button></div>}
       </div>
