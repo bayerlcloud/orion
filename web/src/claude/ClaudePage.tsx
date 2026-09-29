@@ -8,7 +8,8 @@ import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
 import AgentMap from './AgentMap';
 import SkillsHooksPanel from './SkillsHooksPanel';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench } from './icons';
+import PermissionRules from './PermissionRules';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield } from './icons';
 import './claude.css';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
@@ -36,6 +37,10 @@ export default function ClaudePage() {
   const [login, setLogin] = useState<{ logged_in: boolean; linux_user: string | null; version: string } | null>(null);
   const [usage, setUsage] = useState<UsageBar[]>([]);
   const [email, setEmail] = useState<string | null>(null);
+  // `role` só alimenta `canEditUser` do editor de "Regras de permissão" (ver PermissionRules.tsx) —
+  // escrever no escopo "Usuário" é restrito a `role === 'owner'` porque afeta TODOS os projetos e
+  // usuários do Orion (um único settings.json de usuário, do login que roda o servidor na c3).
+  const [role, setRole] = useState<string | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, LiveState>>({});
@@ -48,6 +53,11 @@ export default function ClaudePage() {
   const [agentMapOpen, setAgentMapOpen] = useState(false);
   // Painel de skills + lista de hooks (SkillsHooksPanel.tsx) — mesmo padrão de gatilho/estado do Mapa de agentes acima.
   const [skillsHooksOpen, setSkillsHooksOpen] = useState(false);
+  // "Regras de permissão" (ver PermissionRules.tsx, PARIDADE.md item 9 da seção 13) — mesmo padrão de
+  // gatilho na `.cc-tab-actions`, mas SEM depender de `activeId` (diferente do Mapa de agentes): as
+  // regras são por projeto/usuário, não por sessão — faz sentido abrir o painel mesmo sem nenhuma aba
+  // aberta ainda (ex.: primeira visita à página).
+  const [permRulesOpen, setPermRulesOpen] = useState(false);
   const [erro, setErro] = useState('');
   // true até o primeiro fetch de sessões terminar (sucesso ou falha) — enquanto isso, a lateral
   // mostra "Carregando sessões…" em vez de pular direto pra "Nenhuma sessão" (ver Sidebar.tsx;
@@ -108,7 +118,7 @@ export default function ClaudePage() {
     void refreshUsage();
     claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
-    claudeApi.me().then(r => setEmail(r.user.email)).catch(() => setEmail(null));
+    claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); }).catch(() => { setEmail(null); setRole(null); });
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
     return () => { alive = false; clearInterval(t); };
   }, [refreshSessions, refreshUsage]);
@@ -368,6 +378,10 @@ export default function ClaudePage() {
   // sessão ativa resolvido por slug, mesmo caminho que `activeProjectPath` já usa acima (sem coluna
   // `project_id` na resposta de `GET /api/claude/sessions`, que só devolve `project_slug`/`project_name`).
   const activeProject = active ? projects.find(p => p.slug === active.project_slug) : undefined;
+  // Projeto pra pré-selecionar no editor de "Regras de permissão" ao abrir — sessão de verdade: o
+  // projeto dela (via `project_slug`); aba rascunho: o projeto escolhido no seletor do compositor.
+  // `undefined` quando nada resolve (ex.: nenhuma aba aberta) — o painel cai no 1º projeto da lista.
+  const permRulesProjectId = activeTab?.draft ? (activeTab.projectId ?? draftProject) : (active ? projects.find(p => p.slug === active.project_slug)?.id : undefined);
 
   return (
     <div className="cc">
@@ -391,6 +405,7 @@ export default function ClaudePage() {
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
             <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
             <button className="cc-icon" title="Skills e hooks" disabled={!activeId} onClick={() => setSkillsHooksOpen(true)}><Wrench size={13} /></button>
+            <button className="cc-icon" title="Regras de permissão" onClick={() => setPermRulesOpen(true)}><Shield size={13} /></button>
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
             <button className="cc-icon" title="Renomear sessão" onClick={rename}><Dots size={13} /></button>
@@ -482,6 +497,13 @@ export default function ClaudePage() {
           projectLabel={activeProject?.name}
         />
       )}
+      <PermissionRules
+        open={permRulesOpen}
+        onClose={() => setPermRulesOpen(false)}
+        projects={projects}
+        defaultProjectId={permRulesProjectId}
+        canEditUser={role === 'owner'}
+      />
     </div>
   );
 }

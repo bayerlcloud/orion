@@ -30,3 +30,6 @@ export const GitBranch = ({ size, className }: P) => <svg {...base(size)} classN
 export const Mic = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="6" y="1.5" width="4" height="7.5" rx="2" /><path d="M4 7.5a4 4 0 0 0 8 0M8 11.5v2.5M6 14h4" /></svg>;
 /** Chave inglesa — gatilho do painel de skills + hooks (ver SkillsHooksPanel.tsx). Sem equivalente pronto neste arquivo; mesmo estilo minimalista (traço 1.5, 16x16). */
 export const Wrench = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M10.5 3a3 3 0 0 0-3.9 3.5L2.5 10.6a1.4 1.4 0 0 0 2 2l4.1-4.1A3 3 0 0 0 13 5.5l-2 2-1.5-1.5z" /></svg>;
+/** Escudo — gatilho do editor de "Regras de permissão" (ver PermissionRules.tsx). Sem equivalente
+ * pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
+export const Shield = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 2l5 2v4c0 3.3-2.1 5.5-5 6.5C5.1 13.5 3 11.3 3 8V4l5-2z" /><path d="M6 8l1.4 1.4L10.5 6" /></svg>;

@@ -541,6 +541,46 @@
 .cc-skill-toggle.is-off { color: var(--cc-fg2); }
 .cc-skill-toggle:disabled { opacity: .6; cursor: default; }
 
+/* Regras de permissão (PermissionRules.tsx) — mesma mecânica visual de overlay do Mapa de agentes
+   acima (position:fixed, sem createPortal, herda `--cc-*` de `.cc`). */
+.cc-permrules-overlay { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,.6); padding: 24px; }
+.cc-permrules { width: 100%; max-width: 560px; max-height: 82vh; overflow: auto; background: var(--cc-panel); border: 1px solid var(--cc-line); border-radius: 10px; box-shadow: 0 4px 24px rgba(0,0,0,.5); display: flex; flex-direction: column; position: relative; }
+.cc-permrules-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--cc-line); position: sticky; top: 0; background: var(--cc-panel); z-index: 1; }
+.cc-permrules-title { font-weight: 700; font-size: 14px; }
+.cc-permrules-subtitle { color: var(--cc-fg2); font-size: 11px; margin-top: 2px; }
+
+.cc-permrules-scope { display: flex; align-items: center; gap: 8px; padding: 12px 16px 0; }
+.cc-permrules-toggle { width: 220px; flex-shrink: 0; margin: 0; }
+.cc-permrules-notice { margin: 10px 16px 0; padding: 6px 10px; border-radius: var(--r); background: color-mix(in srgb, var(--cc-warning) 14%, transparent); color: var(--cc-fg); font-size: 11px; }
+.cc-permrules-error { margin: 10px 16px 0; padding: 6px 10px; border-radius: var(--r); background: #3a1f1c; color: #f0b3a8; font-size: 11px; }
+
+.cc-permrules-body { padding: 8px 16px 4px; overflow: auto; }
+.cc-permrules-section { padding: 10px 0; border-top: 1px solid var(--cc-line); }
+.cc-permrules-section:first-child { border-top: none; }
+.cc-permrules-section-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 600; color: var(--cc-fg2); padding: 2px 0 6px; }
+.cc-permrules-add { display: inline-flex; align-items: center; gap: 3px; color: var(--cc-fg2); font-size: 11px; border-radius: var(--r); padding: 2px 6px; }
+.cc-permrules-add:hover { background: var(--cc-hover); color: var(--cc-fg); }
+.cc-permrules-empty { color: var(--cc-fg2); font-size: 12px; padding: 4px 0; }
+
+.cc-permrules-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 6px; border-radius: var(--r); }
+.cc-permrules-item:hover { background: var(--cc-hover); }
+.cc-permrules-text { font-size: 12px; overflow-wrap: anywhere; }
+.cc-permrules-actions { display: flex; gap: 2px; flex-shrink: 0; }
+
+.cc-permrules-form { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.cc-permrules-input { flex: 1; min-width: 0; background: var(--cc-code); color: var(--cc-fg); border: 1px solid var(--cc-line); border-radius: var(--r); padding: 5px 8px; font: inherit; font-size: 12px; }
+.cc-permrules-input:focus { outline: none; border-color: var(--cc-orange); }
+
+.cc-permrules-footer { padding: 8px 16px 12px; font-size: 11px; color: var(--cc-fg2); border-top: 1px solid var(--cc-line); }
+
+/* Confirmação de editar/remover — pequeno overlay POR CIMA do próprio painel (`.cc-permrules` é
+   `position:relative`, ver acima), mesma ideia do overlay real ("Remove {behavior} rule?"). */
+.cc-permrules-overlay-inner { position: absolute; inset: 0; z-index: 2; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,.5); padding: 16px; border-radius: 10px; }
+.cc-permrules-confirm { width: 100%; max-width: 380px; background: var(--cc-bg2); border: 1px solid var(--cc-line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; }
+.cc-permrules-confirm-title { font-weight: 600; font-size: 13px; }
+.cc-permrules-confirm-rule { font-size: 12px; color: var(--cc-fg2); overflow-wrap: anywhere; }
+.cc-permrules-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
 /* tema claro na área do Claude */
 :root[data-theme="light"] .cc {
   --cc-bg: #ffffff; --cc-bg2: #f6f6f7; --cc-panel: #fafafa; --cc-fg: #1a1a1c; --cc-fg2: #6a6a70; --cc-line: #e2e2e6;

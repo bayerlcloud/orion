@@ -15,6 +15,18 @@ export type Me = { id: number; name: string; email: string; role: string };
 /** Anexo já salvo no servidor pelo endpoint de upload. */
 export type Attachment = { kind: 'image' | 'file'; media_type: string; name: string; path: string; size?: number };
 
+/**
+ * Editor de regras de permissão (allow/deny/ask) — ver `server/claude/permissionRules.ts` (decisão de
+ * arquitetura completa) e PARIDADE.md item 9 da seção 13. `'user'`: `~/.claude/settings.json` do login
+ * único que roda o servidor na c3 (global — afeta TODOS os projetos/usuários do Orion). `'project'`:
+ * `<project.path>/.claude/settings.json` do projeto escolhido. Nunca `'local'`
+ * (`.claude/settings.local.json`) — o `Runner` não lê esse arquivo hoje (`settingSources: ['user',
+ * 'project']`), então uma regra salva lá nunca teria efeito; por isso nem é oferecido na UI.
+ */
+export type PermissionBehavior = 'allow' | 'ask' | 'deny';
+export type PermissionScope = 'user' | 'project';
+export type PermissionRuleSet = { allow: string[]; ask: string[]; deny: string[] };
+
 export const claudeApi = {
   status: () => api<{ logged_in: boolean; home: string; version: string; linux_user: string | null }>('/api/claude/status'),
   me: () => api<{ user: Me }>('/api/me'),
@@ -66,6 +78,16 @@ export const claudeApi = {
   skills: (projectId: number) => api<{ skills: SkillEntry[] }>(`/api/claude/projects/${projectId}/skills`),
   setSkillEnabled: (projectId: number, name: string, enabled: boolean) =>
     api<{ ok: true }>(`/api/claude/projects/${projectId}/skills`, { method: 'POST', body: JSON.stringify({ name, enabled }) }),
+  /** Lista as regras do escopo. `error` (opcional na resposta): settings.json existe mas tem JSON inválido — o servidor devolve 3 listas vazias + o motivo, em vez de travar a tela. */
+  permissionRules: (scope: PermissionScope, projectId?: number) =>
+    api<PermissionRuleSet & { error?: string }>(`/api/claude/permission-rules?scope=${scope}${projectId ? `&project_id=${projectId}` : ''}`),
+  addPermissionRule: (b: { scope: PermissionScope; projectId?: number; behavior: PermissionBehavior; rule: string }) =>
+    api<PermissionRuleSet>('/api/claude/permission-rules', { method: 'POST', body: JSON.stringify({ scope: b.scope, project_id: b.projectId, behavior: b.behavior, rule: b.rule }) }),
+  /** "Editar" = trocar texto e/ou behavior numa escrita só (`replaceRule` no servidor: remove a antiga se ainda existir, adiciona a nova). */
+  editPermissionRule: (b: { scope: PermissionScope; projectId?: number; oldBehavior: PermissionBehavior; oldRule: string; behavior: PermissionBehavior; rule: string }) =>
+    api<PermissionRuleSet>('/api/claude/permission-rules', { method: 'PUT', body: JSON.stringify({ scope: b.scope, project_id: b.projectId, old_behavior: b.oldBehavior, old_rule: b.oldRule, behavior: b.behavior, rule: b.rule }) }),
+  removePermissionRule: (b: { scope: PermissionScope; projectId?: number; behavior: PermissionBehavior; rule: string }) =>
+    api<PermissionRuleSet>('/api/claude/permission-rules', { method: 'DELETE', body: JSON.stringify({ scope: b.scope, project_id: b.projectId, behavior: b.behavior, rule: b.rule }) }),
 };
 
 export const MODE_LABEL: Record<Mode, string> = { acceptEdits: 'Edição automática', default: 'Manual', plan: 'Plan', auto: 'Auto' };

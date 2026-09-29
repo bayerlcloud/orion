@@ -1617,10 +1617,12 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
    sobrepor com o que já existe no Orion (`GET /api/claude/ui-state/stream`, sincronização
    cross-tab/cross-device já implementada por outra sessão, ver commit `631aee9`) — precisa
    comparar antes de decidir se é gap ou já coberto por outro mecanismo.
-9. **Editor de regras de permissão** — classes `ruleItem/ruleActions/ruleDescription/ruleInput/
-   ruleMain/ruleSource/ruleText/addRuleButton/confirmRule/confirmRemoveRow/confirmRemoveText`.
-   Provavelmente uma tela de Settings pra editar as regras de allow/deny (equivalente UI do que
-   hoje só existe em `settings.json`/CLAUDE.md).
+9. **Editor de regras de permissão** — **IMPLEMENTADO em 29/09/2026, ver seção 18.** Classes
+   `ruleItem/ruleActions/ruleDescription/ruleInput/ruleMain/ruleSource/ruleText/addRuleButton/
+   confirmRule/confirmRemoveRow/confirmRemoveText`. A investigação original (levantamento por nome de
+   classe, sem ler o componente inteiro) tinha um erro: `confirmRemoveRow/confirmRemoveText` NÃO
+   pertencem a este painel — são de um componente genérico diferente (remoção de servidor MCP), ver
+   seção 18.
 10. **Lista de hooks** — classe `hookRow`, sem string literal capturada ainda. **IMPLEMENTADO em
     29/09/2026, ver seção 17** — SÓ LEITURA (decisão de segurança: sem canal de edição seguro
     equivalente ao real, e um hook `command` é shell arbitrário que rodaria sozinho pra todo mundo
@@ -2467,6 +2469,202 @@ rotas de `claudeRoutes`) + a suíte de `vitest` que cobre a lógica que as rotas
 `010_claude_skill_settings` também não rodou em produção ainda (roda sozinha no próximo boot do
 processo real, como todas as migrações deste arquivo).
 
+## 18. Editor de regras de permissão (allow/ask/deny) — implementado em 29/09/2026 (item 9 da seção 13), worktree isolada `feature/permission-rules`
+
+Item 9 da investigação da seção 13 ("Editor de regras de permissão... provavelmente uma tela de
+Settings pra editar allow/deny, equivalente UI do que hoje só existe em `settings.json`/CLAUDE.md").
+Implementado numa worktree isolada (`/srv/orion-worktrees/permission-rules`, branch
+`feature/permission-rules`), a partir de `/srv/orion` (main) — sem tocar em mudanças não commitadas
+que outras sessões tinham na working tree de `main` no momento.
+
+### O que a extensão real faz de verdade (lido em `/srv/orion-reference-2.1.283/webview/index.js`, v2.1.283 — a mais nova, ver seção 13)
+
+Achado a mais importante desta rodada: a investigação original da seção 13 (item 9) tinha listado
+`confirmRemoveRow`/`confirmRemoveText` junto com as outras classes do editor de regras, só por
+proximidade de nome/tema — **errado**. Lendo o componente inteiro (busca por offset de byte de `var
+U4={sectionHeading:...}` no bundle, não só `grep` de nome de classe solto), o editor de regras de
+verdade usa o grupo de classes `_0Reg3g` (`sectionHeading/addRuleButton/ruleItem/ruleText/ruleSource/
+ruleActions/removeButton/readOnlyReason/notInEffect/managedNotice/errorMessage/loadingText/
+emptyState/hint/scopeNote/ruleMain/ruleDescription/warningMessage/overlayPanel/overlayTitle/
+overlayNote/overlayButtons/confirmRule/ruleInput/destinationRow/destinationSelect`) — SEM
+`confirmRemoveRow`/`confirmRemoveText`. Essas duas pertencem a um componente TOTALMENTE diferente
+(grupo `_IHCQeQ`, var `P1` — o painel de servidores MCP: `serverList/serverItem/callbackUrlSection/
+scopeOption/formActions/confirmRemoveRow/confirmRemoveText`, confirmado pelas outras classes do mesmo
+objeto — `mcpServerList`, `awaitingAuth`, `callbackUrlSubmit` — inequivocamente o fluxo de conectar/
+remover um servidor MCP, não regras de permissão). Achado documentado na correção do item 9 da seção
+13 acima.
+
+O componente real (`jW0({session,onClose})`, aberto num diálogo `f4` com título fixo **"Permission
+rules"**) fala com a Query AO VIVO da sessão via 3 métodos (`session.listPermissionRules()`,
+`session.addPermissionRules(rules, behavior, destination)`, `session.removePermissionRule(rule,
+behavior, source)`) — wrappers da extensão em cima dos control requests do SDK
+(`SDKControlListPermissionRulesRequest`/`SDKControlPermissionRulesState` em
+`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`, confirmados: "Requests the session's live
+permission rules and workspace directories — the same data /permissions lists in the terminal: rules
+from settings files plus session-only approvals, slash-command grants, and --allowedTools flag rules,
+each with its source"). Cada regra (`SDKPermissionRuleEntry`) tem `rule`, `behavior`
+(`allow`/`ask`/`deny` — constante `xA1=["allow","ask","deny"]`, rótulos `AW0={allow:"Allow",
+ask:"Ask",deny:"Deny"}`), `source` (uma de ~10 fontes: `userSettings`/`projectSettings`/
+`localSettings`/`policySettings`/`flagSettings`/`cliArg`/`command`/`session`/`toolsNarrowing`/
+`mcpServerPolicy`/`hostCredential` — mapa `s35` com o texto de cada uma, ex.
+`userSettings:"user settings"`, `localSettings:"project local settings"`), `editability`
+(`"persistent"` = editável; outra coisa = só leitura, com motivo mostrado via `t35()` — "Not saved in
+a settings file.", "Approved for this session only...", "Managed by enterprise settings.", etc.) e
+`notInEffect` (regra existe mas não está valendo, ex. quando `managedOnly` bloqueia tudo que não é
+política). Além das 3 seções allow/ask/deny, um bloco "Workspace" à parte lista `originalCwd` +
+`workspaceDirectories[]`, só leitura, sem botão de remover — fora de escopo aqui (ver decisões
+abaixo). Regra é texto livre validado só por não-vazio (`Q.trim().length===0` desabilita o botão
+"Add rule") — nota fixa na tela: "A permission rule is a tool name, optionally followed by a
+specifier in parentheses, e.g. `WebFetch` or `Bash(ls *)`.". Destinos de escrita (`Y$5`, no formulário
+de adicionar): só 3 das ~10 fontes acima são escreveis — `localSettings`/`userSettings`/
+`projectSettings` (rótulos curtos `Vv`: "this project (just you)" / "all projects" / "this project
+(shared)"), com `localSettings` como padrão inicial. Remover uma regra abre um overlay de confirmação
+de verdade — achado que CONFIRMA a expectativa do pedido de que a extensão real tem essa confirmação,
+só que com classes diferentes das listadas originalmente: `overlayTitle` = **"Remove {behavior}
+rule?"**, corpo com `confirmRule` (texto da regra + fonte), nota fixa "The rule is deleted from its
+settings file and stops applying to this session once Claude Code has re-read its settings.", botões
+"Remove rule"/"Cancel". Depois de add/remove, a extensão faz um vaivém de confirmação assíncrona
+("pending"/"unconfirmed") porque está pedindo pro PROCESSO da Query re-ler o arquivo do disco e
+confirmar via file watcher, com timeout — mecanismo que só faz sentido quando a fonte da verdade é
+uma sessão ao vivo remota.
+
+### Decisões de arquitetura do Orion (documentadas em detalhe em `server/claude/permissionRules.ts`)
+
+**Por que ler/escrever o arquivo direto, e não rotear pela Query viva de uma sessão**: investigação em
+`server/claude/runner.ts` (não hipótese) confirma que `Runner.run()` sempre chama o SDK com
+`settingSources: ['user', 'project']` — **nunca `'local'`**. Ou seja, `.claude/settings.local.json`
+NUNCA é lido por uma sessão do Orion hoje, e por isso esse escopo nem é oferecido na UI (oferecer
+seria uma cilada silenciosa: a regra pareceria salva, mas nunca teria efeito nenhum). Dos 2 escopos
+que sobram e que o Orion de fato lê, nenhum depende de uma sessão ao vivo — `'user'` é
+`~/.claude/settings.json` do usuário do SO que roda o servidor (`danilo` na c3, confirmado com
+`getent passwd danilo` → home `/home/danilo`; hoje sem `settings.json` ainda, só a pasta `~/.claude/`
+com outros arquivos), `'project'` é `<project.path>/.claude/settings.json`, `path` já resolvido pela
+tabela `projects` (nunca um caminho vindo do cliente). Como o SDK só lê esses arquivos quando uma NOVA
+Query é construída (início de sessão), nunca hot-reloaded no meio de um turno, não existe nenhuma
+vantagem em ir pela Query viva (que só existiria enquanto um turno está rodando, e o Orion é
+multi-projeto — nem sempre há uma sessão ativa pro projeto que alguém quer editar agora) em vez de
+ler/escrever o arquivo direto no disco do servidor. Consequência boa: sem a dança "pending/
+unconfirmed" da extensão real (aqui a escrita já É a verdade, na hora) e o painel funciona mesmo sem
+nenhuma sessão aberta.
+
+**Escopo mostrado — por projeto, não "workspace único"**: diferente da extensão real (1 workspace só),
+o Orion é multi-projeto (`projects: id, slug, name, path, rules`), então o painel tem um seletor
+Projeto/Usuário (`<select>` de projeto quando `scope==='project'`, mesmo padrão `cc-pill cc-select` já
+usado no seletor de projeto do compositor) em vez de mostrar "o workspace atual" implícito. As 3
+seções (Permitir/Perguntar/Negar, tradução de Allow/Ask/Deny) são sempre 100% editáveis quando
+`canEdit` é verdadeiro — sem as seções só-leitura (`cliArg`/`session`/`policySettings`/...) da
+extensão real, que não existem no modelo do Orion (sem flags de CLI por sessão, sem camada de
+política enterprise configurada aqui) — e sem o bloco "Workspace directories", que também não tem
+equivalente (o Orion não tem um mecanismo de "adicionar diretório extra" pela UI).
+
+**Escrita em `'user'` restrita a admin**: um único `~/.claude/settings.json` é compartilhado por TODOS
+os projetos E todos os usuários do Orion (o CLI sempre roda com o mesmo login `danilo` na c3) — um
+raio de efeito global bem maior que qualquer outra configuração editável hoje pela UI. Por isso
+`POST`/`PUT`/`DELETE /api/claude/permission-rules` com `scope: "user"` exigem `req.user.role ===
+'owner'` (`server/routes/claude.ts`, mesmo padrão já usado em `DELETE /api/claude/sessions/:id`) —
+gate novo, só pra este escopo; leitura (`GET`) é livre pros dois escopos pra qualquer usuário
+autenticado, e escrita em `'project'` também não tem gate extra (mesmo nível de confiança que o resto
+do app já dá a `projects.rules`, sem ACL por projeto no schema).
+
+**"Editar" como conveniência que a extensão real não tem**: a extensão real só tem Add/Remove — editar
+o texto de uma regra existente não é uma operação de 1 clique lá (seria remover + adicionar de novo,
+manualmente). O pedido desta tarefa pedia editar explicitamente, então existe aqui como uma rota
+própria (`PUT`, função pura `replaceRule(set, oldBehavior, oldRule, newBehavior, newRule)`: remove a
+regra antiga (se ainda existir — idempotente, não lança se já sumiu) e adiciona a nova, numa escrita
+de arquivo só) — inclui trocar o `behavior` no mesmo gesto (ex. mover uma regra de "Permitir" pra
+"Negar"), que a extensão real também não oferece (lá seria remover de uma seção e adicionar noutra).
+
+**Confirmação de remoção**: pedida explicitamente pela tarefa E confirmada como comportamento real da
+extensão (overlay "Remove {behavior} rule?", ver acima) — implementada como `.cc-permrules-confirm`,
+um overlay pequeno POR CIMA do próprio painel (`.cc-permrules-overlay-inner`, `position:absolute`
+sobre `.cc-permrules`, que ganhou `position:relative`), mesma mecânica de Esc
+(capture+`stopImmediatePropagation`, fecha primeiro a confirmação/formulário mais interno antes de
+fechar o painel inteiro) já usada em `AgentMap.tsx` e `Lightbox.tsx`.
+
+**Validação da regra**: mesma regra de fundo da extensão real (só exige texto não-vazio depois de
+`trim()` — sem validar formato "Tool(spec)" nem lista de ferramentas conhecidas, porque a extensão
+real também não valida isso no cliente) + um acréscimo só do Orion: limite de 400 caracteres
+(`validateRuleText`), defesa contra colar um texto gigantesco num arquivo JSON que o CLI relê a cada
+sessão nova — não existe na extensão real, documentado como decisão nossa.
+
+**Escrita segura no disco** (`server/claude/permissionRules.ts`): `mergeSettingsPermissions` só
+substitui as 3 chaves `permissions.allow/ask/deny`, preservando toda outra chave de nível superior do
+`settings.json` (model, env, hooks...) e toda outra subchave de `permissions` (defaultMode,
+additionalDirectories...) — nunca reescreve o arquivo do zero. Escrita "atômica" (arquivo temporário +
+`rename`, atômico em POSIX dentro do mesmo diretório) evita deixar o `settings.json` pela metade se o
+processo cair no meio. Se o arquivo já existe mas tem JSON inválido, `writePermissionRuleSet` RECUSA
+escrever (lança um erro claro em vez de silenciosamente começar de um objeto vazio) — sobrescrever
+assim destruiria toda a config que já estava lá só porque não conseguimos entender o arquivo; a rota
+devolve esse erro pro usuário corrigir manualmente primeiro. Path do escopo `'project'`
+(`settingsPathForScope`) nunca aceita um caminho relativo nem monta um caminho sem saber a raiz — o
+único dado vindo do cliente é `project_id` (inteiro), resolvido pro `path` do projeto no servidor
+(mesmo padrão de confiança que a criação de sessão/worktree já usa pra `project_id`); não há
+superfície de path traversal aqui porque nenhum path bruto vem do cliente em nenhum momento.
+
+### O que foi implementado
+
+**Servidor** (`server/claude/permissionRules.ts`, novo, só funções puras + I/O injetável — mesmo
+padrão de `attachmentBlocks` em `runner.ts`): `validateRuleText`, `settingsPathForScope`,
+`parseSettingsPermissions`, `mergeSettingsPermissions`, `addRule`/`removeRule`/`replaceRule` (puras),
+`readPermissionRuleSet`/`writePermissionRuleSet`/`mutatePermissionRuleSet` (I/O real por padrão,
+injetável em teste). `server/routes/claude.ts`: `GET/POST/PUT/DELETE /api/claude/permission-rules`
+(query string `scope`/`project_id` no GET; corpo JSON nos outros 3), gate de admin só pro escopo
+`user` em escrita, 400/403/404/500 com mensagens PT-BR conforme o caso.
+
+**Cliente**: `web/src/claude/api.ts` ganhou `PermissionBehavior`/`PermissionScope`/`PermissionRuleSet`
+(mesmo padrão de `Mode`/`Effort` já existentes) + 4 métodos em `claudeApi`
+(`permissionRules`/`addPermissionRule`/`editPermissionRule`/`removePermissionRule`).
+`web/src/claude/PermissionRules.tsx` (novo): painel modal, mesmo padrão visual/estrutural de
+`AgentMap.tsx` (overlay `position:fixed`, SEM `createPortal` — mesmo motivo documentado lá: herdar
+`--cc-*`, que só existe dentro de `.cc`; Esc com capture+`stopImmediatePropagation`). `icons.tsx`
+ganhou `Shield` (ícone novo, desenhado no mesmo estilo minimalista dos outros — sem equivalente
+pronto). `ClaudePage.tsx`: novo botão na `.cc-tab-actions` (mesma fileira do Mapa de agentes/Parar/
+Recarregar/Renomear) — diferente do Mapa de agentes, **não** desabilitado sem `activeId` (regras são
+por projeto/usuário, não por sessão; faz sentido abrir o painel mesmo sem nenhuma aba aberta ainda);
+`role` (novo estado, populado junto com `email` na mesma chamada `claudeApi.me()` que já existia)
+alimenta `canEditUser`; `permRulesProjectId` deriva o projeto pra pré-selecionar no painel (sessão
+real: via `project_slug`; aba rascunho: o projeto escolhido no seletor do compositor) — só um valor
+inicial, o usuário troca livremente dentro do painel. CSS novo em `claude.css`
+(`.cc-permrules-*`), reusando ao máximo classes já existentes (`.cc-btn`/`.cc-btn-primary`/
+`.cc-select`/`.cc-pill`/`.cc-icon`/`.cc-toggle`/`.cc-loading`/`.cc-spinner`/`.cc-mono`) — só o
+necessário é novo.
+
+### Testes (TDD, vermelho→verde confirmado)
+
+`tests/permissionRules.test.ts` (novo, 42 testes): confirmado vermelho primeiro (`Failed to load url
+../server/claude/permissionRules` — módulo ainda não existia), depois verde após a implementação.
+Cobre: `validateRuleText` (vazio, só espaço, 400/401 caracteres — limite exato); `settingsPathForScope`
+(os dois escopos, path relativo em cada um lança, `project` sem `projectPath` lança);
+`parseSettingsPermissions` (sem chave `permissions`, valores presentes, `raw` `undefined`/array/
+string/número não lança, itens não-string filtrados, `allow` não-array vira vazio);
+`mergeSettingsPermissions` (do zero, preserva outras chaves de nível superior E outras subchaves de
+`permissions`, imutabilidade); `addRule`/`removeRule`/`replaceRule` (dedupe, trim, regra ausente não
+lança, troca de behavior, idempotência quando a regra antiga já sumiu, imutabilidade); I/O real contra
+`mkdtemp(tmpdir())` (mesmo padrão de `tests/attachments.test.ts`): arquivo ausente → vazio sem erro,
+round-trip escreve/relê, cria `.claude/` quando falta, preserva chave `model` já existente ao
+escrever, JSON inválido existente → leitura devolve erro sem lançar E escrita RECUSA sobrescrever
+(lança, arquivo original intacto); `mutatePermissionRuleSet` (orquestra ler→mutar→escrever, duas
+mutações em sequência acumulam).
+
+Suíte inteira: **578 testes** (536 antes desta rodada — já incluindo trabalho de outras sessões em
+paralelo, tabela do Kanban/memória/etc., sem relação com esta feature — + 42 novos, todos em
+`tests/permissionRules.test.ts`), todos verdes. `npx tsc -p tsconfig.server.json --noEmit` e `npx tsc
+-p tsconfig.json --noEmit` (front) limpos. `npm run build` (`vite build && tsc -p
+tsconfig.server.json`) limpo — único aviso é o de chunk grande do `Editor` (CodeMirror), pré-existente,
+sem relação com esta rodada. **Sem navegador/visual-testing neste ambiente** — mesma limitação de
+sempre; o painel/formulário/confirmação não foram vistos renderizados de verdade, só revisados por
+leitura cuidadosa comparando com o padrão já em produção do `AgentMap.tsx` (overlay/Esc/sem portal) e
+dos seletores de Modelo/Esforço/Modo (`cc-pill`/`cc-select`/`cc-toggle`, reuso literal).
+
+**Fora do escopo desta rodada** (decisão deliberada, documentada acima): escopo `'local'`
+(`.claude/settings.local.json` — o Runner não lê, ofertar seria enganoso); seções só-leitura da
+extensão real (`cliArg`/`session`/`policySettings`/`flagSettings`/`command`/`toolsNarrowing`/
+`mcpServerPolicy`/`hostCredential` — nenhuma tem equivalente no modelo do Orion hoje); bloco "Workspace
+directories" (sem mecanismo de "additional directories" pela UI do Orion); validação de formato da
+regra além de não-vazio (a extensão real também não valida); qualquer coisa envolvendo uma Query ao
+vivo (decisão de arquitetura documentada acima: ler/escrever o arquivo é suficiente e mais simples
+pro modelo multi-projeto do Orion).
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -2744,3 +2942,31 @@ processo real, como todas as migrações deste arquivo).
   no `sdk.d.ts`). 42 testes novos (19 `tests/hooks.test.ts`, 17 `tests/skills.test.ts`, 6
   `tests/hooksGrouping.test.ts`), TDD, suíte inteira **578 testes**, `npm run typecheck` e `npm run
   build` verdes. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.
+- **implementado nesta rodada** (29/09/2026 — "Aba Claude": editor de regras de permissão (allow/ask/
+  deny), item 9 da seção 13, worktree isolada `feature/permission-rules`; ver seção 18 para os
+  detalhes e evidências completas): lendo o componente real inteiro (`jW0` em
+  `/srv/orion-reference-2.1.283/webview/index.js`), corrigido um erro da investigação original —
+  `confirmRemoveRow`/`confirmRemoveText` NÃO pertencem ao editor de regras, são de um componente
+  genérico diferente (remoção de servidor MCP); o editor real fala com a Query AO VIVO de uma sessão
+  (`listPermissionRules`/`addPermissionRules`/`removePermissionRule`, control requests do SDK). Achado
+  que decidiu a arquitetura: `server/claude/runner.ts` usa `settingSources: ['user', 'project']` —
+  **nunca `'local'`** — então o Orion lê/escreve os DOIS arquivos `settings.json` (usuário e projeto)
+  DIRETO no disco em vez de rotear por uma Query viva (que só existe durante um turno; o Orion é
+  multi-projeto, nem sempre há sessão ativa pro projeto que alguém quer editar), sem oferecer o escopo
+  `'local'` (nunca lido, seria uma regra que pareceria salva mas nunca teria efeito). `server/claude/
+  permissionRules.ts` (novo, só funções puras + I/O injetável): validação, path do escopo, parse/merge
+  de `permissions.allow/ask/deny` preservando as demais chaves do settings.json, add/remove/replace de
+  regra, leitura/escrita em disco com escrita atômica (arquivo temp + rename) e recusa de sobrescrever
+  um settings.json com JSON inválido. `GET/POST/PUT/DELETE /api/claude/permission-rules`
+  (`server/routes/claude.ts`) — escrita no escopo `'user'` restrita a `role==='owner'` (raio de efeito
+  global: um único settings.json de usuário compartilhado por todos os projetos/usuários do Orion).
+  `web/src/claude/PermissionRules.tsx` (novo): painel modal (mesmo padrão de `AgentMap.tsx` — overlay
+  `position:fixed`, sem `createPortal`, Esc com capture), seletor Projeto/Usuário, 3 seções Permitir/
+  Perguntar/Negar com adicionar/editar/remover (remover com confirmação, igual à extensão real
+  confirmada); gatilho novo (ícone `Shield`) na `.cc-tab-actions`, sem depender de `activeId`
+  (diferente do Mapa de agentes) porque regras são por projeto/usuário, não por sessão. 42 testes
+  novos TDD (vermelho→verde confirmado: `tests/permissionRules.test.ts` falhava por módulo ausente
+  antes da implementação), suíte inteira **578 testes**, `tsc --noEmit` (server e front) e `npm run
+  build` verdes. Fora do escopo (decisão documentada na seção 18): escopo `'local'`, seções só-leitura
+  da extensão real (sem equivalente no modelo do Orion), bloco "Workspace directories", qualquer coisa
+  via Query ao vivo. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.
