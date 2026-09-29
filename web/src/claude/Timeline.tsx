@@ -5,6 +5,7 @@ import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, 
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
+import { api } from '../api';
 
 /**
  * Markdown do assistente — espelho do `root_-a7MRw` real: `p` em pre-wrap com margens .1em/.2em,
@@ -489,6 +490,23 @@ function UserText({ text }: { text: string }) {
 }
 
 /** Foto de quem escreveu (rota por nome); sem foto, cai na inicial. */
+// Nome completo por primeiro nome ("danilo" -> "Danilo Bayerl"), buscado uma vez por carga da página.
+let displayNames: Promise<Record<string, string>> | null = null;
+function useDisplayName(name: string): string {
+  const [full, setFull] = useState(name);
+  useEffect(() => {
+    displayNames ??= api<{ names: Record<string, string> }>('/api/profile/display-names').then(r => r.names).catch(() => ({}));
+    let alive = true;
+    displayNames.then(n => { if (alive) setFull(n[name.toLowerCase()] || name); });
+    return () => { alive = false; };
+  }, [name]);
+  return full;
+}
+
+function UserName({ name }: { name: string }) {
+  return <div className="cc-user-name">{useDisplayName(name)}</div>;
+}
+
 function UserAvatar({ name }: { name: string }) {
   const [failed, setFailed] = useState(false);
   return (
@@ -688,7 +706,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
                 {m && <UserAvatar name={m[1]} />}
                 <div className="cc-user-body">
-                  {m && <div className="cc-user-name">{m[1]}</div>}
+                  {m && <UserName name={m[1]} />}
                   {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
                   {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
                 </div>
