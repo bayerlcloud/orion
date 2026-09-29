@@ -302,11 +302,12 @@
 
 /* Indicador "pensando" ao vivo (ícone em ciclo + palavra pulsando/trocando) — ver ThinkingIndicator
    em Timeline.tsx e SPINNER_GLYPHS/SPINNER_WORDS em mapper.ts pros achados na extensão real
-   (webview/index.js v2.1.282, componente `Re`). Alinhado à coluna dos pontos da linha do tempo
-   (padding-left 30px, mesmo valor de .cc-msg) mas sem bolinha/linha própria — é efêmero, nunca uma
+   (webview/index.js v2.1.282, componente `Re`). O ícone fica centrado na coluna das bolinhas (centro
+   em 12.5px, igual a .cc-msg::before) e a palavra começa em 30px, junto do texto das mensagens, igual
+   ao plugin no Antigravity. Sem bolinha/linha própria — é efêmero, nunca uma
    mensagem persistida. */
-.cc-live { display: flex; align-items: center; gap: 6px; padding: 6px 0 6px 30px; color: var(--cc-fg2); font-size: 12px; }
-.cc-live-icon { display: inline-block; width: 1.4em; text-align: center; font-family: var(--cc-mono); font-size: 15px; line-height: 1; animation: cc-pulse 1.6s ease-in-out infinite; }
+.cc-live { display: flex; align-items: center; gap: 5px; padding: 6px 0; color: var(--cc-fg2); font-size: 12px; }
+.cc-live-icon { display: inline-block; width: 25px; flex-shrink: 0; text-align: center; font-family: var(--cc-mono); font-size: 15px; line-height: 1; animation: cc-pulse 1.6s ease-in-out infinite; }
 .cc-live-word { animation: cc-fade-in .3s ease; }
 @keyframes cc-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
