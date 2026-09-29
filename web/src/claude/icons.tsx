@@ -22,3 +22,4 @@ export const Archive = ({ size, className }: P) => <svg {...base(size)} classNam
 export const Pencil = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M11 2.5l2.5 2.5L6 12.5 3 13l.5-3z" /></svg>;
 export const Image = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="2.5" y="3" width="11" height="10" rx="1.5" /><circle cx="6" cy="6.5" r="1" /><path d="M3 11l3-3 2.5 2.5L11 7l2 2" /></svg>;
 export const File = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M4 2.5h5l3 3v8a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5z" /><path d="M9 2.5V6h3.5" /></svg>;
+export const GitBranch = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="7" r="1.5" /><path d="M4.5 5v6M4.5 8c0 1.7 1.8 2 5 2v-1.5" /></svg>;

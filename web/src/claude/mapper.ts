@@ -767,3 +767,42 @@ export function attachmentImageUrl(a: { kind: 'image' | 'file'; media_type?: str
   if (a.kind !== 'image' || !a.path || !a.media_type) return undefined;
   return `/api/claude/attachments?path=${encodeURIComponent(a.path)}&type=${encodeURIComponent(a.media_type)}`;
 }
+
+/**
+ * Validação ao vivo do nome de worktree digitado no compositor (Composer.tsx, seletor "Worktree" —
+ * ver PARIDADE.md seção 14) — MESMA regra da extensão real (função `fF0` no webview decompilado
+ * v2.1.283): só letras/números/ponto/hífen/sublinhado, até 64 caracteres, nunca "." nem ".." nem
+ * contendo "..", nunca termina em "." nem ".lock", nunca é ".git" (mesmo com pontos finais ou
+ * maiúsculas). Mensagens em PT-BR, igual ao resto da tela. Duplicada de propósito em
+ * `server/claude/worktree.ts` (mesma regra, nunca importada de lá pra cá): esta função aqui é só
+ * conveniência de UI (mostra o erro cedo, sem round-trip); o servidor sempre revalida antes de
+ * qualquer `git worktree add` — nunca confia neste resultado.
+ */
+export function validateWorktreeName(name: string): string | null {
+  if (!name) return 'nome é obrigatório';
+  if (name.length > 64) return 'nome deve ter até 64 caracteres';
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) return 'use só letras, números, pontos, hífens e sublinhados';
+  if (name === '.' || name === '..' || name.includes('..')) return 'nome não pode ser "." nem ".." nem conter ".."';
+  if (name.endsWith('.') || name.endsWith('.lock')) return 'nome não pode terminar em "." nem ".lock"';
+  if (name.toLowerCase().replace(/\.+$/, '') === '.git') return 'nome não pode ser ".git"';
+  return null;
+}
+
+/**
+ * Nome do worktree de uma sessão, a partir do `cwd` já exposto por `ApiSession` — sem coluna nova no
+ * Postgres (decisão de escopo, ver PARIDADE.md seção 14). Espelha a checagem real da extensão
+ * (`worktree.value.path !== defaultCwd.value` — só mostra pill/banner quando a sessão está FORA do
+ * cwd padrão do projeto), adaptada: aqui não existe um objeto `worktree` com `.name` próprio vindo do
+ * host — o nome é sempre o último segmento do `cwd`, porque toda sessão em worktree tem seu `cwd`
+ * calculado como `<worktreesBaseDir(project.path)>/<nome>` (ver `server/claude/worktree.ts`), então o
+ * último segmento do caminho É o nome que o usuário digitou. `null` quando a sessão está na raiz do
+ * projeto (sem worktree) ou quando falta `cwd`/`projectPath` pra comparar.
+ */
+export function sessionWorktreeName(cwd: string | null | undefined, projectPath: string | null | undefined): string | null {
+  if (!cwd || !projectPath) return null;
+  const norm = (p: string) => p.replace(/\/+$/, '');
+  const c = norm(cwd);
+  if (c === norm(projectPath)) return null;
+  const segs = c.split('/').filter(Boolean);
+  return segs.length ? segs[segs.length - 1] : null;
+}

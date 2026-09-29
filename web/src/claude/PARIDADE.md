@@ -1552,7 +1552,8 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
    hoje provavelmente só vai até "max"; falta o degrau extra "Ultracode" com esse texto e o toggle
    de habilitação.
 
-2. **Criação/gestão de worktree pelo próprio chat** — strings literais: `"New worktree name"`,
+2. **Criação/gestão de worktree pelo próprio chat** — **IMPLEMENTADO em 29/09/2026, ver seção 14.**
+   Strings literais: `"New worktree name"`,
    `"Open worktree"`, `"Failed to create worktree"`, `"This session is in worktree"`; classes
    `createWorktreeButton`, `worktreeBanner*`, `worktreeInput*`, `worktreePill*`; métodos
    `createWorktree($)` → `sendRequest({type:"create_worktree", name:$})`,
@@ -1627,6 +1628,242 @@ Lista completa dos ~810 nomes de classe está salva localmente em
 `/tmp/orion-build/css-components-2.1.283.txt` (máquina do Bayerl, não no c3) para consulta futura
 caso surjam mais dúvidas sobre alguma tela específica — não copiado para o repo porque é matéria-prima
 de pesquisa, não parte da implementação.
+
+## 14. Criar/gerenciar git worktree direto pela UI do chat — implementado em 29/09/2026 (item 2 da seção 13)
+
+Item de maior valor prático da investigação da seção 13 (worktree-por-tarefa já é o próprio fluxo de
+desenvolvimento do Orion). Implementado numa worktree isolada (`/srv/orion-worktrees/worktree-ui`,
+branch `feature/worktree-ui`) pra não mexer em `main` nem nos processos de outras sessões paralelas.
+
+### O que a extensão real faz de verdade (lido em `/srv/orion-reference-2.1.283/webview/index.js`,
+### v2.1.283 — mais nova que a v2.1.282 usada no resto deste documento, ver seção 13)
+
+**Validação do nome** — função `fF0($)`, encontrada por completo (não só o nome):
+```
+function fF0($){if(!$)return"Name is required";if($.length>64)return"Name must be 64 characters
+or fewer";if(!yY5.test($))return"Only letters, numbers, dots, hyphens, and underscores";if($==="."
+||$===".."||$.includes(".."))return'Name cannot be "." or ".." or contain ".."';if($.endsWith(".")
+||$.endsWith(".lock"))return'Name cannot end with "." or ".lock"';if(xY5($))return'Name cannot be
+".git"';return null}
+```
+com `yY5=/^[a-zA-Z0-9._-]+$/` e `xY5($)=$.toLowerCase().replace(/\.+$/,"")===".git"` (ou seja, ".git"
+também é rejeitado com pontos finais ou maiúsculas — `.GIT.` cai na mesma regra). Reimplementada
+**literalmente** (mesma sequência de checagens, mesmos limiares) em duas cópias deliberadamente
+duplicadas — `server/claude/worktree.ts` (`validateWorktreeName`, autoridade final) e
+`web/src/claude/mapper.ts` (`validateWorktreeName`, só validação ao vivo no compositor) — mensagens
+traduzidas pro padrão PT-BR do resto da tela, nunca compartilhadas entre cliente e servidor (o
+servidor nunca confia no que o cliente já validou).
+
+**O campo de nome** (componente que renderiza `worktreeInput_djirOA`, achado buscando a string
+literal do label):
+```
+R("div",{className:_7.worktreeInput,children:[F("div",{className:_7.worktreeInputLabel,
+children:"New worktree name"}),F("input",{...placeholder:"e.g. my-feature",value:G,disabled:J,
+onChange:(H)=>{if(q(H.target.value),Z)Y()},onKeyDown:(H)=>{if(H.key==="Enter"&&G&&!U)X(G);
+else if(H.key==="Escape")Q()},onBlur:()=>{if(!J&&!Z)Q()}}),J&&F("div",{className:
+_7.worktreeInputStatus,children:"Creating worktree…"}),V&&!J&&F("div",{className:
+_7.worktreeInputError,children:V})]}
+```
+`U` é `fF0(G)` (validação local, só roda com `G` truthy — campo vazio nunca mostra erro sozinho),
+`V` prioriza o erro local sobre o erro do backend (`Z`), `J` é o estado de carregando (desabilita o
+campo, mostra "Creating worktree…"). Enter só envia quando há texto E nenhum erro local
+(`G&&!U`); Escape cancela.
+
+**O envio e o resultado**, achados no componente que guarda o estado do painel de sessões
+(`headerRow`/`newSessionButton`, mesma vizinhança de classe `_djirOA`):
+```
+createWorktree($){return this.sendRequest({type:"create_worktree",name:$})}
+// no componente React:
+[r,x]=p(!1),[m,W1]=p(!1),[d,i1]=p(null),
+l0=t1(async(k1)=>{W1(!0),i1(null);try{await J.createWorktree(k1),x(!1)}
+  catch(_0){i1(_0 instanceof Error?_0.message:"Failed to create worktree")}finally{W1(!1)}},[J])
+```
+`sendRequest` é uma chamada ao host da extensão (VS Code) — quem roda `git worktree add` de verdade é
+o processo Node da extensão, nunca o webview (que não tem acesso a shell). Erro sem `.message`
+(rejeição não-Error) cai no fallback literal **"Failed to create worktree"**.
+
+**Achado que muda a implementação**: no `headerRow` real (onde `newSessionButton` e, em tese,
+`createWorktreeButton` deveriam ficar lado a lado — mesmo grupo de sufixo de classe `_djirOA`), o
+segundo filho do array de `children` é um **`null` literal no bundle**:
+```
+R("div",{className:_7.headerRow,children:[R("button",{className:_7.newSessionButton,...},
+"New session"),null]})
+```
+ou seja: o botão que abriria o formulário de worktree **existe em CSS e toda a lógica por trás dele
+segue viva e funcional** (estado, handler, validação, `createWorktree()`), mas o **gatilho na
+barra lateral foi removido/desligado nesta build (v2.1.283)** — código morto do lado do disparo, não
+do lado da funcionalidade. Confirmado que não é um `.vsix` corrompido: `createWorktreeButton`
+aparece exatamente 2x no bundle inteiro, e as duas ocorrências são adjacentes (a chave e o valor da
+MESMA entrada no objeto de mapeamento CSS-module — nenhum uso real em JSX em lugar nenhum). Sem
+comando de paleta alternativo achado (`grep` por "New worktree" como rótulo de `registerAction` não
+bateu). Não sabemos SE isso é intencional (feature em rollout escalonado) ou um bug de build da
+Anthropic — não é hipótese nossa mudar isso, só documentar o achado.
+
+**O banner** (`worktreeBanner_aqhumA`, dentro de `sessionBody`, acima da lista de mensagens):
+```
+J.host!=="jetbrains"&&$.activeSession.value?.worktree.value&&
+$.activeSession.value.worktree.value.path!==J.defaultCwd.value&&
+R("div",{className:y8.worktreeBanner,children:[R("div",{className:y8.worktreeBannerLeft,
+children:[F(bD1,{size:14,className:y8.worktreeBannerIcon}),F("span",{children:
+"This session is in worktree"}),F("span",{className:y8.worktreeBannerName,children:
+$.activeSession.value.worktree.value.name})]}),F("button",{className:y8.worktreeBannerButton,
+onClick:()=>{...J.openFolderInNewWindow(m)},children:"Open worktree"})]})
+```
+Condição real: só aparece quando a sessão ativa tem `worktree` E o path dele é diferente do
+`defaultCwd` (o workspace principal). "Open worktree" chama `openFolderInNewWindow` — abre o
+worktree numa **nova janela do editor**, conceito que não existe numa página web de chat só.
+
+**A pill na lista de sessões** (`worktreePill_OOQiHg`, mesmo grupo de sufixo dos itens da lista —
+`tab_OOQiHg`, `sessionName`, `sessionMeta`):
+```
+O&&J.worktree.value&&J.worktree.value.path!==_&&R("span",{role:"button",tabIndex:0,
+className:H5.worktreePill,onClick:(C)=>{C.stopPropagation(),O(J)},
+title:`Open ${J.worktree.value.name} in new window`,
+children:[F("span",{className:H5.worktreePillName,children:J.worktree.value.name}),
+F(YP1,{className:H5.worktreePillIcon})]})
+```
+Mesma condição do banner (path do worktree ≠ cwd padrão), mesmo destino (`openFolderInNewWindow`).
+
+### Modelo de sessão/projeto do Orion — o que já existia antes desta rodada
+
+Investigação em `server/routes/claude.ts`/`server/claude/runner.ts` (não hipótese): o Orion já é
+multi-projeto (tabela `projects`: `id, slug, name, path, rules`) — diferente da extensão real, que é
+sempre 1 workspace só. `claude_sessions` **já tem uma coluna `cwd` própria**, separada de
+`projects.path` — hoje sempre igual ao `path` do projeto na criação (`POST /api/claude/sessions`
+grava `project.path` tanto no `cwd` quanto no `startTurn`), mas nada na estrutura impede que
+divirjam — na verdade `startFor` (sessões já existentes, ex. após restart) **já usa `s.cwd`**, não
+`project.path`, pro `systemAppend`/`startTurn`. Ou seja: a coluna certa pra guardar "esta sessão roda
+num worktree" já existia, faltava só alguém popular com um path diferente. Isso decidiu a arquitetura
+inteira desta rodada: **nenhuma migração nova** — sem coluna pra "nome do worktree" nem "é worktree?"
+— tudo derivado comparando `cwd` da sessão com `path` do projeto.
+
+Também já existe, achado por acaso enquanto procurava por `execFile('git'` no server, um **Kanban de
+Tarefas inteiro** (`server/routes/tasks.ts`, `server/tasks/git.ts`, `server/tasks/util.ts`) que já cria
+git worktrees pra tarefas (`createWorktree(repoPath, branch, baseBranch, targetPath)`, sempre
+`execFile`, nunca shell, timeout curto, `isSafeBranch` valida toda ref antes de chegar no git). Decisão
+de reuso: a "Aba Claude" chama **a mesma função** `createWorktree` de `server/tasks/git.ts` — só o
+cálculo de *onde* (path) e *com que nome de branch* é próprio do novo módulo
+`server/claude/worktree.ts`, porque o Kanban amarra isso a um `taskId` numérico
+(`worktreePath(root, slug, taskId)` → `<root>/<slug>/<taskId>`) e este fluxo nasce de um nome
+digitado livremente no compositor — mais perto do `createWorktree($)` da extensão real que da
+convenção numérica do Kanban.
+
+**Duas convenções de path já em uso no c3, nenhuma delas do Kanban**: dos 7 worktrees vivos no
+servidor no momento desta implementação, 4 seguem `/srv/orion-worktrees/<nome>` (`agent-map`,
+`memoria`, `memoria-dashboard`, e esta própria `worktree-ui`, todos branch `feature/<nome>` — convenção
+que humanos/outros agentes Claude Code adotaram informalmente pra desenvolver o PRÓPRIO Orion) e 3
+seguem `/srv/worktrees/orion/<nome>` com branch `tarefa/orion-<nome>` (esses sim vieram do Kanban —
+`taskBranch`/`worktreePath` batem exatamente com o padrão observado). **Decisão de escopo**: a "Aba
+Claude" segue a PRIMEIRA convenção (`<project.path>-worktrees/<nome>`, branch `feature/<nome>`) — é a
+que o próprio pedido desta tarefa citou como exemplo (`/srv/orion-worktrees/<nome>`), bate com a
+maioria dos worktrees vivos, e generaliza de forma óbvia pra qualquer projeto multi-repo do Orion
+(`/srv/projects/<slug>` → `/srv/projects/<slug>-worktrees/<nome>`) sem depender de `$WORKTREES_DIR`
+(uma env var pensada só pro Kanban, com default `/srv/worktrees` — raiz DIFERENTE da que este pedido
+pedia). `worktreesBaseDir(projectPath)` em `server/claude/worktree.ts` implementa isso: sufixa
+`-worktrees` no próprio `path` do projeto (`dirname+basename+'-worktrees'` dá o mesmo resultado que
+`path+'-worktrees'` sempre que `path` não termina em barra — mais simples que separar e remontar).
+
+### O que foi implementado
+
+**Servidor** (`server/claude/worktree.ts`, novo): `validateWorktreeName` (regra da extensão, PT-BR),
+`worktreesBaseDir` (pasta irmã `<repo>-worktrees`), `createWorktreeForProject(projectPath, name,
+baseBranch)` — valida o nome, monta `branch = feature/<nome>` (checado de novo com `isSafeBranch`,
+reuso de `server/tasks/util.ts`, defesa em profundidade mesmo o nome já sendo regex-limitado), chama
+`createWorktree` de `server/tasks/git.ts` com o `target` calculado. Nome inválido nunca chega a tocar
+disco/git (curto-circuita antes do `execFile`).
+
+`server/routes/claude.ts`: `POST /api/claude/sessions` ganhou `worktree_name?: string` no corpo
+(opcional — ausente/vazio = sessão normal na raiz do projeto, comportamento **inalterado**). Quando
+presente: busca `default_branch` do projeto com a MESMA leitura defensiva que `server/routes/tasks.ts`
+já usa (`projectOf`) — tenta a coluna, cai em `'main'` se a query falhar (coluna pode não existir
+neste schema) —, chama `createWorktreeForProject` **antes de qualquer INSERT/turno começar**; se
+falhar (nome inválido, branch já existe, `git worktree add` deu erro — ex. diretório já existe), a
+rota devolve `400` com a mensagem e **nada é criado** (nem sessão, nem custo, nem turno) — mais
+atômico que a extensão real, que decopla criar-worktree de criar-sessão em duas chamadas. Em caso de
+sucesso, o path do worktree vira o `cwd` usado tanto no `INSERT` quanto no `runner.startTurn` E no
+`systemAppend` (`projectPath: cwd`, corrigindo de passagem uma inconsistência latente: a rota de
+criação usava sempre `project.path` ali, enquanto `startFor` — sessões já existentes — já usava
+`s.cwd`; agora as duas seguem a mesma regra).
+
+**Decisão de arquitetura — por que UM endpoint em vez de dois**: a extensão real decopla
+completamente "criar worktree" (`createWorktree($)`, sem prompt nenhum) de "mandar mensagem" — dá pra
+criar um worktree e nunca chegar a conversar nele. O Orion **não tem esse grau de liberdade**: `POST
+/api/claude/sessions` sempre exigiu (antes desta rodada também) um `prompt` não-vazio — não existe
+"sessão sem primeira mensagem" no modelo de dados atual, mudar isso seria uma mudança de arquitetura
+bem maior que o pedido. Dado esse limite já existente, a escolha foi ligar a criação do worktree ao
+MESMO request que já cria a sessão com o primeiro prompt, em vez de inventar um endpoint novo só pra
+"criar o worktree e depois pedir pro usuário mandar uma mensagem numa sessão-fantasma". Efeito
+colateral bom: atomicidade — no fluxo real, é possível criar um worktree e a criação da sessão falhar
+depois por outro motivo, deixando um worktree "órfão"; aqui isso não acontece.
+
+**Cliente**: `web/src/claude/mapper.ts` ganhou `validateWorktreeName` (cópia da regra, só UI) e
+`sessionWorktreeName(cwd, projectPath)` (deriva o nome do worktree do ÚLTIMO SEGMENTO do `cwd` quando
+ele difere do `path` do projeto — sem coluna nova, ver acima; espelha a checagem real `worktree.value
+.path!==defaultCwd.value`). `web/src/claude/types.ts`: `SessionSummary` ganhou `worktreeName?:
+string`. `web/src/claude/api.ts`: `claudeApi.create` aceita `worktree_name?: string`.
+
+**Onde o botão/formulário aparece — decisão de escopo deliberada, diferente da extensão real**: a
+extensão põe o gatilho na barra lateral, ao lado de "New session" (mesmo grupo de classe `_djirOA`
+que `createWorktreeButton`/`newSessionButton`) — mas como vimos acima, esse gatilho está **desligado
+até na própria extensão** nesta build, e mais importante: criar um worktree ali é uma ação
+independente de "qual projeto" (a extensão só tem 1 workspace). O Orion é multi-projeto, e a única
+tela onde "qual projeto vai receber esta sessão nova" já é uma pergunta ativa (`projects`/`onProject`
+em `Composer.tsx`, só visível pra uma aba rascunho) é exatamente onde o nome do worktree também
+precisa ser perguntado — não faria sentido puxar esse estado pra `Sidebar.tsx`, que hoje é um
+componente burro (só recebe props, nunca fala com `claudeApi` diretamente) e não sabe "qual projeto"
+sem replicar a mesma lógica que o compositor já tem. Implementado como um pill novo (`GitBranch` +
+nome ou "Worktree") ao lado do `<select>` de projeto em `Composer.tsx`, mesmo padrão `cc-pop`/`Menu`/
+`cc-menu-item` já usado pelos seletores de Modelo/Esforço/Modo (copiado literalmente, sem inventar
+interação nova) — só visível junto do seletor de projeto (ou seja, só numa aba rascunho/sessão nova).
+Estado (`worktreeName`) fica no `Tab` da aba (`ClaudePage.tsx`, ao lado de `projectId`), não em
+`useState` isolado do Composer, pro valor sobreviver a re-render e ser lido em `send()` na hora de
+montar o `POST /api/claude/sessions`.
+
+**Validação ao vivo e bloqueio de envio**: campo vazio nunca mostra erro (vazio é um valor válido no
+Orion — "sem worktree" — diferente da extensão, onde o campo só existe pra CRIAR um worktree, então
+vazio sempre seria inválido); com algo digitado, `validateWorktreeName` roda a cada tecla (mesmo
+padrão `let U=G?fF0(G):null` do real) e o botão Enviar (`canSend`) fica desabilitado enquanto o nome
+digitado for inválido — extra nosso, mais seguro que a extensão real (lá o Enter no CAMPO de nome é
+bloqueado por validação; aqui bloqueamos o ENVIO da mensagem inteira, porque é nesse momento que o
+worktree de fato seria criado).
+
+**Banner "esta sessão está no worktree X"** (`ClaudePage.tsx`, `.cc-worktree-banner`): mesma condição
+real (`cwd` da sessão ativa ≠ `path` do projeto), mesma posição (topo do corpo da sessão, acima da
+timeline) — sem o botão "Open worktree" (abre em nova janela do editor; não existe equivalente numa
+página web só de chat) — o caminho completo do worktree já aparece na barra de status embaixo
+(`.cc-status`, `active?.cwd`, já existia), então o banner aqui é só informativo.
+
+**Pill na lista de sessões** (`Sidebar.tsx`, `.cc-item-worktree`): mesma ideia da `worktreePill` real,
+sem ação de clique (mesmo motivo do banner — "abrir em nova janela" não existe aqui).
+
+**Fora do escopo desta rodada** (por pedido explícito do escopo dado — "não precisa portar
+sessionsByWorktree/listagem completa"): `availableWorktrees`/listagem de todos os worktrees
+disponíveis pra reaproveitar num picker; nível "Ultracode" do seletor de esforço (item 1 da seção 13,
+outro achado, sem relação); qualquer UI de REMOVER um worktree (`git worktree remove`) — worktrees
+criados por esta feature nunca são apagados automaticamente pelo Orion (nem ao arquivar/deletar a
+sessão), mesma postura conservadora que o Kanban já tem (só remove worktree numa ação explícita de
+integração, nunca em cascade); "Open worktree"/navegação pra outra janela (sem equivalente aqui).
+
+### Testes (TDD, vermelho→verde)
+
+`tests/worktree.test.ts` (novo, 11 testes): `validateWorktreeName` (nomes normais, vazio, >64
+caracteres, caracteres fora da lista, "."/".."/contém "..", termina em "."/".lock", ".git" com pontos
+finais/maiúsculas — todos os ramos de `fF0`), `worktreesBaseDir` (monta a partir do path do projeto,
+remove barra final antes de sufixar), `createWorktreeForProject` (nome inválido nunca chega a chamar
+`execFile`/git — testável sem repositório real, porque o curto-circuito acontece antes).
+
+`tests/mapper.test.ts` (+6 testes): `validateWorktreeName` (mesma regra, cópia do lado cliente — só
+confirma que bate com a cópia do servidor, sem duplicar cada caso já coberto em `worktree.test.ts`),
+`sessionWorktreeName` (cwd igual ao path do projeto → null; cwd dentro de `<path>-worktrees/<nome>` →
+nome; sem cwd/path → null; barra final no path do projeto não confunde a comparação).
+
+Suíte inteira: **484 testes** (467 antes desta rodada + 17 novos: 11 em `tests/worktree.test.ts`, 6
+em `tests/mapper.test.ts`), todos verdes. `tsc --noEmit` limpo tanto em `tsconfig.server.json` quanto
+em `tsconfig.json` (front). `npm run build` (`vite build && tsc -p tsconfig.server.json`) limpo — o
+único aviso é o de chunk grande do `Editor` (CodeMirror), pré-existente, sem relação com esta rodada.
+**Sem navegador/visual-testing neste ambiente** — mesma limitação de sempre; o pill/banner/campo não
+foram vistos renderizados de verdade, só revisados por leitura cuidadosa comparando com o padrão já
+em produção dos seletores de Modelo/Esforço/Modo (`cc-pop`/`Menu`/`cc-menu-item`, reuso literal).
 
 ## Resumo
 
@@ -1810,3 +2047,27 @@ de pesquisa, não parte da implementação.
   função ausente, depois implementados). Suíte inteira: **438 testes** (429 antes desta rodada + 9
   novos: 5 de `attachmentImageUrl`, 4 de `isUnderRoot`), `tsc --noEmit` (server e front) e `vite
   build` verdes. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.
+- **implementado nesta rodada** (29/09/2026 — "Aba Claude": criar/gerenciar git worktree direto pela
+  UI do chat, item 2 da seção 13, worktree isolada `feature/worktree-ui`; ver seção 14 para os
+  detalhes e evidências completas): `server/claude/worktree.ts` (novo) — `validateWorktreeName`
+  (regra idêntica à função real `fF0` do webview v2.1.283, traduzida pro PT-BR), `worktreesBaseDir`
+  (pasta irmã `<repo>-worktrees`, mesma convenção já usada manualmente em `/srv/orion-worktrees` por
+  humanos/outros agentes), `createWorktreeForProject` (reusa `createWorktree`/`isSafeBranch` de
+  `server/tasks/git.ts`/`util.ts` — o mesmo Kanban de Tarefas já tinha essa camada de git, nada
+  novo foi escrito pra chamar `git worktree add`). `POST /api/claude/sessions` ganhou `worktree_name?`
+  opcional: cria o worktree ANTES de qualquer INSERT/turno (falha = nada é criado, mais atômico que a
+  extensão real, que decopla as duas ações); `cwd` da sessão vira o path do worktree quando presente,
+  sem coluna nova no Postgres (nome do worktree é sempre derivado comparando `cwd` da sessão com
+  `path` do projeto — `sessionWorktreeName` em mapper.ts). Achado interessante documentado na seção
+  14: o botão que dispara o formulário na extensão real (`createWorktreeButton`) está **desligado
+  nesta build** (v2.1.283) — CSS e toda a lógica de estado/validação/submissão continuam vivos no
+  bundle, só o gatilho na barra lateral virou um `null` literal no JSX. UI: pill "Worktree" ao lado do
+  seletor de projeto em `Composer.tsx` (só em aba rascunho — decisão deliberada, diferente da barra
+  lateral da extensão real, porque só ali "qual projeto" já é uma pergunta ativa no Orion, que é
+  multi-projeto); banner "Esta sessão está no worktree X" no topo do corpo da sessão
+  (`ClaudePage.tsx`) e pill na lista de sessões (`Sidebar.tsx`) — ambos sem o botão "Open worktree"
+  real (abre em nova janela do editor; sem equivalente numa página web só de chat). 17 testes novos
+  (11 em `tests/worktree.test.ts`, 6 em `tests/mapper.test.ts`), TDD, suíte inteira **484 testes**,
+  `tsc --noEmit` (server e front) e `npm run build` verdes. Fora do escopo (pedido explícito):
+  `availableWorktrees`/listagem completa de worktrees, remoção de worktree. Sem
+  navegador/visual-testing neste ambiente — mesma limitação de sempre.

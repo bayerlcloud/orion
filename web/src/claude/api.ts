@@ -22,7 +22,8 @@ export const claudeApi = {
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null; client?: string }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),
   usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[]; real: RealUsage }>('/api/claude/usage'),
-  create: (b: { project_id: number; prompt: string; permission_mode: Mode; model?: string; effort?: Effort; attachments?: Attachment[] }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
+  /** `worktree_name`: cria um git worktree novo (branch `feature/<nome>`) e a sessão já nasce com `cwd` apontando pra ele — ver PARIDADE.md seção 14. Ausente/vazio = sessão normal na raiz do projeto, como sempre foi. */
+  create: (b: { project_id: number; prompt: string; permission_mode: Mode; model?: string; effort?: Effort; attachments?: Attachment[]; worktree_name?: string }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
   send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: Effort; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
   // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
