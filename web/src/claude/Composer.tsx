@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch, Mic } from './icons';
+import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch, Mic, AgentsPill } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type Project } from './api';
-import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, type CycleState } from './mapper';
+import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState } from './mapper';
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
@@ -163,7 +163,7 @@ function sparkTitle(effort: EffortChoice, fast: FastModeState): string {
   return parts.join(' · ');
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents }: {
   onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
@@ -183,6 +183,16 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   elapsed?: string;
   /** Estado do fast mode da sessão (`fast_mode_state` do SDK, via live.ts) — alimenta a legenda `sparkLegend` e o atributo `data-spark`; ausente/'off' = indicador escondido (o caso de hoje, ver PARIDADE-seletor.md). */
   fastMode?: FastModeState;
+  /**
+   * "Agents pill" — gatilho do Mapa de agentes no rodapé do compositor, perto do model pill
+   * (29/09/2026, ver PARIDADE-agentmap.md): botão real `agentsPill` do webview v2.1.283 (className
+   * `${modelPill} ${agentsPill}`, atributo `data-agents-dot` com o estado que pinta o dot, aria-label
+   * `"{N} agent(s)} · {status}"`). `total` = quantos subagentes a sessão já teve (o pill só aparece
+   * com ≥1, nunca numa sessão sem Task nenhum); `count` = quantos ATIVOS agora (porta de `pS` real);
+   * `dot` = estado agregado (porta de `oE1` real, ver `agentsPillDot` em mapper.ts).
+   */
+  agents?: { total: number; count: number; dot: AgentsPillDot };
+  onAgents?: () => void;
 }) {
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree'>('');
@@ -491,6 +501,19 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
               {worktreeName && !worktreeNameError && <div className="cc-worktree-status">Cria o worktree ao enviar a 1ª mensagem</div>}
             </Menu>
           </div>
+        )}
+        {/* Agents pill (ver prop `agents` acima e PARIDADE-agentmap.md): logo antes do model pill,
+            mesma vizinhança do real (`w0&&F(pB0,...)` vem imediatamente antes do bloco do model
+            picker no rodapé real). Ícone = path literal do `U11` real; dot pintado por
+            `data-agents-dot` + classe de estado (mesmas cores dos dots do Mapa de agentes). */}
+        {onAgents && agents && agents.total > 0 && (
+          <button type="button" className="cc-pill cc-pill-ghost cc-agents-pill" data-agents-dot={agents.dot}
+            onClick={onAgents} title={agentsPillTitle(agents.dot)}
+            aria-label={`${agentsPillCountLabel(agents.count)} · ${agentsPillTitle(agents.dot)}`}>
+            <AgentsPill size={16} />
+            <span className={`cc-agents-dot is-${agents.dot}`} data-status-dot={agents.dot} aria-hidden="true" />
+            <span>{agentsPillCountLabel(agents.count)}</span>
+          </button>
         )}
         {onModel ? (
           <div className="cc-pop">

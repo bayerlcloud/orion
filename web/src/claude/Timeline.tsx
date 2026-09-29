@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
-import type { AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel, attachmentImageUrl } from './mapper';
+import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
+import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
 
 function Md({ text }: { text: string }) {
@@ -168,12 +169,16 @@ function TodoList({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
  * mostramos o `ToolStatus` que já temos. Mantemos IN (prompt) e OUT (resultado final do subagente,
  * que a extensão esconde mas que aqui é informação útil) dobráveis, como os outros tool blocks.
  */
-function TaskAgent({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
+function TaskAgent({ e, task }: { e: Extract<ConvEvent, { kind: 'tool' }>; task?: AgentTask }) {
   const i = (e.input ?? {}) as Record<string, unknown>;
   const description = typeof i.description === 'string' ? i.description : e.label;
   const prompt = typeof i.prompt === 'string' ? i.prompt : e.inputText;
   const subagentType = typeof i.subagent_type === 'string' ? i.subagent_type : undefined;
-  const hasBody = !!(prompt || e.output);
+  // `task.toolCalls`: as tool calls DO PRÓPRIO subagente (agrupadas por parent_tool_use_id em
+  // noteAgentTask — ver PARIDADE-agentmap.md), mostradas aninhadas ao expandir, igual à lista
+  // `innerCallList` real (componente compartilhado com o card do Mapa de agentes, ver AgentMap.tsx).
+  const calls = task?.toolCalls ?? [];
+  const hasBody = !!(prompt || e.output || calls.length);
   const [open, setOpen] = useState(false);
   return (
     <div className={`cc-tool cc-task is-${e.status}`}>
@@ -187,6 +192,7 @@ function TaskAgent({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
       </div>
       {hasBody && open && (
         <div className="cc-tool-body">
+          {calls.length > 0 && <div className="cc-tool-row"><span className="cc-tool-lbl">TOOLS</span><InnerCallList calls={calls} /></div>}
           {prompt && <div className="cc-tool-row"><span className="cc-tool-lbl">IN</span><pre className="cc-tool-pre">{prompt}</pre></div>}
           {e.output !== undefined && (
             <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
@@ -201,10 +207,11 @@ function TaskAgent({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
 }
 
 /** Escolhe a renderização de um evento `tool`: checklist dedicada pro TodoWrite, linha de subagente
- * dedicada pro Task, bloco de ferramenta genérico pros demais. */
-function ToolBlock({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
+ * dedicada pro Task (com as tool calls aninhadas dele, quando `agentTasks` chegou), bloco de
+ * ferramenta genérico pros demais. */
+function ToolBlock({ e, agentTasks }: { e: Extract<ConvEvent, { kind: 'tool' }>; agentTasks?: AgentTask[] }) {
   if (e.name === 'TodoWrite') return <TodoList e={e} />;
-  if (e.name === 'Task') return <TaskAgent e={e} />;
+  if (e.name === 'Task') return <TaskAgent e={e} task={agentTasks?.find(t => t.toolUseId === e.toolUseId)} />;
   return <Tool e={e} />;
 }
 
@@ -442,10 +449,65 @@ function ThinkingIndicator() {
   );
 }
 
-export default function Timeline({ events, onDecide }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+/**
+ * Linhas dobráveis de subagente com overflow — porta do componente real `MA1({tasks})`/`h95`/`y95`
+ * do webview v2.1.283 (ver PARIDADE-agentmap.md): enquanto subagentes rodam, uma linha por agente
+ * (`data-testid="focus-subagent-row"`, mesmos testids da extensão real) com descrição + último tool
+ * (`agentRowLabel`) e decorrido/telemetria (`agentRowMeta`); com 5+ agentes, só 3 visíveis e o resto
+ * colapsado numa linha `+N outros agentes` (`data-testid="focus-subagent-overflow-row"`) com a
+ * telemetria COMBINADA (`agentOverflowMeta`). Clicar no overflow expande todas; expandido, a última
+ * linha ("Recolher" — label real "Collapse", PT-BR como o resto da tela; testid real
+ * `focus-fold-end-row`) colapsa de volta, com a contagem dos que vão se esconder no aria-label.
+ * Tique de 1s pro decorrido ao vivo, mesmo padrão do AgentMap — o componente só monta enquanto
+ * existe agente rodando (ver Timeline abaixo), então o timer morre sozinho quando tudo termina.
+ */
+function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
+  const [now, setNow] = useState(() => Date.now());
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const { visible, overflow } = splitAgentRows(tasks);
+  const shown = expanded ? tasks : visible;
+  const row = (t: AgentTask) => (
+    <div key={t.toolUseId} className="cc-subagent-row" data-testid="focus-subagent-row">
+      <label className="cc-subagent-label">{agentRowLabel(t)}</label>
+      <span className="cc-subagent-meta">{agentRowMeta(t, now)}</span>
+    </div>
+  );
+  return (
+    <div className="cc-subagent-rows">
+      {shown.map(row)}
+      {!expanded && overflow.length > 0 && (
+        <div className="cc-subagent-row is-toggle" data-testid="focus-subagent-overflow-row" role="button" tabIndex={0}
+          aria-expanded={false} aria-label={`${agentOverflowLabel(overflow.length)} · expandir`}
+          onClick={() => setExpanded(true)}
+          onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setExpanded(true); } }}>
+          <label className="cc-subagent-label">{agentOverflowLabel(overflow.length)}</label>
+          <span className="cc-subagent-meta">{agentOverflowMeta(overflow, now)}</span>
+        </div>
+      )}
+      {expanded && overflow.length > 0 && (
+        <div className="cc-subagent-row is-toggle" data-testid="focus-fold-end-row" role="button" tabIndex={0}
+          aria-expanded={true} aria-label={`Recolher ${agentOverflowLabel(overflow.length).replace(/^\+/, '')}`}
+          onClick={() => setExpanded(false)}
+          onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setExpanded(false); } }}>
+          <label className="cc-subagent-label">Recolher</label>
+          <Chevron size={10} className="cc-chev is-open" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Timeline({ events, onDecide, agentTasks }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[] }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
   const folded = useMemo(() => foldExpiredPermissions(events), [events]);
+  // Só agentes ATIVOS entram nas linhas dobráveis — mesma seleção do componente real (`MA1` recebe
+  // as tasks do fold de "rodando"); concluídos/falhos já têm a linha `TaskAgent` de sempre acima.
+  const liveAgents = useMemo(() => (agentTasks ?? []).filter(t => t.status === 'running' || t.status === 'waiting'), [agentTasks]);
   return (
     <div className="cc-timeline">
       {folded.map(e => {
@@ -483,11 +545,12 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
           <div key={e.id} className={`cc-msg ${dotClass(e)}`}>
             {e.kind === 'text' && <AssistantText e={e} />}
             {e.kind === 'thinking' && <Thinking e={e} />}
-            {e.kind === 'tool' && <ToolBlock e={e} />}
+            {e.kind === 'tool' && <ToolBlock e={e} agentTasks={agentTasks} />}
             {e.kind === 'permission' && <Permission e={e} onDecide={(d, msg) => onDecide?.(e.id, d, msg)} />}
           </div>
         );
       })}
+      {liveAgents.length > 0 && <SubagentRows tasks={liveAgents} />}
     </div>
   );
 }

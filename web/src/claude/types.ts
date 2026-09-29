@@ -63,7 +63,16 @@ export type SdkContentBlock =
 export type SdkMessage =
   | { type: 'system'; subtype: 'init'; session_id?: string; model?: string; cwd?: string }
   | { type: 'system'; subtype: string; [k: string]: unknown }
-  | { type: 'assistant'; message: { content: SdkContentBlock[] } }
+  /**
+   * `parent_tool_use_id` (29/09/2026, tool calls aninhadas por subagente — ver PARIDADE-agentmap.md):
+   * campo REAL do SDK (`SDKAssistantMessage.parent_tool_use_id` em `@anthropic-ai/claude-agent-sdk/
+   * sdk.d.ts`) — `null` em mensagens do agente principal; o `tool_use.id` da tool `Task` pai quando a
+   * mensagem pertence ao transcript de um SUBAGENTE. O runner do Orion sempre persistiu a mensagem
+   * inteira (`appendEvent(id, m.type, m)`), então o campo já chegava ao front — só ninguém lia.
+   * Quem consome: `reduceSdkMessages` (pula mensagens de subagente da timeline principal) e
+   * `noteAgentTask` (agrupa as tool calls do subagente em `AgentTask.toolCalls`), ambos em mapper.ts.
+   */
+  | { type: 'assistant'; message: { content: SdkContentBlock[] }; parent_tool_use_id?: string | null }
   /**
    * `tool_use_result` (opcional, 28/09/2026 — Mapa de agentes, ver mapper.ts `parseAgentTaskUsage`/
    * PARIDADE.md): campo real e documentado do SDK (`SDKUserMessage.tool_use_result` em
@@ -73,7 +82,7 @@ export type SdkMessage =
    * tool_result text". `unknown` de propósito (o SDK também documenta assim: forma por-tool, MCP e
    * tools dinâmicas têm forma própria) — lido de forma defensiva, nunca assumido.
    */
-  | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] }; tool_use_result?: unknown }
+  | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] }; tool_use_result?: unknown; parent_tool_use_id?: string | null }
   | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
 
@@ -86,6 +95,18 @@ export type SdkMessage =
  * ausente na fonte real fica `undefined` aqui, nunca um número inventado.
  */
 export type AgentTaskUsage = { totalTokens?: number; toolUses?: number; durationMs?: number };
+
+/**
+ * Uma tool call DE DENTRO de um subagente (mensagem do SDK com `parent_tool_use_id` = o `Task` pai)
+ * — alimenta a lista aninhada `innerCallList` ao expandir a linha de um subagente no mapa/timeline
+ * (29/09/2026, ver PARIDADE-agentmap.md; classes reais `innerCall/innerCallHeader/innerCallList/
+ * innerCallSpinner/innerCallComplete/innerCallError` no webview v2.1.283). `label`/`description` já
+ * vêm prontos de `describeTool` (mesmo cabeçalho que a tool teria na timeline principal); `status`
+ * segue o mesmo ciclo do bloco de ferramenta comum: `running` no tool_use, fechado pelo tool_result
+ * casado, `waiting` só como correção de view quando há permissão pendente pra ELA (ver
+ * `applyPendingToAgentTasks` em mapper.ts — nunca persistido).
+ */
+export type AgentToolCall = { toolUseId: string; name: string; label: string; description?: string; status: ToolStatus };
 
 /**
  * Um subagente (`tool_use` da tool `Task`) disparado nesta sessão, pro "Mapa de agentes"
@@ -105,6 +126,10 @@ export type AgentTask = {
   startedAt?: number;
   endedAt?: number;
   usage?: AgentTaskUsage;
+  /** Tool calls do próprio subagente, na ordem em que chegaram (ver `AgentToolCall` acima) — ausente
+   * quando o SDK não entregou nenhuma mensagem com `parent_tool_use_id` deste Task (ex.: histórico
+   * antigo, ou subagente que ainda não chamou ferramenta nenhuma). */
+  toolCalls?: AgentToolCall[];
 };
 
 /** Comando de barra real da sessão (server/claude/runner.ts, via Query.supportedCommands() do SDK) — nome, descrição e dica de argumento, iguais ao que a extensão real lista no menu `/`. */

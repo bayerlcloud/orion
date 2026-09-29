@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AgentTask } from './types';
+import type { AgentTask, AgentToolCall } from './types';
 import { agentTaskDuration, formatAgentDuration, formatTokens, taskStatusLabel } from './mapper';
-import { X } from './icons';
+import { Chevron, X } from './icons';
 
 type SessionStatus = 'running' | 'waiting' | 'idle' | 'error';
 
@@ -81,19 +81,53 @@ function agentMeta(task: AgentTask, now: number): string {
   return parts.length ? parts.join(' · ') : taskStatusLabel(task.status);
 }
 
+/**
+ * Tool calls ANINHADAS de um subagente (29/09/2026, ver PARIDADE-agentmap.md) — espelha a lista real
+ * `innerCallList` do webview v2.1.283 (classes `innerCall/innerCallHeader/innerCallComplete/
+ * innerCallError/innerCallSpinner`, renderizadas no corpo da linha do agente: uma linha por call,
+ * cabeçalho da tool + spinner literal `"…"` enquanto roda — `F("span",{className:oj.innerCallSpinner,
+ * children:"…"})` no bundle real, não um ícone animado). Compartilhada entre o card do Mapa de
+ * agentes (aqui) e a linha `TaskAgent` da timeline (Timeline.tsx importa daqui). Dados: `toolCalls`
+ * de `AgentTask`, agrupados por `parent_tool_use_id` real do SDK em `noteAgentTask` (mapper.ts).
+ */
+export function InnerCallList({ calls }: { calls: AgentToolCall[] }) {
+  if (!calls.length) return null;
+  return (
+    <div className="cc-innercall-list">
+      {calls.map(c => (
+        <div key={c.toolUseId} className={`cc-innercall ${c.status === 'failure' ? 'is-error' : c.status === 'success' || c.status === 'warning' ? 'is-complete' : ''}`}>
+          <span className="cc-innercall-header">
+            <span className="cc-innercall-name">{c.label}</span>
+            {c.description && <span className="cc-innercall-desc">{c.description}</span>}
+          </span>
+          {(c.status === 'running' || c.status === 'waiting') && <span className="cc-innercall-spinner">…</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AgentCard({ task, now }: { task: AgentTask; now: number }) {
+  const [open, setOpen] = useState(false);
+  const calls = task.toolCalls ?? [];
+  const expandable = calls.length > 0;
   return (
     <div className="cc-agentmap-child">
       <div className="cc-agentmap-node">
         <div className="cc-agentmap-card" title={task.description} data-agent-status={task.status}>
-          <div className="cc-agentmap-row-title">
+          <div className="cc-agentmap-row-title" onClick={() => expandable && setOpen(o => !o)}
+            style={{ cursor: expandable ? 'pointer' : 'default' }} role={expandable ? 'button' : undefined}
+            tabIndex={expandable ? 0 : undefined} aria-expanded={expandable ? open : undefined}
+            onKeyDown={expandable ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(o => !o); } } : undefined}>
             <span className={`cc-agentmap-dot ${agentDotClass(task.status)}`} aria-hidden="true" />
             <span className="cc-agentmap-name cc-clamp2">{task.description}</span>
+            {expandable && <Chevron size={10} className={`cc-chev ${open ? 'is-open' : ''}`} />}
           </div>
           <div className="cc-agentmap-meta">
             {task.subagentType && <span className="cc-task-type">{task.subagentType}</span>}
             <span>{agentMeta(task, now)}</span>
           </div>
+          {open && <InnerCallList calls={calls} />}
         </div>
       </div>
     </div>
