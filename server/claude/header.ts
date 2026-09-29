@@ -29,6 +29,8 @@ export type SessionHeader = {
   github?: { nome: string; login: string; email?: string; notes: string }[] | null;
   /** Contas Cloudflare da aba Tools (conector simples): nome, URL do proxy local, account id e o que vive em cada uma. */
   cloudflare?: { nome: string; url: string; account_id: string; account_name?: string; email?: string; notes: string }[] | null;
+  /** Cofre: Chrome compartilhado com perfil persistente (MCP `cofre`) e o painel web para login manual. */
+  cofre?: { painel: string } | null;
 };
 
 /** Corpo de uma regra nível 2, limitado a REGRA_LINHAS_MAX linhas e indentado sob o título. */
@@ -55,6 +57,10 @@ export function buildSystemAppend(h: SessionHeader): string {
   if (h.cloudflare?.length) {
     lines.push('', 'Contas Cloudflare conectadas (conector simples, não é MCP): chame a API v4 da Cloudflare com curl na URL da conta + caminho da API, SEM token; o Orion injeta a autenticação e devolve o JSON da Cloudflare. Ex.: curl <url>/accounts/<account>/pages/projects. Corpo em JSON com -H "Content-Type: application/json". Apagar zona ou projeto Pages inteiro é bloqueado.');
     for (const c of h.cloudflare) lines.push(`- ${c.nome}: ${c.url} (account ${c.account_id}${c.email?.trim() ? `, e-mail ${c.email.trim()}` : ''})${c.notes.trim() ? `: ${c.notes.trim()}` : ''}`);
+  }
+
+  if (h.cofre) {
+    lines.push('', `Cofre (browser compartilhado): um Chrome real com perfil persistente e logins salvos, disponível pelas tools mcp__cofre__* (navegar, clicar, digitar, screenshot, pdf). Use-o para qualquer coisa que precise de browser. Se um site pedir login, código ou captcha, peça ao Bayerl para abrir ${h.cofre.painel} e resolver na mão; depois continue. É uma instância só, compartilhada: feche as abas que abrir e não faça logout de nada.`);
   }
 
   const regras = (h.regras ?? []).slice(0, REGRAS_MAX);
