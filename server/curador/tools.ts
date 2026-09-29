@@ -40,7 +40,10 @@ export async function listarProjetos(q: CurQuery): Promise<ProjetoListado[]> {
   return rows as ProjetoListado[];
 }
 
-/** Lista as memórias curáveis (níveis 2 a 4). Sem corpo por padrão, para caber no contexto. */
+/**
+ * Lista as memórias curáveis (níveis 2 a 4). Sem corpo por padrão, para caber no contexto.
+ * Tudo que o curador lista conta como analisado: marca last_analyzed_at (visível no card da UI).
+ */
 export async function listarMemorias(q: CurQuery, args: { com_corpo?: boolean }): Promise<MemoriaListada[]> {
   const corpo = args.com_corpo ? ', m.body_md' : '';
   const { rows } = await q(
@@ -51,6 +54,7 @@ export async function listarMemorias(q: CurQuery, args: { com_corpo?: boolean })
       WHERE m.level BETWEEN 2 AND 4
       ORDER BY m.level ASC, m.nota DESC NULLS LAST, m.id ASC`,
   );
+  await q('UPDATE memories SET last_analyzed_at = now() WHERE level BETWEEN 2 AND 4');
   return rows as MemoriaListada[];
 }
 

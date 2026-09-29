@@ -75,7 +75,8 @@ describe('listarMemorias', () => {
     await listarMemorias(q, {});
     expect(calls[0].sql).toContain('level BETWEEN 2 AND 4');
     expect(calls[0].sql).not.toContain('body_md');
+    expect(calls[1].sql).toMatch(/UPDATE memories SET last_analyzed_at = now\(\) WHERE level BETWEEN 2 AND 4/);
     await listarMemorias(q, { com_corpo: true });
-    expect(calls[1].sql).toContain('body_md');
+    expect(calls[2].sql).toContain('body_md');
   });
 });
