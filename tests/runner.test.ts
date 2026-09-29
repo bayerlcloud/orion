@@ -29,7 +29,7 @@ async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); whil
  * `liveCalls` (devolvido junto de `fn`/`calls`) pra os testes de `setPermissionModeLive`/
  * `setModelLive`/`setEffortLive` conferirem o que foi chamado, com quais argumentos.
  */
-function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
+function fakeQuery(opts: { askPermission?: boolean; askPermissionParallel?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
   const calls: any[] = [];
   const liveCalls: any[] = [];
   const fn: QueryFn = ({ prompt, options }) => {
@@ -46,6 +46,18 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
         // PARIDADE.md "padrão de mensagens diferente do plugin").
         const r = await options.canUseTool('Bash', { command: 'ls' }, { signal: options.abortController!.signal, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow', destination: 'session' } as any], toolUseID: 'toolu_fixture_bash' } as any);
         yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: r.behavior === 'allow' ? 'permitido' : `negado: ${(r as any).message}` }] } } as any;
+      }
+      if (opts.askPermissionParallel && options?.canUseTool) {
+        // Simula o SDK despachando DOIS tool_use independentes no mesmo turno sem esperar o 1º
+        // canUseTool resolver antes de chamar o 2º (Promise.all, não await sequencial) — pra provar
+        // que server/claude/runner.ts (l.pending, um Map sem serialização) de fato guarda as DUAS
+        // pendências ao mesmo tempo, não só "em teoria" por leitura de código. Ver
+        // web/src/claude/mapper.ts `currentPermission` e PARIDADE.md ("Card de permissão docado").
+        const [r1, r2] = await Promise.all([
+          options.canUseTool('Bash', { command: 'ls' }, { signal: options.abortController!.signal, toolUseID: 'toolu_par_a' } as any),
+          options.canUseTool('Bash', { command: 'pwd' }, { signal: options.abortController!.signal, toolUseID: 'toolu_par_b' } as any),
+        ]);
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${r1.behavior}/${r2.behavior}` }] } } as any;
       }
       if (opts.fail) throw new Error('falhou de propósito');
       yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${prompt}` }] } } as any;
@@ -105,6 +117,30 @@ describe('Runner', () => {
     const texts = m.events.filter(e => e.type === 'assistant').map(e => e.payload.message.content[0].text);
     expect(texts[0]).toBe('permitido');
     expect(await r.decide('s3', req.id, 'allow', 1)).toBe(false);
+  });
+
+  /**
+   * Base pro card de permissão **docado** (`web/src/claude/mapper.ts` `currentPermission`,
+   * `ClaudePage.tsx`/`Timeline.tsx` — ver PARIDADE.md "Card de permissão docado"): confirma, rodando
+   * o runner de verdade (não só lendo o código), que `l.pending` (o `Map` de pedidos pendentes) NÃO
+   * serializa `canUseTool` — duas chamadas no mesmo turno, sem a 1ª ter resolvido ainda, ficam as DUAS
+   * pendentes ao mesmo tempo. É exatamente esse o motivo de `currentPermission` escolher só a
+   * primeira (FIFO) pra mostrar no card — mesmo modelo da extensão real, cujo `permissionRequests`
+   * também é uma lista e cujo componente docado sempre lê só `[0]` (webview/index.js v2.1.282).
+   */
+  it('duas chamadas de canUseTool no mesmo turno, sem esperar a 1ª resolver, ficam as DUAS pendentes ao mesmo tempo (sem serialização)', async () => {
+    const m = memStore(); const q = fakeQuery({ askPermissionParallel: true });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 's3par', prompt: 'x', isNew: true });
+    await until(() => r.pendingPermissions('s3par').length === 2);
+    const pend = r.pendingPermissions('s3par');
+    expect(pend.map(p => p.toolName)).toEqual(['Bash', 'Bash']);
+    // Decide a 1ª: a 2ª continua pendente sozinha (nenhuma decisão "vaza" pra outra pendência).
+    expect(await r.decide('s3par', pend[0].id, 'allow', 1)).toBe(true);
+    expect(r.pendingPermissions('s3par')).toHaveLength(1);
+    expect(r.pendingPermissions('s3par')[0].id).toBe(pend[1].id);
+    expect(await r.decide('s3par', pend[1].id, 'allow', 1)).toBe(true);
+    await until(() => m.sessions.get('s3par')?.status === 'idle');
   });
 
   /**

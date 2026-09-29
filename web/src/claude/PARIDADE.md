@@ -160,7 +160,7 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Render distinto Read/Edit/Write/Bash (`bashCommand_F2hEIg`, `filename_adbcGQ`) | **implementado agora** | caminho de arquivo em destaque; Bash mostra comando |
 | Diff colorido para Edit (`insertions/deletions_oblbPg`, `char-insert/delete`) | **implementado agora (28/09/2026, rodada 2)** | diff unificado simples (linhas -/+) **+ destaque de caractere dentro da linha trocada** — ver nota abaixo |
 | Permission card allow/deny (`permissionRequestContainer_qlaBag`) | já tem | `cc-perm` |
-| Card de permissão **docado** acima do compositor (`position:absolute;bottom:16px`, fora da área que rola) — nunca dentro da lista de mensagens | **estrutural, não implementado — ver seção nova abaixo** | o nosso `cc-perm` fica dentro da `cc-timeline` que rola junto com o resto; documentado como possível rodada futura, não uma correção pequena |
+| Card de permissão **docado** acima do compositor (`position:absolute;bottom:16px`, fora da área que rola) — nunca dentro da lista de mensagens | **implementado agora (28/09/2026, rodada 6 — pedido ao vivo do Bayerl)** | `PermissionDock` (Timeline.tsx) montado por `ClaudePage.tsx` como irmão do `Composer`, fora da `cc-timeline`/`cc-scroll` — ver seção nova abaixo |
 | Status do tool_use enquanto aguarda decisão (não mostrar "executando…" antes da aprovação) | **corrigido agora (28/09/2026, rodada 4)** | novo `ToolStatus` `'waiting'`, ligado pelo `toolUseId` real do SDK — ver seção nova abaixo |
 | "Sim, e não perguntar de novo" (`Yes, and don't ask again`) | já tem | `allow_always` |
 | Escopo do allow_always (session/settings) | n/a | sem UI de escopo; SDK decide |
@@ -863,6 +863,158 @@ desta rodada, confirmado via `git diff`: 31 de `mapper.test.ts` (20 do indicador
 status `waiting`), 11 de `live.test.ts` (7 + 4), 1 de `runner.test.ts`) + `tsc --noEmit`
 (server e front, sem erro) + `vite build` (bundle gera sem erro, mesmo aviso pré-existente de chunk
 grande).
+
+### Card de permissão docado — rodada de 28/09/2026 (6)
+
+Pedido AO VIVO do Bayerl, nas próprias palavras: "conseguimos copiar a UI do plugin do Claude aqui...
+que abre as perguntas... aquele box que sobe? e colocar lá no Claude do Orion v2" — fecha o gap
+**estrutural** documentado no Achado 1 da rodada 5 acima ("Card de permissão docado"), que tinha sido
+deixado de propósito pra uma rodada futura por ser mudança de arquitetura de UI, não uma correção
+pequena.
+
+**Reconfirmando o Achado 1** (não só confiando na rodada anterior) — reli `webview/index.js`/
+`index.css` v2.1.282 direto (`/srv/orion-reference/vscode-extension/extension/webview/`), com foco
+nos pontos que o pedido pedia explicitamente pra verificar:
+
+- **Estrutura real**: dentro do componente que monta `inputContainer`, a ordem dos filhos é
+  `[awsAuthInProgress banner, diálogos T6 (refusal_fallback etc.), h8 && permissionsContainer(qW0),
+  hostUnresponsive banner, F5 (composer de verdade)]` — o card de permissão e o composer são
+  IRMÃOS dentro do mesmo `inputContainer`, e esse `inputContainer` inteiro é irmão de
+  `messagesContainer` (a área que rola), nunca filho dela. Confirmado lendo o JSX bruto, não só a
+  descrição da rodada anterior.
+- **CSS exato** (extraído com `grep -oP` do `index.css` minificado, não digitado de memória):
+  `.inputContainer_07S1Yg{position:absolute;display:flex;z-index:20;flex-direction:column;
+  max-width:680px;margin:0 auto;bottom:16px;left:16px;right:16px}` e
+  `.permissionsContainer_07S1Yg{width:100%;max-width:680px;margin:0 auto}` (mais
+  `.hostUnresponsive_07S1Yg .permissionsContainer_07S1Yg{display:none}` — o card some se o host VS
+  Code parar de responder). `.messagesContainer_07S1Yg{overflow-y:auto;overflow-x:hidden;...}` é a
+  área que rola, separada.
+- **Animação de entrada — checado exaustivamente, não assumido**: a suposição inicial do pedido
+  ("aquele box que sobe" pode sugerir uma animação de subida) foi verificada e **não existe nenhuma**
+  ligada a esse card. Busquei três formas independentes de animação no bundle inteiro: (1) toda regra
+  CSS de `permissionRequestContainer_qlaBag` (o card em si — 20+ declarações, nenhuma com
+  `animation`/`transition`), `permissionsContainer_07S1Yg` e `inputContainer_07S1Yg` (idem); (2) todo
+  `@keyframes` do arquivo (`grep -oP '@keyframes...'`) — existem vários `fadeIn_<hash>` com
+  `translateY(10px)→translateY(0)` (que SERIAM a "subida"), mas nenhum deles é referenciado por
+  NENHUMA classe do CSS (confirmado buscando cada hash isoladamente) — são CSS morto de outros
+  componentes (menus/dropdowns do compositor), não usados no card de permissão; (3) `grep -c
+  '\.animate\('` no JS inteiro (5.3MB decompilado) devolveu **zero** — nenhuma chamada de Web
+  Animations API em lugar nenhum do bundle. Conclusão: o "sobe" que o Bayerl descreveu é o efeito
+  ESTRUTURAL de `position:absolute;bottom:16px` (a caixa cresce a partir do rodapé fixo quando o
+  conteúdo aumenta — o topo sobe, o fundo não se move), não uma transição CSS nem JS. **Não inventada
+  nenhuma animação aqui** — nem `@keyframes` nem `transition` novos em `claude.css` pra este card, de
+  propósito, seguindo a instrução explícita de não inventar o que não foi encontrado.
+- **Só um card por vez, confirmado nos dois lados** (front real E nosso runner, não só um dos dois):
+  - Front real: `N=$.permissionRequests.value[0]` (sempre o primeiro elemento) e o card só monta
+    quando `h8=dx($)` é verdadeiro, onde `function dx($){return
+    $.permissionRequests.value.length>0&&!$.promptInputActive.value}` — ou seja, mesmo que
+    `permissionRequests` tenha mais de um pedido, só o `[0]` vira UI; os demais ficam na lista,
+    invisíveis, até o primeiro ser decidido (o mesmo array também aparece esvaziando a dúvida: `let
+    n2=$.permissionRequests.value.length>0` é comparado com `>0`, nunca com `===1`, então o código
+    real já pressupõe que pode haver mais de um).
+  - Nosso modelo de concorrência (`server/claude/runner.ts`): `l.pending` é um `Map<string,Pending>`
+    **sem serialização nenhuma** — cada chamada de `canUseTool` do SDK cria sua própria entrada
+    (`pid=randomUUID()`), então nada no runner impede duas chamadas ficarem pendentes ao mesmo tempo
+    se o SDK despachar tool_use independentes em paralelo no mesmo turno. Escrevi um teste que RODA o
+    runner de verdade (não só lê o código) chamando `canUseTool` duas vezes via `Promise.all` antes de
+    qualquer uma resolver (`tests/runner.test.ts`, "duas chamadas de canUseTool no mesmo turno, sem
+    esperar a 1ª resolver, ficam as DUAS pendentes ao mesmo tempo") — confirma `pendingPermissions()`
+    com 2 entradas simultâneas, decide uma independente da outra. Ou seja: o pressuposto de "só uma
+    pendência por vez" NÃO é garantido pelo nosso runner (nem pelo SDK, pelo jeito que o front real
+    lida com isso) — por isso `currentPermission` (abaixo) existe como função dedicada, e não um
+    simples "pega o `s.pending[0]`" direto no componente.
+- **Sem bubble persistido depois de decidido — confirmado, não só copiado da rodada anterior**: os
+  únicos filhos de `inputContainer` são a lista fixa acima; depois que `h8` vira falso (nenhum pedido
+  pendente), NADA relacionado a permissão continua montado ali — nem no `inputContainer`, nem em
+  `messagesContainer` (que nunca teve o card, ponto anterior). O único traço que sobra em QUALQUER
+  lugar da tela é o dot de status do próprio tool_use (componente `c85`/`iY` real; no Orion,
+  `dotClass()`/`.cc-msg::before` em Timeline.tsx/claude.css, já existente, não tocado nesta rodada).
+
+**Decisão sobre o bubble "Permitido, sem perguntar de novo · `<comando>`" que o Orion tinha**:
+removido, pra bater com o comportamento real ponto a ponto (nenhum rastro depois de decidido — nem
+pra Bash/Edit, nem pra `AskUserQuestion`/"Você respondeu"). Verifiquei que isso não deixa o usuário
+sem NENHUM jeito de saber o que aconteceu: o `tool_use` por trás de toda decisão (`allow`,
+`allow_always`, `deny`, `answer`) sempre acaba recebendo um `tool_result` de verdade do SDK — `allow`/
+`allow_always` deixam a ferramenta rodar e o resultado normal chega (`status: success/failure`);
+`deny`/`answer` resolvem `canUseTool` com `{behavior:'deny', message: ...}`, que o SDK devolve como
+`tool_result` com erro pro modelo, e isso já vira `status:'failure'` no bloco da ferramenta (ver
+`reduceSdkMessages` em mapper.ts, inalterado nesta rodada) — ou seja, o dot de status do próprio
+`tool_use` (que já existia, sem mudança) é exatamente o "único rastro" que o Achado 1 descreveu, para
+TODOS os casos de decisão. Único caso que eu deliberadamente **mantive** diferente da extensão real:
+pedidos com `decision==='timeout'` (`foldExpiredPermissions`) continuam aparecendo na `cc-timeline`,
+colapsados. Motivo: um timeout do Orion pode vir de um restart do processo no meio de um pedido
+pendente (`l.pending` só existe em memória — ver comentário de `foldExpiredPermissions` em mapper.ts);
+nesse cenário específico, o turno original pode nunca chegar a receber nenhum `tool_result` de
+verdade (o `for await` daquele turno já morreu com o processo antigo), e a única forma do usuário
+saber que aquele pedido nunca mais vai ser respondido — sem esse bubble, ficaria com um bloco de
+ferramenta preso em "aguardando permissão…" pra sempre, sem nenhuma pista. A extensão real não precisa
+disso porque o processo dela (extensão VS Code) não reinicia do jeito que o Orion reinicia; é uma
+situação que só existe aqui. Documentado como desvio deliberado, seguindo o padrão do resto deste
+arquivo.
+
+**Composer continua visível/habilitado enquanto uma permissão está pendente** (diferente da extensão
+real, que troca `display:none` no composer de verdade enquanto `h8` é true, forçando decidir antes de
+escrever mais nada — `style:{display:h8||f9?"none":"block"}` no `promptInputContainer`). Deliberado:
+o placeholder atual do Orion já é "Claude está trabalhando… você pode enfileirar a próxima mensagem"
+(`Composer.tsx`) — enfileirar mensagem durante uma permissão pendente é comportamento existente do
+Orion, não coberto por este pedido, e escondido o composer quebraria essa função sem necessidade.
+Fora de escopo mexer nisso aqui ("Keep the diff scoped to this one gap").
+
+**Implementado**:
+- `web/src/claude/mapper.ts`: `currentPermission(events)` — pura; primeiro evento `kind:'permission'`
+  sem `decision` (nem `'timeout'`), na ordem em que aparece (mesma ordem de `s.pending`, FIFO).
+- `web/src/claude/Timeline.tsx`: `Permission` (antes função interna, sem export) virou exportada, sem
+  nenhuma mudança de comportamento — continua sendo o mesmo componente que decide Bash/Edit e
+  `AskUserQuestion`, com as mesmas classes CSS. Novo componente exportado `PermissionDock({event,
+  onDecide})`: `null` sem pedido pendente; senão, `<div className="cc-perm-dock"><Permission .../></div>`.
+  No loop principal de `Timeline`, uma linha nova pula QUALQUER evento `permission` cuja `decision` não
+  seja `'timeout'` (pendente OU já decidido) — o pendente foi pro card docado, o decidido não deixa
+  rastro nenhum (ver decisão acima); `foldExpiredPermissions` continua rodando sobre a lista inteira
+  ANTES desse filtro (não muda o agrupamento de timeouts consecutivos).
+- `web/src/claude/ClaudePage.tsx`: `dockedPermission = useMemo(() => currentPermission(events),
+  [events])`; a área que antes só tinha `{activeId && <Composer .../>}` agora é `{activeId && (<div
+  className="cc-dock"><PermissionDock event={dockedPermission} onDecide={decide}
+  /><Composer .../></div>)}` — MESMO item do grid de `.cc-main` que o `Composer` sozinho já ocupava
+  (não uma linha nova: `grid-template-rows` de `.cc-main` não mudou), então nenhum ajuste de contagem
+  de linhas do grid foi necessário.
+- `web/src/claude/claude.css`: `.cc-dock` (flex column, o wrapper) + `.cc-perm-dock` (margem lateral
+  igual à do `.cc-composer`, sem margem inferior — a margem superior do próprio `.cc-composor` já dá o
+  espaçamento entre os dois quando o card aparece). **Sem overlay `position:absolute` e sem o spacer
+  via `ResizeObserver`** que a extensão real usa pra não tapar o fim do histórico atrás do card
+  flutuante (nenhum outro componente deste código usa esse padrão, e introduzir medição de altura via
+  JS só pra isso seria over-engineering pra um efeito que o grid normal já resolve): como `.cc-dock`
+  ocupa o mesmo item de grid que o composer sempre ocupou, ele simplesmente cresce pra cima quando o
+  card de permissão aparece, empurrando `.cc-scroll` (que já tem `min-height:0`) pra cima — mesmo
+  resultado visual líquido (card sempre visível, nunca perdido atrás de nada, nunca precisa rolar),
+  sem herdar a complexidade do overlay real. Documentado como desvio deliberado da mecânica exata
+  (`position:absolute`), não do resultado.
+- Nada em `mapper.ts`/`live.ts` mudou na PRODUÇÃO de eventos (`toConvEvents`/`reduceSdkMessages`/
+  `foldExpiredPermissions` continuam devolvendo exatamente os mesmos dados de antes, resolvidos E
+  pendentes) — só o que `Timeline.tsx`/`ClaudePage.tsx` fazem com esses dados mudou (onde renderizar
+  cada `kind:'permission'`, e um a mais que nenhum lugar renderiza mais). Isso foi deliberado pra não
+  arriscar nenhuma das rodadas anteriores que tocam essa mesma área no mesmo dia: `foldExpiredPermissions`
+  (rodada 5, folding de timeouts consecutivos), `applyPendingToolWaitStatus`/status `waiting` (rodada
+  4), `interruptedLabel`/estado `interrupted` (rodada 3, turno cortado por stop manual) — todos
+  continuam produzindo os mesmos `ConvEvent[]`, testados pelos MESMOS testes de antes (nenhum teste
+  existente foi alterado, só estendido com casos novos).
+
+**TDD**: `superpowers:test-driven-development` — testes escritos antes da implementação, ciclo
+vermelho→verde confirmado rodando `vitest` no meio do processo (não só no final). 8 testes novos em
+`tests/mapper.test.ts` (`currentPermission`: sem pedidos, só resolvidos, só expirados, um pendente,
+dois pendentes ao mesmo tempo mostra só o 1º, misturado com resolvido, misturado com expirado,
+entremeado com outros tipos de evento) + 1 em `tests/runner.test.ts` (roda o runner de verdade com
+duas chamadas paralelas de `canUseTool`, confirma as duas pendências simultâneas e que decidir uma não
+afeta a outra — base empírica, não só leitura de código, pro pressuposto de `currentPermission`).
+
+**Verificação**: sem navegador/visual-testing neste ambiente (mesma limitação de sempre) — leitura
+cuidadosa e exaustiva do webview/CSS decompilados v2.1.282 (JSX real, CSS exato via `grep -oP`, busca
+por TODA forma de animação no bundle — CSS ligado a classe, `@keyframes` órfão, `.animate(` JS — antes
+de concluir que não existe nenhuma) + `vitest` rodado nos dois lados do diff pra confirmar o delta
+exato: 420 testes (23 arquivos) na branch ANTES desta rodada (`git stash` + `vitest run` +
+`git stash pop`), 429 testes (23 arquivos) DEPOIS — os 9 novos (8 + 1 acima), suíte inteira verde nos
+dois momentos, nenhum teste existente alterado ou quebrado + `npm run typecheck` (`tsc -p
+tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`, sem erro) + `npm run build` (`vite
+build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta mudança).
 
 ## Resumo
 

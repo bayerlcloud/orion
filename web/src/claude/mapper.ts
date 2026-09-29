@@ -557,6 +557,32 @@ export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
 }
 
 /**
+ * Qual pedido de permissão mostrar no card **docado** acima do compositor (fora da `cc-timeline` que
+ * rola — ver `ClaudePage.tsx`/`Timeline.tsx`/PARIDADE.md, "Card de permissão docado"). `undefined`
+ * quando não há nenhum pendente agora (o card some).
+ *
+ * **Por que só um, e por que o primeiro**: `server/claude/runner.ts` guarda os pedidos pendentes num
+ * `Map<string, Pending>` (`l.pending`) sem NENHUMA serialização — cada chamada de `canUseTool` do SDK
+ * ganha sua própria entrada (`pid = randomUUID()`); nada no runner impede duas chamadas ficarem
+ * pendentes ao mesmo tempo, se o SDK despachar tool_use independentes em paralelo no mesmo turno
+ * (confirmado na prática, não só por leitura de código — ver teste "duas chamadas de canUseTool... "
+ * em `tests/runner.test.ts`). A extensão real tem exatamente essa mesma forma de dado — o estado
+ * `permissionRequests` dela também é uma LISTA — e resolve isso sempre lendo só o primeiro elemento:
+ * confirmado lendo `webview/index.js` v2.1.282 (extensão extraída em
+ * `/srv/orion-reference/vscode-extension/extension/webview/`), dentro do componente que monta
+ * `inputContainer`: `N=$.permissionRequests.value[0]`, e o card só é montado quando
+ * `h8=dx($)` é verdadeiro, onde `function dx($){return $.permissionRequests.value.length>0&&
+ * !$.promptInputActive.value}` — ou seja, SEMPRE o primeiro da lista; os demais ficam na fila,
+ * invisíveis, até o primeiro ser decidido (nunca dois cards ao mesmo tempo). Reproduzido aqui: o
+ * primeiro evento `kind:'permission'` ainda sem `decision` nenhuma (nem `'timeout'` — esses ficam na
+ * timeline, ver `foldExpiredPermissions` acima), na ordem em que aparece no array — mesma ordem de
+ * `s.pending` em `live.ts` (FIFO: o pedido mais antigo ainda esperando é o que decide primeiro).
+ */
+export function currentPermission(events: ConvEvent[]): Extract<ConvEvent, { kind: 'permission' }> | undefined {
+  return events.find((e): e is Extract<ConvEvent, { kind: 'permission' }> => e.kind === 'permission' && e.decision === undefined);
+}
+
+/**
  * Rótulo do estado "em andamento" de um bloco de ferramenta genérico (`Tool` em Timeline.tsx) —
  * "aguardando permissão…" para um tool_use cujo pedido de permissão ainda está pendente (status
  * `'waiting'`, ver `applyPendingToolWaitStatus`), "executando…" pro caso comum. Achado numa

@@ -262,7 +262,7 @@ function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide
   );
 }
 
-function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   const isAsk = !!(e.questions && e.questions.length);
   if (e.decision) {
     if (e.decision === 'answer') return <div className="cc-perm-done">Você respondeu: <b>{e.answer ?? e.inputText}</b></div>;
@@ -289,6 +289,44 @@ function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission
       </div>
       <input className="cc-perm-reject" placeholder="Não, e diga ao Claude o que fazer em vez disso…" onKeyDown={ev => { if (ev.key === 'Enter') onDecide?.('deny', (ev.target as HTMLInputElement).value); }} />
       <div className="cc-hints">Enter envia · Esc cancela</div>
+    </div>
+  );
+}
+
+/**
+ * Card de permissão **docado**, fora da `cc-timeline` que rola — montado por `ClaudePage.tsx` como
+ * irmão do `Composer`, nunca dentro do histórico (ver PARIDADE.md, "Card de permissão docado"; achado
+ * lendo `webview/index.js`/`index.css` v2.1.282 da extensão real extraída em
+ * `/srv/orion-reference/vscode-extension/extension/webview/`):
+ * - JSX real: o card (`qW0`) é filho de um `div.permissionsContainer_07S1Yg` que, por sua vez, é
+ *   irmão do composer de verdade (`F5`) dentro de `div.inputContainer_07S1Yg` — nunca dentro do
+ *   `messagesContainer_07S1Yg` que rola.
+ * - CSS real: `.inputContainer_07S1Yg{position:absolute;display:flex;z-index:20;flex-direction:column;
+ *   max-width:680px;margin:0 auto;bottom:16px;left:16px;right:16px}` — um overlay fixo ancorado no
+ *   rodapé da viewport. Aqui, mais simples: sem overlay/position:absolute nem o spacer com
+ *   ResizeObserver que a extensão usa pra não tapar o fim do histórico atrás do overlay (nenhum outro
+ *   lugar deste código usa esse padrão) — `.cc-dock` (ver `ClaudePage.tsx`/`claude.css`) é só mais um
+ *   item do grid vertical de `.cc-main`, na MESMA linha que o `Composer` sozinho já ocupava; ele
+ *   cresce pra cima quando o card aparece, empurrando a área de rolagem — mesmo efeito visual líquido
+ *   do "sobe" que o Bayerl descreveu ao pedir isso, sem herdar a complexidade do overlay real.
+ * - Sem transição/animação de entrada de propósito: conferido exaustivamente (toda regra CSS de
+ *   `permissionRequestContainer_qlaBag`/`permissionsContainer_07S1Yg`/`inputContainer_07S1Yg`, todo
+ *   `@keyframes` do bundle, e `grep` por `.animate(` no JS inteiro) — a extensão real NÃO tem nenhuma
+ *   animação CSS nem chamada de Web Animations API ligada à entrada desse card; ele aparece por
+ *   montagem condicional simples (`h8 && F("div",{...})`). Reproduzido igual aqui — nenhum
+ *   `@keyframes`/`transition` novo em `claude.css` pra isso, de propósito, pra não inventar uma
+ *   animação que a extensão de verdade não tem.
+ * - Só UM card por vez: `event` já vem pré-escolhido de `currentPermission` (mapper.ts) — o primeiro
+ *   pedido ainda pendente, mesma regra `permissionRequests.value[0]` da extensão real. `undefined` →
+ *   não renderiza nada (o card some assim que é decidido).
+ * - Reaproveita o `Permission` de cima (mesmo componente que decidia Bash/Edit e `AskUserQuestion`
+ *   antes, inline) — só muda ONDE ele é montado, não o que ele renderiza.
+ */
+export function PermissionDock({ event, onDecide }: { event?: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+  if (!event) return null;
+  return (
+    <div className="cc-perm-dock">
+      <Permission e={event} onDecide={(d, msg) => onDecide?.(event.id, d, msg)} />
     </div>
   );
 }
@@ -371,6 +409,16 @@ export default function Timeline({ events, onDecide }: { events: ConvEvent[]; on
     <div className="cc-timeline">
       {folded.map(e => {
         if (e.kind === 'system' || e.kind === 'result') return null;
+        // Permissão pendente (sem decisão) ou já decidida (allow/allow_always/deny/answer): nenhuma
+        // das duas aparece mais aqui. A pendente foi pro card docado (PermissionDock, montado por
+        // ClaudePage.tsx — ver currentPermission em mapper.ts); a decidida não deixa NENHUM rastro no
+        // histórico — igual à extensão real (achado lendo webview/index.js v2.1.282: depois de
+        // decidido, o único traço que sobra é o próprio dot de status do tool_use, nunca um bubble
+        // "Permitido"/"Você respondeu" na timeline — ver PARIDADE.md). Único evento de permissão que
+        // continua aqui: 'timeout' (expirado) — sem equivalente na extensão real (o processo dela não
+        // reinicia do jeito que o Orion reinicia; ver foldExpiredPermissions) e sem ele o usuário não
+        // teria NENHUM jeito de saber que aquele pedido nunca mais vai ser respondido.
+        if (e.kind === 'permission' && e.decision !== 'timeout') return null;
         if (e.kind === 'busy') return <ThinkingIndicator key={e.id} />;
         if (e.kind === 'user') return (
           <div key={e.id} className="cc-user">
