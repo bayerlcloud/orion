@@ -136,7 +136,7 @@
 
 .mem-sync { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; font-size: 12px; }
 .mem-sync select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; }
-.mem-sync .link { color: #85b6ff; }
+.mem-sync .link { color: var(--link); }
 
 /* ===== níveis: banner de somente leitura, selo e nota do micro-fato ===== */
 .mem-banner {

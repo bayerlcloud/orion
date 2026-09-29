@@ -1,8 +1,9 @@
-/* Tema da área Claude: escuro, inspirado no painel do plugin, escrito do zero. */
+/* Tema da área Claude: herda os tokens globais de ui.css (Tokyo Night). Só os status fixos da extensão
+   (#74c991/#c74e39/#e1c08d/#89d185/#3b82f6) ficam literais, como no webview real. */
 .cc {
-  --cc-bg: #1b1b1c; --cc-bg2: #202022; --cc-panel: #171718; --cc-fg: #d8d8d8; --cc-fg2: #8e8e93; --cc-line: #303033;
-  --cc-hover: #2a2a2d; --cc-active: #2f2f33; --cc-orange: #d97757; --cc-success: #74c991; --cc-failure: #c74e39;
-  --cc-warning: #e1c08d; --cc-busy: #89d185; --cc-pending: #3b82f6; --cc-code: #121213;
+  --cc-bg: var(--bg); --cc-bg2: var(--bg2); --cc-panel: var(--panel); --cc-fg: var(--fg); --cc-fg2: var(--fg2); --cc-line: var(--line);
+  --cc-hover: var(--hover); --cc-active: var(--active); --cc-orange: var(--accent); --cc-success: #74c991; --cc-failure: #c74e39;
+  --cc-warning: #e1c08d; --cc-busy: #89d185; --cc-pending: #3b82f6; --cc-code: var(--code-block);
   --cc-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; --r: 6px;
   display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 100vh; height: 100vh; min-height: 0; margin: 0; background: var(--cc-bg); color: var(--cc-fg);
   font-size: 13px; line-height: 1.45; color-scheme: dark;
@@ -64,7 +65,7 @@
 .cc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
 .cc-dot.is-running { background: var(--cc-busy); opacity: 1; }
 .cc-dot.is-waiting { background: var(--cc-pending); opacity: 1; }
-.cc-dot.is-unread { background: var(--cc-orange); opacity: 1; }
+.cc-dot.is-unread { background: var(--claude); opacity: 1; }
 .cc-dot.is-failed { background: var(--cc-failure); opacity: 1; }
 
 /* ===== principal ===== */
@@ -87,11 +88,11 @@
 .cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .cc-tabs-scroll::-webkit-scrollbar { height: 5px; }
 .cc-tabs-scroll::-webkit-scrollbar-track { background: transparent; }
-.cc-tabs-scroll::-webkit-scrollbar-thumb { background: #222224; border-radius: 3px; }
-.cc-tabs-scroll::-webkit-scrollbar-thumb:hover { background: #2c2c2f; }
+.cc-tabs-scroll::-webkit-scrollbar-thumb { background: var(--cc-line); border-radius: 3px; }
+.cc-tabs-scroll::-webkit-scrollbar-thumb:hover { background: var(--cc-hover); }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
-.cc-tab-spark { color: var(--cc-orange); }
+.cc-tab-spark { color: var(--claude); }
 .cc-tab-title { overflow: hidden; text-overflow: ellipsis; }
 .cc-tab-x { opacity: 0; display: inline-flex; padding: 2px; border-radius: 3px; }
 .cc-tab:hover .cc-tab-x, .cc-tab.is-active .cc-tab-x { opacity: 1; }
@@ -182,7 +183,7 @@
 .cc-btn:disabled { opacity: .4; cursor: default; }
 .cc-btn:disabled:hover { background: var(--cc-bg); }
 .cc-btn-primary { background: var(--cc-orange); border-color: var(--cc-orange); color: #fff; }
-.cc-btn-primary:hover { background: #c6613f; }
+.cc-btn-primary:hover { background: var(--accent-2); }
 .cc-btn-primary:disabled:hover { background: var(--cc-orange); }
 .cc-perm-reject { width: 100%; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-line); border-radius: var(--r); padding: 6px 8px; font: inherit; }
 .cc-perm-reject:focus { outline: none; border-color: var(--cc-orange); }
@@ -193,13 +194,13 @@
 
 .cc-md p { margin: 0 0 8px; }
 .cc-md p:last-child { margin-bottom: 0; }
-.cc-md code { font-family: var(--cc-mono); font-size: 12px; background: #7f7f7f26; padding: 1px 4px; border-radius: 3px; }
-.cc-md pre { background: var(--cc-code); border: 1px solid var(--cc-line); padding: 8px; border-radius: 5px; overflow: auto; }
+.cc-md code { font-family: var(--cc-mono); font-size: 12px; color: var(--code-fg); background: #7f7f7f26; padding: 1px 4px; border-radius: 3px; }
+.cc-md pre { background: var(--cc-code); padding: 8px; border-radius: 4px; overflow: auto; } /* sem borda, raio 4 — codeBlockWrapper_-a7MRw real */
 .cc-md pre code { background: none; padding: 0; }
 .cc-md table { border-collapse: collapse; margin: 6px 0 10px; }
 .cc-md th, .cc-md td { border: 1px solid var(--cc-line); padding: 3px 10px; text-align: left; }
 .cc-md th { font-weight: 600; }
-.cc-md a { color: #85b6ff; }
+.cc-md a { color: var(--link); }
 
 /* ===== composer + card de permissão flutuantes (overlay) ===== */
 /* `.cc-float` = `.inputContainer_07S1Yg` real, valores EXATOS (extraídos com `grep`/Python do
@@ -335,7 +336,7 @@
 .cc-head { display: flex; align-items: center; gap: 12px; }
 .cc-head-meta { color: var(--cc-fg2); font-weight: 400; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .cc-empty-state { max-width: 520px; margin: 60px auto; text-align: center; }
-.cc-brand-big { font-size: 20px; margin-bottom: 12px; color: var(--cc-orange); }
+.cc-brand-big { font-size: 20px; margin-bottom: 12px; color: var(--claude); }
 .cc-select { appearance: none; border: 0; cursor: pointer; }
 .cc-select option { background: var(--cc-bg2); color: var(--cc-fg); }
 .cc-stop { background: var(--cc-failure); }
@@ -390,7 +391,7 @@
 .cc-thinking-tokens { color: var(--cc-fg2); font-size: 11px; }
 .cc-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cc-tool-summary { align-items: center; }
-.cc-tool-path { font-size: 12px; color: var(--cc-fg2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.cc-tool-path { font-size: 12px; color: var(--link); /* toolNameTextSecondary real: --app-link-color */ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .cc-tool-copy { margin-left: auto; opacity: 0; flex-shrink: 0; }
 .cc-tool-summary:hover .cc-tool-copy { opacity: 1; }
 .cc-copy { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
@@ -409,20 +410,20 @@
 /* ===== diff simples (Edit) ===== */
 .cc-diff { padding: 3px 6px; min-width: 0; overflow: auto; max-height: 40vh; }
 .cc-diff-stats { font-size: 11px; margin-bottom: 3px; }
-.cc-diff-add { color: var(--cc-success); }
-.cc-diff-del { color: var(--cc-failure); }
+.cc-diff-add { color: var(--diff-add); }
+.cc-diff-del { color: var(--diff-del); }
 .cc-diff-body { margin: 0; font-family: var(--cc-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .cc-diff-line { padding: 0 4px; border-radius: 2px; }
-.cc-diff-line.is-add { background: color-mix(in srgb, var(--cc-success) 16%, transparent); }
-.cc-diff-line.is-del { background: color-mix(in srgb, var(--cc-failure) 16%, transparent); }
+.cc-diff-line.is-add { background: color-mix(in srgb, var(--diff-add) 16%, transparent); }
+.cc-diff-line.is-del { background: color-mix(in srgb, var(--diff-del) 16%, transparent); }
 .cc-diff-line.is-ctx { color: var(--cc-fg2); }
 
 /* Destaque de caractere dentro de uma linha trocada (ver annotateCharDiffs/charDiff em mapper.ts) —
    granularidade igual à extensão real (decorações char-insert/char-delete do Monaco por baixo do
    editor de diff dela); fundo mais forte que o da linha, e a parte removida ganha risco (mesmo
    tratamento do `.inline-deleted-text` da extensão real na view inline/unificada). */
-.cc-diff-char.is-add { background: color-mix(in srgb, var(--cc-success) 42%, transparent); border-radius: 2px; }
-.cc-diff-char.is-del { background: color-mix(in srgb, var(--cc-failure) 42%, transparent); border-radius: 2px; text-decoration: line-through; }
+.cc-diff-char.is-add { background: color-mix(in srgb, var(--diff-add) 42%, transparent); border-radius: 2px; }
+.cc-diff-char.is-del { background: color-mix(in srgb, var(--diff-del) 42%, transparent); border-radius: 2px; text-decoration: line-through; }
 
 /* ===== TodoWrite: checklist ===== */
 .cc-todo { padding: 2px 0; }
@@ -589,9 +590,3 @@
 .cc-permrules-confirm-rule { font-size: 12px; color: var(--cc-fg2); overflow-wrap: anywhere; }
 .cc-permrules-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* tema claro na área do Claude */
-:root[data-theme="light"] .cc {
-  --cc-bg: #ffffff; --cc-bg2: #f6f6f7; --cc-panel: #fafafa; --cc-fg: #1a1a1c; --cc-fg2: #6a6a70; --cc-line: #e2e2e6;
-  --cc-hover: #eeeef0; --cc-active: #e6e6ea; --cc-code: #f2f2f4;
-}
-:root[data-theme="light"] .cc .cc-md a { color: #1a55c8; }

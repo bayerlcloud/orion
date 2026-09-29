@@ -156,7 +156,7 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Resumo da tool em 2 linhas (`compactSummary_DGhSIw`, `toolSummary_ZUQaOA`) | **implementado agora** | clamp de 2 linhas na descrição |
 | Dots de status da tool (`dotSuccess/Failure/Warning/Progress_07S1Yg`) | já tem | `dotClass()` |
 | Botão copiar comando (`copyButton_F2hEIg`, `copyIcon`) | **implementado agora** | copia IN/comando |
-| Colapsar/expandir IN/OUT longos (`expandButton_xGDvVg`, `truncationGradient`) | **implementado agora** | corpo dobrável, forma de 1 linha quando fechado |
+| Colapsar/expandir IN/OUT longos | **leitura errada — corrigido em 29/09/2026** | `expandButton_xGDvVg` é um container genérico de outro lugar. O bloco real (`root_ZUQaOA` = `div > summary + body`) **não colapsa**: IN/OUT ficam sempre visíveis, cortados em `max-height:60px` com `mask-image` (50→60px); clicar abre o texto completo numa aba do editor (`fileOpener.openContent`). Read não tem corpo; Bash mostra só a descrição no cabeçalho. O chevron do Orion é invenção nossa — pendente de trocar pela mecânica real |
 | Render distinto Read/Edit/Write/Bash (`bashCommand_F2hEIg`, `filename_adbcGQ`) | **implementado agora** | caminho de arquivo em destaque; Bash mostra comando |
 | Diff colorido para Edit (`insertions/deletions_oblbPg`, `char-insert/delete`) | **implementado agora (28/09/2026, rodada 2)** | diff unificado simples (linhas -/+) **+ destaque de caractere dentro da linha trocada** — ver nota abaixo |
 | Permission card allow/deny (`permissionRequestContainer_qlaBag`) | já tem | `cc-perm` |

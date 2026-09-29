@@ -1,8 +1,10 @@
-/* Tema único do Orion: escuro, mesma paleta e tipografia da aba Claude. */
+/* Tema do Orion: Tokyo Night (tema do Antigravity, o que a extensão Claude Code renderiza por baixo).
+   Valores tirados de theme-tokyo-night/themes/*.json; `--claude` é o laranja fixo da extensão. */
 :root {
   color-scheme: dark;
-  --bg: #1b1b1c; --bg2: #202022; --panel: #171718; --fg: #d8d8d8; --fg2: #8e8e93; --line: #303033;
-  --hover: #2a2a2d; --active: #2f2f33; --accent: #d97757; --accent-2: #c6613f; --ok: #74c991; --bad: #c74e39; --warn: #e1c08d; --info: #3b82f6;
+  --bg: #16161e; --bg2: #1a1b26; --panel: #16161e; --fg: #787c99; --fg2: #515670; --line: #101014;
+  --hover: #13131a; --active: #202330; --accent: #3d59a1; --accent-2: #3d59a1aa; --ok: #74c991; --bad: #c74e39; --warn: #e1c08d; --info: #3b82f6;
+  --link: #6183bb; --claude: #d97757; --code-fg: #9699a8; --code-block: #16161e; --diff-add: #449dab; --diff-del: #914c54;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
   /* compatibilidade com nomes antigos */
@@ -10,21 +12,22 @@
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #ffffff; --bg2: #f6f6f7; --panel: #fbfbfc; --fg: #1a1a1c; --fg2: #6a6a70; --line: #dcdce0;
-  --hover: #f0f0f2; --active: #e7e7ec; --accent: #c6613f; --accent-2: #a94f31; --ok: #2f8f4e; --bad: #c0392b; --warn: #b8860b; --info: #2563eb;
+  --bg: #d6d8df; --bg2: #e6e7ed; --panel: #d6d8df; --fg: #363c4d; --fg2: #707280; --line: #c1c2c7;
+  --hover: #e1e2e8; --active: #dadce3; --accent: #2959aa; --accent-2: #2959aaaa; --ok: #2f8f4e; --bad: #c0392b; --warn: #b8860b; --info: #2563eb;
+  --link: #2959aa; --claude: #c6613f; --code-fg: #33635c; --code-block: #e6e7ed; --diff-add: #166775; --diff-del: #914c54;
   --muted: var(--fg2); --code-bg: #00000010;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--fg); font: 13px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
-a { color: #85b6ff; }
+a { color: var(--link); }
 button.link { color: var(--fg); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; font: inherit; }
 .muted { color: var(--fg2); }
 .small { font-size: 12px; }
 .erro { border: 1px solid var(--line); background: #3a1f1c; color: #f0b3a8; padding: 8px 10px; margin: 8px 0; border-radius: 6px; }
 .center { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .brand { font-weight: 700; letter-spacing: .2em; font-size: 12px; color: var(--accent); }
-code, .mono { font-family: var(--mono); font-size: 12px; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+code, .mono { font-family: var(--mono); font-size: 12px; color: var(--code-fg); background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
 
 /* ===== login ===== */
 .login { width: 100%; max-width: 320px; border: 1px solid var(--line); background: var(--bg2); padding: 24px; display: grid; gap: 14px; border-radius: 10px; }
@@ -72,7 +75,7 @@ h1 { font-size: 20px; margin: 0 0 14px; font-weight: 600; }
 .md th, .md td, th, td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
 .md th, th { background: var(--bg2); font-weight: 600; white-space: nowrap; color: var(--fg); }
 .md td.leigo { color: var(--fg2); max-width: 420px; }
-.md pre, pre { border: 1px solid var(--line); background: #121213; padding: 10px; overflow: auto; border-radius: 6px; }
+.md pre, pre { border: 1px solid var(--line); background: var(--code-block); padding: 10px; overflow: auto; border-radius: 6px; }
 .md pre code, pre code { background: none; padding: 0; }
 .md li { margin: 2px 0; }
 strong { color: var(--fg); }
@@ -96,7 +99,7 @@ strong { color: var(--fg); }
 .cfg-login { border: 1px solid var(--line); padding: 10px 12px; margin: 8px 0; border-radius: 6px; }
 .cfg-code-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .cfg-code-row input { flex: 1; min-width: 220px; }
-.cfg-log { border: 1px solid var(--line); padding: 8px; font-size: 11px; max-height: 200px; overflow: auto; white-space: pre-wrap; background: #121213; }
+.cfg-log { border: 1px solid var(--line); padding: 8px; font-size: 11px; max-height: 200px; overflow: auto; white-space: pre-wrap; background: var(--code-block); }
 .cfg-details { margin-top: 14px; }
 .cfg-details summary { cursor: pointer; color: var(--fg2); }
 
