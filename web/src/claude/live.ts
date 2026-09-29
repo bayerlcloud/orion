@@ -42,6 +42,10 @@ function userText(m: Extract<SdkMessage, { type: 'user' }>): string | undefined 
 }
 
 function pushMessage(s: LiveState, m: SdkMessage): LiveState {
+  // Mesma mensagem do SDK (mesmo uuid) já aplicada: acontece ao reconectar, quando o histórico
+  // recarregado e os eventos que chegaram pelo stream enquanto ele carregava se sobrepõem.
+  const uuid = (m as { uuid?: string }).uuid;
+  if (uuid && s.messages.some(x => (x as { uuid?: string }).uuid === uuid)) return s;
   // O runner ecoa o prompt como mensagem 'user'; se o SDK ecoar de novo (mesmo texto, ou texto +
   // as notas de arquivo anexo), ignora a duplicata. tool_result (sem texto) nunca é tratado como eco.
   if (m.type === 'user') {

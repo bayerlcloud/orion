@@ -308,3 +308,12 @@ describe('toConvEvents — status do tool_use com permissão pendente (toolUseId
     expect(toolEv).toMatchObject({ status: 'running' });
   });
 });
+
+describe('reconexão: histórico recarregado + eventos do buffer', () => {
+  it('ignora mensagem do SDK repetida (mesmo uuid)', () => {
+    const msg = { type: 'assistant', uuid: 'u1', message: { content: [{ type: 'text', text: 'olá' }] } };
+    const s = fromRows([{ seq: 1, type: 'assistant', payload: msg }], 'running', []);
+    const after = applyLive(s, { type: 'message', message: msg });
+    expect(after.messages).toHaveLength(1);
+  });
+});

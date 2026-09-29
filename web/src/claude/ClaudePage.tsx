@@ -116,27 +116,43 @@ export default function ClaudePage() {
     return () => es.close();
   }, [refreshSessions]);
 
-  // Abre a sessão ativa: carrega histórico e liga o stream.
+  // Abre a sessão ativa: liga o stream PRIMEIRO e só então carrega o histórico, a cada (re)conexão.
+  // Antes era o contrário (histórico, depois stream): o que o Claude emitia nesse intervalo, ou
+  // enquanto a conexão estava caída, se perdia, e a tela ficava parada até alguém "cutucar" a
+  // sessão. Agora os eventos que chegam durante a carga ficam num buffer e são aplicados por cima
+  // do histórico (duplicados são ignorados em pushMessage/permission_request).
   useEffect(() => {
     esRef.current?.close(); esRef.current = null;
     if (!activeId || isDraft(activeId)) return;
     let alive = true;
+    let buffer: any[] | null = [];
+    let first = true; // modo/modelo só vêm do servidor na primeira carga (reconexão não desfaz o seletor)
     setStreamStatus('connecting');
-    claudeApi.get(activeId).then(r => {
-      if (!alive) return;
-      setLive(l => ({ ...l, [activeId]: fromRows(r.events, r.session.status, r.pending) }));
-      const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
-      es.onmessage = (m) => { try { const ev = JSON.parse(m.data); setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) })); if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions(); if (ev.type === 'turn_end') void refreshUsage(); } catch { /* ignora */ } };
-      // O EventSource nativo reconecta sozinho — isso só avisa visualmente que a conexão caiu (antes
-      // era um no-op puro, silêncio total). onopen dispara de novo quando a reconexão automática do
-      // navegador der certo (dispara também na primeira conexão, por isso 'connecting' antes disso).
-      es.onopen = () => { setStreamStatus('connected'); };
-      es.onerror = () => { setStreamStatus('disconnected'); };
-      esRef.current = es;
-      const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
-      setModel(matchModelAlias(s.model));
-    }).catch(e => setErro(e.message));
-    return () => { alive = false; esRef.current?.close(); esRef.current = null; };
+    const apply = (ev: any) => {
+      setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) }));
+      if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
+      if (ev.type === 'turn_end') void refreshUsage();
+    };
+    const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
+    es.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (buffer) buffer.push(ev); else apply(ev); } catch { /* ignora */ } };
+    // onopen dispara na primeira conexão e em cada reconexão automática do navegador: nas duas,
+    // recarrega o histórico pra recuperar o que aconteceu enquanto não estava ouvindo.
+    es.onopen = () => {
+      setStreamStatus('connected');
+      buffer = buffer ?? [];
+      claudeApi.get(activeId).then(r => {
+        if (!alive) return;
+        const pending = buffer ?? []; buffer = null;
+        setLive(l => ({ ...l, [activeId]: pending.reduce((st, ev) => applyLive(st, ev), fromRows(r.events, r.session.status, r.pending)) }));
+        if (!first) return;
+        first = false;
+        const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
+        setModel(matchModelAlias(s.model));
+      }).catch(e => { buffer = null; setErro(e.message); });
+    };
+    es.onerror = () => { setStreamStatus('disconnected'); };
+    esRef.current = es;
+    return () => { alive = false; es.close(); esRef.current = null; };
   }, [activeId, refreshSessions, refreshUsage]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
