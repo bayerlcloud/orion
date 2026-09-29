@@ -112,8 +112,26 @@ export type SlashCommandInfo = { name: string; description: string; argumentHint
 
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'unread' | 'failed';
 
+/**
+ * Uma pasta nomeada de sessões — "Agrupamento de sessões em pastas nomeadas" (ver PARIDADE.md,
+ * item 12 da seção 13: classes `newGroupButton`/`groupHeader`/`groupChevron`/`groupName`/
+ * `groupCount` da extensão real). Diferente do "Agrupar por Nenhum/Projeto/Atividade" já existente
+ * (`GroupBy`/`groupSessions`, mais abaixo em mapper.ts) — aquele é automático e nunca persistido
+ * (`useState` local, reseta a cada reload); isto aqui é criado à mão pelo usuário e sobrevive a
+ * reload/troca de aba (tabela `claude_session_groups` no Postgres, migração `010_claude_session_groups`
+ * em server/migrations.ts). `createdAt`: epoch ms, só usado pra ordenar as pastas na ordem em que
+ * foram criadas (sem reordenação manual nesta rodada — ver PARIDADE.md, decisão de escopo).
+ */
+export type SessionGroupInfo = { id: string; name: string; createdAt: number };
+
 export type SessionSummary = {
   id: string; title: string; status: SessionStatus; updatedAt: number; group?: string; project?: string; projectName?: string; archived?: boolean;
   /** Nome do worktree desta sessão (derivado do `cwd`, ver `sessionWorktreeName` em mapper.ts) — `undefined` quando a sessão roda na raiz do projeto, sem worktree. Alimenta a pill em Sidebar.tsx. */
   worktreeName?: string;
+  /**
+   * Pasta nomeada (manual) a que esta sessão pertence — `claude_sessions.group_id`, `null`/`undefined`
+   * quando a sessão está solta ("Sem pasta"). Alimenta `groupSessions(sessions, 'folder', now, folders)`
+   * e o seletor "Mover para pasta" por sessão em Sidebar.tsx. Ver PARIDADE.md.
+   */
+  groupId?: string | null;
 };

@@ -1,4 +1,4 @@
-import type { AgentTask, AgentTaskUsage, ConvEvent, SdkContentBlock, SdkMessage, SessionSummary, ToolStatus } from './types';
+import type { AgentTask, AgentTaskUsage, ConvEvent, SdkContentBlock, SdkMessage, SessionGroupInfo, SessionSummary, ToolStatus } from './types';
 
 type Rec = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -661,8 +661,15 @@ export function filterSessions(sessions: SessionSummary[], f: SessionFilter): Se
   });
 }
 
-/** Como a extensão agrupa a lista lateral: nenhum agrupamento (um grupo só), por projeto, ou por recência. Pura. */
-export type GroupBy = 'none' | 'project' | 'recency';
+/**
+ * Como a extensão agrupa a lista lateral: nenhum agrupamento (um grupo só), por projeto, por
+ * recência, ou por pasta nomeada manual (`'folder'`, ver PARIDADE.md item 12 da seção 13). Os três
+ * primeiros são automáticos, derivados só das sessões (nunca persistidos — `useState` local em
+ * Sidebar.tsx, reseta a cada reload); `'folder'` é o modo ADICIONAL novo, que lê uma lista à parte
+ * de pastas persistidas (`folders`, 4º parâmetro de `groupSessions` abaixo) — não substitui os
+ * outros três, que continuam funcionando exatamente como antes.
+ */
+export type GroupBy = 'none' | 'project' | 'recency' | 'folder';
 export type SessionGroup = { key: string; label: string; sessions: SessionSummary[] };
 
 function startOfDay(ts: number): number {
@@ -671,7 +678,31 @@ function startOfDay(ts: number): number {
   return d.getTime();
 }
 
-export function groupSessions(sessions: SessionSummary[], groupBy: GroupBy, now = Date.now()): SessionGroup[] {
+/**
+ * `folders`: só usado pelo critério `'folder'` — lista de pastas nomeadas persistidas (`GET
+ * /api/claude/session-groups`), na ordem em que foram criadas (`createdAt` ascendente; sem
+ * reordenação manual nesta rodada, ver PARIDADE.md). Parâmetro novo, opcional (default `[]`) — não
+ * quebra nenhuma chamada existente com `'none'`/`'project'`/`'recency'`.
+ */
+export function groupSessions(sessions: SessionSummary[], groupBy: GroupBy, now = Date.now(), folders: SessionGroupInfo[] = []): SessionGroup[] {
+  if (groupBy === 'folder') {
+    // Diferente de 'project' (grupo só existe se alguma sessão tiver aquele projeto): uma pasta é uma
+    // entidade persistida à parte das sessões, então aparece mesmo vazia (usuário acabou de criar,
+    // ainda não moveu nada pra dentro) — ordenada pela ordem de criação, nunca alfabética.
+    const byId = new Map(folders.map(f => [f.id, f] as const));
+    const out: SessionGroup[] = [...folders].sort((a, b) => a.createdAt - b.createdAt)
+      .map(f => ({ key: `folder:${f.id}`, label: f.name, sessions: [] as SessionSummary[] }));
+    const byKey = new Map(out.map(g => [g.key, g] as const));
+    const ungrouped: SessionSummary[] = [];
+    for (const s of sessions) {
+      // Sem groupId, ou groupId de uma pasta que não existe mais na lista atual (apagada) — cai em
+      // "Sem pasta" em vez de sumir da lateral (nunca perde uma sessão de vista).
+      const g = s.groupId ? byKey.get(`folder:${s.groupId}`) : undefined;
+      if (g && byId.has(s.groupId!)) g.sessions.push(s); else ungrouped.push(s);
+    }
+    out.push({ key: 'ungrouped', label: 'Sem pasta', sessions: ungrouped });
+    return out;
+  }
   if (groupBy === 'project') {
     const byKey = new Map<string, SessionGroup>();
     for (const s of sessions) {
@@ -940,4 +971,27 @@ export function sessionWorktreeName(cwd: string | null | undefined, projectPath:
   if (c === norm(projectPath)) return null;
   const segs = c.split('/').filter(Boolean);
   return segs.length ? segs[segs.length - 1] : null;
+}
+
+export const GROUP_NAME_MAX = 120;
+
+/**
+ * Validação ao vivo do nome de uma pasta nomeada (Sidebar.tsx — ver PARIDADE.md item 12 da seção
+ * 13). Diferente de `validateWorktreeName` acima (que espelha uma regra REAL da extensão, porque o
+ * nome do worktree vira nome de branch git): um nome de pasta é só um rótulo livre guardado no
+ * Postgres, sem restrição de caractere nenhuma na extensão real (não achamos função de validação
+ * dedicada pra `groupName` no webview decompilado — só o limite implícito de UI). Por isso a regra
+ * aqui é a MAIS simples possível, e deliberadamente igual à que `POST
+ * /api/claude/sessions/:id/rename` já usa pro título da sessão (`title.trim().slice(0, 120)`) — mesmo
+ * limite (120), mesma ideia ("vazio depois de trim é inválido"), em vez de inventar um limite novo só
+ * pra pastas. Cópia do lado cliente da validação autoritativa (`server/claude/groups.ts`,
+ * `validateGroupName` — nunca importada de lá pra cá, mesmo padrão de duplicação deliberada que
+ * `validateWorktreeName`/`server/claude/worktree.ts` já usam): esta função aqui só mostra o erro
+ * cedo; o servidor sempre revalida antes de gravar.
+ */
+export function validateGroupName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return 'nome é obrigatório';
+  if (trimmed.length > GROUP_NAME_MAX) return `nome deve ter até ${GROUP_NAME_MAX} caracteres`;
+  return null;
 }

@@ -292,7 +292,7 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
 | Miniatura de anexo pendente clicável → popup (componente real `AI0`/`yw` — mesmo componente usado tanto no compositor quanto na mensagem já enviada, classes `previewOverlay_vRjSkQ`/`previewContainer_vRjSkQ`/`previewImage_vRjSkQ`/`previewCloseButton_vRjSkQ`) | **corrigido agora (28/09/2026, rodada 7 — pedido ao vivo do Bayerl)** | antes abria a imagem em nova aba (commit `5b445b6`, de uma sessão diferente no mesmo dia — o Bayerl pediu ao vivo pra trocar por um popup, nunca implementado até agora); agora abre o mesmo `Lightbox` usado pelo histórico — ver seção 10 |
 | Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora (28/09/2026)** | era uma lista fixa de 4 (`/clear /compact /context /cost`); agora vem de `Query.supportedCommands()` do SDK quando a sessão já rodou pelo menos um turno neste processo (inclui skills, comandos de projeto, etc.), com fallback pros 4 fixos antes disso — ver seção "Compositor — rodada de 28/09/2026" |
 | @-menções (`mentionChip_uq5aLg`, "Add context") | n/a | fora de escopo (pedido) |
-| Microfone/voz (`micButton_cKsPxg`) | n/a | fora de escopo (pedido) |
+| Microfone/voz (`micButton_cKsPxg`) | **implementado agora (29/09/2026, ver seção 16)** | Web Speech API do navegador (client-side, adaptado — a extensão real delega pro processo da extensão, que o Orion não tem); botão + tooltip + atalho `⌘D`/`Ctrl+D` + transcrição parcial |
 | Projeto da nova sessão | já tem | extra nosso (`cc-select`) |
 
 ### Compositor — rodada de 28/09/2026 (recall, seletor de modelo, comandos reais)
@@ -1603,11 +1603,15 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
 
 ### Achados por nome de classe + contexto de código (sem string literal ainda confirmada — checar antes de construir)
 
-7. **Ditado por voz no compositor** — classes `micButton/micIcon/micIconPuck/micTooltip/
-   micTooltipError/micTooltipShortcut/recording/voiceInterim/wave`; strings encontradas
-   (`voiceRecordingStarted`/`voiceRecordingStopped`) parecem ser sons de acessibilidade do VS Code
-   em si, não necessariamente da extensão — precisa confirmar se é feature real da extensão ou
-   herdada do host.
+7. **Ditado por voz no compositor** — **INVESTIGADO E IMPLEMENTADO em 29/09/2026, ver seção 16.**
+   Classes `micButton/micIcon/micIconPuck/micTooltip/micTooltipError/micTooltipShortcut/recording/
+   voiceInterim` confirmadas como feature real (não CSS órfão) — todas no MESMO objeto de CSS module
+   do Composer, ligadas a lógica funcional de verdade (`X.speechToTextEnabled`, `J.startSpeechToText`).
+   A suspeita original sobre `voiceRecordingStarted`/`voiceRecordingStopped` (sons de acessibilidade
+   do próprio editor, não da extensão) **se confirmou** — mas isso não invalidava a feature, só essa
+   evidência específica; achei evidência independente e completa da lógica real. A classe `wave`
+   citada acima **não pertence** ao componente de voz (hash de CSS module diferente, pertence a um
+   componente não relacionado) — achado que corrige o levantamento original, ver seção 16.
 8. **"Teleport" de sessão entre janelas/dispositivos** — `pendingRemoteTeleport`,
    `unresolvedBootRemoteId`, `teleportError*`, `notifyPanelTeleportResolved/Abandoned`. Pode
    sobrepor com o que já existe no Orion (`GET /api/claude/ui-state/stream`, sincronização
@@ -1620,10 +1624,11 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
 10. **Lista de hooks** — classe `hookRow`, sem string literal capturada ainda.
 11. **Painel de skills** — classes `skillRow/skillLock/skillNote/skillState` — lista/toggle de
     skills (ver `Skill` tool desta própria sessão).
-12. **Agrupamento de sessões em pastas nomeadas** — classes `newGroupButton/newGroupIcon/
-    groupHeader/groupChevron/groupChevronExpanded/groupName/groupNameEditing/groupCount`. O Orion
-    já tem um "Agrupar por Nenhum/Projeto/Atividade" (ver Resumo, rodada anterior 2) que é um
-    equivalente leve — esse aqui parece ser pastas nomeadas arrastáveis, mais pesado.
+12. **Agrupamento de sessões em pastas nomeadas** — **IMPLEMENTADO em 29/09/2026, ver seção 17.**
+    Classes `newGroupButton/newGroupIcon/groupHeader/groupChevron/groupChevronExpanded/groupName/
+    groupNameEditing/groupCount`. O Orion já tem um "Agrupar por Nenhum/Projeto/Atividade" (ver
+    Resumo, rodada anterior 2) que é um equivalente leve — esse aqui parece ser pastas nomeadas
+    arrastáveis, mais pesado.
 13. **Checklist de onboarding/milestones** — classes `milestoneList/milestoneRow/
     milestoneRowCompleted/milestoneRowNext/milestoneText/milestoneTextBold`, função
     `dismissOnboarding()`. Fluxo de primeiro uso; baixa prioridade pro Orion (ambiente
@@ -2082,6 +2087,321 @@ em `tsconfig.json` (front). `npm run build` (`vite build && tsc -p tsconfig.serv
 foram vistos renderizados de verdade, só revisados por leitura cuidadosa comparando com o padrão já
 em produção dos seletores de Modelo/Esforço/Modo (`cc-pop`/`Menu`/`cc-menu-item`, reuso literal).
 
+## 16. Ditado por voz no compositor — implementado em 29/09/2026 (item 7 da seção 13), worktree isolada `feature/voice-dictation`
+
+Pedido: investigar e, se real, implementar o item 7 da seção 13 ("Ditado por voz no compositor"),
+que até esta rodada só tinha evidência de NOME DE CLASSE, sem confirmação de lógica funcional —
+inclusive com um aviso explícito de que `voiceRecordingStarted`/`voiceRecordingStopped` podiam ser só
+sons de acessibilidade do próprio VS Code, não da extensão. Investigação feita lendo o webview
+decompilado **v2.1.283** (`/srv/orion-reference-2.1.283/webview/{index.js,index.css}`, a mais nova,
+preferida pela própria seção 13), não a v2.1.282.
+
+### Investigação — confirmando (e corrigindo) a suspeita original
+
+- As 8 classes citadas no levantamento original (`micButton`/`micIcon`/`micIconPuck`/
+  `micButtonWrapper`/`micTooltip`/`micTooltipError`/`micTooltipShortcut`/`recording`/`voiceInterim`)
+  vivem TODAS no mesmo objeto de CSS module (`var O7={...}`) do componente do compositor, junto com
+  `messageInput`/`attachedFilesContainer`/`inputContainer` — não é CSS órfão de uma feature morta.
+- **A suspeita original sobre os sons SE CONFIRMOU, mas não desmente a feature**: `voiceRecordingStarted`/
+  `voiceRecordingStopped` são registrados numa classe `u2` como
+  `accessibility.signals.voiceRecordingStarted`/`Stopped` (`legacySoundSettingsKey:
+  "audioCues.voiceRecordingStarted"`), no MESMO catálogo genérico que também registra
+  `errorAtPosition`/`format`/`save`/`progress` — é o framework de sinais de acessibilidade do próprio
+  editor, sons que tocam pra QUALQUER feature de voz do host, não específicos da extensão Claude Code.
+  Só que essa era só UMA pista, ambígua; achei uma pista completamente diferente e conclusiva: o
+  componente real do compositor (achado lendo o JSX ao redor de `O7.micButton`, não só grep de nome)
+  é guardado por um getter de verdade — `get speechToTextEnabled(){return
+  this.comms.connection.value?.config.value?.speechToTextEnabled??!1}` (classe `ED1`) — e o clique
+  chama `J.startSpeechToText(callback)`/`J.stopSpeechToText()` (métodos reais de uma classe de sessão,
+  com `speechToTextActive`/`speechToTextError`/`speechAudioLevel` como estado observável próprio). Isso
+  é lógica funcional completa, não decoração — a feature é real.
+- **Achado que corrige o levantamento original**: a classe `wave` citada (`wave_VBlAgQ`) **não
+  pertence** ao componente de voz — confirmado comparando o sufixo de hash do CSS module: todo o resto
+  do mic usa `_cKsPxg` (o hash do Composer); `wave_VBlAgQ` tem um hash DIFERENTE, e ler o JSX ao redor
+  mostra que pertence a um componente `XF0` — uma barra "divider" que aparece perto do texto "View
+  output logs", sem nenhuma relação com microfone. Não replicado; documentado aqui pra não confundir
+  quem ler o levantamento original de novo.
+- **Diferença de arquitetura, confirmada por busca no bundle inteiro (não achada = evidência, não
+  suposição)**: `SpeechRecognition`, `webkitSpeechRecognition`, `getUserMedia` e `MediaRecorder` **não
+  aparecem em nenhum lugar** do webview. A extensão real NÃO usa a Web Speech API do navegador — o
+  webview manda uma mensagem pro HOST da extensão (`{type:"start_speech_to_text",channelId}`/
+  `stop_speech_to_text`) e recebe de volta um stream de texto (`case"speech_to_text_message"`); a
+  captura de áudio de verdade roda FORA do sandbox do webview, no processo da extensão
+  (Node/Electron do editor) — não uma chamada de API de nuvem, nem `getUserMedia` dentro do iframe. O
+  Orion não tem esse processo de "extensão host", só o navegador comum servindo a página — por isso a
+  implementação usa a Web Speech API do navegador (`webkitSpeechRecognition`/`SpeechRecognition`,
+  100% client-side, sem servidor novo), a única opção sem construir transcrição server-side (fora de
+  escopo, não pedido — bate com a suposição do pedido original, agora confirmada por leitura de
+  código em vez de assumida).
+- **Interação real, mais rica do que o pedido original supunha**: o botão real tem um gesto duplo —
+  "toque" (mousedown/mouseup rápido, ou tecla batida e solta rápido) alterna a gravação e ela FICA
+  ligada até um novo toque; "segurar" (mousedown mantido, ou tecla mantida) grava só enquanto
+  pressionado, estilo push-to-talk — limiar real confirmado no código minificado: `V2=200` (200ms).
+  Tooltip real ("Tap or hold to record") + atalho `⌘D`/`Ctrl+D` (função `j11()` detecta Mac por
+  `navigator.userAgent`/`platform`) — CONFIRMADO no código, não suposto (é exatamente o que
+  `micTooltipShortcut` sugeria no levantamento original).
+
+### Implementado
+
+`web/src/claude/mapper.ts` (novo bloco, TDD vermelho→verde confirmado — 22 testes falhando por função
+ausente antes da implementação, depois verdes):
+- `isMacPlatform(info)` — mesma checagem da função real `j11()` (UA/platform).
+- `micShortcutLabel(isMac)` — `"⌘D"`/`"Ctrl+D"`, mesmo texto do tooltip real.
+- `micErrorMessage(code)`/`isMicPermissionError(code)` — traduzem os códigos fixos de
+  `SpeechRecognitionErrorEvent.error` (spec W3C) pro PT-BR; `not-allowed`/`service-not-allowed` contam
+  como negação permanente (equivalente a `speechToTextMicDenied` real), o resto é erro passageiro.
+- `accumulateFinalTranscript(finalText, newChunk)` — acumula um trecho já confirmado pelo
+  reconhecimento, com espaçamento correto (nunca duplica espaço, ignora trecho vazio).
+- `composeDictationText(before, after, finalText, interimText)` — reimplementação funcional de `mW0`
+  do webview real, adaptada pro `<textarea>` simples do Orion (decisão de arquitetura já documentada
+  na rodada de recall ArrowUp/ArrowDown — a extensão real usa `contentEditable` com Range API
+  completo): mescla o texto ditado no ponto do cursor capturado no INÍCIO da gravação, preservando
+  antes/depois, com espaçamento automático nas duas pontas e cursor sempre logo após o texto inserido.
+
+`web/src/claude/Composer.tsx`: tipos locais mínimos pra Web Speech API (`MicRecognition` etc. — nomes
+próprios, de propósito, pra não colidir com uma eventual declaração global de `SpeechRecognition` em
+alguma versão do `lib.dom.d.ts`); `micSupported` (feature-detect uma vez, `useMemo`) esconde o botão
+inteiro em navegador sem suporte (Firefox, por exemplo) — mesmo padrão do `X.speechToTextEnabled &&`
+real (esconde tudo, não só desabilita); botão no canto superior direito do campo, posição EXATA da
+extensão real (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`); estados
+`micRecording`/`micInterim`/`micError`/`micDenied`; `startMic`/`stopMic`/`toggleMic` chamando a Web
+Speech API (`continuous:true`, `interimResults:true`); atalho `⌘D`/`Ctrl+D` (listener de teclado
+próprio do Composer, mesmo padrão já usado pelo Esc no mesmo arquivo); para a gravação sozinho ao
+trocar de sessão ou desmontar (nunca deixa o microfone "preso" ligado). `web/src/claude/icons.tsx`:
+ícone `Mic` novo, mesmo estilo minimalista (traço 1.5, 16×16) dos demais. `web/src/claude/claude.css`:
+`.cc-mic*` (botão, tooltip, legenda de interim), reaproveitando `--cc-failure` (vermelho já existente
+no tema) pro estado de gravação e `@keyframes cc-pulse` (já existia, sem uso) pro ícone pulsar.
+
+### Simplificações e achados negativos — documentados, não escondidos
+
+- **Gesto de segurar-e-soltar (push-to-talk) NÃO replicado** — só o alternar por clique/atalho. Decisão
+  deliberada: a temporização fina do gesto real (mousedown/keyup com limiar de 200ms, ver achado
+  acima) não é verificável sem um navegador de verdade neste ambiente (sem mouse/teclado real). Um
+  estado a mais que eu não conseguiria testar de verdade era mais risco do que valor — melhor um
+  alternar simples que funciona com certeza do que um gesto duplo que eu não posso confirmar.
+- **`speechAudioLevel`/barras reagindo a volume (componente real `VK0`) NÃO replicado**: a Web Speech
+  API do navegador não expõe nenhum nível de áudio captado — só resultados de texto e eventos de
+  erro/fim. Em vez de fabricar uma animação fake "reagindo" a um volume que não existe (o que seria
+  inventar comportamento, contra a prática já estabelecida neste arquivo de nunca fabricar dado sem
+  fonte real), o ícone só pulsa enquanto grava (`@keyframes cc-pulse`).
+- **Editar manualmente durante o ditado**: `composeDictationText` sempre recalcula a partir do
+  `before`/`after` capturados no INÍCIO da gravação, não do valor atual do campo — se o usuário digitar
+  enquanto dita, o próximo resultado de reconhecimento pode sobrescrever a edição manual. A extensão
+  real detecta essa situação e aborta o ditado (`mW0` retornando o sentinela `"edited"`); não
+  replicado aqui (exigiria comparar o valor esperado vs. o valor real do campo a cada tecla — mais uma
+  peça de estado pro caso incomum de digitar E ditar ao mesmo tempo).
+- **Transcrição parcial ("interim") não fica embutida no próprio campo em itálico**: a extensão real
+  usa `contentEditable`, que aceita estilo por trecho; o `<textarea>` do Orion não. O texto CONFIRMADO
+  (final) é escrito direto no valor do campo — igual ao real, aparece "ao vivo" enquanto fala; o trecho
+  ainda em reconhecimento aparece numa legenda separada, pequena, itálico/cinza (`.cc-mic-interim`,
+  mesma cor de `voiceInterim_cKsPxg` real), perto do botão — desaparece assim que aquele trecho é
+  confirmado e vira texto normal no campo.
+
+### Verificação
+
+TDD: 22 testes novos em `tests/mapper.test.ts` (`isMacPlatform`, `micShortcutLabel`,
+`micErrorMessage`/`isMicPermissionError`, `accumulateFinalTranscript`, `composeDictationText`),
+vermelho→verde confirmado (rodei a suíte com os testes novos ANTES da implementação: 22 falhas por
+função ausente; implementei; rodei de novo: 203/203 em `mapper.test.ts`). Suíte inteira: **558
+testes** (536 antes desta rodada + 22 novos), `npm run typecheck` (server e front) e `npm run build`
+verdes. **Sem navegador neste ambiente** — não dá pra testar o reconhecimento de voz de verdade (a Web
+Speech API depende de um microfone real e de permissão real do navegador, nenhum dos dois existe numa
+sessão SSH sem cabeça); a wiring de `startMic`/`stopMic`/eventos do `MicRecognition` foi verificada por
+leitura cuidadosa + `tsc --noEmit` + `vite build` limpo, não por gravação de voz real — mesma
+limitação, honestamente documentada, de toda rodada anterior sem visual-testing.
+
+## 17. Agrupamento de sessões em pastas nomeadas — implementado em 29/09/2026 (item 12 da seção 13), worktree isolada `feature/session-groups`
+
+Item 12 da investigação da seção 13 ("Agrupamento de sessões em pastas nomeadas"), até aqui só
+levantado por nome de classe, sem confirmação de lógica. Implementado numa worktree isolada
+(`/srv/orion-worktrees/session-groups`, branch `feature/session-groups`) pra não mexer em `main` nem
+nos processos de outras sessões paralelas rodando na mesma rodada (`permission-rules`, `skills-hooks`,
+`voice-dictation` — confirmado com `git worktree list` antes de começar).
+
+### O que a extensão real faz de verdade
+
+Lido em `/srv/orion-reference-2.1.283/webview/index.js` (a versão mais nova, preferida pela própria
+seção 13) — grep pelas 8 classes já levantadas (`newGroupButton/newGroupIcon/groupHeader/
+groupChevron/groupChevronExpanded/groupName/groupNameEditing/groupCount`) e pelo contexto de JSX/
+funções ao redor delas, não só o nome:
+
+- **Persistência é um par de mensagens IPC pro host, não uma API HTTP**: `getSessionGroups(){return
+  this.sendRequest({type:"get_session_groups"})}` e `updateSessionGroups($){return
+  this.sendRequest({type:"update_session_groups",groups:$})}` — a extensão manda a lista INTEIRA de
+  grupos de volta a cada mudança (replace completo, não um CRUD granular), o host (processo Node da
+  extensão, fora do sandbox do webview) grava em disco. Erros reais encontrados como string literal:
+  `"Failed to load session groups:"` / `"Failed to persist session groups:"`. Um evento
+  `"session_groups_changed"` (`this.sessionGroupsVersion.value++`) sincroniza entre janelas/instâncias
+  do mesmo host.
+- **Forma de um grupo**: `{id, name, sessionIds: string[]}` — confirmado no menu de contexto real
+  (função que monta as opções de clique-direito numa sessão selecionada): `let
+  Q=J.filter((z)=>!$.every((G)=>z.sessionIds.includes(G)))` (lista de grupos que NÃO contêm toda a
+  seleção — vira o submenu "Add to group") e `$.some((z)=>J.some((G)=>G.sessionIds.includes(z)))`
+  (mostra "Remove from group" se a seleção tem algo em algum grupo).
+- **Criar um grupo**: `createGroupFromSelection:()=>{...let JY=OS($8,"New group",M4);if(!JY.groupId)
+  return;q9(JY.groups),V0(""),D0(!1),B0(mG),v8(JY.groupId),o6()}` — cria com o nome fixo **"New
+  group"** (nunca pergunta o nome antes) e imediatamente entra em modo de renomear
+  (`v8(JY.groupId)`, o mesmo setter usado por "Rename group" no menu). Rótulo do próprio gatilho no
+  menu muda dinamicamente conforme a seleção: `` `New group from ${$.length} sessions` `` quando mais
+  de uma sessão está selecionada, só `"New group"` com uma ou nenhuma.
+- **Mover sessão pra dentro/fora**: `moveSelectionToGroup:($8)=>G9({kind:"group",groupId:$8},M4)`,
+  `removeSelectionFromGroups:()=>G9({kind:"ungrouped"},M4)` — as DUAS vias que o pedido desta tarefa
+  antecipou existem de verdade: (1) **drag-and-drop** — `` `${H5.groupHeader} ${Y?H5.dropTarget:""}` ``
+  confirma que o cabeçalho do grupo vira alvo de soltura (`Y` é o estado "sendo arrastado por cima");
+  (2) **menu de contexto** com "Add to group" (submenu por grupo existente) / "Remove from group" —
+  exatamente a alternativa que o pedido desta tarefa já sugeria como caminho mais simples.
+- **Renomear**: `{label:"Rename group",onSelect:()=>v8(K0.id)}` — mesmo setter que liga o modo
+  `groupNameEditing` (input inline no lugar do texto, confirmado pela classe existir separada de
+  `groupName`).
+- **Apagar**: `{label:"Delete group",separatorBefore:!0,onSelect:()=>{let M4=E4.current;if(!M4)return;
+  let q9=uT1(M4,K0.id);if(q9.length!==M4.length)B5(q9)}}` — só remove o grupo da lista; nada no trecho
+  lido reatribui `sessionIds` de volta pra "ungrouped" explicitamente, porque a lista de sessões
+  "sem grupo" na UI real É derivada (qualquer sessão cujo id não aparece em `sessionIds` de nenhum
+  grupo already é implicitamente "Ungrouped") — apagar o grupo já basta.
+- **"Ungrouped"**: balde implícito com esse rótulo fixo (`"Ungrouped"`), sempre presente — achado
+  também `ungroupedCollapsed`/`archivedCollapsed` como chaves de um objeto de preferências
+  persistido (estado de colapso de CADA seção sobrevive a reload, não só a existência dos grupos).
+- **Criar sessão nova já dentro do grupo**: `{label:"Start new session in this group",
+  onSelect:()=>C(K0.id)}` no menu de contexto do CABEÇALHO do grupo (não da sessão) — atalho pra não
+  precisar criar solto e depois mover.
+- **`groupHeaderAction`** (classe extra achada durante esta investigação, fora das 8 já listadas no
+  ponto de partida da tarefa): ícones de ação no próprio cabeçalho do grupo — condiz com "Rename
+  group"/"Delete group" também estarem acessíveis sem precisar abrir o menu de contexto da sessão.
+
+### O que já existia no lado do Orion
+
+`claude_sessions` (Postgres) não tinha nenhum conceito de grupo/pasta — confirmado por grep antes de
+mexer (`group` aparecia só como um campo morto, nunca lido/escrito, em `SessionSummary.group` no
+tipo do front; não tocado nesta rodada, sem relação com a feature nova). `GET /api/claude/sessions`
+já devolve as sessões de TODOS os usuários juntas, sem filtro por dono (`u.name AS user_name` é só
+metadado de exibição) — o mesmo vale pra `rename`/`archive`, nenhuma rota de sessão hoje restringe
+por `user_id`. O "Agrupar por Nenhum/Projeto/Atividade" já existente (`GroupBy`/`groupSessions` em
+`web/src/claude/mapper.ts`, `Sidebar.tsx`) é automático, derivado só das sessões, nunca persistido
+(`useState` local) — confirmado que continua funcionando sem nenhuma mudança de comportamento (os
+343+ testes de `groupSessions` pré-existentes passam intactos).
+
+### Decisões de escopo (documentadas, não pedidas de volta)
+
+- **Menu/dropdown em vez de drag-and-drop.** A extensão real tem as duas vias (achado acima:
+  `dropTarget`/`moveSelectionToGroup` servem tanto arrastar quanto o menu de contexto). Drag-and-drop
+  é interação de DOM/mouse pura — sem navegador neste ambiente (mesma limitação de toda rodada
+  anterior), qualquer bug de `dragstart`/`dragover`/`drop`/estado visual do alvo ficaria invisível até
+  alguém testar ao vivo. Implementado só o caminho de menu: um `<select>` nativo "Mover para pasta"
+  por sessão (`.cc-item-move`, dentro de `.cc-item-actions`, hover-revelado igual Renomear/Arquivar já
+  existentes) — sem seleção múltipla de sessões (o Orion não tem multi-seleção em lugar nenhum da
+  lista lateral hoje; "New group from N sessions" da extensão real não foi replicado por depender
+  disso). Decisão explicitamente antecipada e sancionada pelo pedido desta tarefa.
+- **Sem confirmação de senha/diálogo pra apagar pasta.** Apagar uma pasta nunca apaga sessão nenhuma
+  (`ON DELETE SET NULL`) — mesmo nível de risco que renomear/arquivar, que também não têm diálogo de
+  confirmação hoje.
+- **Criar pasta pergunta o nome ANTES, não depois.** Diferente da extensão real (cria com "New group"
+  fixo, entra em modo de renomear na hora — dois passos, dois estados de UI: criado-mas-vazio→editando)
+  — aqui o botão "Nova pasta" abre direto um campo de texto (mesmo padrão já usado pelo campo "New
+  worktree name" do compositor, seção 15), Enter cria já com o nome digitado. Um passo em vez de dois,
+  mais simples de raciocinar sem poder ver renderizado.
+- **Migração nova (tabela), não só uma coluna.** `claude_session_groups` (id, name, created_by,
+  created_at, updated_at) + `claude_sessions.group_id` (FK nullable, `ON DELETE SET NULL`) — migração
+  `011_claude_session_groups` (`010` já estava reservado pela worktree paralela `skills-hooks`,
+  conferido com `grep` antes de escolher o número, mesmo cuidado usado pra escolher esta seção como
+  17 e não 16). Uma pasta tem metadados próprios (nome, autor, quando foi criada) independentes de
+  qualquer sessão — inclusive pode existir vazia (criada, ainda sem nada dentro), o que uma coluna
+  sozinha em `claude_sessions` não teria onde guardar. Sem coluna de `position`/ordem manual nem de
+  cor: a extensão real não expôs evidência de reordenação manual de pastas (achado nenhuma função tipo
+  `reorderGroups`), e cor não apareceu em nenhuma classe/string — pastas são ordenadas por
+  `created_at` (ordem de criação), sem drag-reorder das pastas em si.
+- **Grupos compartilhados entre usuários, não por dono.** Mesmo modelo de "caixa compartilhada" que
+  `claude_sessions`/`GET /api/claude/sessions` já tinha antes desta rodada (todo usuário vê as sessões
+  de todo mundo, sem filtro) — `created_by` em `claude_session_groups` só é auditoria, nunca escopo de
+  visibilidade nem de permissão de editar/apagar. Decisão consciente: dividir pastas POR usuário exigiria
+  uma tabela de associação `(group_id, session_id, user_id)` bem mais complexa (a mesma sessão
+  pertenceria a pastas diferentes conforme quem está olhando) — desproporcional ao pedido, e
+  inconsistente com o resto do modelo de dados do Orion nesta tela, que já é "todo mundo vê tudo".
+- **Sem colapso persistido por pasta.** A extensão real persiste (achado acima: `ungroupedCollapsed`/
+  `archivedCollapsed`); aqui o colapso reusa o `Set<string>` (`collapsedGroups`) já existente em
+  `Sidebar.tsx` pro "Agrupar por" automático — mesmo comportamento (reseta a cada reload) pros três
+  modos automáticos E pro modo "Por pasta" novo, em vez de dar tratamento especial só pra este. Redução
+  de escopo deliberada: persistir colapso por pasta exigiria uma coluna a mais + uma rota a mais só
+  pra um detalhe de UI que nem o "Agrupar por" já existente tem.
+- **"Por pasta" é um valor A MAIS no mesmo seletor "Agrupar por"**, não uma tela/toggle separado —
+  `GroupBy` ganhou `'folder'` ao lado de `'none'/'project'/'recency'`, todos continuando a funcionar
+  exatamente como antes (nenhum teste pré-existente de `groupSessions` foi alterado). Diferente de
+  `'project'` (um grupo só existe se alguma sessão tiver aquele projeto — derivado), uma pasta
+  aparece mesmo vazia, porque é uma entidade persistida à parte das sessões — replica o "Ungrouped
+  sempre presente" da extensão real, adaptado (aqui, "Sem pasta" sempre por último, mesmo vazio).
+
+### O que foi implementado
+
+**Migração** `011_claude_session_groups` (`server/migrations.ts`): tabela `claude_session_groups` +
+coluna `claude_sessions.group_id` (índice em `group_id`).
+
+**Servidor** (`server/claude/groups.ts`, novo): `validateGroupName`/`sanitizeGroupName` — regra
+deliberadamente simples (não uma cópia da regra de nome de worktree, que é estrita porque vira nome
+de branch git; aqui é só um rótulo livre no Postgres, sem restrição de caractere, mesmo limite de 120
+caracteres que `POST /api/claude/sessions/:id/rename` já usa pro título da sessão). `server/routes/
+claude.ts`: `GET /api/claude/session-groups` (lista, ordenada por `created_at`), `POST
+/api/claude/session-groups` (cria), `POST /api/claude/session-groups/:id/rename`, `DELETE
+/api/claude/session-groups/:id` (apaga; `ON DELETE SET NULL` solta as sessões de volta sozinho, sem
+`UPDATE` explícito), `POST /api/claude/sessions/:id/group` (move/solta uma sessão — `group_id: null`
+solta). `GET /api/claude/sessions` ganhou `s.group_id` no `SELECT` (mesmo padrão que `effort`/`model`
+já seguiam quando ganharam coluna própria).
+
+**Cliente**: `web/src/claude/types.ts` — `SessionGroupInfo` (`{id, name, createdAt}`) novo,
+`SessionSummary.groupId?: string | null` novo. `web/src/claude/mapper.ts` — `GroupBy` ganhou
+`'folder'`; `groupSessions` ganhou um 4º parâmetro opcional `folders: SessionGroupInfo[] = []` (não
+quebra nenhuma chamada existente) e um branch novo que monta uma seção por pasta (ordenada por
+`createdAt`, mesmo vazia) mais "Sem pasta" sempre por último (sessão sem `groupId`, ou com `groupId`
+de uma pasta que não existe mais na lista atual — apagada — cai ali, nunca some da lateral);
+`validateGroupName` (cópia client-side da regra do servidor, mesmo padrão de `validateWorktreeName`).
+`web/src/claude/api.ts` — `ApiSession.group_id`, `ApiSessionGroup`, `claudeApi.sessionGroups/
+createGroup/renameGroup/deleteGroup/moveToGroup`. `web/src/claude/icons.tsx` — ícone `Folder` novo
+(nenhum equivalente pronto no arquivo). `web/src/claude/Sidebar.tsx`: opção "Por pasta" no seletor
+"Agrupar por" já existente; botão "Nova pasta" (só visível nesse modo) com campo inline; cada seção de
+pasta (quando `groupBy==='folder'`) ganha ícones de Renomear (`Pencil`, abre input inline no lugar do
+nome — igual `groupNameEditing` real) e Excluir (`X`), hover-revelados (`.cc-group-actions`, mesmo
+padrão de `.cc-item-actions`); cada linha de sessão (em qualquer modo de agrupamento, não só "Por
+pasta" — mover pra pasta é independente de como a lista está agrupada no momento) ganha um `<select>`
+"Mover para pasta" hover-revelado quando existe pelo menos uma pasta criada. `web/src/claude/
+ClaudePage.tsx`: estado `groups`/`refreshGroups` (mesmo padrão de `projects`/`sessions`), `toSummary`
+propaga `group_id`→`groupId`, handlers `createGroup/renameGroup/deleteGroup/moveToGroup` (otimistas
+onde faz sentido — mover/renomear refletem na hora — recarregando a lista depois da resposta pros
+outros dois), passados pro `<Sidebar>`.
+
+### Testes (TDD, vermelho→verde confirmado)
+
+`tests/groups.test.ts` (novo, servidor, 5 testes): `validateGroupName` — vazio, só espaço, nome
+normal, limite exato de 120/121 caracteres, sem restrição de caractere (emoji/símbolos passam,
+diferente do nome de worktree). `tests/mapper.test.ts` (+8 testes, cliente): `groupSessions —
+'folder'` (5 casos: uma seção por pasta na ordem de criação com "Sem pasta" sempre por último, cada
+sessão na pasta certa pelo `groupId`, sessão sem `groupId` OU com `groupId` de pasta apagada cai em
+"Sem pasta", pasta vazia aparece mesmo sem sessão nenhuma — prova que não é derivada das sessões como
+`'project'` é —, sem nenhuma pasta cadastrada devolve só "Sem pasta" com tudo dentro) +
+`validateGroupName` (3 casos, cópia client-side, confere que bate com a regra do servidor sem duplicar
+cada caso já coberto em `groups.test.ts`). Ciclo vermelho→verde confirmado rodando `npx vitest run`
+antes de cada implementação (8 falhas em `mapper.test.ts` por função/campo ausente, 0 em
+`groups.test.ts` por módulo inexistente — depois, verde nos dois). Suíte inteira nesta branch: **549
+testes** (536 antes desta rodada + 13 novos), `npm run typecheck` (`tsc -p tsconfig.server.json` e
+`tsc -p tsconfig.json`, os dois `--noEmit`) e `npm run build` (`vite build && tsc -p
+tsconfig.server.json`) verdes — único aviso é o de chunk grande do `Editor` (CodeMirror),
+pré-existente, sem relação com esta mudança.
+
+**Limitações honestas**: sem harness de teste pra rotas Fastify neste repo (confirmado por grep antes
+de assumir, mesma limitação já documentada em rodadas anteriores) — as 5 rotas novas de
+`server/routes/claude.ts` foram verificadas por leitura cuidadosa comparando com o padrão já em
+produção (`rename`/`archive`/`mode`/`model`/`effort`) + `tsc --noEmit`, não por teste de integração
+HTTP. **Sem navegador/visual-testing neste ambiente** (mesma limitação de sempre) — o `<select>`
+"Mover para pasta", os ícones hover-revelados de renomear/excluir pasta, e o campo inline de "Nova
+pasta" não foram vistos renderizados de verdade, só revisados por leitura cuidadosa comparando com o
+padrão já em produção dos controles equivalentes (seletor de Modelo/Esforço/Modo, campo "New worktree
+name", ícones de Renomear/Arquivar por sessão) — mesmo motivo, aliás, pelo qual drag-and-drop foi
+descartado de propósito em favor do `<select>` (ver decisões de escopo acima): um `<select>` nativo
+tem muito menos superfície de estado/evento pra errar sem poder ver. Esta branch foi criada a partir
+do `main` ANTES do merge de `feature/voice-dictation` (seção 16) — não incorpora esse trabalho nem foi
+testada junto com ele; a reconciliação de `mapper.ts`/`mapper.test.ts`/`claude.css`/`icons.tsx`/
+`PARIDADE.md` entre as duas branches (ambas tocam esses mesmos arquivos) fica pra quando alguém
+integrar as branches paralelas desta rodada — o número desta seção (17) e da migração (`011`) foram
+escolhidos consultando o estado mais recente do `main` bem antes de escrever, exatamente pra minimizar
+esse atrito.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -2316,3 +2636,51 @@ em produção dos seletores de Modelo/Esforço/Modo (`cc-pop`/`Menu`/`cc-menu-it
   `tsc --noEmit` (server e front) e `npm run build` verdes. Fora do escopo (pedido explícito):
   `availableWorktrees`/listagem completa de worktrees, remoção de worktree. Sem
   navegador/visual-testing neste ambiente — mesma limitação de sempre.
+- **implementado nesta rodada** (29/09/2026 — "Aba Claude": ditado por voz no compositor, item 7 da
+  seção 13, worktree isolada `feature/voice-dictation`; ver seção 16 para os detalhes e evidências
+  completas): investigação confirmou que a feature É REAL (não CSS órfão) — a suspeita original de que
+  `voiceRecordingStarted`/`voiceRecordingStopped` eram sons de acessibilidade do próprio editor **se
+  confirmou**, mas achei evidência independente e conclusiva de lógica funcional (`X.speechToTextEnabled`,
+  `J.startSpeechToText`/`stopSpeechToText`) lendo o JSX ao redor das classes `mic*`. Achado que corrige
+  o levantamento original: a classe `wave` citada não pertence ao componente de voz (hash de CSS
+  module diferente, componente não relacionado). Também confirmado por busca no bundle inteiro: a
+  extensão real NÃO usa a Web Speech API do navegador nem `getUserMedia`/`MediaRecorder` — delega a
+  captura de áudio pro processo da extensão (fora do sandbox do webview), caminho que o Orion não tem;
+  implementado com a Web Speech API do navegador (`webkitSpeechRecognition`/`SpeechRecognition`),
+  única opção client-side sem servidor novo. `isMacPlatform`/`micShortcutLabel`/`micErrorMessage`/
+  `isMicPermissionError`/`accumulateFinalTranscript`/`composeDictationText` (mapper.ts, TDD); botão no
+  canto superior direito do campo (posição exata da extensão real) com tooltip, estado de gravação,
+  atalho `⌘D`/`Ctrl+D` real (confirmado, não suposto) e transcrição parcial numa legenda separada
+  (`Composer.tsx`/`icons.tsx`/`claude.css`). Simplificações documentadas e não escondidas: sem o gesto
+  de segurar-e-soltar real (limiar de 200ms confirmado no código, não replicado — não verificável sem
+  navegador neste ambiente), sem barras de nível de áudio (a Web Speech API não expõe volume — só
+  pulso CSS), sem detecção de edição manual durante o ditado. 22 testes novos em `tests/mapper.test.ts`,
+  TDD (vermelho→verde confirmado); suíte inteira **558 testes**, `npm run typecheck` e `npm run build`
+  verdes. Sem navegador neste ambiente — não dá pra testar o reconhecimento de voz de verdade (depende
+  de microfone e permissão reais); mesma limitação de sempre, honestamente documentada.
+- **implementado nesta rodada** (29/09/2026 — "Aba Claude": agrupamento de sessões em pastas
+  nomeadas, item 12 da seção 13, worktree isolada `feature/session-groups`; ver seção 17 para os
+  detalhes e evidências completas): confirmado no webview real (v2.1.283) que a feature existe de
+  verdade — `getSessionGroups`/`updateSessionGroups` (IPC pro host, replace completo da lista),
+  grupo no formato `{id, name, sessionIds}`, criado com nome fixo "New group" e entra direto em modo
+  de renomear, movido por drag-and-drop OU por menu de contexto ("Add to group"/"Remove from group" —
+  as duas vias existem de verdade), "Ungrouped" como balde implícito sempre presente. Implementado no
+  lado do Orion com **tabela nova** (`claude_session_groups` + `claude_sessions.group_id`, migração
+  `011_claude_session_groups` — `010` já estava reservado pela worktree paralela `skills-hooks`) em
+  vez de só uma coluna, porque uma pasta tem metadados próprios e pode existir vazia; **compartilhada
+  entre usuários** (mesmo modelo de caixa compartilhada que `claude_sessions` já tinha, `created_by`
+  só por auditoria); **sem drag-and-drop** — só o caminho de menu (`<select>` nativo "Mover para
+  pasta" por sessão), decisão de escopo explicitamente sancionada pelo pedido desta tarefa por não
+  haver navegador neste ambiente pra verificar interação de arrastar-e-soltar; "Por pasta" entra como
+  4º valor do seletor "Agrupar por" já existente (`GroupBy`/`groupSessions` em mapper.ts), ao lado de
+  Nenhum/Projeto/Data — não os substitui, nenhum teste pré-existente foi alterado. 5 rotas novas em
+  `server/routes/claude.ts` (listar/criar/renomear/apagar pasta, mover sessão), UI em `Sidebar.tsx`
+  (botão "Nova pasta", ícones de renomear/excluir hover-revelados no cabeçalho da pasta, `<select>`
+  "Mover para pasta" por sessão). 13 testes novos (5 em `tests/groups.test.ts`, servidor; 8 em
+  `tests/mapper.test.ts`, cliente — `groupSessions — 'folder'` + `validateGroupName`), TDD
+  (vermelho→verde confirmado); suíte inteira nesta branch **549 testes** (536 antes + 13 novos —
+  branch criada a partir do `main` antes do merge de `feature/voice-dictation`, seção 16, não
+  incorpora nem foi testada junto com esse trabalho), `npm run typecheck` e `npm run build` verdes.
+  Sem harness de teste pra rotas Fastify neste repo (mesma limitação de sempre) e sem
+  navegador/visual-testing neste ambiente — motivo, aliás, da decisão de menu em vez de
+  drag-and-drop.

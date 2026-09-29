@@ -6,8 +6,12 @@ export type ApiSession = {
   id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; cost_usd: number; turns: number; model: string | null;
   permission_mode: string; effort: string | null; cwd: string; last_error: string | null; archived?: boolean; created_at: string; updated_at: string;
   user_name: string; project_slug: string | null; project_name: string | null; pending: number;
+  /** Pasta nomeada manual desta sessão (`claude_sessions.group_id`) — `null` quando está solta ("Sem pasta"). Ver PARIDADE.md item 12 da seção 13. */
+  group_id: string | null;
 };
 export type Project = { id: number; slug: string; name: string; path: string; rules: string | null };
+/** Pasta nomeada manual de sessões (`GET /api/claude/session-groups`) — ver PARIDADE.md item 12 da seção 13. */
+export type ApiSessionGroup = { id: string; name: string; created_at: string };
 export type Mode = 'acceptEdits' | 'default' | 'plan' | 'auto';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type Me = { id: number; name: string; email: string; role: string };
@@ -54,6 +58,17 @@ export const claudeApi = {
   rename: (id: string, title: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/rename`, { method: 'POST', body: JSON.stringify({ title }) }),
   archive: (id: string, archived: boolean) => api<{ ok: true; archived: boolean }>(`/api/claude/sessions/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),
   remove: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}`, { method: 'DELETE' }),
+  /**
+   * "Aba Claude" — agrupamento de sessões em pastas nomeadas (ver PARIDADE.md item 12 da seção 13).
+   * Compartilhadas entre todos os usuários (mesmo modelo de `sessions()`, sem filtro por dono).
+   */
+  sessionGroups: () => api<{ groups: ApiSessionGroup[] }>('/api/claude/session-groups'),
+  createGroup: (name: string) => api<{ id: string; name: string }>('/api/claude/session-groups', { method: 'POST', body: JSON.stringify({ name }) }),
+  renameGroup: (id: string, name: string) => api<{ ok: true }>(`/api/claude/session-groups/${id}/rename`, { method: 'POST', body: JSON.stringify({ name }) }),
+  /** Apaga a pasta; as sessões que estavam nela voltam pro nível raiz ("Sem pasta") — nunca são apagadas junto. */
+  deleteGroup: (id: string) => api<{ ok: true }>(`/api/claude/session-groups/${id}`, { method: 'DELETE' }),
+  /** `groupId: null` solta a sessão de volta pro nível raiz. Alternativa a drag-and-drop (menu/dropdown "Mover para pasta" por sessão — ver Sidebar.tsx e PARIDADE.md). */
+  moveToGroup: (sessionId: string, groupId: string | null) => api<{ ok: true }>(`/api/claude/sessions/${sessionId}/group`, { method: 'POST', body: JSON.stringify({ group_id: groupId }) }),
 };
 
 export const MODE_LABEL: Record<Mode, string> = { acceptEdits: 'Edição automática', default: 'Manual', plan: 'Plan', auto: 'Auto' };

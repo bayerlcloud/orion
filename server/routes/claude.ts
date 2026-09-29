@@ -17,6 +17,7 @@ import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } fr
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
 import { createWorktreeForProject } from '../claude/worktree.js';
+import { validateGroupName, sanitizeGroupName } from '../claude/groups.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -197,9 +198,55 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { projects: rows };
   });
 
+  /**
+   * Pastas nomeadas de sessões ("Aba Claude" — ver PARIDADE.md, item 12 da seção 13). Compartilhadas
+   * entre todos os usuários, mesmo modelo de "caixa compartilhada" que `GET /api/claude/sessions` já
+   * tem (nenhuma das duas rotas filtra por dono) — `created_by` só serve de auditoria, nunca de
+   * escopo de visibilidade. Ordenadas por `created_at` (ordem de criação; sem reordenação manual
+   * nesta rodada, ver PARIDADE.md) — o cliente (`groupSessions(..., 'folder', now, folders)` em
+   * web/src/claude/mapper.ts) espera exatamente essa ordem.
+   */
+  app.get('/api/claude/session-groups', async () => {
+    const { rows } = await app.pool.query('SELECT id, name, created_at FROM claude_session_groups ORDER BY created_at ASC, id ASC');
+    return { groups: rows };
+  });
+
+  app.post<{ Body: { name?: string } }>('/api/claude/session-groups', async (req, reply) => {
+    const err = validateGroupName(req.body?.name ?? '');
+    if (err) return reply.code(400).send({ error: err });
+    const id = randomUUID();
+    const name = sanitizeGroupName(req.body!.name!);
+    await app.pool.query('INSERT INTO claude_session_groups (id, name, created_by) VALUES ($1, $2, $3)', [id, name, req.user!.id]);
+    return { id, name };
+  });
+
+  app.post<{ Params: { id: string }; Body: { name?: string } }>('/api/claude/session-groups/:id/rename', async (req, reply) => {
+    const err = validateGroupName(req.body?.name ?? '');
+    if (err) return reply.code(400).send({ error: err });
+    const name = sanitizeGroupName(req.body!.name!);
+    const { rowCount } = await app.pool.query('UPDATE claude_session_groups SET name = $2, updated_at = now() WHERE id = $1', [req.params.id, name]);
+    if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
+    return { ok: true };
+  });
+
+  /**
+   * Apaga a pasta — as sessões que estavam nela voltam pro nível raiz ("Sem pasta"), nunca são
+   * apagadas junto (`claude_sessions.group_id` tem `ON DELETE SET NULL`, ver migração
+   * `011_claude_session_groups`; nenhum `UPDATE` explícito precisa acontecer aqui, o próprio FK
+   * cuida disso). Sem restrição de papel (`role==='owner'`) — diferente do `DELETE
+   * /api/claude/sessions/:id` logo abaixo, que é destrutivo de verdade (apaga a sessão e o histórico
+   * inteiro); apagar uma pasta só reorganiza a lateral, nenhum dado de sessão é perdido, mesmo nível
+   * de risco que renomear/arquivar (que também não checam papel).
+   */
+  app.delete<{ Params: { id: string } }>('/api/claude/session-groups/:id', async (req, reply) => {
+    const { rowCount } = await app.pool.query('DELETE FROM claude_session_groups WHERE id = $1', [req.params.id]);
+    if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
+    return { ok: true };
+  });
+
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.group_id, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
@@ -472,6 +519,33 @@ export async function claudeRoutes(app: FastifyInstance) {
     const archived = req.body?.archived !== false; // padrão: arquivar
     await app.pool.query('UPDATE claude_sessions SET archived = $2 WHERE id = $1', [req.params.id, archived]);
     return { ok: true, archived };
+  });
+
+  /**
+   * Move uma sessão pra dentro de uma pasta nomeada, ou solta ela de volta pro nível raiz
+   * (`group_id: null`) — "Aba Claude", ver PARIDADE.md item 12 da seção 13. A extensão real faz isso
+   * por arrastar-e-soltar (drag-and-drop, `dropTarget`/`groupHeader` no webview decompilado) OU por
+   * um menu de contexto ("Add to group"/"Remove from group", clique direito na sessão) — as duas vias
+   * chegam no mesmo lugar: mover uma sessão (ou seleção de várias) pra um `groupId`. Decisão de
+   * escopo desta rodada: só o caminho de menu/dropdown (um `<select>` "Mover para pasta" por sessão
+   * em Sidebar.tsx) — sem drag-and-drop, que é praticamente impossível de verificar sem navegador
+   * neste ambiente (nenhum aqui) e teria alto risco de bug de DOM/evento não detectado; o menu
+   * cumpre a mesma função (mover uma sessão pra dentro/fora de uma pasta), é totalmente acessível por
+   * teclado, e é a alternativa que o próprio pedido desta tarefa já sugeriu como caminho mais simples
+   * quando drag-and-drop for desproporcional ao resto do escopo. Sem seleção múltipla (a extensão
+   * real também tem "New group from N sessions" pra mover várias de uma vez — o Orion não tem
+   * multi-seleção de sessões em lugar nenhum da lista lateral hoje; fora de escopo, adicionar isso
+   * seria uma mudança de UI bem maior só pra esta feature).
+   */
+  app.post<{ Params: { id: string }; Body: { group_id?: string | null } }>('/api/claude/sessions/:id/group', async (req, reply) => {
+    const groupId = req.body?.group_id;
+    if (groupId) {
+      const { rowCount } = await app.pool.query('SELECT 1 FROM claude_session_groups WHERE id = $1', [groupId]);
+      if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
+    }
+    const { rowCount } = await app.pool.query('UPDATE claude_sessions SET group_id = $2 WHERE id = $1', [req.params.id, groupId || null]);
+    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    return { ok: true };
   });
 
   app.delete<{ Params: { id: string } }>('/api/claude/sessions/:id', async (req, reply) => {

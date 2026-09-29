@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SessionSummary } from './types';
+import type { SessionGroupInfo, SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
 import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, sessionWorktreeName, type UsageBar } from './mapper';
@@ -26,12 +26,16 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
   return {
     id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, projectName: s.project_name ?? undefined, archived: !!s.archived,
     worktreeName: sessionWorktreeName(s.cwd, projectPath) ?? undefined,
+    groupId: s.group_id,
   };
 }
 
 export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — compartilhadas entre usuários,
+  // mesmo modelo de `sessions` (sem filtro por dono).
+  const [groups, setGroups] = useState<SessionGroupInfo[]>([]);
   const [login, setLogin] = useState<{ logged_in: boolean; linux_user: string | null; version: string } | null>(null);
   const [usage, setUsage] = useState<UsageBar[]>([]);
   const [email, setEmail] = useState<string | null>(null);
@@ -83,6 +87,9 @@ export default function ClaudePage() {
       setUsage(computeUsageBars(r.usage, r.real));
     } catch { /* silencioso */ }
   }, []);
+  const refreshGroups = useCallback(async () => {
+    try { const r = await claudeApi.sessionGroups(); setGroups(r.groups.map(g => ({ id: g.id, name: g.name, createdAt: new Date(g.created_at).getTime() }))); } catch { /* silencioso — pastas são um extra, nunca bloqueia a lista de sessões */ }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -103,12 +110,13 @@ export default function ClaudePage() {
       setSessionsLoading(false);
     });
     void refreshUsage();
+    void refreshGroups();
     claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
     claudeApi.me().then(r => setEmail(r.user.email)).catch(() => setEmail(null));
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
     return () => { alive = false; clearInterval(t); };
-  }, [refreshSessions, refreshUsage]);
+  }, [refreshSessions, refreshUsage, refreshGroups]);
 
   // Sempre que as abas abertas mudam, lembra por usuário (sobrevive a reload/troca de dispositivo).
   // Pula o PUT quando nada mudou de fato (ex.: a lista acabou de chegar de outra guia).
@@ -345,6 +353,27 @@ export default function ClaudePage() {
     setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
     try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
+  /**
+   * Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — CRUD + mover sessão pra
+   * dentro/fora. Mesmo padrão otimista já usado por `renameSession`/`archiveSession` acima quando faz
+   * sentido (move/rename refletem na hora, sem esperar a resposta); criar/apagar pasta só recarrega a
+   * lista depois da resposta (não há "otimista" óbvio pra um id que ainda não existe).
+   */
+  async function createGroup(name: string) {
+    try { await claudeApi.createGroup(name); } catch (e: any) { setErro(e.message); } finally { void refreshGroups(); }
+  }
+  async function renameGroup(id: string, name: string) {
+    setGroups(gs => gs.map(g => g.id === id ? { ...g, name } : g));
+    try { await claudeApi.renameGroup(id, name); } catch (e: any) { setErro(e.message); } finally { void refreshGroups(); }
+  }
+  async function deleteGroup(id: string) {
+    setGroups(gs => gs.filter(g => g.id !== id));
+    try { await claudeApi.deleteGroup(id); } catch (e: any) { setErro(e.message); } finally { void refreshGroups(); void refreshSessions(); }
+  }
+  async function moveToGroup(sessionId: string, groupId: string | null) {
+    setSessions(ss => ss.map(s => s.id === sessionId ? { ...s, group_id: groupId } : s));
+    try { await claudeApi.moveToGroup(sessionId, groupId); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
+  }
   /** Nome de worktree digitado pro rascunho da aba ativa (ver Composer.tsx, PARIDADE.md seção 14) — só mexe no `Tab`, nada remoto ainda (a criação acontece em `send()`, junto com a 1ª mensagem). */
   function setDraftWorktreeName(name: string) {
     setTabs(t => t.map(x => x.id === activeId ? { ...x, worktreeName: name } : x));
@@ -364,7 +393,8 @@ export default function ClaudePage() {
 
   return (
     <div className="cc">
-      <Sidebar sessions={summaries} usage={usage} activeId={activeId} loading={sessionsLoading} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
+      <Sidebar sessions={summaries} usage={usage} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
+        onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
         <div className="cc-tabs">
           <div className="cc-tabs-scroll">
