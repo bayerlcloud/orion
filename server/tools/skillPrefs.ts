@@ -54,6 +54,12 @@ export function raizDoPlugin(itemPath: string, catalogo = CATALOGO_DIR): string 
   return rel[0] === 'plugins' && rel[1] ? path.join(catalogo, 'plugins', rel[1]) : null;
 }
 
+/** Chave de preferência do plugin INTEIRO (aba Marketplace): liga/desliga o plugin todo pra pessoa.
+ *  Não colide com chaveDe() — os kinds de lá são skill/command/agent/hook, nunca "plugin". */
+export function chavePlugin(nome: string): string {
+  return `plugin:${nome}`;
+}
+
 export function planoDeComposicao(itens: SkillItem[], prefs: Prefs, userId: number, catalogo = CATALOGO_DIR): Plano {
   const plano: Plano = { links: [], pluginPaths: [], disallowed: [] };
   const porPlugin = new Map<string, { ligadas: number; desligadas: string[] }>();
@@ -73,6 +79,9 @@ export function planoDeComposicao(itens: SkillItem[], prefs: Prefs, userId: numb
   }
   for (const [raiz, g] of porPlugin) {
     if (!g.ligadas) continue; // nenhuma skill ligada: o plugin nem carrega (hooks inclusive)
+    // Plugin INTEIRO desligado pra pessoa (chave plugin:<nome>, aba Marketplace — ver
+    // server/tools/marketplace.ts): nem carrega, mesma consequência de "nenhuma skill ligada".
+    if (estadoDe(chavePlugin(path.basename(raiz)), userId, prefs).efetiva === false) continue;
     plano.pluginPaths.push(raiz);
     plano.disallowed.push(...g.desligadas);
   }
