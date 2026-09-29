@@ -6,6 +6,7 @@ import { KEYS, getSetting, sdkEnv } from '../settings.js';
 import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type SkillItem } from '../tools/skillsScan.js';
 import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
 import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
+import { cloudflareContaDe, ensureCloudflareAccountsTable, listarContasCloudflare, looksLikeCloudflareAccountId, looksLikeCloudflareToken, maskCloudflareToken, nomeMcpCloudflare, type CloudflareAccount } from '../tools/cloudflareAccounts.js';
 
 const KINDS = new Set(['tool', 'skill', 'mcp']);
 
@@ -143,6 +144,7 @@ export async function toolsRoutes(app: FastifyInstance) {
 
   // ---------- contas GitHub (cada uma vira um MCP em toda sessão; token nunca sai daqui) ----------
   await ensureGithubAccountsTable(app.pool);
+  await ensureCloudflareAccountsTable(app.pool);
   const contaPublica = (c: GithubAccount) => ({ id: c.id, label: c.label, login: c.login, email: c.email, notes: c.notes, mcp: nomeMcpGithub(c.label), token_hint: maskGithubToken(c.token) });
   const soAdmin = (req: any, reply: any) => req.user!.role !== 'owner' ? reply.code(403).send({ error: 'só o admin' }) : null;
 
@@ -178,6 +180,47 @@ export async function toolsRoutes(app: FastifyInstance) {
     const id = intParam(req.params.id);
     if (!id) return reply.code(400).send({ error: 'id inválido' });
     const del = await app.pool.query('DELETE FROM github_accounts WHERE id = $1', [id]);
+    if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
+    return { ok: true };
+  });
+
+  // ---------- contas Cloudflare (mesmo desenho das contas GitHub) ----------
+  const cfPublica = (c: CloudflareAccount) => ({ id: c.id, label: c.label, account_id: c.account_id, account_name: c.account_name, email: c.email, notes: c.notes, mcp: nomeMcpCloudflare(c.label), token_hint: maskCloudflareToken(c.token) });
+
+  app.get('/api/tools/cloudflare', async () => ({ contas: (await listarContasCloudflare(app.pool)).map(cfPublica) }));
+
+  app.post<{ Body: { label?: string; account_id?: string; token?: string; email?: string; notes?: string } }>('/api/tools/cloudflare', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const label = (req.body?.label ?? '').trim(); const accountId = (req.body?.account_id ?? '').trim(); const token = (req.body?.token ?? '').trim();
+    const notes = (req.body?.notes ?? '').trim(); const email = (req.body?.email ?? '').trim();
+    if (!label) return reply.code(400).send({ error: 'nome é obrigatório' });
+    if (!looksLikeCloudflareAccountId(accountId)) return reply.code(400).send({ error: 'account ID precisa ter 32 caracteres hexadecimais' });
+    if (!looksLikeCloudflareToken(token)) return reply.code(400).send({ error: 'isso não parece um token da Cloudflare (cfat_…, cfut_… ou 40 caracteres)' });
+    const accountName = await cloudflareContaDe(accountId, token);
+    if (accountName === null) return reply.code(400).send({ error: 'a Cloudflare recusou esse token para essa conta' });
+    const { rows } = await app.pool.query(
+      `INSERT INTO cloudflare_accounts (label, account_id, account_name, token, notes, email, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (label) DO UPDATE SET account_id = EXCLUDED.account_id, account_name = EXCLUDED.account_name, token = EXCLUDED.token, notes = EXCLUDED.notes, email = EXCLUDED.email, updated_at = now()
+       RETURNING id, label, account_id, account_name, email, token, notes`, [label, accountId, accountName, token, notes, email, req.user!.id]);
+    return reply.code(201).send({ conta: cfPublica(rows[0]) });
+  });
+
+  app.put<{ Params: { id: string }; Body: { label?: string; email?: string; notes?: string } }>('/api/tools/cloudflare/:id', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const id = intParam(req.params.id);
+    if (!id) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query(
+      `UPDATE cloudflare_accounts SET label = COALESCE(NULLIF($2::text, ''), label), notes = COALESCE($3::text, notes), email = COALESCE($4::text, email), updated_at = now()
+        WHERE id = $1 RETURNING id, label, account_id, account_name, email, token, notes`, [id, (req.body?.label ?? '').trim(), req.body?.notes === undefined ? null : req.body.notes.trim(), req.body?.email === undefined ? null : req.body.email.trim()]);
+    if (!rows[0]) return reply.code(404).send({ error: 'não encontrada' });
+    return { conta: cfPublica(rows[0]) };
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/tools/cloudflare/:id', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const id = intParam(req.params.id);
+    if (!id) return reply.code(400).send({ error: 'id inválido' });
+    const del = await app.pool.query('DELETE FROM cloudflare_accounts WHERE id = $1', [id]);
     if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
     return { ok: true };
   });
