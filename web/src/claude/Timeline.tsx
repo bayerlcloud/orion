@@ -680,21 +680,19 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
           );
         }
         if (e.kind === 'user') {
-          // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira foto + nome ao lado da bolha.
+          // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira card com foto + nome dentro.
           const m = /^\[([^\]\n]{1,40})\]\s*/.exec(e.text);
-          const bubble = (
-            <div className="cc-user">
-              {m && <div className="cc-user-name">{m[1]}</div>}
-              {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
-              {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
-            </div>
-          );
           const sticky = e.text ? ' is-sticky' : '';
-          if (!m) return <div key={e.id} className={`cc-user-row is-anon${sticky}`}>{bubble}</div>;
           return (
             <div key={e.id} className={`cc-user-row${sticky}`}>
-              <UserAvatar name={m[1]} />
-              {bubble}
+              <div className={`cc-user${m ? ' has-avatar' : ''}`}>
+                {m && <UserAvatar name={m[1]} />}
+                <div className="cc-user-body">
+                  {m && <div className="cc-user-name">{m[1]}</div>}
+                  {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
+                  {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
+                </div>
+              </div>
             </div>
           );
         }

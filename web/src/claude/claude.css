@@ -146,23 +146,25 @@
 .cc-timeline { max-width: none; } /* largura toda, pedido do Danilo 29/09/2026 (igual ao plugin no Antigravity) */
 
 /* mensagem do usuário — userMessageContainer/userMessage_07S1Yg: inline-block (largura do conteúdo), fundo e borda de input, raio 6, padding 4px 6px. Avatar + nome são nossos (mantidos a pedido). */
-.cc-user-row { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 16px; }
-.cc-user-row.is-anon { display: block; }
+.cc-user-row { margin: 4px 0 16px; }
 /* Última mensagem do usuário presa no topo enquanto o chat rola por trás, com o esfumado embaixo: cópia
    do `.message_07S1Yg.stickyHeader_07S1Yg` do plugin (Antigravity 2.1.165, /srv/orion-reference). O
    sticky vale dentro do `.cc-turn` dela, então o turno seguinte empurra e toma o lugar. */
 .cc-user-row.is-sticky { position: sticky; top: -20px; z-index: 2; margin: 0 -20px 4px; padding: 14px 20px 12px; background-image: linear-gradient(to bottom, var(--cc-bg) calc(100% - 12px), transparent 100%); }
-.cc-user-row > .cc-user { flex: 1; }
-.cc-user-avatar { position: relative; width: 28px; height: 28px; margin-top: 2px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
+.cc-user-avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.cc-user-name { font-size: 11px; font-weight: 600; opacity: .7; margin-bottom: 3px; }
-.cc-user { display: block; position: relative; width: 100%; min-width: 0; border: 1px solid var(--cc-line); background: var(--cc-bg2); border-radius: 6px; padding: 4px 6px; white-space: pre-wrap; word-break: break-word; overflow: hidden; user-select: text; }
+.cc-user-name { font-size: 12px; font-weight: 600; color: var(--cc-fg); line-height: 26px; margin-top: -2px; }
+/* Card da mensagem do usuário: largura toda, fundo mais escuro que a tela e avatar dentro (pedido do
+   Danilo em 30/09/2026). Grid: avatar numa coluna, nome e texto na outra, alinhados. */
+.cc-user { --user-bg: color-mix(in srgb, var(--cc-bg) 78%, #000); display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 10px; position: relative; width: 100%; min-width: 0; border: 1px solid color-mix(in srgb, var(--cc-line) 70%, transparent); background: var(--user-bg); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; overflow: hidden; user-select: text; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent); }
+.cc-user.has-avatar { grid-template-columns: 26px minmax(0, 1fr); }
+.cc-user-body { min-width: 0; }
 /* qH0 (maxHeight 60) + expandableContainer_xGDvVg */
 .cc-user-expandable { display: flex; flex-direction: column; gap: 4px; position: relative; }
 .cc-user-wrap { position: relative; }
 .cc-user-text { white-space: pre-wrap; word-break: break-word; overflow: hidden; transition: max-height .3s ease-in-out; }
 .cc-user-text.is-collapsed { position: relative; }
-.cc-user-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 50px; background: linear-gradient(to bottom, transparent 0%, var(--cc-bg2) 100%); pointer-events: none; }
+.cc-user-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 50px; background: linear-gradient(to bottom, transparent 0%, var(--user-bg) 100%); pointer-events: none; }
 .cc-user-more { display: flex; justify-content: flex-end; align-items: flex-end; opacity: 0; }
 .cc-user-wrap:hover .cc-user-more, .cc-user-more:focus-within, .cc-user-more.is-open { opacity: .9; }
 .cc-user-more:hover { opacity: 1; }
@@ -297,7 +299,7 @@
 .cc-todo-content { word-break: break-word; overflow-wrap: break-word; display: block; flex: 1; min-width: 0; color: var(--cc-fg); }
 .cc-todo-item.is-completed .cc-todo-content { text-decoration: line-through; color: var(--cc-fg2); opacity: .7; }
 .cc-task .cc-tool-name { color: var(--cc-fg); }
-.cc-user-avatar { position: relative; width: 28px; height: 28px; margin-top: 2px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
+.cc-user-avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 @keyframes cc-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes cc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
