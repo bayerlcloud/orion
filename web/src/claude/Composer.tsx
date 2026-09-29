@@ -4,6 +4,7 @@ import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LA
 import { cycleMessageIndex, type CycleState } from './mapper';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
+import { Lightbox } from './Lightbox';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -51,6 +52,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash'>('');
   const [attachments, setAttachments] = useState<Pending[]>([]);
+  const [viewing, setViewing] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   // Ciclo de recall de mensagens (ArrowUp/ArrowDown com o cursor no início/fim do texto — ver `key`
@@ -140,6 +142,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Lista real da sessão (Query.supportedCommands(), via ClaudePage) quando já existe; senão os 4 fixos.
   const slashSource = commands && commands.length ? commands.map(c => ({ cmd: '/' + c.name, desc: c.description })) : SLASH_FALLBACK;
   const slashItems = slashSource.filter(s => menu === 'slash' || s.cmd.startsWith(slashFilter));
+  const images = attachments.filter(a => a.url).map(a => ({ url: a.url!, name: a.name }));
   const canSend = !sending && (!!text.trim() || attachments.length > 0);
 
   return (
@@ -148,12 +151,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
       onDrop={onDrop}>
       <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
+      {viewing !== null && <Lightbox images={images} start={viewing} onClose={() => setViewing(null)} />}
       {attachments.length > 0 && (
         <div className="cc-attach-row">
           {attachments.map(a => (
             <div key={a.id} className={`cc-attach ${a.isImage ? 'is-image' : ''}`} title={a.name}>
               {a.isImage && a.url
-                ? <a href={a.url} target="_blank" rel="noopener" title="Abrir imagem"><img className="cc-attach-thumb" src={a.url} alt={a.name} /></a>
+                ? <button type="button" className="cc-attach-open" title="Ver imagem" onClick={() => setViewing(images.findIndex(m => m.url === a.url))}><img className="cc-attach-thumb" src={a.url} alt={a.name} /></button>
                 : <span className="cc-attach-ico">{a.isImage ? <Image size={13} /> : <File size={13} />}</span>}
               <span className="cc-attach-name">{a.name}</span>
               <button className="cc-attach-x" onClick={() => removeAttachment(a.id)} title="Remover anexo"><X size={10} /></button>

@@ -189,7 +189,20 @@
 .cc-attach { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 6px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-bg); font-size: 12px; color: var(--cc-fg); }
 .cc-attach.is-image { padding-left: 3px; }
 .cc-attach-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; flex-shrink: 0; }
-.cc-attach > a { display: flex; flex-shrink: 0; cursor: zoom-in; }
+.cc-attach-open { display: flex; flex-shrink: 0; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.cc-lb { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.6); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 15vh 15vw; box-sizing: border-box; }
+.cc-lb-img { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); user-select: none; }
+.cc-lb-name { color: #ddd; font-size: 13px; }
+.cc-lb-close, .cc-lb-nav { position: absolute; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; }
+.cc-lb-close:hover, .cc-lb-nav:hover { background: rgba(255,255,255,.25); }
+.cc-lb-close { top: 20px; right: 20px; width: 38px; height: 38px; }
+.cc-lb-nav { top: 50%; width: 46px; height: 46px; transform: translateY(-50%); }
+.cc-lb-nav.is-prev { left: 4vw; } .cc-lb-nav.is-prev svg { transform: scaleX(-1); }
+.cc-lb-nav.is-next { right: 4vw; }
+.cc-lb-strip { position: absolute; bottom: 3vh; display: flex; gap: 8px; max-width: 90vw; overflow-x: auto; padding: 4px; }
+.cc-lb-strip img { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; cursor: pointer; opacity: .5; outline: 2px solid transparent; transition: opacity .15s; }
+.cc-lb-strip img:hover { opacity: .85; }
+.cc-lb-strip img.is-on { opacity: 1; outline-color: #fff; }
 .cc-attach-ico { display: inline-flex; color: var(--cc-fg2); flex-shrink: 0; }
 .cc-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-attach-x { display: inline-flex; padding: 2px; border-radius: 4px; color: var(--cc-fg2); flex-shrink: 0; }
