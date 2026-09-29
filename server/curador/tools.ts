@@ -32,6 +32,14 @@ export type MemoriaListada = {
   body_md?: string;
 };
 
+export type ProjetoListado = { id: number; slug: string };
+
+/** Projetos existentes (id + slug): referência para o curador propor reescopo com id válido. */
+export async function listarProjetos(q: CurQuery): Promise<ProjetoListado[]> {
+  const { rows } = await q('SELECT id, slug FROM projects ORDER BY id');
+  return rows as ProjetoListado[];
+}
+
 /** Lista as memórias curáveis (níveis 2 a 4). Sem corpo por padrão, para caber no contexto. */
 export async function listarMemorias(q: CurQuery, args: { com_corpo?: boolean }): Promise<MemoriaListada[]> {
   const corpo = args.com_corpo ? ', m.body_md' : '';
@@ -126,13 +134,14 @@ export function curadoriaServer(pool: Pool, stats: CuradorStats, log: (msg: stri
     tools: [
       tool(
         'listar',
-        'Lista as memórias dos níveis 2 a 4 (id, code, nível, nota, título, resumo, keywords, escopo, datas, rewritable). Por padrão sem o corpo; use com_corpo apenas quando precisar comparar textos.',
+        'Lista as memórias dos níveis 2 a 4 (id, code, nível, nota, título, resumo, keywords, escopo, datas, rewritable) e os projetos existentes (id + slug, para reescopo). Por padrão sem o corpo; use com_corpo apenas quando precisar comparar textos.',
         { com_corpo: z.boolean().optional().describe('true para incluir o body_md de cada memória') },
         async (a) => {
           try {
             const memorias = await listarMemorias(q, a);
+            const projetos = await listarProjetos(q);
             stats.listadas = memorias.length;
-            return texto({ total: memorias.length, memorias });
+            return texto({ total: memorias.length, projetos, memorias });
           } catch (e) { return erro(e); }
         },
       ),
@@ -155,16 +164,24 @@ export function curadoriaServer(pool: Pool, stats: CuradorStats, log: (msg: stri
       ),
       tool(
         'propor',
-        'Grava uma proposta de curadoria que AGUARDA aprovação do Danilo no painel. Tipos: promocao (nível 4 nota 10 vira decisão nível 3), reescrita (memória rewritable desatualizada; envie o texto novo completo em texto), delecao (memória nível 2 ou 3 obviamente morta), conflito (duas memórias que se contradizem). Sempre explique na justificativa.',
+        'Grava uma proposta de curadoria que AGUARDA aprovação do Danilo no painel. Tipos: promocao (nível 4 nota 10 vira decisão nível 3), reescrita (memória rewritable desatualizada; envie o texto novo completo em texto), delecao (memória nível 2 ou 3 obviamente morta), conflito (duas memórias que se contradizem), reescopo (memória universal que claramente pertence a um projeto específico; envie escopo_novo com um id vindo de listar). Sempre explique na justificativa.',
         {
-          tipo: z.enum(['promocao', 'reescrita', 'delecao', 'conflito']).describe('tipo da proposta'),
+          tipo: z.enum(['promocao', 'reescrita', 'delecao', 'conflito', 'reescopo']).describe('tipo da proposta'),
           memoria_ids: z.array(z.number().int()).describe('ids das memórias envolvidas'),
           texto: z.string().optional().describe('texto proposto (obrigatório na reescrita)'),
+          escopo_novo: z
+            .object({
+              scope_project_id: z.number().int().positive().optional().describe('id do projeto dono da memória'),
+              scope_user_id: z.number().int().positive().optional().describe('id do usuário dono da memória'),
+              universal: z.boolean().optional().describe('true para voltar a memória a universal'),
+            })
+            .optional()
+            .describe('só no reescopo: { scope_project_id } OU { scope_user_id } OU { universal: true }'),
           justificativa: z.string().describe('por que esta mudança deve acontecer'),
         },
         async (a) => {
           try {
-            const r = await criarProposta(q, a as { tipo: TipoProposta; memoria_ids: number[]; texto?: string; justificativa: string });
+            const r = await criarProposta(q, a as { tipo: TipoProposta; memoria_ids: number[]; texto?: string; escopo_novo?: unknown; justificativa: string });
             stats.propostas += 1;
             log(`curador: propôs ${r.tipo} para ${r.payload.memorias.map((m) => m.code).join(', ')}`);
             return texto({ proposta: r.id, tipo: r.tipo, status: 'pendente' });
