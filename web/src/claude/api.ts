@@ -4,7 +4,7 @@ import type { RealUsage } from './mapper';
 
 export type ApiSession = {
   id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; cost_usd: number; turns: number; model: string | null;
-  permission_mode: string; cwd: string; last_error: string | null; archived?: boolean; created_at: string; updated_at: string;
+  permission_mode: string; effort: string | null; cwd: string; last_error: string | null; archived?: boolean; created_at: string; updated_at: string;
   user_name: string; project_slug: string | null; project_name: string | null; pending: number;
 };
 export type Project = { id: number; slug: string; name: string; path: string; rules: string | null };
@@ -66,6 +66,20 @@ export const MODE_ORDER: Mode[] = ['acceptEdits', 'default', 'plan', 'auto'];
 
 export const EFFORT_LABEL: Record<Effort, string> = { low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
 export const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * Esforço válido a partir do valor persistido em `claude_sessions.effort` (coluna nova, nullable —
+ * sessão sem escolha explícita de esforço, ou criada antes da coluna existir, tem `null`; ver
+ * migração `009_claude_effort` em `server/migrations.ts`). Mesma ideia de `matchModelAlias` logo
+ * abaixo: nunca confia cegamente no valor do banco, sempre resolve pra um `Effort` concreto e
+ * válido. Sem essa resolução, reabrir uma sessão sem esforço persistido deixaria o `useState` do
+ * composer com o valor "vazado" da sessão aberta anteriormente na mesma aba (o `setEffort` do
+ * efeito de carga só faria sentido disparar quando há valor pra restaurar) — `'medium'` é o mesmo
+ * padrão do `useState<Effort>('medium')` inicial em `ClaudePage.tsx`.
+ */
+export function matchEffort(effort: string | null | undefined): Effort {
+  return (EFFORT_ORDER as string[]).includes(effort ?? '') ? (effort as Effort) : 'medium';
+}
 
 /**
  * Modelo escolhido no seletor do compositor. `'default'` = sem override (usa o padrão da sessão/

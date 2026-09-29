@@ -141,6 +141,18 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE tools ADD COLUMN IF NOT EXISTS details TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    // Paridade de persistência do esforço com modo/modelo (28/09/2026, follow-up ao vivo do Bayerl —
+    // ver PARIDADE.md): até aqui `effort` nunca tinha coluna própria, só era reenviado em cada
+    // create/send e resetava pra 'medium' a cada reload/troca de aba. Nullable, sem DEFAULT — mesmo
+    // tipo de `model` (não de `permission_mode`, que é NOT NULL DEFAULT): sessão sem esforço
+    // explícito escolhido é um estado válido ("sem override", deixa o SDK/conta decidir), não um
+    // valor ausente que precisa de um default fixo gravado no banco.
+    id: '009_claude_effort',
+    sql: `
+      ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS effort TEXT;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

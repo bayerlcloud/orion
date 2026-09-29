@@ -129,7 +129,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
@@ -203,8 +203,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const id = randomUUID();
     await app.pool.query(
-      `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
-      [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode]);
+      `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
+      [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
       sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), maxBudgetUsd: d.budget,
       systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
@@ -241,7 +241,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const attachments = await sanitizeAttachments(req.body?.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const { rows } = await app.pool.query(
-      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.project_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
+      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.project_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
     const mode = MODES.has(req.body?.permission_mode ?? '') ? (req.body!.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (s.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto');
@@ -252,7 +252,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     const modelOverride = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
     if (modelOverride && modelOverride !== s.model) await app.pool.query('UPDATE claude_sessions SET model = $2 WHERE id = $1', [s.id, modelOverride]);
     const model = modelOverride || s.model || undefined;
-    const effort = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
+    // Troca de esforço no meio da sessão: mesmo padrão do modelo acima (coluna nullable, sem
+    // resolução automática por SDK) — só grava quando veio um valor válido e é diferente do já
+    // persistido. Sem override, segue com s.effort (pode ser null: sessão sem esforço explícito
+    // ainda, mesma semântica de "sem override" que model já tinha).
+    const effortOverride = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
+    if (effortOverride && effortOverride !== s.effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [s.id, effortOverride]);
+    const effort = effortOverride || s.effort || undefined;
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, req.user!.id), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, req.user!.id)) }),
@@ -307,17 +313,28 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { ok: true, live };
   });
 
-  /** Troca de esforço AO VIVO. Diferente de modo/modelo, `effort` nunca é persistido por sessão no
-   * Postgres — é sempre reenviado explicitamente em cada create/send (ver EFFORTS acima) — então esta
-   * rota só tem o lado ao vivo, via `Runner.setEffortLive` (control method `Query.applyFlagSettings()`
-   * do SDK, que aceita `effortLevel`; o SDK não tem um `setEffort()` dedicado, mas a extensão real
-   * também aplica na hora por esse caminho — ver runner.ts). Sem Query viva agora, não há o que fazer
-   * aqui: o valor já vai certo no próximo create/send, que já manda `effort` explicitamente. */
+  /**
+   * Troca de esforço AO VIVO (mid-turno) + persistência — trazida a paridade com modo/modelo nesta
+   * rodada de follow-up (28/09/2026, pedido explícito do Bayerl depois da rodada 4/seção 8 do
+   * PARIDADE.md, que só tinha implementado o lado ao vivo). Até aqui `effort` nunca era persistido
+   * por sessão no Postgres — só reenviado em cada create/send (ver EFFORTS acima) — e o seletor
+   * resetava pra 'medium' em todo reload/troca de aba, porque `ClaudePage.tsx` só guardava um
+   * `useState` local sem equivalente na sessão salva (diferente de `permission_mode`/`model`, que já
+   * tinham coluna própria e eram restaurados no efeito de carga da sessão).
+   *
+   * Mesmo padrão condicional já usado pela rota de modo/modelo logo acima: persiste no Postgres
+   * PRIMEIRO (só grava quando o valor muda — coluna `claude_sessions.effort`, migração
+   * `009_claude_effort`, nullable como `model`) — garante que o PRÓXIMO turno já nasce certo mesmo
+   * sem Query viva agora — e SÓ DEPOIS tenta a aplicação ao vivo via `Runner.setEffortLive` (control
+   * method `Query.applyFlagSettings({effortLevel})` do SDK), isolada em try/catch: uma falha nela
+   * (rede, processo) nunca deve impedir a persistência, que já aconteceu antes; só um `app.log.warn`.
+   */
   app.post<{ Params: { id: string }; Body: { effort?: string } }>('/api/claude/sessions/:id/effort', async (req, reply) => {
     const effort = req.body?.effort;
     if (!EFFORTS.has(effort ?? '')) return reply.code(400).send({ error: 'esforço inválido' });
-    const { rowCount } = await app.pool.query('SELECT 1 FROM claude_sessions WHERE id = $1', [req.params.id]);
-    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    const { rows } = await app.pool.query('SELECT effort FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
+    if (effort !== rows[0].effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [req.params.id, effort]);
     let live = false;
     try { live = await runner.setEffortLive(req.params.id, effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'); }
     catch (e: any) { app.log.warn(`setEffort ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }

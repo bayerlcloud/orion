@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
 import { formatCost, computeUsageBars, messageHistory, currentPermission, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
@@ -112,6 +112,14 @@ export default function ClaudePage() {
       esRef.current = es;
       const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
       setModel(matchModelAlias(s.model));
+      // Esforço: mesma restauração que modo/modelo já tinham (paridade trazida agora — ver
+      // PARIDADE.md, follow-up de 28/09/2026). matchEffort nunca confia cegamente no valor do banco
+      // (nullable: sessão sem escolha explícita, ou criada antes da coluna existir) e sempre resolve
+      // pra um Effort concreto ('medium' se ausente/inválido) — ao contrário do guard de `mode` acima,
+      // que só chama setMode quando o valor já é válido: aqui sempre chamamos setEffort, senão trocar
+      // de uma sessão com esforço escolhido pra outra sem nada persistido deixaria o valor da sessão
+      // ANTERIOR "vazado" no seletor (e indo junto, sem o usuário ter escolhido, no próximo turno).
+      setEffort(matchEffort(s.effort));
     }).catch(e => setErro(e.message));
     return () => { alive = false; esRef.current?.close(); esRef.current = null; };
   }, [activeId, refreshSessions, refreshUsage]);

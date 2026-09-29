@@ -193,9 +193,11 @@ export class Runner {
    * que é exatamente esse o caminho que a extensão real usa, lendo o webview decompilado: o handler
    * `setEffortLevel` da classe de conexão chama `this.applySettings({ effortLevel: $ })` na hora, o
    * mesmo padrão "aplica agora" de modo/modelo — não "só no próximo turno" como se poderia supor por
-   * não existir um método com nome dedicado. `effort` nem é persistido por sessão no Postgres (é
-   * sempre reenviado explicitamente em cada `create`/`send`, ver `EFFORTS` em `server/routes/claude.ts`),
-   * então esta chamada só tem o lado "ao vivo" — não há nada pra persistir aqui.
+   * não existir um método com nome dedicado. `effort` agora também é persistido por sessão no
+   * Postgres (coluna `claude_sessions.effort`, migração `009_claude_effort` — trazido a paridade com
+   * modo/modelo num follow-up de 28/09/2026), mas a persistência acontece na rota HTTP
+   * (`server/routes/claude.ts`, mesmo padrão condicional de modo/modelo: só grava quando muda),
+   * ANTES de chamar este método — este método aqui no Runner continua tendo só o lado "ao vivo".
    */
   async setEffortLive(sessionId: string, effort: TurnParams['effort']): Promise<boolean> {
     const q = this.live.get(sessionId)?.query as unknown as Partial<Query> | undefined;
