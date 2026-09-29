@@ -153,7 +153,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           {attachments.map(a => (
             <div key={a.id} className={`cc-attach ${a.isImage ? 'is-image' : ''}`} title={a.name}>
               {a.isImage && a.url
-                ? <img className="cc-attach-thumb" src={a.url} alt={a.name} />
+                ? <a href={a.url} target="_blank" rel="noopener" title="Abrir imagem"><img className="cc-attach-thumb" src={a.url} alt={a.name} /></a>
                 : <span className="cc-attach-ico">{a.isImage ? <Image size={13} /> : <File size={13} />}</span>}
               <span className="cc-attach-name">{a.name}</span>
               <button className="cc-attach-x" onClick={() => removeAttachment(a.id)} title="Remover anexo"><X size={10} /></button>
