@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
+import ToolsNotas, { copiar } from './ToolsNotas';
 
 type Conta = { id: number; label: string; login: string; email: string; notes: string; mcp: string; token_hint: string };
 const vazio = () => ({ label: '', token: '', email: '', notes: '' });
@@ -74,11 +75,17 @@ export default function ToolsGithub({ user }: { user: User }) {
       ) : (
         <div className="tls-grid">
           {contas.map(c => (
-            <div key={c.id} className="tls-card is-mcp">
+            <div key={c.id} className="tls-card is-mcp is-conta">
               <div className="tls-card-top"><span className="tls-icon">🐙</span><span className="tls-badge is-mcp">MCP</span></div>
-              <div className="tls-name">{c.label}</div>
-              <p className="tls-desc">login <span className="mono">{c.login}</span>{c.email && <> · <span className="mono">{c.email}</span></>} · tools <span className="mono">mcp__{c.mcp}__*</span> · token <span className="mono">{c.token_hint}</span></p>
-              {c.notes && <p className="tls-desc">{c.notes}</p>}
+              <div>
+                <div className="tls-name">{c.label}</div>
+                <div className="tls-sub" title={c.email}>{c.login}{c.email && ` · ${c.email}`}</div>
+              </div>
+              <dl className="tls-rows">
+                <dt>tools</dt><dd className="cp" title="clique para copiar" onClick={() => copiar(`mcp__${c.mcp}__`)}>mcp__{c.mcp}__*</dd>
+                <dt>token</dt><dd>{c.token_hint}</dd>
+              </dl>
+              <ToolsNotas texto={c.notes} />
               {admin && (
                 <div className="tls-card-foot">
                   <span className="tls-spacer" />

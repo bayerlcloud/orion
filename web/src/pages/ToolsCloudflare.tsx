@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
+import ToolsNotas, { copiar } from './ToolsNotas';
 
 type Conta = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; nome: string; url: string; token_hint: string };
 const vazio = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
@@ -79,11 +80,18 @@ export default function ToolsCloudflare({ user }: { user: User }) {
       ) : (
         <div className="tls-grid">
           {contas.map(c => (
-            <div key={c.id} className="tls-card is-conector">
+            <div key={c.id} className="tls-card is-conector is-conta">
               <div className="tls-card-top"><span className="tls-icon">☁️</span><span className="tls-badge is-conector">Conector</span></div>
-              <div className="tls-name">{c.label}</div>
-              <p className="tls-desc">conta <span className="mono">{c.account_name || c.account_id}</span>{c.email && <> · <span className="mono">{c.email}</span></>} · proxy <span className="mono">{c.url}</span> · token <span className="mono">{c.token_hint}</span></p>
-              {c.notes && <p className="tls-desc">{c.notes}</p>}
+              <div>
+                <div className="tls-name">{c.label}</div>
+                <div className="tls-sub" title={c.account_name}>{c.email || c.account_name}</div>
+              </div>
+              <dl className="tls-rows">
+                <dt>account</dt><dd className="cp" title="clique para copiar" onClick={() => copiar(c.account_id)}>{c.account_id}</dd>
+                <dt>proxy</dt><dd className="cp" title={`${c.url}  (clique para copiar)`} onClick={() => copiar(c.url)}>{c.url.replace(/^https?:\/\/[^/]+/, '')}</dd>
+                <dt>token</dt><dd>{c.token_hint}</dd>
+              </dl>
+              <ToolsNotas texto={c.notes} />
               {admin && (
                 <div className="tls-card-foot">
                   <span className="tls-spacer" />
