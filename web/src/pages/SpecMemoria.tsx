@@ -145,9 +145,7 @@ const niveis: { nivel: string; oQueE: string; quemEscreve: string; dinamica: str
 ];
 
 const aDefinir = [
-  'Migração do esquema da tabela memories (deus/aprendizagem/rascunho) para os níveis 0 a 4 e rebaixamento da memória deus antiga (orion-central-unico-painel).',
   'Detalhes do nível 2: onde vivem os CLAUDE.md por projeto e as preferências por pessoa, e como entram na sessão certa.',
-  'Construção da tool MCP orion-memory (buscar/salvar).',
   'Construção do curador: prompt, limites, o que pede aprovação.',
   'Sincronização com a memória do Mac do Bayerl.',
 ];
@@ -274,16 +272,32 @@ export default function SpecMemoria() {
         <li>A nota é <strong>exclusiva do nível 4</strong>: acima dele, a importância é o próprio nível. Um plano aprovado se decompõe: a lei sobe para os níveis 0/1/2, a decisão vira nível 3, migalhas úteis viram nível 4.</li>
       </ul>
 
-      <h3>Já implantado (28/09/2026)</h3>
+      <h3>Já implantado (28 e 29/09/2026)</h3>
       <ul>
         <li><strong>Nível 0 no ar</strong>: <code>/home/danilo/.claude/CLAUDE.md</code>, espelhado na aba Memória como <code>constituicao-nivel-0</code>.</li>
         <li><strong>Nível 1 no ar</strong>: 3 arquivos em <code>~danilo/.claude/nivel1/</code> com <code>@import</code>, regenerados de hora em hora por <code>server/nivel1/generate.ts</code> dentro do ciclo do orion-inventory, espelhados como <code>nivel1-*</code>.</li>
         <li>Teste headless confirmou a injeção de ponta a ponta.</li>
+        <li><strong>Migração do esquema e tool orion-memory (29/09/2026)</strong>: esquema da tabela <code>memories</code> migrado para <code>level</code>/<code>nota</code> (níveis 0 a 4), tool MCP <code>orion-memory</code> (<code>buscar</code>/<code>salvar</code>) em toda sessão, decaimento diário e UI por nível. Commits <code>2bd5af7</code> e <code>fb61ec8</code>.</li>
       </ul>
+
+      <h3>Escopo dentro de projeto grande (fechada 29/09/2026)</h3>
+      <p>
+        Projetos colossais (ex.: Brandspace, onde cada tool interna é um SaaS) não ganham níveis novos:
+        profundidade vira pasta e keyword, não camada.
+      </p>
+      <ol>
+        <li><strong>Spec e arquitetura de cada módulo</strong>: arquivos no repositório (<code>docs/</code> do módulo), versionados junto do código. Memória não guarda cópia de doc.</li>
+        <li><strong>Regra que toda sessão do módulo precisa</strong>: <code>CLAUDE.md</code> aninhado na subpasta do módulo (o Claude Code carrega nativamente só quando se trabalha ali). O <code>CLAUDE.md</code> da raiz do projeto continua enxuto.</li>
+        <li><strong>Decisão fechada de um módulo</strong>: memória nível 3 no grupo do projeto dono, com o nome do módulo no título e nas keywords (ex.: “[editor-ia] Export sempre server-side”).</li>
+        <li><strong>Migalhas do módulo</strong>: nível 4 com keyword do módulo.</li>
+      </ol>
+      <p>
+        <strong>Regra de bolso</strong>: vive com o código, repo; obriga toda sessão, <code>CLAUDE.md</code>; decisão, nível 3; migalha, nível 4.
+      </p>
 
       <h2>6. A definir</h2>
       <p>
-        O que segue aberto depois das decisões de 28/09. Cada item será fechado em conversa, um por vez.
+        O que segue aberto depois das decisões de 28 e 29/09. Cada item será fechado em conversa, um por vez.
       </p>
       <ul>
         {aDefinir.map(d => <li key={d}>{d}</li>)}
