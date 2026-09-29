@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api';
+import { api, type User } from '../api';
+import ToolsSkills from './ToolsSkills';
 import './tools.css';
 
 type Kind = 'tool' | 'skill' | 'mcp';
@@ -15,7 +16,7 @@ function emptyForm(): { kind: Kind; name: string; description: string; icon: str
   return { kind: 'tool', name: '', description: '', icon: '⚙️', link: '', details: '' };
 }
 
-export default function Tools() {
+export default function Tools({ user }: { user: User }) {
   const [items, setItems] = useState<ToolItem[]>([]);
   const [filter, setFilter] = useState<Kind | 'todos'>('todos');
   const [erro, setErro] = useState('');
@@ -77,7 +78,10 @@ export default function Tools() {
         <h1>Tools</h1>
         <button className="btn-primary" onClick={startCreate}>+ Nova</button>
       </div>
-      <p className="muted small">Catálogo de tools gerenciadas, skills do Claude e MCPs. Cada card é uma entrada — abasteça pelo botão acima ou peça pro Claude cadastrar via API.</p>
+      <ToolsSkills user={user} />
+
+      <div className="tls-sec-head" style={{ marginTop: 28 }}><h2>Catálogo manual</h2></div>
+      <p className="muted small">Tools gerenciadas, MCPs e anotações à mão. Cada card é uma entrada: abasteça pelo botão + Nova ou peça pro Claude cadastrar via API.</p>
       {erro && <div className="erro">{erro}</div>}
 
       <div className="tls-filters">

@@ -13,17 +13,10 @@ import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../
 import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
+import { composicaoPara } from '../tools/skillPrefs.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
-import { createWorktreeForProject } from '../claude/worktree.js';
-import { readProjectHooks } from '../claude/hooks.js';
-import { listProjectSkills, setSkillOverride, turnSkillsOption } from '../claude/skills.js';
-import {
-  PERMISSION_BEHAVIORS, settingsPathForScope, readPermissionRuleSet, mutatePermissionRuleSet,
-  validateRuleText, addRule, removeRule, replaceRule, type PermissionBehavior, type PermissionScope,
-} from '../claude/permissionRules.js';
-import { validateGroupName, sanitizeGroupName } from '../claude/groups.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -57,18 +50,7 @@ export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now
   return now.getTime() - lastTs.getTime() > 10 * 60_000;
 }
 
-type NewBody = {
-  project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[];
-  /**
-   * Nome de um novo git worktree pra esta sessão nascer já dentro dele — "Aba Claude": criar/gerenciar
-   * git worktree direto pela UI do chat (ver PARIDADE.md seção 14, `web/src/claude/Composer.tsx`).
-   * Opcional: ausente/vazio = sessão normal na raiz do projeto, como sempre foi. Nunca é um path —
-   * sempre um nome curto (validado por `createWorktreeForProject`/`validateWorktreeName`), pro
-   * servidor calcular o path sozinho (`worktreesBaseDir`) e nunca aceitar um `cwd` arbitrário vindo
-   * do cliente.
-   */
-  worktree_name?: string;
-};
+type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
 
 export async function claudeRoutes(app: FastifyInstance) {
   const runner = new Runner({ queryFn: query, store: pgStore(app.pool), log: (m) => app.log.warn(m) });
@@ -108,7 +90,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
   async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max') {
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, userId), skills: await turnSkillsOption(app.pool, s.project_id ?? null, s.cwd), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)) }),
     });
   }
@@ -124,18 +106,6 @@ export async function claudeRoutes(app: FastifyInstance) {
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
-
-  /**
-   * Branch-base do projeto pra criar um worktree novo — mesma leitura defensiva de
-   * `server/routes/tasks.ts` (`projectOf`): a coluna `default_branch` pode não existir neste schema
-   * (não é gerida por `server/migrations.ts`), então tenta e cai em `'main'` se a query falhar.
-   */
-  async function defaultBranchOf(projectId: number): Promise<string> {
-    try {
-      const { rows } = await app.pool.query('SELECT default_branch FROM projects WHERE id = $1', [projectId]);
-      return rows[0]?.default_branch ? String(rows[0].default_branch) : 'main';
-    } catch { return 'main'; }
-  }
 
   // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
   // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.
@@ -204,181 +174,9 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { projects: rows };
   });
 
-  /**
-   * "Aba Claude" — painel de skills + lista de hooks (PARIDADE.md, seção 13, itens 10/11).
-   *
-   * Hooks: SÓ LEITURA — decisão de segurança documentada a fundo em `server/claude/hooks.ts` (sem
-   * canal de edição seguro equivalente ao da extensão real; um hook `command` é shell arbitrário que
-   * passaria a rodar sozinho em toda sessão futura do projeto — risco real de escalação numa
-   * ferramenta multi-usuário). Lê os 3 `settings.json` (projeto/local/usuário) direto do disco a cada
-   * chamada, sem cache.
-   */
-  app.get<{ Params: { id: string } }>('/api/claude/projects/:id/hooks', async (req, reply) => {
-    const projectId = Number(req.params.id);
-    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
-    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [projectId]);
-    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
-    return await readProjectHooks(rows[0].path);
-  });
-
-  /** Skills disponíveis pro projeto — descoberta em disco (`.claude/skills/`, projeto + usuário) com o estado habilitado/desabilitado já salvo aplicado. Ver `server/claude/skills.ts`. */
-  app.get<{ Params: { id: string } }>('/api/claude/projects/:id/skills', async (req, reply) => {
-    const projectId = Number(req.params.id);
-    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
-    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [projectId]);
-    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
-    const skills = await listProjectSkills(app.pool, projectId, rows[0].path);
-    return { skills };
-  });
-
-  /**
-   * Habilita/desabilita uma skill pro projeto — bem mais seguro que editar hooks (ver
-   * `server/claude/skills.ts`): nunca escreve `settings.json`, nunca roda nada; só grava um override
-   * que vira o filtro `Options.skills` do SDK no próximo turno (nomes ficam invisíveis pro modelo,
-   * arquivos continuam no disco — `sdk.d.ts`).
-   */
-  app.post<{ Params: { id: string }; Body: { name?: string; enabled?: boolean } }>('/api/claude/projects/:id/skills', async (req, reply) => {
-    const projectId = Number(req.params.id);
-    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
-    const name = (req.body?.name ?? '').trim();
-    if (!name) return reply.code(400).send({ error: 'nome da skill é obrigatório' });
-    if (typeof req.body?.enabled !== 'boolean') return reply.code(400).send({ error: 'enabled deve ser booleano' });
-    const { rowCount } = await app.pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
-    if (!rowCount) return reply.code(404).send({ error: 'projeto não existe' });
-    await setSkillOverride(app.pool, projectId, name, req.body.enabled, req.user!.id);
-    return { ok: true };
-  });
-
-  /**
-   * Pastas nomeadas de sessões ("Aba Claude" — ver PARIDADE.md, item 12 da seção 13). Compartilhadas
-   * entre todos os usuários, mesmo modelo de "caixa compartilhada" que `GET /api/claude/sessions` já
-   * tem (nenhuma das duas rotas filtra por dono) — `created_by` só serve de auditoria, nunca de
-   * escopo de visibilidade. Ordenadas por `created_at` (ordem de criação; sem reordenação manual
-   * nesta rodada, ver PARIDADE.md) — o cliente (`groupSessions(..., 'folder', now, folders)` em
-   * web/src/claude/mapper.ts) espera exatamente essa ordem.
-   */
-  app.get('/api/claude/session-groups', async () => {
-    const { rows } = await app.pool.query('SELECT id, name, created_at FROM claude_session_groups ORDER BY created_at ASC, id ASC');
-    return { groups: rows };
-  });
-
-  app.post<{ Body: { name?: string } }>('/api/claude/session-groups', async (req, reply) => {
-    const err = validateGroupName(req.body?.name ?? '');
-    if (err) return reply.code(400).send({ error: err });
-    const id = randomUUID();
-    const name = sanitizeGroupName(req.body!.name!);
-    await app.pool.query('INSERT INTO claude_session_groups (id, name, created_by) VALUES ($1, $2, $3)', [id, name, req.user!.id]);
-    return { id, name };
-  });
-
-  app.post<{ Params: { id: string }; Body: { name?: string } }>('/api/claude/session-groups/:id/rename', async (req, reply) => {
-    const err = validateGroupName(req.body?.name ?? '');
-    if (err) return reply.code(400).send({ error: err });
-    const name = sanitizeGroupName(req.body!.name!);
-    const { rowCount } = await app.pool.query('UPDATE claude_session_groups SET name = $2, updated_at = now() WHERE id = $1', [req.params.id, name]);
-    if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
-    return { ok: true };
-  });
-
-  /**
-   * Editor de regras de permissão (allow/deny/ask) — "Aba Claude" (ver `web/src/claude/PARIDADE.md`,
-   * item 9 da seção 13, e `server/claude/permissionRules.ts` pra decisão de arquitetura completa: lê
-   * e escreve DIRETO nos dois arquivos `settings.json` que `Runner`/`settingSources: ['user',
-   * 'project']` de fato usa — nunca `.claude/settings.local.json`, que o Orion não lê hoje). `scope`:
-   * `'user'` (`~/.claude/settings.json` do usuário do SO que roda o servidor — global, afeta TODOS os
-   * projetos/usuários do Orion) ou `'project'` (`<project.path>/.claude/settings.json`, exige
-   * `project_id`). Escrever no escopo `'user'` é restrito a `role === 'owner'` (mesmo padrão já usado
-   * em `DELETE /api/claude/sessions/:id`, linha ~476) por causa do raio de efeito global; leitura é
-   * livre pra qualquer usuário autenticado nos dois escopos, e escrita em `'project'` também (mesmo
-   * nível de confiança que o resto do app já dá a `projects.rules`, sem ACL por projeto no schema).
-   */
-  async function resolveRuleScopePath(scope: unknown, projectId: unknown): Promise<{ ok: true; path: string } | { ok: false; code: number; error: string }> {
-    if (scope !== 'user' && scope !== 'project') return { ok: false, code: 400, error: 'scope inválido (use "user" ou "project")' };
-    if (scope === 'user') return { ok: true, path: settingsPathForScope('user', { homeDir: homedir() }) };
-    const pid = Number(projectId);
-    if (!pid) return { ok: false, code: 400, error: 'project_id é obrigatório pro scope "project"' };
-    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [pid]);
-    const projectPath = rows[0]?.path;
-    if (!projectPath) return { ok: false, code: 404, error: 'projeto não encontrado' };
-    try {
-      return { ok: true, path: settingsPathForScope('project', { homeDir: homedir(), projectPath }) };
-    } catch (e: any) {
-      return { ok: false, code: 500, error: e?.message ?? 'projeto com caminho inválido' };
-    }
-  }
-  function requireOwnerForUserScope(scope: unknown, req: { user?: { role: string } | null }): string | null {
-    if (scope === 'user' && req.user?.role !== 'owner') return 'só o admin edita regras de usuário (afeta todos os projetos e usuários do Orion)';
-    return null;
-  }
-
-  app.get<{ Querystring: { scope?: string; project_id?: string } }>('/api/claude/permission-rules', async (req, reply) => {
-    const r = await resolveRuleScopePath(req.query.scope, req.query.project_id);
-    if (!r.ok) return reply.code(r.code).send({ error: r.error });
-    const { set, error } = await readPermissionRuleSet(r.path);
-    return { ...set, ...(error ? { error } : {}) };
-  });
-
-  type PermRuleBody = { scope?: PermissionScope; project_id?: number; behavior?: PermissionBehavior; rule?: string };
-  app.post<{ Body: PermRuleBody }>('/api/claude/permission-rules', async (req, reply) => {
-    const { scope, project_id, behavior, rule } = req.body ?? {};
-    const denied = requireOwnerForUserScope(scope, req);
-    if (denied) return reply.code(403).send({ error: denied });
-    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior)) return reply.code(400).send({ error: 'behavior inválido (use allow, ask ou deny)' });
-    const msg = validateRuleText(rule ?? '');
-    if (msg) return reply.code(400).send({ error: msg });
-    const r = await resolveRuleScopePath(scope, project_id);
-    if (!r.ok) return reply.code(r.code).send({ error: r.error });
-    try {
-      return await mutatePermissionRuleSet(r.path, (s) => addRule(s, behavior, rule!.trim()));
-    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao salvar' }); }
-  });
-
-  type PermRuleEditBody = PermRuleBody & { old_behavior?: PermissionBehavior; old_rule?: string };
-  app.put<{ Body: PermRuleEditBody }>('/api/claude/permission-rules', async (req, reply) => {
-    const { scope, project_id, behavior, rule, old_behavior, old_rule } = req.body ?? {};
-    const denied = requireOwnerForUserScope(scope, req);
-    if (denied) return reply.code(403).send({ error: denied });
-    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior)) return reply.code(400).send({ error: 'behavior inválido (use allow, ask ou deny)' });
-    if (!old_behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(old_behavior) || !old_rule) return reply.code(400).send({ error: 'regra original ausente' });
-    const msg = validateRuleText(rule ?? '');
-    if (msg) return reply.code(400).send({ error: msg });
-    const r = await resolveRuleScopePath(scope, project_id);
-    if (!r.ok) return reply.code(r.code).send({ error: r.error });
-    try {
-      return await mutatePermissionRuleSet(r.path, (s) => replaceRule(s, old_behavior, old_rule, behavior, rule!.trim()));
-    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao salvar' }); }
-  });
-
-  app.delete<{ Body: PermRuleBody }>('/api/claude/permission-rules', async (req, reply) => {
-    const { scope, project_id, behavior, rule } = req.body ?? {};
-    const denied = requireOwnerForUserScope(scope, req);
-    if (denied) return reply.code(403).send({ error: denied });
-    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior) || !rule) return reply.code(400).send({ error: 'regra inválida' });
-    const r = await resolveRuleScopePath(scope, project_id);
-    if (!r.ok) return reply.code(r.code).send({ error: r.error });
-    try {
-      return await mutatePermissionRuleSet(r.path, (s) => removeRule(s, behavior, rule));
-    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao remover' }); }
-  });
-
-  /**
-   * Apaga a pasta — as sessões que estavam nela voltam pro nível raiz ("Sem pasta"), nunca são
-   * apagadas junto (`claude_sessions.group_id` tem `ON DELETE SET NULL`, ver migração
-   * `011_claude_session_groups`; nenhum `UPDATE` explícito precisa acontecer aqui, o próprio FK
-   * cuida disso). Sem restrição de papel (`role==='owner'`) — diferente do `DELETE
-   * /api/claude/sessions/:id` logo abaixo, que é destrutivo de verdade (apaga a sessão e o histórico
-   * inteiro); apagar uma pasta só reorganiza a lateral, nenhum dado de sessão é perdido, mesmo nível
-   * de risco que renomear/arquivar (que também não checam papel).
-   */
-  app.delete<{ Params: { id: string } }>('/api/claude/session-groups/:id', async (req, reply) => {
-    const { rowCount } = await app.pool.query('DELETE FROM claude_session_groups WHERE id = $1', [req.params.id]);
-    if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
-    return { ok: true };
-  });
-
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.group_id, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
@@ -477,26 +275,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     const effort = EFFORTS.has(b.effort ?? '') ? (b.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     const attachments = await sanitizeAttachments(b.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
-    // "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14): quando veio um
-    // nome, cria o git worktree ANTES de qualquer coisa (nada é gravado/nenhum turno começa se isso
-    // falhar — nome inválido, branch já existe, "git worktree add" falhou etc.). `cwd` só troca de
-    // `project.path` pro path do worktree em caso de sucesso; senão a sessão nasce na raiz do
-    // projeto, como sempre foi.
-    let cwd = project.path;
-    const worktreeName = typeof b.worktree_name === 'string' ? b.worktree_name.trim() : '';
-    if (worktreeName) {
-      const base = await defaultBranchOf(project.id);
-      const wt = await createWorktreeForProject(project.path, worktreeName, base);
-      if (!wt.ok) return reply.code(400).send({ error: wt.error });
-      cwd = wt.path;
-    }
     const id = randomUUID();
     await app.pool.query(
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
-      [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || null, mode, effort ?? null]);
+      [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
-      sessionId: id, cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), skills: await turnSkillsOption(app.pool, project.id, cwd), maxBudgetUsd: d.budget,
-      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
+      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), maxBudgetUsd: d.budget,
+      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
@@ -651,33 +436,6 @@ export async function claudeRoutes(app: FastifyInstance) {
     const archived = req.body?.archived !== false; // padrão: arquivar
     await app.pool.query('UPDATE claude_sessions SET archived = $2 WHERE id = $1', [req.params.id, archived]);
     return { ok: true, archived };
-  });
-
-  /**
-   * Move uma sessão pra dentro de uma pasta nomeada, ou solta ela de volta pro nível raiz
-   * (`group_id: null`) — "Aba Claude", ver PARIDADE.md item 12 da seção 13. A extensão real faz isso
-   * por arrastar-e-soltar (drag-and-drop, `dropTarget`/`groupHeader` no webview decompilado) OU por
-   * um menu de contexto ("Add to group"/"Remove from group", clique direito na sessão) — as duas vias
-   * chegam no mesmo lugar: mover uma sessão (ou seleção de várias) pra um `groupId`. Decisão de
-   * escopo desta rodada: só o caminho de menu/dropdown (um `<select>` "Mover para pasta" por sessão
-   * em Sidebar.tsx) — sem drag-and-drop, que é praticamente impossível de verificar sem navegador
-   * neste ambiente (nenhum aqui) e teria alto risco de bug de DOM/evento não detectado; o menu
-   * cumpre a mesma função (mover uma sessão pra dentro/fora de uma pasta), é totalmente acessível por
-   * teclado, e é a alternativa que o próprio pedido desta tarefa já sugeriu como caminho mais simples
-   * quando drag-and-drop for desproporcional ao resto do escopo. Sem seleção múltipla (a extensão
-   * real também tem "New group from N sessions" pra mover várias de uma vez — o Orion não tem
-   * multi-seleção de sessões em lugar nenhum da lista lateral hoje; fora de escopo, adicionar isso
-   * seria uma mudança de UI bem maior só pra esta feature).
-   */
-  app.post<{ Params: { id: string }; Body: { group_id?: string | null } }>('/api/claude/sessions/:id/group', async (req, reply) => {
-    const groupId = req.body?.group_id;
-    if (groupId) {
-      const { rowCount } = await app.pool.query('SELECT 1 FROM claude_session_groups WHERE id = $1', [groupId]);
-      if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
-    }
-    const { rowCount } = await app.pool.query('UPDATE claude_sessions SET group_id = $2 WHERE id = $1', [req.params.id, groupId || null]);
-    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
-    return { ok: true };
   });
 
   app.delete<{ Params: { id: string } }>('/api/claude/sessions/:id', async (req, reply) => {

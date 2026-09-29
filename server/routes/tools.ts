@@ -1,4 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { cp, mkdir, readFile, stat } from 'node:fs/promises';
+import path from 'node:path';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { KEYS, getSetting, sdkEnv } from '../settings.js';
+import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type SkillItem } from '../tools/skillsScan.js';
+import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
 
 const KINDS = new Set(['tool', 'skill', 'mcp']);
 
@@ -10,9 +16,131 @@ function intParam(v: unknown): number | null {
 }
 
 export async function toolsRoutes(app: FastifyInstance) {
+  // Explicação em pt-BR por skill, compartilhada entre cópias (chave = tipo:invocação).
+  await app.pool.query('CREATE TABLE IF NOT EXISTS skill_notes (chave TEXT PRIMARY KEY, descricao_pt TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())');
+  await ensureSkillPrefsTable(app.pool);
+
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
   });
+
+  // ---------- skills descobertas no disco ----------
+  // ponytail: cache de 60 s em memória; a varredura lê centenas de .md. Invalida em ativar/explicar.
+  let cache: { ts: number; itens: SkillItem[] } | null = null;
+  async function listar(force = false): Promise<SkillItem[]> {
+    if (!force && cache && Date.now() - cache.ts < 60_000) return cache.itens;
+    const { rows: projetos } = await app.pool.query('SELECT slug, path FROM projects ORDER BY id');
+    const itens = await scanTudo(raizesPadrao(projetos));
+    const { rows: notas } = await app.pool.query('SELECT chave, descricao_pt FROM skill_notes');
+    const pt = new Map<string, string>(notas.map((n: any) => [n.chave, n.descricao_pt]));
+    for (const it of itens) it.descricao_pt = pt.get(chaveDe(it.kind, it.invocacao)) ?? null;
+    cache = { ts: Date.now(), itens };
+    return itens;
+  }
+
+  app.get('/api/tools/skills', async (req) => {
+    const base = await listar();
+    const prefs = await lerPrefs(app.pool);
+    // Estado por item para quem está olhando. Só itens do catálogo têm botão; o resto é informativo.
+    const itens = base.map(it => {
+      const chave = chaveDe(it.kind, it.invocacao);
+      const ligavel = ehDoCatalogo(it);
+      const e = estadoDe(chave, req.user!.id, prefs);
+      return { ...it, chave, ligavel, ligada_todos: ligavel ? e.todos : null, ligada_eu: ligavel ? e.eu : null, efetiva: ligavel ? e.efetiva : it.habilitada };
+    });
+    const faltam = new Set(itens.filter(i => !i.descricao_pt && i.kind !== 'hook').map(i => i.chave)).size;
+    return { itens, faltam_pt: faltam, ativacao_label: ATIVACAO_LABEL, catalogo_dir: CATALOGO_DIR };
+  });
+
+  /** Liga/desliga uma skill do catálogo: escopo "todos" (só owner) ou "eu"; ligada=null apaga a escolha (volta ao padrão). */
+  app.put<{ Body: { chave?: string; escopo?: string; ligada?: boolean | null } }>('/api/tools/skills/prefs', async (req, reply) => {
+    const b = req.body ?? {};
+    const chave = String(b.chave ?? '').trim();
+    if (!chave) return reply.code(400).send({ error: 'chave é obrigatória' });
+    const escopo = b.escopo === 'todos' ? 'todos' : 'eu';
+    if (escopo === 'todos' && req.user!.role !== 'owner') return reply.code(403).send({ error: 'só o admin muda o padrão de todos' });
+    const ligada = b.ligada === null || b.ligada === undefined ? null : Boolean(b.ligada);
+    const item = (await listar()).find(i => chaveDe(i.kind, i.invocacao) === chave && ehDoCatalogo(i));
+    if (!item) return reply.code(404).send({ error: 'essa skill não está no catálogo (só itens do catálogo têm botão)' });
+    await gravarPref(app.pool, chave, escopo === 'todos' ? TODOS : req.user!.id, ligada);
+    return { ok: true, ...estadoDe(chave, req.user!.id, await lerPrefs(app.pool)) };
+  });
+
+  app.get<{ Params: { id: string } }>('/api/tools/skills/:id/md', async (req, reply) => {
+    const it = (await listar()).find(i => i.id === req.params.id);
+    if (!it) return reply.code(404).send({ error: 'não encontrada' });
+    if (it.kind === 'hook') return { md: '```\n' + it.description + '\n```' };
+    if (it.credencial && req.user!.role !== 'owner') return reply.code(403).send({ error: 'este arquivo parece conter credencial; só o admin vê o conteúdo' });
+    const st = await stat(it.path).catch(() => null);
+    if (!st || st.size > 300_000) return reply.code(413).send({ error: 'arquivo grande demais para mostrar' });
+    return { md: await readFile(it.path, 'utf8') };
+  });
+
+  /** Copia uma skill/command/agent solto do snapshot do code-server para a casa do Claude na c3. */
+  app.post<{ Params: { id: string } }>('/api/tools/skills/:id/ativar', async (req, reply) => {
+    if (req.user!.role !== 'owner') return reply.code(403).send({ error: 'só o admin' });
+    const it = (await listar()).find(i => i.id === req.params.id);
+    if (!it) return reply.code(404).send({ error: 'não encontrada' });
+    if (it.origem !== 'code-server' || it.plugin || it.kind === 'hook') {
+      return reply.code(400).send({ error: 'só skills, commands e agents soltos do code-server; plugin entra no catálogo por deploy/catalogo.sh' });
+    }
+    let destino: string;
+    if (it.kind === 'skill') destino = path.join(CATALOGO_DIR, 'skills', path.basename(path.dirname(it.path)));
+    else if (it.kind === 'command') destino = path.join(CATALOGO_DIR, 'commands', ...it.name.split(':')) + '.md';
+    else destino = path.join(CATALOGO_DIR, 'agents', `${it.name}.md`);
+    if (await stat(destino).catch(() => null)) return reply.code(409).send({ error: `já existe na c3: ${destino}` });
+    await mkdir(path.dirname(destino), { recursive: true });
+    await cp(it.kind === 'skill' ? path.dirname(it.path) : it.path, destino, { recursive: true });
+    cache = null; invalidarCatalogo();
+    app.log.info(`skill ativada no catálogo por ${req.user!.email}: ${it.invocacao} -> ${destino}`);
+    return { ok: true, destino, aviso: it.refs_code_server ? 'cita caminhos /config/... do code-server; revise antes de usar' : null };
+  });
+
+  /** Gera explicações em pt-BR (lote de até 30 chaves sem nota) com um turno de Haiku, sem ferramentas. */
+  app.post('/api/tools/skills/explicar', async (req, reply) => {
+    if (req.user!.role !== 'owner') return reply.code(403).send({ error: 'só o admin' });
+    const itens = await listar(true);
+    const pendentes = new Map<string, SkillItem>();
+    for (const it of itens) if (!it.descricao_pt && it.kind !== 'hook' && !pendentes.has(chaveDe(it.kind, it.invocacao))) pendentes.set(chaveDe(it.kind, it.invocacao), it);
+    const lote = [...pendentes.entries()].slice(0, 30);
+    if (!lote.length) return { explicadas: 0, faltam: 0, cost_usd: 0 };
+    const entrada = await Promise.all(lote.map(async ([chave, it]) => ({
+      id: chave, tipo: it.kind, nome: it.invocacao, description: it.description.slice(0, 600),
+      inicio: (await readFile(it.path, 'utf8').catch(() => '')).replace(/^---[\s\S]*?---\n?/, '').split('\n').slice(0, 25).join('\n').slice(0, 1200),
+    })));
+    const prompt = 'Você recebe uma lista JSON de skills, commands e subagentes do Claude Code (id, tipo, nome, description em inglês e o começo do arquivo).\n'
+      + 'Para cada id escreva, em português do Brasil, 1 ou 2 frases explicando para uma pessoa leiga o que aquilo faz e quando é usado. Sem travessão (use vírgula ou ponto).\n'
+      + 'Responda SOMENTE com um objeto JSON no formato {"<id>": "texto"}, sem comentários.\n\n' + JSON.stringify(entrada);
+    const token = await getSetting(app.pool, KEYS.claudeToken);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 120_000);
+    let texto = '', cost = 0, erro = '';
+    try {
+      const q = query({ prompt, options: {
+        cwd: '/tmp', maxTurns: 1, tools: [], permissionMode: 'default', settingSources: [], abortController: abort, env: sdkEnv(token),
+        model: 'claude-haiku-4-5-20251001', systemPrompt: 'Você explica ferramentas de programação em português simples. Responda só JSON.',
+      } });
+      for await (const m of q) {
+        if (m.type === 'assistant') for (const b of m.message.content) if (b.type === 'text') texto += b.text;
+        if (m.type === 'result') { cost = m.total_cost_usd ?? 0; if (m.is_error) erro = (m as any).result ?? m.subtype; }
+      }
+    } catch (e: any) { erro = String(e?.message ?? e); } finally { clearTimeout(timer); }
+    if (erro) return reply.code(502).send({ error: `Claude falhou: ${erro}` });
+    let mapa: Record<string, string> = {};
+    try { mapa = JSON.parse(texto.slice(texto.indexOf('{'), texto.lastIndexOf('}') + 1)); }
+    catch { return reply.code(502).send({ error: 'resposta do Claude não veio em JSON', trecho: texto.slice(0, 200) }); }
+    let n = 0;
+    for (const [chave] of lote) {
+      const t = String(mapa[chave] ?? '').replace(/[\u2014\u2013]/g, ',').trim();
+      if (!t) continue;
+      await app.pool.query('INSERT INTO skill_notes (chave, descricao_pt) VALUES ($1, $2) ON CONFLICT (chave) DO UPDATE SET descricao_pt = EXCLUDED.descricao_pt, updated_at = now()', [chave, t]);
+      n++;
+    }
+    cache = null;
+    return { explicadas: n, faltam: pendentes.size - n, cost_usd: cost };
+  });
+
+  // ---------- catálogo manual (tabela tools) ----------
 
   app.get('/api/tools', async () => {
     const { rows } = await app.pool.query(

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
 export type LiveEvent =
@@ -98,16 +98,9 @@ export type TurnParams = {
   maxBudgetUsd?: number;
   env?: Record<string, string>;
   mcpServers?: Record<string, McpServerConfig>;
-  /**
-   * Filtro de skills habilitadas pro turno — mesmo campo `Options.skills` do SDK ("Skills to enable
-   * for the main session... unlisted skills are hidden from the model's listing and rejected by the
-   * Skill tool", `sdk.d.ts`). `undefined` (padrão) = sem opinião, comportamento de sempre; calculado
-   * por `server/claude/skills.ts` (`turnSkillsOption`) a partir dos overrides salvos no painel de
-   * skills da "Aba Claude" — ver PARIDADE.md. Nunca `'all'` aqui: o Orion só desliga skills
-   * explicitamente desabilitadas, nunca precisa forçar habilitar tudo (isso já é o padrão do CLI sem
-   * esta opção).
-   */
-  skills?: string[];
+  /** Composição por pessoa (server/tools/skillPrefs.ts): plugins do catálogo ligados e skills bloqueadas. */
+  plugins?: SdkPluginConfig[];
+  disallowedTools?: string[];
 };
 
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string; toolUseId?: string };
@@ -322,7 +315,8 @@ export class Runner {
       ...(p.effort ? { effort: p.effort } : {}),
       ...(p.env ? { env: p.env } : {}),
       ...(p.mcpServers ? { mcpServers: p.mcpServers } : {}),
-      ...(p.skills ? { skills: p.skills } : {}),
+      ...(p.plugins?.length ? { plugins: p.plugins } : {}),
+      ...(p.disallowedTools?.length ? { disallowedTools: p.disallowedTools } : {}),
     };
 
     let ok = false, cost = 0, turns = 0;

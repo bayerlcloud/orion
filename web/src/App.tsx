@@ -98,7 +98,7 @@ export default function App() {
           <Route path="/config" element={<Config user={user} />} />
           <Route path="/perfil" element={<Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} />} />
           <Route path="/tarefas" element={<Tarefas user={user} />} />
-          <Route path="/tools" element={<Tools />} />
+          <Route path="/tools" element={<Tools user={user} />} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
