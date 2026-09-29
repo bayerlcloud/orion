@@ -657,3 +657,58 @@
 .cc-permrules-confirm-rule { font-size: 12px; color: var(--cc-fg2); overflow-wrap: anywhere; }
 .cc-permrules-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
+/* ===== Gerenciar plugins (Marketplace.tsx) + output styles (OutputStyles.tsx/Composer) =====
+   Ver PARIDADE-marketplace.md. Reusa a moldura .cc-agentmap/.cc-skillshooks (overlay, cabeçalho,
+   abas) e as linhas .cc-skill-row; aqui só o que não existia. `position:relative` no painel: o
+   overlay de confirmação de instalação reusa .cc-permrules-overlay-inner (inset:0 absoluto). */
+.cc-skillshooks { position: relative; }
+.cc-mkt-search { margin: 0 0 8px; }
+.cc-mkt-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
+.cc-mkt-dot.is-on { background: var(--cc-success); opacity: 1; }
+.cc-mkt-dot.is-off { background: var(--cc-fg2); opacity: .4; }
+.cc-mkt-meta { color: var(--cc-fg2); font-size: 11px; margin-top: 2px; }
+.cc-mkt-meta a { color: var(--link); }
+.cc-mkt-foot { color: var(--cc-fg2); font-size: 11px; padding: 8px 2px 2px; }
+.cc-mkt-ok { margin: 0 0 8px; padding: 6px 10px; border-radius: var(--r); background: color-mix(in srgb, var(--cc-success) 14%, transparent); color: var(--cc-fg); font-size: 12px; }
+/* Formulário "adicionar marketplace" — o addMarketplaceForm real (input + botão Add na mesma linha). */
+.cc-mkt-addform { display: flex; gap: 6px; margin-bottom: 10px; }
+.cc-mkt-addform input { flex: 1; min-width: 0; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-line); border-radius: var(--r); padding: 5px 8px; font: inherit; font-size: 12px; outline: none; }
+.cc-mkt-addform input:focus { border-color: color-mix(in srgb, var(--cc-orange) 55%, transparent); }
+.cc-mkt-marketplace { margin-bottom: 10px; }
+.cc-mkt-official { display: inline-flex; margin-left: 6px; color: var(--cc-success); vertical-align: middle; }
+.cc-mkt-actions { display: flex; gap: 2px; flex-shrink: 0; }
+/* Seção "Disponíveis" de um marketplace — o sectionHeader/"Available" real, indentada sob o card. */
+.cc-mkt-available { margin: 2px 0 4px 14px; }
+.cc-mkt-section { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--cc-fg2); padding: 4px 0 4px; }
+.cc-mkt-avail-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--r); }
+.cc-mkt-avail-row:hover { background: var(--cc-hover); }
+.cc-mkt-avail-name { font-size: 12px; font-weight: 600; }
+.cc-mkt-cat { margin-left: 6px; font-weight: 400; font-size: 10px; color: var(--cc-fg2); border: .5px solid var(--cc-line); border-radius: 8px; padding: 0 6px; }
+.cc-mkt-installed { flex-shrink: 0; font-size: 11px; color: var(--cc-success); }
+/* Lista/detalhe de servidores MCP — mcpServerItem/serverDetail reais ("← Back to list"). */
+.cc-mkt-server { width: 100%; text-align: left; cursor: pointer; }
+.cc-mkt-server:hover { border-color: color-mix(in srgb, var(--cc-line) 60%, var(--cc-fg)); }
+.cc-mkt-back { color: var(--cc-fg2); font-size: 12px; padding: 2px 0 10px; display: block; }
+.cc-mkt-back:hover { color: var(--cc-fg); }
+.cc-mkt-serverdetail .cc-skill-name { margin-bottom: 8px; }
+.cc-mkt-detail-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 12px; }
+.cc-mkt-detail-lbl { color: var(--cc-fg2); font-size: 11px; }
+
+/* Menu "Selecione um estilo de saída" (Composer) + assistente "Construir um estilo personalizado". */
+.cc-menu-styles { min-width: 240px; }
+.cc-style-empty { color: var(--cc-fg2); font-size: 12px; padding: 6px 8px; }
+.cc-style-build { border-top: 1px solid var(--cc-line); border-radius: 0 0 5px 5px; margin-top: 2px; }
+.cc-style-build .cc-menu-item-name { color: var(--cc-orange); }
+.cc-style-dialog { max-width: 480px; }
+.cc-style-body { display: grid; gap: 10px; }
+.cc-style-field { display: grid; gap: 6px; }
+.cc-style-field > label { font-size: 12px; font-weight: 600; }
+.cc-style-field input[type="text"], .cc-style-field input:not([type]), .cc-style-field textarea { background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-line); border-radius: var(--r); padding: 6px 8px; font: inherit; font-size: 13px; outline: none; resize: vertical; }
+.cc-style-field input:focus, .cc-style-field textarea:focus { border-color: color-mix(in srgb, var(--cc-orange) 55%, transparent); }
+.cc-style-help { color: var(--cc-fg2); font-size: 11px; }
+.cc-style-error { color: var(--cc-failure); font-size: 11px; }
+.cc-style-saved { color: var(--cc-success); font-size: 12px; }
+.cc-style-check { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-top: 4px; }
+.cc-style-save-dest { display: grid; gap: 4px; border: 1px solid var(--cc-line); border-radius: var(--r); background: var(--cc-bg2); padding: 8px 10px; font-size: 12px; }
+.cc-style-actions { display: flex; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--cc-line); }
+

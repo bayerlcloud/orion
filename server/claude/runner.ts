@@ -101,6 +101,13 @@ export type TurnParams = {
   /** Composição por pessoa (server/tools/skillPrefs.ts): plugins do catálogo ligados e skills bloqueadas. */
   plugins?: SdkPluginConfig[];
   disallowedTools?: string[];
+  /**
+   * Output style da sessão (coluna claude_sessions.output_style — ver server/tools/outputStyles.ts
+   * e PARIDADE-marketplace.md). Vai pro SDK pela camada de settings de flag (`Options.settings`,
+   * equivalente ao `--settings` do CLI), que aceita `outputStyle` — canal DIRETO, sem gambiarra de
+   * systemAppend. Ausente = sem estilo (o "default" do CLI).
+   */
+  outputStyle?: string;
 };
 
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string; toolUseId?: string };
@@ -206,6 +213,23 @@ export class Runner {
     const q = this.live.get(sessionId)?.query as unknown as Partial<Query> | undefined;
     if (!q || typeof q.applyFlagSettings !== 'function') return false;
     await q.applyFlagSettings({ effortLevel: effort });
+    return true;
+  }
+
+  /**
+   * Troca o output style AO VIVO — mesmo desenho de `setEffortLive` acima: não existe um
+   * `setOutputStyle()` dedicado no SDK, mas `Query.applyFlagSettings()` aceita `outputStyle` entre
+   * as chaves de Settings que mescla na camada de flag da sessão (sdk.d.ts; é a MESMA camada que
+   * `Options.settings` alimenta no início do turno — ver TurnParams.outputStyle). `null` = volta
+   * pro padrão (sem estilo), semântica documentada do applyFlagSettings ("null restores neither a
+   * query() option nor a settings-file value"). A persistência por sessão acontece na rota HTTP
+   * (server/routes/claude.ts, POST /:id/output-style), ANTES desta chamada — mesmo contrato de
+   * modo/modelo/esforço.
+   */
+  async setOutputStyleLive(sessionId: string, style: string | null): Promise<boolean> {
+    const q = this.live.get(sessionId)?.query as unknown as Partial<Query> | undefined;
+    if (!q || typeof q.applyFlagSettings !== 'function') return false;
+    await q.applyFlagSettings({ outputStyle: style });
     return true;
   }
 
@@ -317,6 +341,7 @@ export class Runner {
       ...(p.mcpServers ? { mcpServers: p.mcpServers } : {}),
       ...(p.plugins?.length ? { plugins: p.plugins } : {}),
       ...(p.disallowedTools?.length ? { disallowedTools: p.disallowedTools } : {}),
+      ...(p.outputStyle ? { settings: { outputStyle: p.outputStyle } } : {}),
     };
 
     let ok = false, cost = 0, turns = 0;

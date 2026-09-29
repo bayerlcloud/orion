@@ -14,6 +14,7 @@ import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { composicaoPara } from '../tools/skillPrefs.js';
+import { estiloConhecido } from '../tools/outputStyles.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
 import { cloudflareMcpServers, cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
@@ -65,6 +66,9 @@ export async function claudeRoutes(app: FastifyInstance) {
   await ensureGithubAccountsTable(app.pool);
   await ensureCloudflareAccountsTable(app.pool);
   await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false');
+  // Output style por sessão (nullable = sem estilo, o "default" do CLI) — ver server/tools/outputStyles.ts
+  // e a rota POST /:id/output-style abaixo. Mesmo padrão do archived acima: ALTER aqui, sem disputar migrations.ts.
+  await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS output_style TEXT');
 
   // Pasta de anexos e upload em streaming, escopado a este plugin (@fastify/multipart é fastify-plugin, sobe só até aqui).
   const uploadRoot = claudeUploadDir();
@@ -94,7 +98,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   }
 
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
-  type SessionRow = { id: string; cwd: string; project_id: number | null; user_id?: number; project_name: string | null; rules: string | null; creator: string };
+  type SessionRow = { id: string; cwd: string; project_id: number | null; user_id?: number; project_name: string | null; rules: string | null; creator: string; output_style?: string | null };
   /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
   async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: string) {
     // A tool orion-memory recebe o contexto da SESSÃO (projeto + criador, s.user_id): é ele que
@@ -103,7 +107,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
     const eff = resolveUltracode(effort);
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)) }), eff.ultracode),
     });
   }
@@ -342,7 +346,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const attachments = await sanitizeAttachments(req.body?.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const { rows } = await app.pool.query(
-      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
+      'SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.output_style, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id WHERE s.id = $1', [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
     const mode = MODES.has(req.body?.permission_mode ?? '') ? (req.body!.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (s.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto');
@@ -443,6 +447,29 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { ok: true, live };
   });
 
+  /**
+   * Troca de output style por sessão — o menu "Output styles" da extensão real (ver
+   * server/tools/outputStyles.ts pra investigação completa e PARIDADE-marketplace.md). Mesmo
+   * contrato das irmãs de modo/modelo/esforço acima: valida contra a lista real de estilos
+   * (embutidos + catálogo), persiste no Postgres PRIMEIRO (coluna claude_sessions.output_style,
+   * nullable; 'default' vira null = sem estilo) e SÓ DEPOIS tenta a aplicação ao vivo via
+   * `Runner.setOutputStyleLive` (`Query.applyFlagSettings({outputStyle})`), isolada em try/catch.
+   * O turno seguinte nasce certo de qualquer forma: startFor manda o valor persistido pro SDK pela
+   * camada de settings de flag (`Options.settings.outputStyle` — ver TurnParams em runner.ts).
+   */
+  app.post<{ Params: { id: string }; Body: { style?: string } }>('/api/claude/sessions/:id/output-style', async (req, reply) => {
+    const bruto = (req.body?.style ?? '').trim();
+    const style = bruto && bruto !== 'default' ? bruto : null;
+    if (style && !(await estiloConhecido(style))) return reply.code(400).send({ error: 'estilo desconhecido' });
+    const { rows } = await app.pool.query('SELECT output_style FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
+    if (style !== rows[0].output_style) await app.pool.query('UPDATE claude_sessions SET output_style = $2 WHERE id = $1', [req.params.id, style]);
+    let live = false;
+    try { live = await runner.setOutputStyleLive(req.params.id, style); }
+    catch (e: any) { app.log.warn(`setOutputStyle ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    return { ok: true, live };
+  });
+
   app.post<{ Params: { id: string }; Body: { approval_id?: string; decision?: string; message?: string } }>('/api/claude/sessions/:id/permission', async (req, reply) => {
     const d = req.body?.decision;
     if (d !== 'allow' && d !== 'allow_always' && d !== 'deny' && d !== 'answer') return reply.code(400).send({ error: 'decisão inválida' });
@@ -480,7 +507,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   // então retoma cada sessão que estava 'running'/'waiting' com um "continue" em nome do Orion, pra
   // ninguém precisar voltar lá e cutucar. O SDK retoma a conversa pelo id (resume).
   const { rows: cortadas } = await app.pool.query(
-    `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator,
+    `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.output_style, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator,
             (SELECT e.payload->>'prompt' FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 1) AS last_prompt,
             (SELECT e.ts FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 1) AS last_prompt_ts
        FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id

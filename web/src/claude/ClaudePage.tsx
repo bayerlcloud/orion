@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type Project } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project } from './api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
@@ -9,7 +9,9 @@ import Composer from './Composer';
 import AgentMap from './AgentMap';
 import SkillsHooksPanel from './SkillsHooksPanel';
 import PermissionRules from './PermissionRules';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield } from './icons';
+import Marketplace from './Marketplace';
+import BuildStyleDialog from './OutputStyles';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle } from './icons';
 import './claude.css';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
@@ -65,6 +67,18 @@ export default function ClaudePage() {
   // regras são por projeto/usuário, não por sessão — faz sentido abrir o painel mesmo sem nenhuma aba
   // aberta ainda (ex.: primeira visita à página).
   const [permRulesOpen, setPermRulesOpen] = useState(false);
+  // "Gerenciar plugins" (Marketplace.tsx) — mesmo padrão de gatilho do editor de regras acima: por
+  // catálogo/pessoa, não por sessão, então abre mesmo sem aba nenhuma. Ver PARIDADE-marketplace.md.
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  // Output styles (OutputStyles.tsx/Composer): lista carregada 1x + recarregada após criar estilo;
+  // o estilo ATUAL é por sessão (claude_sessions.output_style), restaurado no efeito de carga como
+  // modo/modelo/esforço. 'default' = sem estilo.
+  const [buildStyleOpen, setBuildStyleOpen] = useState(false);
+  const [styles, setStyles] = useState<OutputStyleInfo[]>([]);
+  const [outputStyle, setOutputStyle] = useState<string>('default');
+  const refreshStyles = useCallback(async () => {
+    try { setStyles((await claudeApi.outputStyles()).styles); } catch { /* silencioso: o seletor cai no vazio */ }
+  }, []);
   const [erro, setErro] = useState('');
   // true até o primeiro fetch de sessões terminar (sucesso ou falha) — enquanto isso, a lateral
   // mostra "Carregando sessões…" em vez de pular direto pra "Nenhuma sessão" (ver Sidebar.tsx;
@@ -128,12 +142,13 @@ export default function ClaudePage() {
     });
     void refreshUsage();
     void refreshGroups();
+    void refreshStyles();
     claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
     claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); }).catch(() => { setEmail(null); setRole(null); });
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
     return () => { alive = false; clearInterval(t); };
-  }, [refreshSessions, refreshUsage, refreshGroups]);
+  }, [refreshSessions, refreshUsage, refreshGroups, refreshStyles]);
 
   // Sempre que as abas abertas mudam, lembra por usuário (sobrevive a reload/troca de dispositivo).
   // Pula o PUT quando nada mudou de fato (ex.: a lista acabou de chegar de outra guia).
@@ -197,6 +212,8 @@ export default function ClaudePage() {
         setModel(matchModelAlias(s.model));
         // Esforço: sempre resolve pra um valor concreto (ver matchEffort), senão o da sessão anterior vaza.
         setEffort(matchEffort(s.effort));
+        // Output style: mesmo padrão do esforço acima (sempre resolve, senão o da sessão anterior vaza).
+        setOutputStyle(s.output_style || 'default');
       }).catch(e => { buffer = null; setErro(e.message); });
     };
     es.onerror = () => { setStreamStatus('disconnected'); };
@@ -366,6 +383,13 @@ export default function ClaudePage() {
     if (e === effort || !activeId || isDraft(activeId)) return;
     claudeApi.setEffort(activeId, e).catch(err => console.warn('troca de esforço ao vivo falhou:', err?.message ?? err));
   }
+  /** Troca de output style — mesmo contrato dos três acima: estado local na hora + persistência/
+   * aplicação ao vivo na sessão real (POST /:id/output-style; ver PARIDADE-marketplace.md). */
+  function handleOutputStyle(nome: string) {
+    setOutputStyle(nome);
+    if (nome === outputStyle || !activeId || isDraft(activeId)) return;
+    claudeApi.setOutputStyle(activeId, nome).catch(err => console.warn('troca de estilo ao vivo falhou:', err?.message ?? err));
+  }
   async function rename() {
     if (!active) return;
     const t = window.prompt('Novo título da sessão', active.title);
@@ -455,6 +479,7 @@ export default function ClaudePage() {
             <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
             <button className="cc-icon" title="Skills e hooks" disabled={!activeId} onClick={() => setSkillsHooksOpen(true)}><Wrench size={13} /></button>
             <button className="cc-icon" title="Regras de permissão" onClick={() => setPermRulesOpen(true)}><Shield size={13} /></button>
+            <button className="cc-icon" title="Gerenciar plugins" onClick={() => setMarketplaceOpen(true)}><Puzzle size={13} /></button>
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
             <button className="cc-icon" title="Renomear sessão" onClick={rename}><Dots size={13} /></button>
@@ -523,7 +548,10 @@ export default function ClaudePage() {
                 projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
                 onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }}
                 worktreeName={activeTab?.worktreeName} onWorktreeName={activeTab?.draft ? setDraftWorktreeName : undefined}
-                agents={agentsPill} onAgents={() => setAgentMapOpen(true)} />
+                agents={agentsPill} onAgents={() => setAgentMapOpen(true)}
+                outputStyles={styles} outputStyle={outputStyle}
+                onOutputStyle={!activeTab?.draft ? handleOutputStyle : undefined}
+                onBuildStyle={() => setBuildStyleOpen(true)} />
             </div>
           )}
         </div>
@@ -558,6 +586,10 @@ export default function ClaudePage() {
         defaultProjectId={permRulesProjectId}
         canEditUser={role === 'owner'}
       />
+      <Marketplace open={marketplaceOpen} onClose={() => setMarketplaceOpen(false)} isOwner={role === 'owner'} />
+      <BuildStyleDialog open={buildStyleOpen} onClose={() => setBuildStyleOpen(false)} existing={styles}
+        canSwitchNow={!!activeId && !isDraft(activeId)}
+        onSaved={(slug, switchNow) => { void refreshStyles(); if (switchNow) handleOutputStyle(slug); }} />
     </div>
   );
 }

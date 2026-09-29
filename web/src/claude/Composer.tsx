@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch, Mic, AgentsPill } from './icons';
-import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type Project } from './api';
+import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project } from './api';
 import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState } from './mapper';
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
@@ -163,7 +163,7 @@ function sparkTitle(effort: EffortChoice, fast: FastModeState): string {
   return parts.join(' · ');
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle }: {
   onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
@@ -193,9 +193,17 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
    */
   agents?: { total: number; count: number; dot: AgentsPillDot };
   onAgents?: () => void;
+  /**
+   * "Aba Claude" — seletor de output style (menu "Output styles" da extensão real; ver
+   * OutputStyles.tsx e PARIDADE-marketplace.md). Só aparece com `onOutputStyle` (sessão de verdade
+   * aberta — rascunho ainda não tem linha no Postgres pra persistir, mesma razão de setMode/
+   * setModel ao vivo só valerem pra sessão real). `outputStyle` = nome/slug atual ('default' = sem
+   * estilo); `onBuildStyle` abre o assistente "Construir um estilo personalizado".
+   */
+  outputStyles?: OutputStyleInfo[]; outputStyle?: string; onOutputStyle?: (nome: string) => void; onBuildStyle?: () => void;
 }) {
   const [text, setText] = useState('');
-  const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree'>('');
+  const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree' | 'style'>('');
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -562,6 +570,34 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
               <button className={`cc-menu-item ${effort === 'ultracode' ? 'is-active' : ''}`} role="menuitem" onClick={() => { onEffort('ultracode'); setMenu(''); }}>
                 <span className="cc-menu-item-name">{ULTRACODE_MENU_LABEL}</span>
               </button>
+            </Menu>
+          </div>
+        )}
+        {/*
+          Seletor de output style — o menu "Output styles" da extensão real (strings do webview
+          v2.1.283 em pt-BR: "Select an output style" → título; "No output styles available" →
+          vazio; "Build a custom style" → linha final, abre o assistente em OutputStyles.tsx).
+          Mesmo padrão cc-pop/Menu/cc-menu-item dos vizinhos. Ver PARIDADE-marketplace.md.
+        */}
+        {onOutputStyle && (
+          <div className="cc-pop">
+            <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'style' ? '' : 'style')} title="Estilo de saída">
+              {(outputStyles ?? []).find(s => s.nome === (outputStyle ?? 'default'))?.label ?? outputStyle ?? 'Estilo'} <Chevron size={10} className="cc-chev-down" />
+            </button>
+            <Menu open={menu === 'style'} onClose={() => setMenu('')} className="cc-menu-up cc-menu-styles">
+              <div className="cc-menu-title">Selecione um estilo de saída</div>
+              {(outputStyles ?? []).length === 0 && <div className="cc-style-empty">Nenhum estilo de saída disponível</div>}
+              {(outputStyles ?? []).map(s => (
+                <button key={s.nome} className={`cc-menu-item ${s.nome === (outputStyle ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onOutputStyle(s.nome); setMenu(''); }}>
+                  <span className="cc-menu-item-name">{s.label}</span>
+                  {s.descricao && <span className="cc-menu-item-desc">{s.descricao}{s.criado_por ? ` · ${s.criado_por}` : ''}</span>}
+                </button>
+              ))}
+              {onBuildStyle && (
+                <button className="cc-menu-item cc-style-build" role="menuitem" onClick={() => { onBuildStyle(); setMenu(''); }}>
+                  <span className="cc-menu-item-name">Construir um estilo personalizado</span>
+                </button>
+              )}
             </Menu>
           </div>
         )}

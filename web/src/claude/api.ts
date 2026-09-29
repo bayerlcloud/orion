@@ -9,6 +9,9 @@ export type ApiSession = {
   user_name: string; project_slug: string | null; project_name: string | null; pending: number;
   /** Pasta nomeada manual desta sessão (`claude_sessions.group_id`) — `null` quando está solta ("Sem pasta"). Ver PARIDADE.md item 12 da seção 13. */
   group_id: string | null;
+  /** Output style da sessão (`claude_sessions.output_style`, nullable = sem estilo) — só vem no GET
+   * de UMA sessão (`SELECT s.*`), não na listagem; ver PARIDADE-marketplace.md. */
+  output_style?: string | null;
 };
 export type Project = { id: number; slug: string; name: string; path: string; rules: string | null };
 /** Pasta nomeada manual de sessões (`GET /api/claude/session-groups`) — ver PARIDADE.md item 12 da seção 13. */
@@ -111,7 +114,40 @@ export const claudeApi = {
   deleteGroup: (id: string) => api<{ ok: true }>(`/api/claude/session-groups/${id}`, { method: 'DELETE' }),
   /** `groupId: null` solta a sessão de volta pro nível raiz. Alternativa a drag-and-drop (menu/dropdown "Mover para pasta" por sessão — ver Sidebar.tsx e PARIDADE.md). */
   moveToGroup: (sessionId: string, groupId: string | null) => api<{ ok: true }>(`/api/claude/sessions/${sessionId}/group`, { method: 'POST', body: JSON.stringify({ group_id: groupId }) }),
+  /**
+   * "Aba Claude" — marketplace de plugins/MCP + output styles (ver Marketplace.tsx, OutputStyles.tsx
+   * e PARIDADE-marketplace.md). Plugins do catálogo com estado POR PESSOA (chave plugin:<nome> em
+   * skill_prefs); mutações de catálogo/marketplace são só do admin (o servidor barra, a UI esconde).
+   */
+  marketplacePlugins: () => api<{ plugins: CatalogPlugin[]; catalogo_dir: string }>('/api/claude/marketplace/plugins'),
+  setPluginEnabled: (nome: string, escopo: 'eu' | 'todos', ligada: boolean | null) =>
+    api<{ ok: true; todos: boolean | null; eu: boolean | null; efetiva: boolean }>(`/api/claude/marketplace/plugins/${encodeURIComponent(nome)}`, { method: 'PUT', body: JSON.stringify({ escopo, ligada }) }),
+  marketplaces: () => api<{ marketplaces: MarketplaceInfo[] }>('/api/claude/marketplace/marketplaces'),
+  addMarketplace: (source: string) => api<{ ok: true }>('/api/claude/marketplace/marketplaces', { method: 'POST', body: JSON.stringify({ source }) }),
+  removeMarketplace: (nome: string) => api<{ ok: true }>(`/api/claude/marketplace/marketplaces/${encodeURIComponent(nome)}`, { method: 'DELETE' }),
+  refreshMarketplace: (nome: string) => api<{ ok: true }>(`/api/claude/marketplace/marketplaces/${encodeURIComponent(nome)}/refresh`, { method: 'POST' }),
+  installPlugin: (plugin: string, marketplace: string) => api<{ ok: true; destino: string }>('/api/claude/marketplace/install', { method: 'POST', body: JSON.stringify({ plugin, marketplace }) }),
+  mcpServers: () => api<{ servers: McpServerInfo[] }>('/api/claude/marketplace/mcp'),
+  /** Estilos de saída: embutidos do CLI + customs do catálogo (/srv/claude/catalog/output-styles). */
+  outputStyles: () => api<{ styles: OutputStyleInfo[] }>('/api/claude/output-styles'),
+  createOutputStyle: (b: { nome: string; descricao: string; instrucoes: string; manter_instrucoes_codigo: boolean; substituir?: boolean }) =>
+    api<{ ok: true; slug: string }>('/api/claude/output-styles', { method: 'POST', body: JSON.stringify(b) }),
+  /** Mesmo contrato de setMode/setModel/setEffort: persiste primeiro, aplica ao vivo se há Query rodando. 'default' = sem estilo. */
+  setOutputStyle: (id: string, style: string) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/output-style`, { method: 'POST', body: JSON.stringify({ style }) }),
 };
+
+/** Plugin do catálogo (/srv/claude/catalog/plugins/<nome>) com o estado por pessoa. */
+export type CatalogPlugin = {
+  nome: string; descricao: string; versao: string | null; autor: string | null; hooks: boolean;
+  skills: number; commands: number; agents: number;
+  ligada_todos: boolean | null; ligada_eu: boolean | null; efetiva: boolean;
+};
+export type MarketplaceInfo = {
+  nome: string; fonte: string; fonte_url: string | null; oficial: boolean; atualizado: string | null; descricao: string;
+  plugins: { name: string; description: string; category: string | null; instalado: boolean }[];
+};
+export type McpServerInfo = { nome: string; tipo: string; detalhe: string; origem: string; escopo: string };
+export type OutputStyleInfo = { nome: string; label: string; descricao: string; builtin: boolean; criado_por: string | null };
 
 export const MODE_LABEL: Record<Mode, string> = { acceptEdits: 'Edição automática', default: 'Manual', plan: 'Plan', auto: 'Auto' };
 export const MODE_DESC: Record<Mode, string> = {
