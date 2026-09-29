@@ -11,6 +11,8 @@ import './claude.css';
 
 type Tab = { id: string; draft?: boolean; projectId?: number };
 const isDraft = (id: string) => id.startsWith('draft-');
+/** Identifica esta guia no stream de abas, pra ignorar o eco das próprias mudanças. */
+const CLIENT_ID = crypto.randomUUID();
 
 function toSummary(s: ApiSession): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
@@ -42,6 +44,7 @@ export default function ClaudePage() {
   const draftCounter = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const restoredRef = useRef(false);
+  const savedKeyRef = useRef('');
   // Pilha de sessões fechadas recentemente (só ids reais, nunca rascunho) — estilo aba de navegador
   // pro Ctrl/Cmd+Shift+T: cada fechamento empilha, reabrir desempilha o mais recente. Cap de 10, igual
   // ao `recentlyClosedSessions`/rk0 da extensão real (extension.js) — é de fato uma pilha pequena, não
@@ -86,12 +89,32 @@ export default function ClaudePage() {
   }, [refreshSessions, refreshUsage]);
 
   // Sempre que as abas abertas mudam, lembra por usuário (sobrevive a reload/troca de dispositivo).
+  // Pula o PUT quando nada mudou de fato (ex.: a lista acabou de chegar de outra guia).
   useEffect(() => {
     if (!restoredRef.current) return;
     const ids = tabs.filter(t => !t.draft).map(t => t.id);
     const active = activeId && !isDraft(activeId) ? activeId : null;
-    void claudeApi.saveUiState({ tabs: ids, active_id: active }).catch(() => { /* melhor esforço */ });
+    const key = JSON.stringify([ids, active]);
+    if (key === savedKeyRef.current) return;
+    savedKeyRef.current = key;
+    void claudeApi.saveUiState({ tabs: ids, active_id: active, client: CLIENT_ID }).catch(() => { /* melhor esforço */ });
   }, [tabs, activeId]);
+
+  // Abas em tempo real entre guias/dispositivos: outra guia abriu/fechou sessão → aplica aqui.
+  // Só a lista de abas é sincronizada; cada guia continua com a sua aba ativa (senão brigam).
+  useEffect(() => {
+    const es = new EventSource('/api/claude/ui-state/stream');
+    es.onmessage = (m) => {
+      try {
+        const ev = JSON.parse(m.data) as { tabs: string[]; client?: string };
+        if (ev.client === CLIENT_ID) return;
+        void refreshSessions(); // sessão criada na outra guia ainda não está na lista local
+        setTabs(t => [...ev.tabs.map(id => ({ id })), ...t.filter(x => x.draft)]);
+        setActiveId(a => a && !isDraft(a) && !ev.tabs.includes(a) ? (ev.tabs.at(-1) ?? null) : a);
+      } catch { /* ignora */ }
+    };
+    return () => es.close();
+  }, [refreshSessions]);
 
   // Abre a sessão ativa: carrega histórico e liga o stream.
   useEffect(() => {
@@ -253,6 +276,7 @@ export default function ClaudePage() {
       <Sidebar sessions={summaries} usage={usage} activeId={activeId} loading={sessionsLoading} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
       <main className="cc-main">
         <div className="cc-tabs">
+          <div className="cc-tabs-scroll">
           {tabs.map(t => {
             const s = sessions.find(x => x.id === t.id);
             const label = t.draft ? 'Nova sessão' : (s?.title ?? '…');
@@ -263,7 +287,7 @@ export default function ClaudePage() {
               </div>
             );
           })}
-          <span className="cc-spacer" />
+          </div>
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
