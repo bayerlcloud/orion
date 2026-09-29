@@ -1,8 +1,8 @@
-import { Fragment, useEffect } from 'react';
+import { Fragment, useEffect, type ReactNode } from 'react';
 import { copiar } from './ToolsNotas';
 
 type Props = {
-  icone: string; badge: string; badgeClass: string; titulo: string; sub?: string;
+  icone: ReactNode; badge: string; badgeClass: string; titulo: string; sub?: string;
   linhas: [string, string][]; notas: string; onEdit?: () => void; onClose: () => void;
 };
 

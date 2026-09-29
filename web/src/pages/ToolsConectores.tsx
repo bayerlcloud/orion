@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { IcoCloudflare, IcoGithub } from '../icons';
 import { api, type User } from '../api';
 import ToolsNotas, { copiar } from './ToolsNotas';
 import ToolsContaModal from './ToolsContaModal';
@@ -10,9 +11,9 @@ type Prov = 'github' | 'cloudflare';
 type Linha = [string, string, string?];
 type Card = { prov: Prov; id: number; label: string; sub: string; linhas: Linha[]; notas: string };
 
-const PROV: Record<Prov, { titulo: string; icone: string; badge: string; classe: string; api: string }> = {
-  github: { titulo: 'GitHub', icone: '🐙', badge: 'MCP', classe: 'is-mcp', api: '/api/tools/github' },
-  cloudflare: { titulo: 'Cloudflare', icone: '☁️', badge: 'Conector', classe: 'is-conector', api: '/api/tools/cloudflare' },
+const PROV: Record<Prov, { titulo: string; icone: ReactNode; badge: string; classe: string; api: string }> = {
+  github: { titulo: 'GitHub', icone: <IcoGithub />, badge: 'MCP', classe: 'is-mcp', api: '/api/tools/github' },
+  cloudflare: { titulo: 'Cloudflare', icone: <IcoCloudflare />, badge: 'Conector', classe: 'is-conector', api: '/api/tools/cloudflare' },
 };
 const vazio = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
 type Form = { prov: Prov; id: number | null; v: ReturnType<typeof vazio> };
