@@ -2,6 +2,8 @@ type P = { size?: number; className?: string };
 const base = (size = 14) => ({ width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const });
 
 export const Chevron = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M6 3l5 5-5 5" /></svg>;
+export const ArrowLeft = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M12 3L5 8l7 5" /></svg>;
+export const ArrowRight = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M4 3l7 5-7 5" /></svg>;
 export const Plus = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 3v10M3 8h10" /></svg>;
 export const ArrowUp = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 13V3M4 7l4-4 4 4" /></svg>;
 export const Bolt = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M9 2L4 9h4l-1 5 5-7H8l1-5z" /></svg>;

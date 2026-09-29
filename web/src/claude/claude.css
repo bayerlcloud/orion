@@ -75,11 +75,14 @@
    real evita não tendo NENHUMA trilha de grid fixa — é tudo flex). */
 .cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; }
 .cc-tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--cc-line); background: var(--cc-panel); }
-/* Só as abas rolam; o menu de ações fica fixo à direita. Barra de rolagem escondida (pedido do
-   Bayerl 29/09/2026 — a faixa cinza nativa do navegador ali não tem função nenhuma, só ocupa
-   espaço); a rolagem em si continua funcionando normalmente, só a barra visual some. */
-.cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; }
-.cc-tabs-scroll::-webkit-scrollbar { display: none; }
+/* Só as abas rolam; o menu de ações fica fixo à direita. Barra de rolagem fina — não escondida
+   (pedido do Bayerl 29/09/2026: a faixa cinza nativa era grossa demais e voltou, ~3x mais fina do
+   que o padrão do navegador). */
+.cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.cc-tabs-scroll::-webkit-scrollbar { height: 5px; }
+.cc-tabs-scroll::-webkit-scrollbar-track { background: transparent; }
+.cc-tabs-scroll::-webkit-scrollbar-thumb { background: var(--cc-line); border-radius: 3px; }
+.cc-tabs-scroll::-webkit-scrollbar-thumb:hover { background: var(--cc-fg2); }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
 .cc-tab-spark { color: var(--cc-orange); }
@@ -228,6 +231,7 @@
 .cc-composer textarea::placeholder { color: var(--cc-fg2); }
 .cc-composer-foot { display: flex; align-items: center; gap: 6px; padding-top: 4px; }
 .cc-icon { display: inline-flex; padding: 5px; border-radius: 5px; color: var(--cc-fg2); }
+.cc-icon:disabled { opacity: .35; cursor: default; }
 .cc-icon:hover { background: var(--cc-hover); color: var(--cc-fg); }
 .cc-pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; line-height: 20px; border-radius: 10px; background: color-mix(in srgb, var(--cc-fg) 10%, transparent); font-size: 12px; white-space: nowrap; }
 .cc-pill:hover { background: color-mix(in srgb, var(--cc-fg) 16%, transparent); }

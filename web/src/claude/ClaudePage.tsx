@@ -6,7 +6,7 @@ import { formatCost, computeUsageBars, messageHistory, currentPermission, type U
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
-import { X, Dots, Power, Sync } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight } from './icons';
 import './claude.css';
 
 type Tab = { id: string; draft?: boolean; projectId?: number };
@@ -223,6 +223,14 @@ export default function ClaudePage() {
     setTabs(t => [...t, { id, draft: true, projectId: draftProject }]);
     setActiveId(id);
   }
+  /** Setinhas do topo (pedido do Bayerl 29/09/2026, estilo navegador): andam pela ordem das abas
+   * abertas, não por histórico de navegação de verdade — dá a volta nas pontas. */
+  function stepTab(dir: -1 | 1) {
+    if (tabs.length < 2) return;
+    const i = tabs.findIndex(t => t.id === activeId);
+    const next = i === -1 ? 0 : (i + dir + tabs.length) % tabs.length;
+    setActiveId(tabs[next].id);
+  }
 
   // Atalhos globais da aba Claude (package.json da extensão real, contributes.keybindings):
   // Ctrl/Cmd+N → newConversation (nova sessão, quando o painel do Claude está em foco — aqui, a
@@ -331,6 +339,8 @@ export default function ClaudePage() {
           })}
           </div>
           <span className="cc-tab-actions">
+            <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
+            <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
             <button className="cc-icon" title="Renomear sessão" onClick={rename}><Dots size={13} /></button>
