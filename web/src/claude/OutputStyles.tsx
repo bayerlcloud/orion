@@ -144,7 +144,7 @@ export default function BuildStyleDialog({ open, onClose, existing, onSaved, can
               <label>Salvar em</label>
               <div className="cc-style-save-dest">
                 <b>Catálogo compartilhado</b>
-                <span className="cc-style-help">/srv/claude/catalog/output-styles/{slugLocal(nome) || '…'}.md — visível pra todo mundo no painel, com você como criador</span>
+                <span className="cc-style-help">/srv/claude/catalog/output-styles/{slugLocal(nome) || '…'}.md: visível pra todo mundo no painel, com você como criador</span>
               </div>
               {canSwitchNow && !salvo && (
                 <label className="cc-style-check">
