@@ -1,33 +1,54 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
 
+/**
+ * Markdown do assistente — espelho do `root_-a7MRw` real: `p` em pre-wrap com margens .1em/.2em,
+ * bloco de código sem borda (raio 4, padding 8) embrulhado num `codeBlockWrapper` com botão de copiar
+ * no canto (aparece no hover). O botão é um `<button data-copy>` gerado pelo renderer do marked e
+ * tratado por delegação de clique aqui (um handler pro container inteiro).
+ */
+const mdRenderer = new marked.Renderer();
+const baseCode = mdRenderer.code.bind(mdRenderer);
+mdRenderer.code = function (token: Parameters<typeof baseCode>[0]) {
+  const inner = baseCode(token);
+  return `<div class="cc-codeblock"><button class="cc-copy cc-code-copy" data-copy title="Copiar" aria-label="Copiar">${COPY_SVG}</button>${inner}</div>`;
+};
+const COPY_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
 function Md({ text }: { text: string }) {
-  const html = useMemo(() => marked.parse(text) as string, [text]);
-  return <div className="cc-md" dangerouslySetInnerHTML={{ __html: html }} />;
+  const html = useMemo(() => marked.parse(text, { renderer: mdRenderer }) as string, [text]);
+  const onClick = useCallback((ev: MouseEvent) => {
+    const btn = (ev.target as HTMLElement).closest('[data-copy]') as HTMLElement | null;
+    if (!btn) return;
+    ev.stopPropagation();
+    const pre = btn.parentElement?.querySelector('pre');
+    navigator.clipboard?.writeText(pre?.textContent ?? '').catch(() => {});
+  }, []);
+  return <div className="cc-md" onClick={onClick} dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function CopyButton({ text, title = 'Copiar' }: { text: string; title?: string }) {
+function CopyButton({ text, title = 'Copiar', className = '' }: { text: string; title?: string; className?: string }) {
   const [done, setDone] = useState(false);
   function copy(e: MouseEvent) {
     e.stopPropagation();
     navigator.clipboard?.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1200); }).catch(() => {});
   }
-  return <button className="cc-copy" onClick={copy} title={title}>{done ? <Check size={12} /> : <Copy size={12} />}</button>;
+  return <button className={`cc-copy ${className}`} onClick={copy} title={title} aria-label={title}>{done ? <Check size={14} /> : <Copy size={14} />}</button>;
 }
 
 function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
   const tokens = estimateTokens(e.text);
+  if (!e.text.trim()) return null;
   return (
     <details className={`cc-thinking ${e.streaming ? 'is-streaming' : ''}`}>
       <summary>
-        <Chevron size={12} className="cc-chev" />
-        <span>{e.streaming ? 'Pensando' : 'Pensou'}</span>
-        {!e.streaming && tokens > 0 && <span className="cc-thinking-tokens">· {formatTokens(tokens)} tokens</span>}
+        <span>{e.streaming ? 'Pensando...' : 'Pensou'}</span>
+        {e.streaming && tokens > 0 && <span className="cc-thinking-tokens"> · {formatTokens(tokens)}</span>}
+        <Chevron size={16} className="cc-chev" />
       </summary>
       <div className="cc-thinking-body">{e.text}</div>
     </details>
@@ -35,38 +56,19 @@ function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
 }
 
 /**
- * Mensagem de texto do assistente — Markdown + botão de copiar revelado no hover (mesmo padrão de
- * `cc-tool-copy`/`CopyButton` já usado nos blocos de ferramenta; espelha `copyResponseButton_07S1Yg`/
- * `assistantActions_07S1Yg` da extensão real, que mostra "Copy response" ao lado da mensagem só depois
- * dela terminar — por isso `!e.streaming` aqui também). Quando o texto é o resto de um turno
- * interrompido (botão Parar — ver `live.ts`/`interruptedLabel`), mostra o selo logo abaixo, num
- * estilo neutro/aviso (`cc-interrupted`), nunca vermelho — não é um erro, é só um turno cortado.
+ * Mensagem de texto do assistente — `message_07S1Yg` real: Markdown e, terminada a mensagem, uma
+ * linha própria de 16px (`assistantActions`) com o botão "Copiar resposta" de 20px revelado no hover.
  */
 function AssistantText({ e }: { e: Extract<ConvEvent, { kind: 'text' }> }) {
   return (
     <>
-      <div className="cc-text-row">
-        <Md text={e.text} />
-        {!e.streaming && e.text && <span className="cc-text-copy"><CopyButton text={e.text} title="Copiar resposta" /></span>}
-      </div>
+      <Md text={e.text} />
+      {!e.streaming && e.text && <div className="cc-actions"><CopyButton text={e.text} title="Copiar resposta" className="cc-copy-response" /></div>}
       {e.interrupted && <div className="cc-interrupted">{e.interrupted}</div>}
     </>
   );
 }
 
-/** Alvo principal (caminho de arquivo, comando) mostrado em destaque por tipo de ferramenta. */
-function toolTarget(e: Extract<ConvEvent, { kind: 'tool' }>): { mono?: string; desc?: string } {
-  const i = (e.input ?? {}) as Record<string, unknown>;
-  const s = (v: unknown) => (typeof v === 'string' ? v : undefined);
-  switch (e.name) {
-    case 'Read': case 'Write': case 'Edit': case 'MultiEdit': case 'NotebookEdit':
-      return { mono: s(i.file_path), desc: undefined };
-    case 'Bash':
-      return { mono: s(i.command), desc: s(i.description) };
-    default:
-      return { desc: e.description };
-  }
-}
 
 /**
  * Corpo de uma linha do diff: se a linha ganhou destaque de caractere (par del/add reconhecido como
@@ -93,114 +95,183 @@ function EditDiff({ oldText, newText }: { oldText: string; newText: string }) {
   );
 }
 
-function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
-  const { mono, desc } = toolTarget(e);
-  const i = (e.input ?? {}) as Record<string, unknown>;
-  const isEdit = (e.name === 'Edit') && typeof i.old_string === 'string' && typeof i.new_string === 'string';
-  const hasBody = !!(e.inputText || e.output || isEdit);
+/** Texto longo o bastante pra ser cortado em 60px (`ew` real: >250 caracteres ou >3 linhas). */
+function isLong(s: string): boolean { return s.length > 250 || s.split('\n').length > 3; }
+const base = (p?: string) => (p ?? '').split('/').pop() || p || '';
+
+/**
+ * Conteúdo de uma linha IN/OUT do bloco de ferramenta — `toolBodyRowContent_ZUQaOA` real: sempre
+ * visível, cortado em 60px com esmaecimento (`mask-image` 50→60px) quando é longo. A extensão abre o
+ * texto inteiro numa aba do editor ao clicar; aqui, sem editor, o clique tira o corte (e devolve).
+ */
+function RowContent({ text, children, error }: { text: string; children?: React.ReactNode; error?: boolean }) {
+  const long = isLong(text);
   const [open, setOpen] = useState(false);
-  const copyText = mono ?? e.inputText;
+  const clip = long && !open;
+  return (
+    <div className={`cc-tool-content ${clip ? 'is-clipped' : ''} ${error ? 'is-error' : ''}`} role={long ? 'button' : undefined} tabIndex={long ? 0 : undefined}
+      title={long ? (open ? 'Clique para recolher' : 'Clique para ver o texto inteiro') : undefined}
+      onClick={long ? () => setOpen(o => !o) : undefined}
+      onKeyDown={long ? ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setOpen(o => !o); } } : undefined}>
+      {children ?? <pre>{text}</pre>}
+    </div>
+  );
+}
+function Row({ label, text, error, copy, children }: { label: string; text: string; error?: boolean; copy?: boolean; children?: React.ReactNode }) {
+  return (
+    <div className="cc-tool-row">
+      <div className="cc-tool-lbl">{label}</div>
+      <RowContent text={text} error={error}>{children}</RowContent>
+      {copy && <CopyButton text={text} title="Copiar" className="cc-row-copy" />}
+    </div>
+  );
+}
+/** Linha secundária abaixo do cabeçalho (`secondaryLine_mLrg7g` real): contagens, "Write failed", motivo de rejeição. */
+function Secondary({ children }: { children: React.ReactNode }) { return <div className="cc-tool-secondary"><span>{children}</span></div>; }
+
+function editSummary(oldText: string, newText: string): string {
+  const a = oldText.split('\n').length, b = newText.split('\n').length;
+  const add = Math.max(0, b - a), del = Math.max(0, a - b);
+  const s = (n: number) => (n === 1 ? '' : 's');
+  if (add && del) return `${add} linha${s(add)} adicionada${s(add)}, ${del} removida${s(del)}`;
+  if (add) return `${add} linha${s(add)} adicionada${s(add)}`;
+  if (del) return `${del} linha${s(del)} removida${s(del)}`;
+  return 'Modificado';
+}
+function countLines(out?: string): number { return out ? out.trim().split('\n').filter(l => l.length).length : 0; }
+
+/**
+ * Bloco de ferramenta — mesma composição da extensão real (`root_ZUQaOA`): cabeçalho por ferramenta
+ * (nome em negrito + alvo em mono na cor de link, ou descrição em texto secundário) e corpo SEM
+ * chevron e SEM colapso: IN/OUT sempre à vista, cortados em 60px. Read/Glob/Grep não têm corpo; Bash
+ * mostra a descrição no cabeçalho e o comando na linha IN (com copiar no canto); Edit/Write mostram a
+ * linha de contagem e o corpo sem rótulos. Sem indicador textual de "executando": é a bolinha da
+ * linha do tempo que pisca (`dotProgress`), igual à real.
+ */
+function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
+  const i = (e.input ?? {}) as Record<string, unknown>;
+  const s = (v: unknown) => (typeof v === 'string' ? v : undefined);
+  const hasOut = e.output !== undefined;
+  const outText = e.output || '(sem saída)';
+  let header: React.ReactNode;
+  let body: React.ReactNode = null;
+  switch (e.name) {
+    case 'Bash': case 'PowerShell': {
+      header = <><span className="cc-tool-name">{e.name} </span>{s(i.description) && <span className="cc-tool-plain">{s(i.description)}</span>}</>;
+      body = (
+        <div className="cc-tool-body"><div className="cc-tool-grid">
+          <Row label="IN" text={s(i.command) ?? ''} copy />
+          {hasOut && <Row label="OUT" text={outText} error={e.isError} />}
+        </div></div>
+      );
+      break;
+    }
+    case 'Read': {
+      const off = typeof i.offset === 'number' ? i.offset : undefined, lim = typeof i.limit === 'number' ? i.limit : undefined;
+      const range = off !== undefined && lim !== undefined ? ` (linhas ${off + 1}-${off + lim})` : off !== undefined ? ` (a partir da linha ${off + 1})` : '';
+      header = <><span className="cc-tool-name">Read </span>{s(i.file_path) && <span className="cc-tool-path" title={s(i.file_path)}>{base(s(i.file_path))}</span>}{range && <span>{range}</span>}</>;
+      break;
+    }
+    case 'Edit': case 'MultiEdit': {
+      const oldS = s(i.old_string) ?? '', newS = s(i.new_string) ?? '';
+      header = <><span className="cc-tool-name">Edit </span><span className="cc-tool-path" title={s(i.file_path)}>{base(s(i.file_path))}</span></>;
+      body = (
+        <>
+          <Secondary>{e.isError ? 'Edição falhou' : editSummary(oldS, newS)}</Secondary>
+          <div className="cc-tool-body cc-tool-body-wrap"><EditDiff oldText={oldS} newText={newS} /></div>
+        </>
+      );
+      break;
+    }
+    case 'Write': {
+      const content = s(i.content) ?? '';
+      const n = content.split('\n').length;
+      header = <><span className="cc-tool-name">Write </span><span className="cc-tool-path" title={s(i.file_path)}>{base(s(i.file_path))}</span></>;
+      body = (
+        <>
+          <Secondary>{e.isError ? 'Escrita falhou' : `${n} linha${n === 1 ? '' : 's'}`}</Secondary>
+          <div className="cc-tool-body cc-tool-body-wrap"><RowContent text={content} /></div>
+        </>
+      );
+      break;
+    }
+    case 'Glob': {
+      header = <><span className="cc-tool-name">Glob</span> <span className="cc-tool-path">pattern: "{s(i.pattern)}"</span></>;
+      if (hasOut) { const n = e.output?.trim() === 'No files found' ? 0 : countLines(e.output); body = <Secondary>{n === 0 ? 'Nenhum arquivo encontrado' : n === 1 ? '1 arquivo encontrado' : `${n} arquivos encontrados`}</Secondary>; }
+      break;
+    }
+    case 'Grep': {
+      const extra = [s(i.path) && `em ${s(i.path)}`, s(i.glob) && `glob: ${s(i.glob)}`, s(i.type) && `type: ${s(i.type)}`].filter(Boolean).join(', ');
+      header = <><span className="cc-tool-name">Grep</span> <span className="cc-tool-path">"{s(i.pattern)}"{extra && ` (${extra})`}</span></>;
+      if (hasOut) { const n = countLines(e.output); body = <Secondary>{n === 0 ? 'Nenhuma ocorrência' : n === 1 ? '1 ocorrência' : `${n} ocorrências`}</Secondary>; }
+      break;
+    }
+    case 'WebFetch': {
+      header = <><span className="cc-tool-name">Web Fetch</span><span className="cc-tool-path">{s(i.url)}</span></>;
+      if (hasOut) body = e.isError ? <div className="cc-tool-body"><div className="cc-tool-grid"><Row label="OUT" text={outText} error /></div></div> : <div className="cc-tool-body"><div className="cc-tool-plaintext">Baixado de {s(i.url)}</div></div>;
+      break;
+    }
+    case 'WebSearch': {
+      header = <><span className="cc-tool-name">Web Search</span><span className="cc-tool-path">{s(i.query)}</span></>;
+      if (hasOut) body = <div className="cc-tool-body"><div className="cc-tool-grid"><Row label="OUT" text={outText} error={e.isError} /></div></div>;
+      break;
+    }
+    case 'Skill': {
+      header = <><span className="cc-tool-name">{(s(i.skill) ?? '').replace(/^\//, '')}</span><span className="cc-tool-path"> skill</span></>;
+      break;
+    }
+    default: {
+      header = <span className="cc-tool-name">{e.label}</span>;
+      const inText = e.inputText ?? '';
+      if (inText || hasOut) body = (
+        <div className="cc-tool-body"><div className="cc-tool-grid">
+          {inText && <Row label="IN" text={inText} />}
+          {hasOut && <Row label="OUT" text={outText} error={e.isError} />}
+        </div></div>
+      );
+    }
+  }
   return (
     <div className={`cc-tool is-${e.status}`}>
-      <div className="cc-tool-summary" onClick={() => hasBody && setOpen(o => !o)} style={{ cursor: hasBody ? 'pointer' : 'default' }}>
-        {hasBody && <Chevron size={11} className={`cc-chev ${open ? 'is-open' : ''}`} />}
-        <span className="cc-tool-name">{e.label}</span>
-        {mono && <span className="cc-tool-path cc-mono">{mono}</span>}
-        {desc && <span className="cc-tool-desc cc-clamp2">{desc}</span>}
-        {copyText && <span className="cc-tool-copy"><CopyButton text={copyText} title="Copiar comando" /></span>}
-      </div>
-      {hasBody && open && (
-        <div className="cc-tool-body">
-          {isEdit ? (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">DIFF</span><EditDiff oldText={String(i.old_string)} newText={String(i.new_string)} /></div>
-          ) : e.inputText ? (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">IN</span><pre className="cc-tool-pre">{e.inputText}</pre></div>
-          ) : null}
-          {e.output !== undefined && (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
-          )}
-          {(e.status === 'running' || e.status === 'waiting') && e.output === undefined && (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className={`cc-running ${e.status === 'waiting' ? 'is-waiting' : ''}`}>{toolRunningLabel(e.status)}</span></div>
-          )}
-        </div>
-      )}
-      {hasBody && !open && (e.status === 'running' || e.status === 'waiting') && e.output === undefined && (
-        <span className={`cc-tool-inline cc-running ${e.status === 'waiting' ? 'is-waiting' : ''}`}>{toolRunningLabel(e.status)}</span>
-      )}
+      <div className="cc-tool-summary">{header}</div>
+      {body}
     </div>
   );
 }
 
-/**
- * Checklist do TodoWrite — igual à extensão real (`gG0`/`J65`/classes `todoListContainer_xheXVQ`,
- * `todoList_xheXVQ`, `todoItem_xheXVQ`, `completed_xheXVQ`, `content_xheXVQ` em webview/index.js
- * v2.1.282): um checkbox por item (marcado = completed, indeterminado/meio-marcado = in_progress,
- * vazio = pending — a extensão usa um `<input type=checkbox disabled>` com `.indeterminate` pro
- * estado "em andamento"; aqui é um ícone equivalente, já que não temos elemento de formulário aqui)
- * e o texto do item riscado + esmaecido quando completed (`text-decoration:line-through` no CSS
- * real). Cabeçalho real é sempre o texto fixo "Update Todos" — mostramos "Lista de tarefas" (PT-BR).
- */
 function TodoList({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
   const todos = useMemo(() => parseTodos(e.input), [e.input]);
   if (!todos.length) return null;
   return (
-    <div className="cc-todo">
-      <div className="cc-todo-head"><span className="cc-tool-name">Lista de tarefas</span></div>
-      <ul className="cc-todo-list">
-        {todos.map((t, k) => (
-          <li key={k} className={`cc-todo-item is-${t.status}`}>
-            <span className={`cc-todo-check is-${t.status}`} aria-hidden="true" />
-            <span className="cc-todo-content">{t.content}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="cc-tool">
+      <div className="cc-tool-summary"><span className="cc-tool-name">Lista de tarefas</span></div>
+      <div className="cc-todo">
+        <ul className="cc-todo-list">
+          {todos.map((t, k) => (
+            <li key={k} className={`cc-todo-item ${t.status === 'completed' ? 'is-completed' : ''}`}>
+              <span className={`cc-todo-check is-${t.status}`} aria-hidden="true" />
+              <div className="cc-todo-content">{t.content}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
 
-/**
- * Linha de subagente (tool `Task`) — a extensão real chama esse tool internamente de "Agent"
- * (`$==="Task"?"Agent":$` em webview/index.js v2.1.282) e mostra "Agent: {description}" no
- * cabeçalho, com o prompt como corpo IN e sem OUT (`class jD1{name="Agent";renderOutput(){return null}}`).
- * Linha própria (não passa pelo bloco de ferramenta genérico): descrição em destaque, tipo do
- * subagente (`subagent_type`) como selo secundário quando existe, e status rodando/concluído/falhou
- * (`taskStatusLabel`) — a extensão tem telemetria ao vivo (tempo decorrido, tokens, contagem de tool
- * calls do subagente) que exigiria um stream de progresso por tarefa que o Orion não tem hoje; aqui
- * mostramos o `ToolStatus` que já temos. Mantemos IN (prompt) e OUT (resultado final do subagente,
- * que a extensão esconde mas que aqui é informação útil) dobráveis, como os outros tool blocks.
- */
 function TaskAgent({ e, task }: { e: Extract<ConvEvent, { kind: 'tool' }>; task?: AgentTask }) {
   const i = (e.input ?? {}) as Record<string, unknown>;
   const description = typeof i.description === 'string' ? i.description : e.label;
   const prompt = typeof i.prompt === 'string' ? i.prompt : e.inputText;
-  const subagentType = typeof i.subagent_type === 'string' ? i.subagent_type : undefined;
-  // `task.toolCalls`: as tool calls DO PRÓPRIO subagente (agrupadas por parent_tool_use_id em
-  // noteAgentTask — ver PARIDADE-agentmap.md), mostradas aninhadas ao expandir, igual à lista
-  // `innerCallList` real (componente compartilhado com o card do Mapa de agentes, ver AgentMap.tsx).
   const calls = task?.toolCalls ?? [];
-  const hasBody = !!(prompt || e.output || calls.length);
-  const [open, setOpen] = useState(false);
   return (
     <div className={`cc-tool cc-task is-${e.status}`}>
-      <div className="cc-tool-summary" onClick={() => hasBody && setOpen(o => !o)} style={{ cursor: hasBody ? 'pointer' : 'default' }}>
-        {hasBody && <Chevron size={11} className={`cc-chev ${open ? 'is-open' : ''}`} />}
-        <span className="cc-tool-name">Agent</span>
-        {description && <span className="cc-tool-desc cc-clamp2">{description}</span>}
-        {subagentType && <span className="cc-task-type">{subagentType}</span>}
-        <span className={`cc-task-status is-${e.status}`}>{taskStatusLabel(e.status)}</span>
-        {prompt && <span className="cc-tool-copy"><CopyButton text={prompt} title="Copiar prompt" /></span>}
-      </div>
-      {hasBody && open && (
-        <div className="cc-tool-body">
-          {calls.length > 0 && <div className="cc-tool-row"><span className="cc-tool-lbl">TOOLS</span><InnerCallList calls={calls} /></div>}
-          {prompt && <div className="cc-tool-row"><span className="cc-tool-lbl">IN</span><pre className="cc-tool-pre">{prompt}</pre></div>}
-          {e.output !== undefined && (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><pre className={`cc-tool-pre ${e.isError ? 'is-error' : ''}`}>{e.output || '(sem saída)'}</pre></div>
-          )}
-          {(e.status === 'running' || e.status === 'waiting') && e.output === undefined && (
-            <div className="cc-tool-row"><span className="cc-tool-lbl">OUT</span><span className={`cc-running ${e.status === 'waiting' ? 'is-waiting' : ''}`}>{toolRunningLabel(e.status)}</span></div>
-          )}
-        </div>
+      <div className="cc-tool-summary"><span className="cc-tool-name">Agent:</span><span className="cc-tool-path">{description}</span></div>
+      {(prompt || calls.length > 0) && (
+        <div className="cc-tool-body"><div className="cc-tool-grid">
+          {calls.length > 0 && <div className="cc-tool-row"><div className="cc-tool-lbl">TOOLS</div><div className="cc-tool-content"><InnerCallList calls={calls} /></div></div>}
+          {prompt && <Row label="IN" text={prompt} />}
+        </div></div>
       )}
     </div>
   );
@@ -270,8 +341,25 @@ function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide
   );
 }
 
+/** Cabeçalho do card por ferramenta, como a extensão real (Bash/Read/Edit/Write/Grep/Glob/Skill; o resto é o genérico). */
+function permHeader(e: Extract<ConvEvent, { kind: 'permission' }>): React.ReactNode {
+  const file = <span className="cc-perm-path">{base(e.description)}</span>;
+  switch (e.name) {
+    case 'Bash': return 'Permitir este comando bash?';
+    case 'Read': return <>Permitir ler {file}?</>;
+    case 'Edit': case 'MultiEdit': return <>Fazer esta edição em {file}?</>;
+    case 'Write': return <>Permitir escrever em {file}?</>;
+    case 'Grep': return e.description ? <>Permitir grep em <span className="cc-perm-path">{e.description}</span>?</> : 'Permitir este grep?';
+    case 'Glob': return e.description ? <>Permitir busca glob em <span className="cc-perm-path">{e.description}</span>?</> : 'Permitir este glob?';
+    case 'Skill': return <>Usar a skill <span className="cc-perm-path">/{e.description}</span>?</>;
+    default: return <>Deseja prosseguir com <strong>{e.label}</strong>?</>;
+  }
+}
+
 export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   const isAsk = !!(e.questions && e.questions.length);
+  const [focused, setFocused] = useState(0);
+  const [reject, setReject] = useState('');
   if (e.decision) {
     if (e.decision === 'answer') return <div className="cc-perm-done">Você respondeu: <b>{e.answer ?? e.inputText}</b></div>;
     if (e.decision === 'timeout') {
@@ -285,18 +373,38 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
     return <div className="cc-perm-done">{txt}{!isAsk && <> · <span className="cc-mono">{e.inputText}</span></>}</div>;
   }
   if (isAsk) return <AskAnswer questions={e.questions!} onDecide={onDecide} />;
+  const isBash = e.name === 'Bash';
+  const isFile = e.name === 'Read' || e.name === 'Edit' || e.name === 'MultiEdit' || e.name === 'Write';
+  // Atalhos da extensão real: 1/2/3 escolhem, Esc cancela (= Não), Enter no campo envia "Não, e faça isto".
+  function onKey(ev: React.KeyboardEvent) {
+    const inInput = (ev.target as HTMLElement).tagName === 'INPUT';
+    if (ev.key === 'Escape') { ev.preventDefault(); onDecide?.('deny', reject.trim() || undefined); return; }
+    if (inInput) return;
+    if (ev.key === '1') onDecide?.('allow');
+    else if (ev.key === '2') onDecide?.('allow_always');
+    else if (ev.key === '3') onDecide?.('deny');
+  }
   return (
-    <div className="cc-perm">
-      <div className="cc-perm-head">Aguardando sua permissão</div>
-      <div className="cc-perm-sub"><b>{e.label}</b> <span className="cc-tool-desc">{e.description}</span></div>
-      <pre className="cc-tool-pre cc-perm-input">{e.inputText}</pre>
-      <div className="cc-perm-actions">
-        <button className="cc-btn cc-btn-primary" onClick={() => onDecide?.('allow')}>Sim</button>
-        <button className="cc-btn" onClick={() => onDecide?.('allow_always')}>Sim, e não perguntar de novo</button>
-        <button className="cc-btn" onClick={() => onDecide?.('deny')}>Não</button>
+    <div className="cc-perm" tabIndex={0} data-focused-index={focused} onKeyDown={onKey}>
+      <div className="cc-perm-bg" />
+      <div className="cc-perm-content">
+        <div className="cc-perm-head">{permHeader(e)}</div>
+        {isBash && <>
+          <div className="cc-perm-input cc-perm-bash">{e.inputText}</div>
+          {e.description && e.description !== e.inputText && <div className="cc-perm-desc">{e.description}</div>}
+        </>}
+        {!isBash && !isFile && e.inputText && (
+          <div className="cc-perm-desc"><details><summary><span>Detalhes</span><Chevron size={12} className="cc-perm-chev" /></summary><pre className="cc-perm-json">{e.inputText}</pre></details></div>
+        )}
       </div>
-      <input className="cc-perm-reject" placeholder="Não, e diga ao Claude o que fazer em vez disso…" onKeyDown={ev => { if (ev.key === 'Enter') onDecide?.('deny', (ev.target as HTMLInputElement).value); }} />
-      <div className="cc-hints">Enter envia · Esc cancela</div>
+      <div className="cc-perm-actions">
+        <button className="cc-perm-btn" onFocus={() => setFocused(0)} onClick={() => onDecide?.('allow')}><span className="cc-perm-num">1</span> Sim</button>
+        <button className="cc-perm-btn" onFocus={() => setFocused(1)} onClick={() => onDecide?.('allow_always')}><span className="cc-perm-num">2</span> Sim, e não perguntar de novo</button>
+        <button className="cc-perm-btn" onFocus={() => setFocused(2)} onClick={() => onDecide?.('deny')}><span className="cc-perm-num">3</span> Não</button>
+        <input className="cc-perm-reject" placeholder="Diga ao Claude o que fazer em vez disso" value={reject} onChange={ev => setReject(ev.target.value)} onFocus={() => setFocused(3)}
+          onKeyDown={ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); onDecide?.('deny', reject.trim() || undefined); } }} />
+      </div>
+      <div className="cc-hints">Esc para cancelar</div>
     </div>
   );
 }
@@ -357,6 +465,30 @@ export function PermissionDock({ event, onDecide }: { event?: Extract<ConvEvent,
  * mesmo `Lightbox` do compositor ao clicar. Anexos antigos (sem `path`) ou não-imagem continuam com
  * o chip de ícone + nome de sempre — nunca um `<img>` quebrado.
  */
+/**
+ * Texto da mensagem do usuário — `qH0` real com `maxHeight:60`: mais alto que 60px fica recolhido com
+ * esmaecimento e um botão "Mostrar mais" no canto (visível no hover/foco); aberto, "Mostrar menos".
+ */
+function UserText({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [tall, setTall] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (ref.current) setTall(ref.current.scrollHeight > 60); }, [text]);
+  const clipped = tall && !open;
+  return (
+    <div className="cc-user-expandable">
+      <div className="cc-user-wrap">
+        <div ref={ref} className={`cc-user-text ${clipped ? 'is-collapsed' : ''}`} style={clipped ? { maxHeight: 60 } : undefined}>
+          {text}
+          {clipped && <div className="cc-user-fade" />}
+        </div>
+        {clipped && <div className="cc-user-more"><button type="button" className="cc-user-expand" onClick={() => setOpen(true)}>Mostrar mais</button></div>}
+      </div>
+      {open && tall && <div className="cc-user-more is-open"><button type="button" className="cc-user-expand" onClick={() => setOpen(false)}>Mostrar menos</button></div>}
+    </div>
+  );
+}
+
 /** Foto de quem escreveu (rota por nome); sem foto, cai na inicial. */
 function UserAvatar({ name }: { name: string }) {
   const [failed, setFailed] = useState(false);
@@ -529,11 +661,11 @@ export default function Timeline({ events, onDecide, agentTasks }: { events: Con
           const bubble = (
             <div className="cc-user">
               {m && <div className="cc-user-name">{m[1]}</div>}
-              {e.text && <div className="cc-user-text">{m ? e.text.slice(m[0].length) : e.text}</div>}
+              {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
               {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
             </div>
           );
-          if (!m) return <div key={e.id}>{bubble}</div>;
+          if (!m) return <div key={e.id} className="cc-user-row is-anon">{bubble}</div>;
           return (
             <div key={e.id} className="cc-user-row">
               <UserAvatar name={m[1]} />
