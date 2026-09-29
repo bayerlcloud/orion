@@ -303,12 +303,21 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
  *   `messagesContainer_07S1Yg` que rola.
  * - CSS real: `.inputContainer_07S1Yg{position:absolute;display:flex;z-index:20;flex-direction:column;
  *   max-width:680px;margin:0 auto;bottom:16px;left:16px;right:16px}` — um overlay fixo ancorado no
- *   rodapé da viewport. Aqui, mais simples: sem overlay/position:absolute nem o spacer com
- *   ResizeObserver que a extensão usa pra não tapar o fim do histórico atrás do overlay (nenhum outro
- *   lugar deste código usa esse padrão) — `.cc-dock` (ver `ClaudePage.tsx`/`claude.css`) é só mais um
- *   item do grid vertical de `.cc-main`, na MESMA linha que o `Composer` sozinho já ocupava; ele
- *   cresce pra cima quando o card aparece, empurrando a área de rolagem — mesmo efeito visual líquido
- *   do "sobe" que o Bayerl descreveu ao pedir isso, sem herdar a complexidade do overlay real.
+ *   rodapé da viewport, POR CIMA da área que rola (que por sua vez ganha um spacer no próprio fim, com
+ *   altura medida por `ResizeObserver` do `inputContainer`, pra nunca esconder a última mensagem atrás
+ *   dele).
+ *   **Atualizado na rodada 7 (28/09/2026, "layout flutuante do composer" — pedido ao vivo do Bayerl,
+ *   apontando pra esta MESMA extensão como referência: "a UI da tela [tem] que ser igual do claude do
+ *   antigravity... o input não ocupa 100% da tela... fica no meio... o texto nasce em cima dele... mas
+ *   se eu rolo a tela ele passa por trás com uma camada"; ver PARIDADE.md "Layout flutuante do
+ *   composer" pra evidência completa)**: até então (rodada 6) o Orion usava uma alternativa mais
+ *   simples — `.cc-dock` como mais um item do grid vertical de `.cc-main`, que só crescia pra cima e
+ *   empurrava `.cc-scroll`, sem overlay nem medição de altura em JS. Essa alternativa foi substituída
+ *   pela mecânica real ponto a ponto: `.cc-float` (ver `claude.css`) agora É `position:absolute`,
+ *   mesmos valores exatos acima, montado por `ClaudePage.tsx` com um `ResizeObserver` próprio
+ *   (`floatRef`/`floatHeight`) alimentando o spacer no fim de `.cc-scroll` — mesmo mecanismo do
+ *   `U`/`V`/`z` reais (`new ResizeObserver(es=>{for(let e of es)V(e.contentRect.height)})` observando
+ *   o próprio nó do `inputContainer`).
  * - Sem transição/animação de entrada de propósito: conferido exaustivamente (toda regra CSS de
  *   `permissionRequestContainer_qlaBag`/`permissionsContainer_07S1Yg`/`inputContainer_07S1Yg`, todo
  *   `@keyframes` do bundle, e `grep` por `.animate(` no JS inteiro) — a extensão real NÃO tem nenhuma

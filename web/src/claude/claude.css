@@ -62,7 +62,18 @@
 .cc-dot.is-failed { background: var(--cc-failure); opacity: 1; }
 
 /* ===== principal ===== */
-.cc-main { display: grid; grid-template-rows: auto auto 1fr auto auto; min-width: 0; min-height: 0; height: 100vh; }
+/* Rodada 7 (28/09/2026, "layout flutuante"): trocado de `display:grid;grid-template-rows:auto auto
+   1fr auto auto` pra `display:flex;flex-direction:column`. O grid de 5 trilhas fixas presumia que
+   cada item (abas, banner de login, cabeçalho, barra de erro, banner de reconexão, `.cc-scroll`,
+   `.cc-dock`, `.cc-status`) caía sempre na trilha "certa" por posição — mas com >5 filhos (qualquer
+   banner condicional aparecendo empurra todos os seguintes uma trilha adiante, e a trilha `1fr`
+   destinada à área que rola podia acabar ocupada pelo `.cc-head` em vez do `.cc-scroll`). Com flex
+   column, cada item só declara sua própria altura (`auto` por padrão) e `.cc-chat` (abaixo) é o único
+   `flex:1` — sem depender de contagem de posição, corrigido de quebra por este mesmo motivo que
+   motivou trocar de mecânica (não é mudança de comportamento visível hoje, já que nenhum banner
+   aparecia simultaneamente nos testes até agora, mas é a mesma classe de bug que o `.chatContainer_07S1Yg`
+   real evita não tendo NENHUMA trilha de grid fixa — é tudo flex). */
+.cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; }
 .cc-tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--cc-line); background: var(--cc-panel); overflow-x: auto; }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
@@ -73,7 +84,30 @@
 .cc-tab-x:hover { background: var(--cc-hover); }
 .cc-tab-actions { display: flex; gap: 12px; align-items: center; padding: 0 12px; color: var(--cc-fg2); }
 .cc-head { padding: 12px 18px; font-weight: 600; border-bottom: 1px solid var(--cc-line); }
-.cc-scroll { overflow-y: auto; min-height: 0; padding: 16px 18px 8px; }
+/* `.cc-chat` = `.chatContainer_07S1Yg` real, EXATO: `display:flex;overflow:hidden;position:relative;
+   flex-direction:column;flex:1;min-width:0`. Âncora relativa pras duas camadas absolutas que flutuam
+   por cima da área que rola (`.cc-fade`/`.cc-float`, mais abaixo) — ver PARIDADE.md "Layout flutuante
+   do composer". `min-height:0` (nosso, explícito) força o encolhimento correto dentro do flex column
+   de `.cc-main`; o real não precisa disso à parte porque `overflow:hidden` já zera o tamanho mínimo
+   automático do item flex por spec, mas deixamos explícito por clareza/consistência com `.cc-scroll`
+   abaixo, que já usava esse padrão antes desta rodada. */
+.cc-chat { position: relative; display: flex; flex-direction: column; overflow: hidden; flex: 1; min-width: 0; min-height: 0; }
+/* `.messagesContainer_07S1Yg` real (variante BASE, sem `stickyMode` — Orion não tem cabeçalho de
+   mensagem fixo ao rolar, ver seção 1 "n/a" — a variante com `stickyMode` trocaria o padding-top por
+   um spacer via `:before`, só relevante junto com esse recurso): `overflow-y:auto;overflow-x:hidden;
+   position:relative;flex:1;background-color:var(--app-primary-background);padding:20px 20px 40px`.
+   `background` explícito aqui (antes herdava implicitamente de `.cc`) garante que `.cc-fade` (gradiente
+   até essa MESMA cor, abaixo) sempre esmaeça pro fundo certo, não por acaso. */
+.cc-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; background: var(--cc-bg); padding: 20px 20px 40px; }
+/* Camada de esmaecimento entre o texto que rola e o composer flutuante — `.messageGradient_07S1Yg`
+   real, EXATO: `position:absolute;background:linear-gradient(to bottom,transparent 0%,
+   var(--app-primary-background)100%);pointer-events:none;z-index:2;height:150px;bottom:0;left:0;
+   right:0`. Confirmado, buscando o bundle inteiro, que NÃO é blur/backdrop-filter: só 1 regra com
+   `backdrop-filter` em todo `index.css` (`.popup_v2CdxQ{backdrop-filter:blur(10px)}`), um dropdown do
+   compositor sem nenhuma relação com esta área; `mask-image` só aparece em 2 lugares (recorte de saída
+   de ferramenta longa e um ícone de onda SVG), nenhum deles aqui. O "passa por trás com uma camada"
+   que o Bayerl descreveu é ESTE gradiente sólido (opaco no fim, não desfoque) — ver PARIDADE.md. */
+.cc-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 150px; background: linear-gradient(to bottom, transparent 0%, var(--cc-bg) 100%); pointer-events: none; z-index: 2; }
 .cc-status { display: flex; gap: 16px; padding: 3px 12px; font-size: 11px; color: var(--cc-fg2); border-top: 1px solid var(--cc-line); background: var(--cc-panel); }
 
 /* ===== linha do tempo ===== */
@@ -153,23 +187,37 @@
 .cc-md th { font-weight: 600; }
 .cc-md a { color: #85b6ff; }
 
-/* ===== card de permissão docado ===== */
-/* `.cc-dock` é o mesmo item de grid de `.cc-main` que o `<Composer>` sozinho já ocupava (não uma
-   linha nova) — ver ClaudePage.tsx. Dentro dele, o card de permissão (quando há um pedido pendente —
-   ver PermissionDock/currentPermission em Timeline.tsx/mapper.ts) fica empilhado ACIMA do composer,
-   fora da `.cc-scroll` que rola (ver PARIDADE.md "Card de permissão docado"): nunca mais um `cc-perm`
-   perdido no meio do histórico, sempre um só visível, sempre colado no compositor. Sem
-   position:absolute/overlay (diferente do `.inputContainer_07S1Yg` real, que é `position:absolute;
-   bottom:16px` sobre a área que rola, com um spacer via ResizeObserver pra não tapar as últimas
-   mensagens) — aqui, mais simples: só mais um item do grid vertical existente, que cresce pra cima
-   quando o card aparece e empurra `.cc-scroll` (que já tem `min-height:0`) pra cima, sem precisar
-   medir altura em JS. Sem transição/animação de entrada, de propósito — a extensão real não tem
-   nenhuma ligada a esse card (conferido exaustivamente no CSS/JS decompilados; ver PermissionDock). */
-.cc-dock { display: flex; flex-direction: column; min-height: 0; }
-.cc-perm-dock { margin: 8px 18px 0; }
+/* ===== composer + card de permissão flutuantes (overlay) ===== */
+/* `.cc-float` = `.inputContainer_07S1Yg` real, valores EXATOS (extraídos com `grep`/Python do
+   `index.css` v2.1.282, não digitados de memória): `position:absolute;display:flex;z-index:20;
+   flex-direction:column;max-width:680px;margin:0 auto;bottom:16px;left:16px;right:16px`. Ancorado em
+   `.cc-chat` (position:relative, ver acima), flutua POR CIMA de `.cc-scroll`/`.cc-fade` em vez de
+   ocupar item próprio de grid — rodada 7 (28/09/2026) substitui a decisão da rodada 6 (`.cc-dock`: um
+   item de grid a mais que só empurrava `.cc-scroll` pra cima) por essa mecânica real, a pedido ao vivo
+   do Bayerl, apontando pra esta MESMA extensão rodando nesta mesma sessão como referência: "a UI da
+   tela [tem] que ser igual do claude do antigravity... não tem divisão entre a parte do bloco de
+   input do restante da tela... o input não ocupa 100% da tela... fica no meio... o texto nasce em
+   cima dele... mas se eu rolo a tela ele passa por trás com uma camada". `gap:8px` entre o card de
+   permissão e o composer é NOSSO (a extensão real não declara gap explícito no `inputContainer`; lá o
+   espaçamento vem de margem própria de cada filho — não replicado 1:1 por simplicidade, mesmo
+   resultado visual). PermissionDock, quando há um pedido pendente, fica ACIMA do composer dentro do
+   MESMO `.cc-float` — mesma ordem do `permissionsContainer_07S1Yg` real (irmão anterior ao composer de
+   verdade `F5`, ambos dentro do MESMO `inputContainer`, nunca dentro de `messagesContainer` —
+   reconfirmado lendo o JSX bruto nesta rodada, não só herdado da rodada 6). Sem transição/animação de
+   entrada, de propósito — igual à rodada 6, reconfirmado (nenhuma regra CSS nem `@keyframes`
+   referenciado nem chamada `.animate(` ligada a nenhum destes seletores no bundle inteiro). Spacer que
+   compensa a altura deste bloco no fim de `.cc-scroll` (pra nunca esconder a última mensagem atrás
+   dele): `floatRef`/`floatHeight`/`ResizeObserver` em `ClaudePage.tsx`, mesmo mecanismo do `U`/`V`/`z`
+   reais. Ver PARIDADE.md "Layout flutuante do composer" pra evidência completa. */
+.cc-float { position: absolute; z-index: 20; display: flex; flex-direction: column; gap: 8px; max-width: 680px; margin: 0 auto; bottom: 16px; left: 16px; right: 16px; }
+.cc-perm-dock { margin: 0; }
 
 /* ===== composer ===== */
-.cc-composer { margin: 8px 18px 6px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-bg2); padding: 8px 8px 6px; }
+/* Margem removida (era pro contexto de item de grid da rodada 6/antes) — `.cc-float` acima já
+   centraliza/limita a largura (680px) e ancora no rodapé; o composer não precisa mais de margem
+   própria. `box-shadow` novo = `.inputContainer_cKsPxg` real, EXATO: `box-shadow:0 1px 2px #0000001a`
+   — realça a caixa flutuando sobre o texto que passa atrás dela (ver `.cc-fade`/`.cc-float` acima). */
+.cc-composer { margin: 0; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-bg2); padding: 8px 8px 6px; box-shadow: 0 1px 2px #0000001a; }
 .cc-composer:focus-within { border-color: color-mix(in srgb, var(--cc-orange) 60%, transparent); }
 .cc-composer textarea { width: 100%; resize: none; background: none; border: 0; color: var(--cc-fg); font: inherit; outline: none; padding: 4px 6px; }
 .cc-composer textarea::placeholder { color: var(--cc-fg2); }
