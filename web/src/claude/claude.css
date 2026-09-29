@@ -143,7 +143,7 @@
 /* Paridade 1:1 com o webview real (v2.1.283): cada regra abaixo cita a classe de origem. Tokens: --app-primary-
    background=--bg, --app-secondary-background/--app-tool-background=--bg2, --app-input-background=--bg2,
    --app-input-border=--line, --app-secondary-foreground=--fg2, --app-menu-background=--panel. */
-.cc-timeline { max-width: 1100px; }
+.cc-timeline { max-width: none; } /* largura toda, pedido do Danilo 29/09/2026 (igual ao plugin no Antigravity) */
 
 /* mensagem do usuário — userMessageContainer/userMessage_07S1Yg: inline-block (largura do conteúdo), fundo e borda de input, raio 6, padding 4px 6px. Avatar + nome são nossos (mantidos a pedido). */
 .cc-user-row { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 16px; }
@@ -293,7 +293,6 @@
 .cc-todo-content { word-break: break-word; overflow-wrap: break-word; display: block; flex: 1; min-width: 0; color: var(--cc-fg); }
 .cc-todo-item.is-completed .cc-todo-content { text-decoration: line-through; color: var(--cc-fg2); opacity: .7; }
 .cc-task .cc-tool-name { color: var(--cc-fg); }
-.cc-timeline { max-width: 1100px; }
 .cc-user-avatar { position: relative; width: 28px; height: 28px; margin-top: 2px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 @keyframes cc-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -341,7 +340,8 @@
    compensa a altura deste bloco no fim de `.cc-scroll` (pra nunca esconder a última mensagem atrás
    dele): `floatRef`/`floatHeight`/`ResizeObserver` em `ClaudePage.tsx`, mesmo mecanismo do `U`/`V`/`z`
    reais. Ver PARIDADE.md "Layout flutuante do composer" pra evidência completa. */
-.cc-float { position: absolute; z-index: 20; display: flex; flex-direction: column; gap: 8px; max-width: 680px; margin: 0 auto; bottom: 16px; left: 16px; right: 16px; }
+/* Sem o max-width:680px real: composer na largura toda do chat, pedido do Danilo em 29/09/2026. */
+.cc-float { position: absolute; z-index: 20; display: flex; flex-direction: column; gap: 8px; margin: 0 auto; bottom: 16px; left: 16px; right: 16px; }
 .cc-perm-dock { margin: 0; }
 
 /* ===== composer ===== */
