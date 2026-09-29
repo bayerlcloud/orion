@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 
-type Conta = { id: number; label: string; login: string; notes: string; mcp: string; token_hint: string };
-const vazio = () => ({ label: '', token: '', notes: '' });
+type Conta = { id: number; label: string; login: string; email: string; notes: string; mcp: string; token_hint: string };
+const vazio = () => ({ label: '', token: '', email: '', notes: '' });
 
 /** Contas GitHub: cada uma vira um MCP oficial em toda sessão; a explicação entra no prompt. Só o admin mexe. */
 export default function ToolsGithub({ user }: { user: User }) {
@@ -20,11 +20,11 @@ export default function ToolsGithub({ user }: { user: User }) {
   useEffect(() => { void load(); }, []);
 
   function startCreate() { setEditing(null); setForm(vazio()); setShowForm(true); }
-  function startEdit(c: Conta) { setEditing(c); setForm({ label: c.label, token: '', notes: c.notes }); setShowForm(true); }
+  function startEdit(c: Conta) { setEditing(c); setForm({ label: c.label, token: '', email: c.email, notes: c.notes }); setShowForm(true); }
   async function save() {
     setBusy(true); setErro('');
     try {
-      if (editing) await api(`/api/tools/github/${editing.id}`, { method: 'PUT', body: JSON.stringify({ label: form.label, notes: form.notes }) });
+      if (editing) await api(`/api/tools/github/${editing.id}`, { method: 'PUT', body: JSON.stringify({ label: form.label, email: form.email, notes: form.notes }) });
       else await api('/api/tools/github', { method: 'POST', body: JSON.stringify(form) });
       setShowForm(false); setEditing(null); setForm(vazio()); await load();
     } catch (e: any) { setErro(e.message); } finally { setBusy(false); }
@@ -48,6 +48,9 @@ export default function ToolsGithub({ user }: { user: User }) {
           <div className="tls-form-grid">
             <label className="tls-form-name">nome (as tools ficam mcp__github-&lt;nome&gt;__*)
               <input value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="ex.: bayerlcloud" autoFocus />
+            </label>
+            <label>e-mail de login
+              <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="quem@exemplo.com" />
             </label>
           </div>
           {!editing && (
@@ -74,7 +77,7 @@ export default function ToolsGithub({ user }: { user: User }) {
             <div key={c.id} className="tls-card is-mcp">
               <div className="tls-card-top"><span className="tls-icon">🐙</span><span className="tls-badge is-mcp">MCP</span></div>
               <div className="tls-name">{c.label}</div>
-              <p className="tls-desc">login <span className="mono">{c.login}</span> · tools <span className="mono">mcp__{c.mcp}__*</span> · token <span className="mono">{c.token_hint}</span></p>
+              <p className="tls-desc">login <span className="mono">{c.login}</span>{c.email && <> · <span className="mono">{c.email}</span></>} · tools <span className="mono">mcp__{c.mcp}__*</span> · token <span className="mono">{c.token_hint}</span></p>
               {c.notes && <p className="tls-desc">{c.notes}</p>}
               {admin && (
                 <div className="tls-card-foot">

@@ -26,7 +26,7 @@ export type SessionHeader = {
   regras?: MemoriaRegra[] | null;
   decisoes?: MemoriaDecisao[] | null;
   /** Contas GitHub da aba Tools: nome do MCP, login e o que vive em cada uma. */
-  github?: { nome: string; login: string; notes: string }[] | null;
+  github?: { nome: string; login: string; email?: string; notes: string }[] | null;
 };
 
 /** Corpo de uma regra nível 2, limitado a REGRA_LINHAS_MAX linhas e indentado sob o título. */
@@ -48,7 +48,7 @@ export function buildSystemAppend(h: SessionHeader): string {
   if (h.userMemory?.trim()) lines.push('', `Memória sobre ${h.createdBy}:`, h.userMemory.trim());
   if (h.github?.length) {
     lines.push('', 'Contas GitHub conectadas (cada uma é um MCP server; as tools são mcp__<nome>__*):');
-    for (const g of h.github) lines.push(`- ${g.nome} (login ${g.login})${g.notes.trim() ? `: ${g.notes.trim()}` : ''}`);
+    for (const g of h.github) lines.push(`- ${g.nome} (login ${g.login}${g.email?.trim() ? `, e-mail ${g.email.trim()}` : ''})${g.notes.trim() ? `: ${g.notes.trim()}` : ''}`);
   }
 
   const regras = (h.regras ?? []).slice(0, REGRAS_MAX);

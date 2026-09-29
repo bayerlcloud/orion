@@ -21,9 +21,9 @@ describe('contas GitHub (aba Tools)', () => {
     expect(s['github-bayerlcloud']).toEqual({ type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ghp_x' } });
   });
   it('a explicação de cada conta entra no header da sessão', () => {
-    const github = githubParaHeader([{ id: 1, label: 'bayerlcloud', login: 'bayerlcloud', token: 'ghp_x', notes: 'repos branspace e fisioexpert' }]);
+    const github = githubParaHeader([{ id: 1, label: 'bayerlcloud', login: 'bayerlcloud', email: 'danilo@bayerlstudio.com.br', token: 'ghp_x', notes: 'repos branspace e fisioexpert' }]);
     const txt = buildSystemAppend({ projectName: 'p', projectPath: '/p', createdBy: 'Danilo', github });
-    expect(txt).toContain('- github-bayerlcloud (login bayerlcloud): repos branspace e fisioexpert');
+    expect(txt).toContain('- github-bayerlcloud (login bayerlcloud, e-mail danilo@bayerlstudio.com.br): repos branspace e fisioexpert');
     expect(buildSystemAppend({ projectName: 'p', projectPath: '/p', createdBy: 'Danilo', github: [] })).not.toContain('Contas GitHub');
   });
 });
