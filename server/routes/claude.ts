@@ -16,6 +16,7 @@ import { orionMemoryServer } from '../claude/memoryTool.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
+import { createWorktreeForProject } from '../claude/worktree.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -49,7 +50,18 @@ export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now
   return now.getTime() - lastTs.getTime() > 10 * 60_000;
 }
 
-type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
+type NewBody = {
+  project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[];
+  /**
+   * Nome de um novo git worktree pra esta sessão nascer já dentro dele — "Aba Claude": criar/gerenciar
+   * git worktree direto pela UI do chat (ver PARIDADE.md seção 14, `web/src/claude/Composer.tsx`).
+   * Opcional: ausente/vazio = sessão normal na raiz do projeto, como sempre foi. Nunca é um path —
+   * sempre um nome curto (validado por `createWorktreeForProject`/`validateWorktreeName`), pro
+   * servidor calcular o path sozinho (`worktreesBaseDir`) e nunca aceitar um `cwd` arbitrário vindo
+   * do cliente.
+   */
+  worktree_name?: string;
+};
 
 export async function claudeRoutes(app: FastifyInstance) {
   const runner = new Runner({ queryFn: query, store: pgStore(app.pool), log: (m) => app.log.warn(m) });
@@ -105,6 +117,18 @@ export async function claudeRoutes(app: FastifyInstance) {
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
+
+  /**
+   * Branch-base do projeto pra criar um worktree novo — mesma leitura defensiva de
+   * `server/routes/tasks.ts` (`projectOf`): a coluna `default_branch` pode não existir neste schema
+   * (não é gerida por `server/migrations.ts`), então tenta e cai em `'main'` se a query falhar.
+   */
+  async function defaultBranchOf(projectId: number): Promise<string> {
+    try {
+      const { rows } = await app.pool.query('SELECT default_branch FROM projects WHERE id = $1', [projectId]);
+      return rows[0]?.default_branch ? String(rows[0].default_branch) : 'main';
+    } catch { return 'main'; }
+  }
 
   // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
   // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.
@@ -274,13 +298,26 @@ export async function claudeRoutes(app: FastifyInstance) {
     const effort = EFFORTS.has(b.effort ?? '') ? (b.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     const attachments = await sanitizeAttachments(b.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
+    // "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14): quando veio um
+    // nome, cria o git worktree ANTES de qualquer coisa (nada é gravado/nenhum turno começa se isso
+    // falhar — nome inválido, branch já existe, "git worktree add" falhou etc.). `cwd` só troca de
+    // `project.path` pro path do worktree em caso de sucesso; senão a sessão nasce na raiz do
+    // projeto, como sempre foi.
+    let cwd = project.path;
+    const worktreeName = typeof b.worktree_name === 'string' ? b.worktree_name.trim() : '';
+    if (worktreeName) {
+      const base = await defaultBranchOf(project.id);
+      const wt = await createWorktreeForProject(project.path, worktreeName, base);
+      if (!wt.ok) return reply.code(400).send({ error: wt.error });
+      cwd = wt.path;
+    }
     const id = randomUUID();
     await app.pool.query(
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
-      [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
+      [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), maxBudgetUsd: d.budget,
-      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
+      sessionId: id, cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), maxBudgetUsd: d.budget,
+      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
     });
     return { id, title: titleFromPrompt(prompt) };
   });

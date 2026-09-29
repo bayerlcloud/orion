@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { SessionSummary } from './types';
 import type { UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, type GroupBy } from './mapper';
-import { Chevron, Plus, Search, Bolt, X, Archive, Pencil } from './icons';
+import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch } from './icons';
 
 function SessionRow({ s, active, onSelect, onRename, onArchive }: {
   s: SessionSummary; active: boolean; onSelect: () => void;
@@ -20,6 +20,10 @@ function SessionRow({ s, active, onSelect, onRename, onArchive }: {
       ) : (
         <button className="cc-item-name" onClick={onSelect} title={s.title}>{s.title}</button>
       )}
+      {/* Pill de worktree (`worktreePill_OOQiHg` na extensão real) — ver PARIDADE.md seção 14. Sem
+          ação de clique (lá abre "em nova janela"; aqui não há equivalente numa página web só de
+          chat) — só informa em qual worktree a sessão roda, título completo no hover. */}
+      {s.worktreeName && <span className="cc-item-worktree" title={`Worktree: ${s.worktreeName}`}><GitBranch size={10} /> {s.worktreeName}</span>}
       <span className="cc-item-time">{relativeTime(s.updatedAt)}</span>
       <span className="cc-item-actions">
         <button className="cc-item-act" title="Renomear" onClick={() => { setDraft(s.title); setEditing(true); }}><Pencil size={12} /></button>

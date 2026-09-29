@@ -2,22 +2,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, type UsageBar } from './mapper';
+import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, sessionWorktreeName, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
 import AgentMap from './AgentMap';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch } from './icons';
 import './claude.css';
 
-type Tab = { id: string; draft?: boolean; projectId?: number };
+/** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
+ * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
+ * um valor "de sempre" como o projeto costuma ser. `undefined`/vazio = sessão normal, sem worktree. */
+type Tab = { id: string; draft?: boolean; projectId?: number; worktreeName?: string };
 const isDraft = (id: string) => id.startsWith('draft-');
 /** Identifica esta guia no stream de abas, pra ignorar o eco das próprias mudanças. */
 const CLIENT_ID = crypto.randomUUID();
 
-function toSummary(s: ApiSession): SessionSummary {
+/** `projects` só pra resolver o `path` do projeto da sessão e derivar `worktreeName` (ver
+ * `sessionWorktreeName` em mapper.ts — sem coluna nova no Postgres, ver PARIDADE.md seção 14). */
+function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
-  return { id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, projectName: s.project_name ?? undefined, archived: !!s.archived };
+  const projectPath = projects.find(p => p.slug === s.project_slug)?.path;
+  return {
+    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, projectName: s.project_name ?? undefined, archived: !!s.archived,
+    worktreeName: sessionWorktreeName(s.cwd, projectPath) ?? undefined,
+  };
 }
 
 export default function ClaudePage() {
@@ -279,7 +288,11 @@ export default function ClaudePage() {
       if (!activeId || isDraft(activeId)) {
         const pid = activeTab?.projectId ?? draftProject ?? projects[0]?.id;
         if (!pid) { setErro('Nenhum projeto cadastrado'); return; }
-        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, model: modelOverride, effort, attachments });
+        // "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14): nome
+        // digitado no seletor "Worktree" do compositor, se houver. O servidor cria o git worktree e
+        // já faz a sessão nascer com `cwd` apontando pra ele; nome vazio = sessão normal, como sempre.
+        const worktreeName = activeTab?.worktreeName?.trim() || undefined;
+        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, model: modelOverride, effort, attachments, worktree_name: worktreeName });
         const draftId = activeId;
         setTabs(t => draftId ? t.map(x => x.id === draftId ? { id: r.id } : x) : [...t, { id: r.id }]);
         setActiveId(r.id);
@@ -332,12 +345,22 @@ export default function ClaudePage() {
     setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
     try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
+  /** Nome de worktree digitado pro rascunho da aba ativa (ver Composer.tsx, PARIDADE.md seção 14) — só mexe no `Tab`, nada remoto ainda (a criação acontece em `send()`, junto com a 1ª mensagem). */
+  function setDraftWorktreeName(name: string) {
+    setTabs(t => t.map(x => x.id === activeId ? { ...x, worktreeName: name } : x));
+  }
 
-  const summaries = useMemo(() => sessions.map(toSummary), [sessions]);
+  const summaries = useMemo(() => sessions.map(s => toSummary(s, projects)), [sessions, projects]);
   const title = activeTab?.draft ? 'Nova sessão' : (active?.title ?? (activeId ? 'Sessão' : 'Claude'));
   // Mostra o que vale pra PRÓXIMA mensagem: o override escolhido no seletor, se houver; senão o
   // modelo resolvido da sessão (gravado no system/init do SDK), como antes.
   const modelLabel = model !== 'default' ? MODEL_LABEL[model] : (active?.model ?? 'modelo padrão');
+  // Worktree da sessão ATIVA (não rascunho) — alimenta o banner "Esta sessão está no worktree X"
+  // abaixo, espelhando `worktree.value.path !== defaultCwd.value` da extensão real (ver PARIDADE.md
+  // seção 14). `active` já é `ApiSession` (tem `cwd`); o `path` do projeto vem de `projects` (mesma
+  // fonte que `toSummary` usa pras sessões da lateral).
+  const activeProjectPath = active ? projects.find(p => p.slug === active.project_slug)?.path : undefined;
+  const activeWorktreeName = active ? sessionWorktreeName(active.cwd, activeProjectPath) : null;
 
   return (
     <div className="cc">
@@ -372,11 +395,26 @@ export default function ClaudePage() {
         )}
         <div className="cc-head">
           <span>{title}</span>
-          {active && <span className="cc-head-meta">{active.project_name ?? ''} · {active.user_name} · {formatCost(Number(active.cost_usd))} · {active.turns} turnos · <span className={`cc-dot is-${toSummary(active).status}`} /> {active.status}</span>}
+          {active && <span className="cc-head-meta">{active.project_name ?? ''} · {active.user_name} · {formatCost(Number(active.cost_usd))} · {active.turns} turnos · <span className={`cc-dot is-${toSummary(active, projects).status}`} /> {active.status}</span>}
         </div>
         {erro && <div className="cc-error-bar">{erro}</div>}
         {activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
+        )}
+        {/*
+          "Aba Claude" — criar/gerenciar worktree direto pela UI do chat (ver PARIDADE.md seção 14).
+          Espelha o banner real (`worktreeBanner_aqhumA`: "This session is in worktree" + pill com o
+          nome), condicionado a `worktree.value.path !== defaultCwd.value` — aqui, `cwd` da sessão
+          diferente do `path` do projeto. Sem o botão "Open worktree" da extensão real (abre em nova
+          janela do editor — não existe equivalente numa página web só de chat): o caminho completo já
+          aparece na barra de status embaixo (`.cc-status`), então o banner aqui é só informativo.
+        */}
+        {active && activeWorktreeName && (
+          <div className="cc-worktree-banner">
+            <span className="cc-worktree-banner-left">
+              <GitBranch size={14} /> Esta sessão está no worktree <span className="cc-worktree-banner-name">{activeWorktreeName}</span>
+            </span>
+          </div>
         )}
         {/* `.cc-chat` = `.chatContainer_07S1Yg` real: âncora `position:relative` pras duas camadas
             absolutas por cima da área que rola (`.cc-fade`/`.cc-float` abaixo) — ver claude.css e
@@ -407,7 +445,8 @@ export default function ClaudePage() {
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
-                onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
+                onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }}
+                worktreeName={activeTab?.worktreeName} onWorktreeName={activeTab?.draft ? setDraftWorktreeName : undefined} />
             </div>
           )}
         </div>

@@ -25,3 +25,4 @@ export const File = ({ size, className }: P) => <svg {...base(size)} className={
 /** Raiz→agentes (tronco + 3 galhos) — ícone do gatilho do "Mapa de agentes" (ver AgentMap.tsx). Sem
  * equivalente pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
 export const AgentMap = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="3" cy="8" r="1.6" /><circle cx="13" cy="3" r="1.6" /><circle cx="13" cy="8" r="1.6" /><circle cx="13" cy="13" r="1.6" /><path d="M4.6 8H7M7 3h3M7 3v10M7 8h4M7 13h3" /></svg>;
+export const GitBranch = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="7" r="1.5" /><path d="M4.5 5v6M4.5 8c0 1.7 1.8 2 5 2v-1.5" /></svg>;

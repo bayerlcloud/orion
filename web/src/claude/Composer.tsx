@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File } from './icons';
+import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { cycleMessageIndex, type CycleState } from './mapper';
+import { cycleMessageIndex, validateWorktreeName, type CycleState } from './mapper';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 import Lightbox, { type LightboxImage } from './Lightbox';
@@ -38,7 +38,7 @@ function Menu({ open, onClose, children, className = '' }: { open: boolean; onCl
   );
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, elapsed }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed }: {
   onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: Effort; onEffort?: (e: Effort) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
@@ -47,10 +47,18 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   commands?: SlashCommandInfo[];
   /** Id da sessão ativa — só pra saber quando trocou de aba e sair de um ciclo de recall em andamento. */
   sessionId?: string;
-  projects?: Project[]; projectId?: number; onProject?: (id: number) => void; elapsed?: string;
+  projects?: Project[]; projectId?: number; onProject?: (id: number) => void;
+  /**
+   * "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14, botão
+   * `createWorktreeButton`/painel `worktreeInput*` da extensão real). Só faz sentido junto com
+   * `projects`/`onProject` (rascunho de sessão nova — só aí ainda dá pra escolher onde o worktree
+   * nasce); nome vazio = sessão normal, sem worktree, como sempre foi.
+   */
+  worktreeName?: string; onWorktreeName?: (name: string) => void;
+  elapsed?: string;
 }) {
   const [text, setText] = useState('');
-  const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash'>('');
+  const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree'>('');
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -144,7 +152,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Lista real da sessão (Query.supportedCommands(), via ClaudePage) quando já existe; senão os 4 fixos.
   const slashSource = commands && commands.length ? commands.map(c => ({ cmd: '/' + c.name, desc: c.description })) : SLASH_FALLBACK;
   const slashItems = slashSource.filter(s => menu === 'slash' || s.cmd.startsWith(slashFilter));
-  const canSend = !sending && (!!text.trim() || attachments.length > 0);
+  // Validação ao vivo do nome de worktree (ver mapper.ts) — só roda com algo digitado, igual à
+  // extensão real (`let U=G?fF0(G):null`): campo vazio nunca mostra "obrigatório" sozinho, porque
+  // aqui (diferente da extensão) vazio é um valor válido — "sem worktree, sessão normal".
+  const worktreeNameError = worktreeName ? validateWorktreeName(worktreeName) : null;
+  const canSend = !sending && (!!text.trim() || attachments.length > 0) && !worktreeNameError;
 
   return (
     <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`}
@@ -190,6 +202,33 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           <select className="cc-pill cc-select" value={projectId ?? ''} onChange={e => onProject(Number(e.target.value))} title="Projeto da nova sessão">
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+        )}
+        {/*
+          "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14). Só
+          aparece junto do seletor de projeto acima (rascunho de sessão nova): na extensão real o
+          botão "createWorktreeButton" fica na barra lateral, ao lado de "New session" — mas lá a
+          ação é independente de mandar mensagem; aqui toda sessão nasce com um primeiro prompt, então
+          faz mais sentido ficar ao lado de "qual projeto", que já é o único outro contexto que só
+          existe nesta tela pra uma sessão ainda não criada. Mesmo padrão `cc-pop`/`Menu`/
+          `cc-menu-item` já usado pelos seletores de Modelo/Esforço/Modo (copiado literalmente, sem
+          inventar interação nova).
+        */}
+        {projects && onProject && onWorktreeName && (
+          <div className="cc-pop">
+            <button type="button" className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'worktree' ? '' : 'worktree')} title="Criar esta sessão num novo git worktree">
+              <GitBranch size={12} /> {worktreeName || 'Worktree'}
+            </button>
+            <Menu open={menu === 'worktree'} onClose={() => setMenu('')} className="cc-menu-up">
+              <div className="cc-menu-title">Novo worktree (opcional)</div>
+              <div className="cc-worktree-field">
+                <input autoFocus value={worktreeName ?? ''} placeholder="ex. minha-feature"
+                  onChange={e => onWorktreeName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setMenu(''); } }} />
+              </div>
+              {worktreeName && worktreeNameError && <div className="cc-worktree-error">{worktreeNameError}</div>}
+              {worktreeName && !worktreeNameError && <div className="cc-worktree-status">Cria o worktree ao enviar a 1ª mensagem</div>}
+            </Menu>
+          </div>
         )}
         {onModel ? (
           <div className="cc-pop">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask } from '../web/src/claude/types';
 
@@ -1074,5 +1074,50 @@ describe('agentTaskList', () => {
       t1: { toolUseId: 't1', description: 'com tempo', status: 'running', startedAt: 1000 },
     };
     expect(agentTaskList(map).map(t => t.toolUseId)).toEqual(['t1', 't2']);
+  });
+});
+
+/**
+ * Validação ao vivo do nome de worktree no compositor — mesma regra de `server/claude/worktree.ts`
+ * (duplicada de propósito, ver PARIDADE.md seção 14), extraída da função real `fF0` do webview
+ * decompilado v2.1.283. Casos completos (incluindo os limites — 64 vs. 65 caracteres, ".git" com
+ * pontos/maiúsculas) já cobertos em `tests/worktree.test.ts` pro lado servidor; aqui confirma que a
+ * cópia do lado cliente segue a mesma regra, sem duplicar cada caso.
+ */
+describe('validateWorktreeName — mesma regra da extensão real, cópia do lado cliente', () => {
+  it('aceita nomes normais e rejeita vazio/64+/caracteres fora da lista', () => {
+    expect(validateWorktreeName('minha-feature')).toBeNull();
+    expect(validateWorktreeName('')).toMatch(/obrigat/);
+    expect(validateWorktreeName('a'.repeat(65))).toMatch(/64/);
+    expect(validateWorktreeName('tem espaço')).not.toBeNull();
+  });
+  it('rejeita "." / ".." / terminar em ".lock" / ser ".git"', () => {
+    expect(validateWorktreeName('..')).not.toBeNull();
+    expect(validateWorktreeName('foo.lock')).not.toBeNull();
+    expect(validateWorktreeName('.git')).not.toBeNull();
+    expect(validateWorktreeName('.GIT.')).not.toBeNull();
+  });
+});
+
+/**
+ * Nome do worktree de uma sessão a partir do `cwd` (sem coluna nova no Postgres — ver PARIDADE.md
+ * seção 14): último segmento do caminho quando `cwd` difere do `path` base do projeto, espelhando a
+ * checagem real `worktree.value.path !== defaultCwd.value`. Alimenta o banner em ClaudePage.tsx e a
+ * pill na lista de sessões em Sidebar.tsx.
+ */
+describe('sessionWorktreeName — deriva do cwd, sem coluna nova', () => {
+  it('cwd igual ao path do projeto: sessão normal, sem worktree', () => {
+    expect(sessionWorktreeName('/srv/orion', '/srv/orion')).toBeNull();
+  });
+  it('cwd dentro de <path>-worktrees/<nome>: devolve o nome (último segmento)', () => {
+    expect(sessionWorktreeName('/srv/orion-worktrees/minha-feature', '/srv/orion')).toBe('minha-feature');
+  });
+  it('sem cwd ou sem path do projeto: null (nada pra comparar)', () => {
+    expect(sessionWorktreeName(null, '/srv/orion')).toBeNull();
+    expect(sessionWorktreeName('/srv/orion-worktrees/x', undefined)).toBeNull();
+    expect(sessionWorktreeName(undefined, undefined)).toBeNull();
+  });
+  it('barra final não confunde a comparação', () => {
+    expect(sessionWorktreeName('/srv/orion/', '/srv/orion')).toBeNull();
   });
 });

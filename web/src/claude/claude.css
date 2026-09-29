@@ -55,6 +55,8 @@
 .cc-item:hover .cc-item-time, .cc-item:focus-within .cc-item-time { display: none; }
 .cc-item-act { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
 .cc-item-act:hover { background: var(--cc-active); color: var(--cc-fg); }
+/* Pill de worktree na lista de sessões (`worktreePill_OOQiHg` real) — ver PARIDADE.md seção 14. */
+.cc-item-worktree { display: inline-flex; align-items: center; gap: 3px; max-width: 90px; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--cc-fg) 10%, transparent); color: var(--cc-fg2); font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex-shrink: 0; }
 .cc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
 .cc-dot.is-running { background: var(--cc-busy); opacity: 1; }
 .cc-dot.is-waiting { background: var(--cc-pending); opacity: 1; }
@@ -297,6 +299,13 @@
 /* Spinner genérico (também usado no "Carregando sessões…" da lateral) — reaproveita @keyframes
    cc-spin, já existia no arquivo sem nenhum uso até agora. */
 .cc-spinner { width: 12px; height: 12px; border: 1.5px solid var(--cc-line); border-top-color: currentColor; border-radius: 50%; animation: cc-spin .7s linear infinite; flex-shrink: 0; }
+/* "Aba Claude" — criar/gerenciar worktree direto pela UI do chat (ver PARIDADE.md seção 14).
+   Banner no topo do corpo da sessão — espelha `worktreeBanner_aqhumA` da extensão real: neutro (não
+   é aviso/erro, por isso NÃO reaproveita `.cc-banner`, que é sempre amarelo/vermelho aqui), pill com
+   o nome no mesmo estilo de badge que o resto da tela já usa. */
+.cc-worktree-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 18px 0; padding: 6px 6px 6px 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-panel); font-size: 12px; color: var(--cc-fg2); }
+.cc-worktree-banner-left { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.cc-worktree-banner-name { border-radius: 4px; background: color-mix(in srgb, var(--cc-fg) 10%, transparent); color: var(--cc-fg); padding: 2px 8px; font-size: .95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cc-head { display: flex; align-items: center; gap: 12px; }
 .cc-head-meta { color: var(--cc-fg2); font-weight: 400; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .cc-empty-state { max-width: 520px; margin: 60px auto; text-align: center; }
@@ -421,6 +430,13 @@
 .cc-menu-item.is-active .cc-menu-item-name::after { content: " ✓"; color: var(--cc-orange); }
 .cc-menu-item-name { font-size: 13px; }
 .cc-menu-item-desc { font-size: 11px; color: var(--cc-fg2); }
+/* Campo de nome no menu "Worktree" do compositor (ver Composer.tsx, PARIDADE.md seção 14) — mesmo
+   `cc-pop`/`cc-menu` dos seletores de Modelo/Esforço/Modo, só com um <input> em vez de uma lista. */
+.cc-worktree-field { padding: 4px 8px 6px; }
+.cc-worktree-field input { width: 100%; box-sizing: border-box; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-line); border-radius: 5px; padding: 4px 7px; font: inherit; font-size: 12px; outline: none; }
+.cc-worktree-field input:focus { border-color: color-mix(in srgb, var(--cc-orange) 55%, transparent); }
+.cc-worktree-error { color: var(--cc-failure); font-size: 11px; padding: 0 8px 4px; }
+.cc-worktree-status { color: var(--cc-fg2); font-size: 11px; padding: 0 8px 4px; }
 
 /* ===== Mapa de agentes (Agent map) ===== */
 /* Pedido ao vivo do Bayerl 28/09/2026 ("essa parte de multi agentes igual aqui o claude code do
