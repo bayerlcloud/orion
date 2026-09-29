@@ -169,6 +169,7 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Navegação multi-pergunta (`navTab_hONcXw`, `navigationBar`) | n/a | renderizamos todas as perguntas em sequência, cada uma com sua própria seleção; "Enviar respostas" só habilita com todas respondidas |
 | Todo list (`todoList_xheXVQ`, `todoItem`, pending/in_progress/completed) | **implementado agora (28/09/2026, rodada 2)** | checklist dedicada — ver nota abaixo |
 | Subagent / tool `Task` (renderer interno "Agent", `class jD1{name="Agent"}`) | **implementado agora (28/09/2026, rodada 2)** | linha dedicada (não passa mais pelo bloco de ferramenta genérico) — ver nota abaixo |
+| Painel "Agent map" (árvore raiz→agentes com duração/tokens por subagente) | **implementado agora (28/09/2026, rodada 8)** | pedido ao vivo do Bayerl — ver seção 13 |
 | Plan mode / plan review (`ExitPlanMode`, `milestone*_UxGN1Q`) | n/a | fora de escopo (pedido) |
 | Rewind / checkpoint (`rewind`, `changedFile_5FHdxw`, `checkoutButton`) | n/a | fora de escopo (arriscado) |
 | Custo · duração · turnos no result (`metaMessage_07S1Yg`, `Total duration (API)`) | já tem | `cc-result` |
@@ -254,6 +255,14 @@ tarefas em paralelo ficam dobradas numa fileira condensada com telemetria ao viv
 tokens, contagem de tool calls do subagente) — isso é uma feature de dobra de múltiplas tarefas
 concorrentes com stream de progresso próprio, que o Orion não tem (nossa timeline é uma lista linear
 só); não replicada — fora do escopo desta rodada, documentado aqui pra não confundir com o resto.
+**Atualização (28/09/2026, rodada 8 — pedido ao vivo do Bayerl, ver seção 13 "Mapa de agentes" pro
+achado completo)**: a frase acima ("exigiria um stream de progresso por tarefa que o Orion não tem")
+valia pro `subagentRow` condensado da TIMELINE — mas existe, À PARTE, um painel dedicado real
+("Agent map", diálogo próprio, não a fileira condensada) que mostra a MESMA telemetria (duração,
+tokens) sem depender desse stream de progresso — a duração vem do `ts` que `claude_events` já grava
+por linha, os tokens de um campo estruturado do próprio `tool_result` (`tool_use_result`). Esse painel
+foi implementado; o `subagentRow` condensado dentro da timeline continua não replicado (permanece
+fora do escopo, ver seção 13 pro detalhe do porquê).
 **Implementado**: `describeTool` ganhou o caso `'Task'` → `{ label: 'Agent', description:
 input.description, inputText: input.prompt }` (bate com o cabeçalho real "Agent: {description}" +
 IN = prompt). Em `Timeline.tsx`, componente `TaskAgent` dedicado (não passa mais pelo bloco de
@@ -1522,6 +1531,214 @@ o que mudou aqui. A validação de path traversal da rota nova é coberta indire
 era exercitada pelos testes de upload existentes) — não é um caminho novo e não testado, é o mesmo
 caminho de sempre, só compartilhado.
 
+## 13. Mapa de agentes (Agent map) — rodada de 28/09/2026 (8)
+
+Pedido ao vivo do Bayerl, com um print em mãos: um painel "Agent map" na barra lateral desta MESMA
+extensão (que ele chama de "claude do antigravity"), listando cada subagente em background da sessão
+atual — card com descrição truncada, duração ("25m 44s"), tokens ("311.8k tokens"), um dot de status
+colorido, em árvore/grafo com linhas de conexão saindo de um nó raiz (nome/modelo/tokens da sessão)
+até cada agente. Pedido explícito: "essa parte de multi agentes igual aqui o claude code do
+antigravity coloca no claude do orion v2 por favor... já resolve tudo que precisar". Retoma o que a
+seção 4 ("Subagent (tool Task)") tinha deixado de fora de propósito na rodada anterior: "a extensão
+tem telemetria ao vivo (tempo decorrido, tokens, contagem de tool calls do subagente — `subagentRow`
+real, exigiria stream de progresso por tarefa que o Orion não tem hoje)".
+
+### O que foi investigado primeiro (`superpowers:systematic-debugging`, antes de escrever qualquer código)
+
+**1. O painel "Agent map" é real — achado EXATO, não um "não existe" nem uma suposição.** Lido o
+webview decompilado função por função (não só nome de classe), em DUAS versões: v2.1.282
+(`/srv/orion-reference/vscode-extension/extension/webview/index.js`, já usada em rodadas anteriores)
+e v2.1.283 (`/srv/orion-reference-2.1.283/webview/index.js` — mais nova, apontada pelo coordenador no
+meio desta investigação como "a que está de fato instalada e rodando no Antigravity IDE agora"; as
+duas bateram, função por função, só com nomes minificados diferentes — confirma que não é um recorte
+de versão isolada, é um comportamento estável). Achados, com o nome da função real entre parênteses
+(nomes da v2.1.282; a v2.1.283 tem os mesmos, só renomeados pelo minificador — ex. `zV0`→`WV0`,
+`qV0`→`KV0`, `b85`→`v85`):
+- Componente do diálogo (`zV0`/`WV0`): `R(k4,{title:"Agent map",onClose:X,maxWidth:1200,scrollInside:!0,
+  children:[R("div",{className:E2.subtitle,children:[H," ",U$(H,"agent")," · click an agent for
+  details"]}), F("div",{className:E2.tree, ...`. Ou seja: título literal **"Agent map"**, subtítulo
+  **"{N} agent(s) · click an agent for details"**.
+- Gatilho: um "pill" no rodapé do compositor (mesma fileira do seletor de modelo — `modelPill_gGYT1w`,
+  classe `agentsPill_EGyesg`), com ícone, um dot de status (`data-agents-dot`) e o texto "{N} agent(s)"
+  — `aria-label`/`title` variam por estado: `"waiting"`→"An agent is waiting for your permission ·
+  Click to open the agent map", `"running"`→"Agents are working · Click to open the agent map",
+  `"failed"`→"An agent failed · Click to open the agent map", `"idle"`→"Click to open the agent map".
+  Telemetria de abertura: `logEvent("agent_map_opened",{source:...,agent_count:...,background_task_...})`.
+- Árvore raiz→agentes (`E2.tree`/`E2.node`/`E2.children`/`E2.child`, função `zV0`/`GV0`): raiz é a
+  sessão (`f85`: dot `running`/`idle` + resumo da sessão + `"{modelo}"` + `"{tokens} tokens in
+  context"`), cada agente é um botão (`k85`: dot de status + `agent.description` + meta de
+  duração/tokens via `qV0`). **Conectores são CSS puro, sem SVG/lib**: `.children:before` (traço
+  horizontal saindo da raiz, ESCONDIDO quando é filho direto de `.rowMain` — a raiz mesma desenha seu
+  próprio traço via `.rowMain:not(:only-child):after`) + `.child:before`/`.child:after` (traço
+  horizontal de entrada + tronco vertical, cortado em 50% no primeiro/último filho, escondido inteiro
+  com `:only-child`) — confirmado lendo `webview/index.css` linha por linha (`grep -oE
+  '\.[a-zA-Z]+_iHnHpw[^}]*\}'`), não só os nomes de classe.
+- Duração/tokens de cada agente (`qV0`/`b85`): `b85($,J)` — se `status==="working"`, `J-$.startTime`
+  (tempo decorrido; `startTime` é `Date.now()` **observado no cliente** no instante em que o
+  `tool_use` chega, não um timestamp de servidor — confirmado lendo `agentMapAgents.value=cE1(...,
+  {taskId,toolUseId,...,startTime:Date.now(),status:"running"})`); terminado, prefere
+  `usage.durationMs` (quando `status==="finished"`) sobre `endTime-startTime` computado; esconde tudo
+  abaixo de 1s. Tokens: `agent.usage?.totalTokens`, formatado "N tokens" (função `EG`, um formatador
+  compacto tipo "311.8k" — é daí que vem o número do print do Bayerl).
+- **Achado extra do coordenador, confirmado ao ler**: existe TAMBÉM uma fileira dobrável separada,
+  `subagentRow` (`subagentRow_mpBgEA`, componente `MA1`/`h95`/`y95` na v2.1.283 — `lU0`/`iU0`/`dU0` na
+  v2.1.282, mesma coisa, nomes diferentes) — é a linha condensada que aparece **dentro da timeline
+  principal**, não no diálogo "Agent map", enquanto agentes em background ainda rodam ("focus-fold
+  row"/"Collapse"). Confirmado NÃO ser o mesmo componente do diálogo (são dois lugares
+  diferentes que leem o mesmo `agentMapAgents.value`) — documentado aqui pra não confundir com a
+  seção 4 antiga, que já citava esse nome.
+- **Achado extra do coordenador, descartado após checar**: as classes `innerCall`/`innerCallHeader`/
+  `innerCallList`/`innerCallSpinner`/`innerCallComplete`/`innerCallError` (levantadas como possível
+  "detalhe expandido de um agente") são, na verdade, da tool **REPL** (`class AD1{name="REPL"}`) —
+  a lista de tool calls aninhadas que uma execução de REPL dispara, SEM NENHUMA relação com Task/Agent
+  map. Confirmado lendo o componente inteiro antes de citar — não usado aqui.
+- Não replicado, de propósito (mesma decisão de escopo de outras rodadas — "não é o widget inteiro, só
+  a granularidade"): view de detalhe POR agente ao clicar (`y85`/`S85`/`m85` — históricos de tool calls
+  do próprio subagente, telemetria de contagem por status). O prompt/resultado de cada `Task` já é
+  visível na timeline principal (`TaskAgent`, existente desde a rodada anterior); duplicar aqui seria
+  além do pedido (um mapa/visão geral, não um visualizador de transcript por agente). O subtítulo do
+  nosso painel reflete essa decisão: "{N} agente(s) nesta sessão", sem prometer "clique para
+  detalhes" que não implementamos.
+
+**2. Dado real disponível no Orion — verificado até onde este ambiente permite, com uma lacuna
+honesta documentada.**
+- `claude_events.ts` (coluna `TIMESTAMPTZ NOT NULL DEFAULT now()`, migração original em
+  `server/migrations.ts`) já existe em TODA linha persistida, e `GET /api/claude/sessions/:id`
+  (`server/routes/claude.ts`) já faz `SELECT seq, ts, type, payload FROM claude_events ...` e devolve
+  `ts` sem nenhum corte — confirmado lendo o SQL, não assumido. `web/src/claude/live.ts` já tinha o
+  tipo `Row = { seq: number; ts?: string; type: string; payload: any }` com `ts` declarado (só não
+  usado em lugar nenhum até esta rodada). Ou seja: **duração real (`tool_result.ts − tool_use.ts`) já
+  estava disponível sem nenhuma mudança de backend** — exatamente a pergunta que o pedido desta rodada
+  fez.
+- `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` (SDK 0.3.283, mesma versão do CLI rodando no
+  servidor): `SDKUserMessage.tool_use_result?: unknown` — campo real, documentado assim: "Structured
+  tool output — the tool's full Output object, not the string content sent to the model... **For the
+  Agent/Task tool the completed shape is the subagent's final report... plus run totals — render from
+  it instead of parsing the tool_result text**". `sdk-tools.d.ts`: `AgentOutput` é uma união de 3
+  formas — `status:"completed"` (`totalTokens`, `totalToolUseCount`, `totalDurationMs`, mais um objeto
+  `usage` completo estilo Anthropic Messages API), `status:"async_launched"` (subagente em background,
+  SEM totais ainda — só `outputFile` pra consultar depois) e `status:"remote_launched"` (agente na
+  nuvem). Como o runner do Orion (`server/claude/runner.ts`) já persiste a mensagem SDK **inteira**
+  (`await this.deps.store.appendEvent(id, m.type, m)`), esse campo, quando o SDK o populasse, já
+  chegaria ao front sem NENHUMA mudança de backend.
+- **Achado extra, fora do escopo desta rodada (documentado, não implementado)**: existe ainda um
+  TERCEIRO canal de telemetria — mensagens `system` de subtipo `task_notification`/`task_progress`/
+  `task_started`/`task_updated` (`SDKTaskNotificationMessage` etc. em `sdk.d.ts`, cada uma com
+  `usage:{total_tokens,tool_uses,duration_ms}`), que são exatamente a fonte que a webview real usa pra
+  atualizar `agentMapAgents` AO VIVO enquanto um subagente em background roda (`handleTaskProgress`/
+  `handleTaskNotification`/`handleTaskUpdated`, achado nesta mesma investigação — texto tagueado
+  `<task-notification task-id="..." tool-use-id="..." status="...">` com `<subagent_tokens>`/
+  `<tool_uses>`/`<duration_ms>` embutidos, função `TE`). Como esses são tipos de `SDKMessage`
+  (`type:"system"`), o `for await` do runner os receberia e persistiria igual a qualquer outro (o
+  runner não filtra por subtipo, exceto `init`/`commands_changed`, que só disparam efeito colateral
+  extra, nunca pulam o `appendEvent` genérico) — **se** o CLI de fato os emitir pra este processo. Não
+  implementado nesta rodada: ficaria mais completo (tick ao vivo de tokens/tool-calls enquanto um
+  agente em background roda, não só no fim), mas exigiria mais uma correlação por `task_id` e não pôde
+  ser confirmado se o processo `claude` do Orion (autenticado via `claude setup-token`, sem sessão de
+  login interativo completa — ver seção 3) realmente os emite; escopo maior que o pedido, documentado
+  aqui pra retomar se um dia fizer sentido.
+- **Lacuna de verificação, honesta**: diferente de rodadas anteriores (que confirmaram `rate_limits`
+  ausente consultando o Postgres de produção ao vivo, read-only), esta rodada **não conseguiu**
+  confirmar empiricamente se `tool_use_result` chega populado em produção — este ambiente de trabalho
+  bloqueou a leitura de credenciais do banco (classificador de permissões do harness, categoria
+  "Credential Materialization"). Então: o caminho de dado real (`parseAgentTaskUsage`) está
+  implementado, testado (TDD) e ativo — mas, igual ao proxy de `rate_limits` documentado na seção 3,
+  **pode estar inativo na prática hoje**, sem confirmação. Diferença importante pro caso de
+  `rate_limits`: aqui, mesmo SEM `tool_use_result`, o painel ainda mostra duração real (via
+  `ts`/`tool_use.ts`↔`tool_result.ts`, dado que ESTE sim está confirmado por leitura de código, não
+  por suposição) — só os tokens ficam ausentes (omitidos, nunca um "0" ou estimativa fabricada) nesse
+  cenário.
+
+### O que foi implementado
+
+TDD (`superpowers:test-driven-development`) nas funções puras — vermelho→verde confirmado (36 testes
+novos falhando por função/campo ausente antes da implementação, `TypeError: X is not a function` — não
+erro de digitação —, depois todos verdes):
+
+- **`web/src/claude/types.ts`**: `AgentTaskUsage` (`totalTokens?`/`toolUses?`/`durationMs?`, cada campo
+  `undefined` quando o SDK não populou — nunca um número inventado); `AgentTask` (`toolUseId`,
+  `description`, `subagentType?`, `status: ToolStatus`, `startedAt?`, `endedAt?`, `usage?`).
+  `SdkMessage`'s `'user'` ganhou `tool_use_result?: unknown` (campo real do SDK, documentado acima).
+- **`web/src/claude/mapper.ts`**: `parseAgentTaskUsage` (lê `tool_use_result` defensivamente — só
+  `status:"completed"` com pelo menos 1 dos 3 totais numéricos vira algo; `"async_launched"` ou
+  ausência de todos os 3 vira `undefined`, de propósito); `noteAgentTask` (reduz UMA mensagem do SDK
+  no mapa de agentes — cria no `tool_use` do `Task`, fecha no `tool_result` casado por
+  `tool_use_id`, protege um `endedAt`/`usage` já real contra sobrescrita por um replay/reconexão mais
+  novo — mesma disciplina de imutabilidade de `applyPendingToolWaitStatus`: devolve a MESMA referência
+  quando nada muda); `agentTaskDuration` (mesma prioridade `b85`/`v85` real: rodando, `now-startedAt`;
+  terminado com sucesso, prefere `usage.durationMs`; terminado com falha, prefere o computado; esconde
+  abaixo de 1s); `formatAgentDuration` ("25m 44s", estilo do print); `sumSessionTokens` (soma
+  `inputTokens+outputTokens` de todos os `result` da sessão — alimenta a meta do nó raiz, "tokens
+  nesta sessão"; `undefined` sem nenhum turno concluído, nunca "0" antes da hora); `agentTaskList`
+  (mapa→lista ordenada por `startedAt`).
+- **`web/src/claude/live.ts`**: `LiveState.agentTasks: Record<string, AgentTask>` (mapa por
+  `toolUseId`). `pushMessage` ganhou um 3º parâmetro `when` (default `Date.now()`, mesma convenção de
+  `now` injetável já usada em `relativeTime`/`groupSessions`/`computeRealUsageBars`) e agora também
+  atualiza `agentTasks` via `noteAgentTask`. `fromRows` calcula `when` do `ts` REAL de cada linha
+  (`Date.parse(r.ts)`, com fallback defensivo pra `Date.now()` só se a linha vier sem `ts` — não
+  deveria acontecer, a coluna é `NOT NULL`) — histórico reconstruído ganha duração REAL, não
+  aproximada. `applyLive` ganhou um 3º parâmetro `now` (mesmo default/convenção) só usado pelo caso
+  `'message'`, que passa pra `pushMessage` — eventos do SSE não carregam timestamp de servidor, então
+  usam o instante observado no navegador (mesma técnica que a extensão REAL usa pro caso "rodando",
+  confirmado acima).
+- **`web/src/claude/icons.tsx`**: ícone novo `AgentMap` (raiz + 3 galhos, mesmo estilo minimalista de
+  traço 1.5/16×16 do resto do arquivo — sem ícone existente que servisse).
+- **`web/src/claude/AgentMap.tsx`** (novo componente): painel com cabeçalho (título "Mapa de agentes" +
+  subtítulo com contagem) + corpo com a árvore CSS (raiz = sessão: dot de atividade + título + modelo
+  + tokens da sessão; um card por `AgentTask`: dot de status + descrição + selo de `subagentType`
+  quando existe + meta de duração/tokens, caindo pro rótulo de status (`taskStatusLabel`, já existente)
+  quando não há tempo/token pra mostrar). Tique de 1s (só enquanto aberto E algo ainda roda) pra
+  duração "ao vivo" avançar na tela. Esc fecha (capture + `stopImmediatePropagation`, mesmo padrão do
+  `Lightbox.tsx`); clique no backdrop fecha (`target===currentTarget`, mesma checagem do Lightbox).
+  **Sem `createPortal`, diferente do Lightbox — decisão deliberada, não um esquecimento**: as
+  variáveis `--cc-*` (cores do tema, claro/escuro) são declaradas SÓ no seletor `.cc` (`claude.css`),
+  nunca em `:root`; um nó portado pra `document.body` (irmão de `#root`, nunca descendente de `.cc` —
+  confirmado lendo `web/index.html`/`main.tsx`) NÃO as herdaria, caindo pro valor inicial de cada
+  propriedade CSS (fundo/borda transparentes) em vez do tema de verdade — um bug real que o próprio
+  `Lightbox.tsx` provavelmente já tem hoje na regra `.cc-preview-close` (usa `var(--cc-bg2)`/
+  `var(--cc-line)`/`var(--cc-fg)`, seria afetada do mesmo jeito), nunca verificado visualmente (sem
+  navegador neste ambiente, igual sempre) — não corrigido aqui por estar fora do pedido desta rodada,
+  só documentado pra não repetir o mesmo problema em código novo. `position:fixed` cobre a viewport
+  inteira sem precisar de portal (nenhum ancestral tem `transform`/`filter`/`perspective` — conferido
+  no `claude.css` inteiro), então o componente é renderizado como filho comum de `.cc` (por
+  `ClaudePage.tsx`, irmão de `<Sidebar>`/`<main>`) e herda o tema certo.
+- **`web/src/claude/ClaudePage.tsx`**: gatilho — ícone novo no grupo `.cc-tab-actions` (mesmo grupo de
+  Sync/Power/Dots/setinhas de aba, construído ao longo do dia; `disabled={!activeId}`, igual às
+  setinhas). **Decisão de posição, documentada**: a extensão real usa um "pill" no rodapé do
+  compositor (`agentsPill`, ver achado acima), não um ícone no cabeçalho — decisão de escopo pra
+  seguir o padrão já estabelecido HOJE no Orion (`.cc-tab-actions` é onde toda ação nova da aba entrou
+  nas rodadas anteriores) em vez de reabrir `Composer.tsx`/sua fileira de rodapé, que não tem espaço
+  pra mais um pill hoje sem redesenhar — mesmo espírito de outras decisões de adaptação (ex.: "Agrupar
+  por" em vez de pastas arrastáveis na seção 2). `agentTaskList(state.agentTasks)` e
+  `sumSessionTokens(events)` memorizados, passados pro painel junto de `state.status`/`modelLabel`.
+- **`web/src/claude/claude.css`**: seção nova `Mapa de agentes` — overlay fixo centralizado
+  (`.cc-agentmap-overlay`, `z-index:50`, acima dos menus do compositor que usam 20/21), painel
+  (`.cc-agentmap`), árvore com conectores (`.cc-agentmap-tree`/`-node`/`-children`/`-child`,
+  `::before`/`::after` absolutamente posicionados — MESMA técnica da extensão real, valores/nomes
+  adaptados pro `--cc-line`/espaçamento daqui, não copiados literalmente), cards (`.cc-agentmap-card`,
+  `.is-root` mais largo/em negrito), dots de status reaproveitando os tokens de cor já existentes
+  (`--cc-success`/`--cc-failure`/`--cc-warning`/`--cc-pending`/`--cc-busy`, `is-running` com o mesmo
+  `cc-pulse` já usado noutros lugares). Nenhuma lib nova (`package.json` conferido antes — só CSS puro,
+  igual ao pedido).
+
+### Verificação
+
+TDD vermelho→verde confirmado: 36 testes novos falhando por função/campo ausente
+(`tests/mapper.test.ts`: `parseAgentTaskUsage`, `noteAgentTask`, `agentTaskDuration`,
+`formatAgentDuration`, `sumSessionTokens`, `agentTaskList`; `tests/live.test.ts`:
+`LiveState.agentTasks` via `fromRows`/`applyLive`) antes de qualquer implementação, todos verdes
+depois. Suíte inteira: **503 testes, 27 arquivos, todos verdes** (467 antes desta rodada + 36 novos).
+`npm run typecheck` (`tsconfig.server.json` e `tsconfig.json`, os dois via `tsc --noEmit`) sem erro —
+achou e corrigiu, de passagem, um bug de sintaxe autoinduzido nesta rodada (um comentário de bloco em
+`AgentMap.tsx` continha um caminho de arquivo com `*/` no meio — `/srv/orion-reference*/webview` —
+fechando o comentário cedo demais; corrigido reescrevendo o caminho sem glob). `vite build` gera sem
+erro (mesmo aviso pré-existente de chunk grande, sem relação com esta mudança). Sem
+navegador/visual-testing neste ambiente (mesma limitação de sempre) — não dá pra ver a árvore/
+conectores renderizados de verdade; verificação foi por leitura cuidadosa do CSS real linha por linha
+(não só nomes de classe) pra reproduzir a MESMA técnica de conector, mais os testes/build acima. Não
+fiz `curl` contra rotas (não criei nenhuma rota nova nesta rodada — todo o dado usado já vinha de
+`GET /api/claude/sessions/:id`, que já existia).
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -1582,11 +1799,13 @@ caminho de sempre, só compartilhado.
   ver correção no início desta seção), @-menções, voz, uso por modelo, atribuição de uso (
   existe no SDK mas é outra função — fora do escopo), navegação multi-pergunta, worktree, "Manage",
   grupos personalizados arrastáveis (pastas nomeadas e persistidas — "Agrupar por" cobre a
-  necessidade prática sem exigir a persistência nova), telemetria ao vivo de subagente (tempo
-  decorrido/tokens/tool calls — `subagentRow` real, exigiria stream de progresso por tarefa que o
-  Orion não tem), widget completo do editor de diff do Monaco (gutters, minimapa, blocos movidos,
-  linhas de revisão de acessibilidade — só a granularidade de caractere foi replicada, não o
-  widget).
+  necessidade prática sem exigir a persistência nova), widget completo do editor de diff do Monaco
+  (gutters, minimapa, blocos movidos, linhas de revisão de acessibilidade — só a granularidade de
+  caractere foi replicada, não o widget). **Correção de uma rodada bem mais tarde no mesmo dia**: a
+  entrada que estava aqui pra "telemetria ao vivo de subagente (tempo decorrido/tokens/tool calls)"
+  foi removida desta lista — não é mais um "deixado de fora"; ver seção 13 ("Mapa de agentes"), onde
+  foi implementada de verdade (achado que o painel dedicado "Agent map" da extensão real EXISTE, não
+  só o `subagentRow` condensado citado aqui originalmente).
 - **corrigido/implementado nesta rodada (3)** (28/09/2026 — achados de uma auditoria de segundo
   nível dedicada; ver seção 7 para os detalhes e evidências completas): **bug real, não gap** —
   stop manual (botão Parar) descartava a resposta em andamento sem deixar rastro, porque o catch de
@@ -1704,3 +1923,29 @@ caminho de sempre, só compartilhado.
   função ausente, depois implementados). Suíte inteira: **438 testes** (429 antes desta rodada + 9
   novos: 5 de `attachmentImageUrl`, 4 de `isUnderRoot`), `tsc --noEmit` (server e front) e `vite
   build` verdes. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.
+- **implementado nesta rodada (8)** (28/09/2026 — "Mapa de agentes"/Agent map, pedido ao vivo do
+  Bayerl com print em mãos, retomando a telemetria de subagente que a seção 4 tinha deixado de fora
+  de propósito; ver seção 13 para os detalhes e evidências completas): investigação confirmou que o
+  painel "Agent map" É REAL na extensão (lido em DUAS versões do webview decompilado, v2.1.282 E
+  v2.1.283 — a segunda apontada pelo coordenador no meio da rodada como a versão mais nova de fato
+  rodando; as duas bateram, confirma achado estável) — árvore raiz→agentes com conectores 100% CSS
+  (sem SVG/lib nova), duração/tokens por agente vindos de um campo real do SDK
+  (`SDKUserMessage.tool_use_result`, forma `AgentOutput`). Dado disponível pro Orion: duração REAL
+  sempre (via `ts` já existente em `claude_events`/`GET /api/claude/sessions/:id`, sem nenhuma
+  mudança de backend); tokens só quando o SDK realmente popula `tool_use_result` — **não confirmado
+  ao vivo em produção nesta rodada** (diferente das rodadas anteriores, que conseguiam consultar o
+  Postgres read-only; este ambiente bloqueou credenciais de banco) — caminho implementado e testado,
+  mas honestamente marcado como não-verificado-em-produção, mesmo espírito do proxy de `rate_limits`
+  na seção 3. Implementado: `AgentTask`/`AgentTaskUsage` (types.ts), `parseAgentTaskUsage`/
+  `noteAgentTask`/`agentTaskDuration`/`formatAgentDuration`/`sumSessionTokens`/`agentTaskList`
+  (mapper.ts), `LiveState.agentTasks` com hidratação por `ts` real (`fromRows`) e por instante
+  observado no navegador (`applyLive`, `now` injetável) em live.ts, componente novo
+  `AgentMap.tsx` (SEM `createPortal`, de propósito — evita um bug real de herança de variáveis CSS
+  que o `Lightbox.tsx` existente provavelmente já tem e nunca foi visto, por falta de navegador neste
+  ambiente), ícone novo em `icons.tsx`, gatilho em `.cc-tab-actions` (`ClaudePage.tsx` — decisão de
+  posição diferente da extensão real, que usa um pill no rodapé do compositor; seguido o padrão já
+  estabelecido no Orion hoje em vez de redesenhar o compositor), CSS novo em `claude.css` (árvore com
+  conectores, cards, dots). TDD (vermelho→verde confirmado, 36 testes falhando por função/campo
+  ausente antes da implementação); suíte inteira **503 testes** (467 antes desta rodada + 36 novos),
+  `npm run typecheck` e `vite build` verdes. Sem navegador/visual-testing neste ambiente — mesma
+  limitação de sempre.

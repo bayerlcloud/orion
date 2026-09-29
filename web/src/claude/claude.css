@@ -422,6 +422,56 @@
 .cc-menu-item-name { font-size: 13px; }
 .cc-menu-item-desc { font-size: 11px; color: var(--cc-fg2); }
 
+/* ===== Mapa de agentes (Agent map) ===== */
+/* Pedido ao vivo do Bayerl 28/09/2026 ("essa parte de multi agentes igual aqui o claude code do
+   antigravity coloca no claude do orion v2"), retomando a telemetria de subagente que a rodada de
+   Task/Agent tinha deixado de fora de propósito (ver `taskStatusLabel` em mapper.ts). Achado completo
+   em PARIDADE.md: painel real "Agent map" confirmado lendo o webview decompilado (v2.1.282 e
+   v2.1.283) — árvore raiz→agentes com conectores em CSS puro via `::before`/`::after` (mesma técnica
+   usada aqui, adaptada dos nomes/valores reais `.tree_iHnHpw`/`.node_iHnHpw`/`.children_iHnHpw`/
+   `.child_iHnHpw`/`.rowMain_iHnHpw:after` pro nosso `--cc-line`/espaçamento). SEM `createPortal`
+   (diferente do Lightbox) — ver o comentário completo no topo de `AgentMap.tsx`: as variáveis
+   `--cc-*` só existem dentro de `.cc`, e um portal pra `document.body` (irmão de `#root`) não as
+   herdaria; `position:fixed` cobre a viewport inteira mesmo sem portal. */
+.cc-agentmap-overlay { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,.6); padding: 24px; }
+.cc-agentmap { width: 100%; max-width: 760px; max-height: 82vh; overflow: auto; background: var(--cc-panel); border: 1px solid var(--cc-line); border-radius: 10px; box-shadow: 0 4px 24px rgba(0,0,0,.5); display: flex; flex-direction: column; }
+.cc-agentmap-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--cc-line); position: sticky; top: 0; background: var(--cc-panel); z-index: 1; }
+.cc-agentmap-title { font-weight: 700; font-size: 14px; }
+.cc-agentmap-subtitle { color: var(--cc-fg2); font-size: 12px; margin-top: 2px; }
+.cc-agentmap-body { padding: 18px 16px; overflow: auto; }
+.cc-agentmap-empty { color: var(--cc-fg2); font-size: 12px; padding: 8px 2px; }
+
+/* Árvore: raiz (a sessão) à esquerda, um card por subagente `Task` à direita, ligados por linhas —
+   mesma técnica real (pseudo-elementos absolutamente posicionados, sem SVG/lib de grafo). Orion tem
+   só 1 nível (sessão → agentes, sem sub-agente de sub-agente), por isso só a raiz precisa do conector
+   de saída (`.is-root::after`) — a extensão real tem a mesma simplificação pro caso de 1 nível
+   (`.rowMain_iHnHpw+.children_iHnHpw:before{display:none}`, ver PARIDADE.md). */
+.cc-agentmap-tree { padding: 4px 4px 4px 0; }
+.cc-agentmap-node { display: flex; align-items: center; }
+.cc-agentmap-children { display: flex; flex-direction: column; gap: 10px; margin-left: 28px; }
+.cc-agentmap-card { box-sizing: border-box; width: 280px; flex-shrink: 0; border: 1px solid var(--cc-line); background: var(--cc-bg2); border-radius: 8px; padding: 8px 10px; }
+.cc-agentmap-card.is-root { width: 300px; position: relative; }
+.cc-agentmap-card.is-root:not(:only-child)::after { content: ""; position: absolute; top: 50%; left: 100%; width: 16px; height: 1px; background: var(--cc-line); }
+.cc-agentmap-child { position: relative; }
+.cc-agentmap-child::before { content: ""; position: absolute; top: 50%; left: -16px; width: 16px; height: 1px; background: var(--cc-line); }
+.cc-agentmap-child::after { content: ""; position: absolute; top: 0; bottom: 0; left: -16px; width: 1px; background: var(--cc-line); }
+.cc-agentmap-child:first-child::after { top: 50%; }
+.cc-agentmap-child:last-child::after { bottom: 50%; }
+.cc-agentmap-child:only-child::after { display: none; }
+
+.cc-agentmap-row-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cc-agentmap-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-agentmap-card.is-root .cc-agentmap-name { font-weight: 600; }
+.cc-agentmap-meta { display: flex; align-items: center; gap: 6px; color: var(--cc-fg2); font-size: 11px; margin-top: 4px; padding-left: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cc-agentmap-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
+.cc-agentmap-dot.is-idle { opacity: .4; }
+.cc-agentmap-dot.is-running { background: var(--cc-busy); opacity: 1; animation: cc-pulse 1.6s ease-in-out infinite; }
+.cc-agentmap-dot.is-waiting { background: var(--cc-pending); opacity: 1; }
+.cc-agentmap-dot.is-success { background: var(--cc-success); opacity: 1; }
+.cc-agentmap-dot.is-failure { background: var(--cc-failure); opacity: 1; }
+.cc-agentmap-dot.is-warning { background: var(--cc-warning); opacity: 1; }
+
 /* tema claro na área do Claude */
 :root[data-theme="light"] .cc {
   --cc-bg: #ffffff; --cc-bg2: #f6f6f7; --cc-panel: #fafafa; --cc-fg: #1a1a1c; --cc-fg2: #6a6a70; --cc-line: #e2e2e6;

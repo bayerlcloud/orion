@@ -1,5 +1,5 @@
-import type { ConvEvent, SdkMessage, SlashCommandInfo } from './types';
-import { applyPendingToolWaitStatus, describeTool, interruptedLabel, reduceSdkMessages } from './mapper';
+import type { AgentTask, ConvEvent, SdkMessage, SlashCommandInfo } from './types';
+import { applyPendingToolWaitStatus, describeTool, interruptedLabel, noteAgentTask, reduceSdkMessages } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
 /** `toolUseId`: id real do SDK pro tool_use que gerou este pedido (ver comentário de `toolRunningLabel`
@@ -23,10 +23,19 @@ export type LiveState = {
   commands: SlashCommandInfo[];
   /** Último stop manual desta sessão, se o turno mais recente terminou assim — null no caso normal (turno completo, ou erro genuíno, que continua em `error`). Limpo quando o usuário manda uma nova mensagem (ver pushMessage). */
   interrupted: InterruptedState | null;
+  /**
+   * Subagentes (`Task`) desta sessão, por `toolUseId` — alimenta o "Mapa de agentes" (AgentMap.tsx,
+   * pedido ao vivo do Bayerl 28/09/2026; ver `noteAgentTask`/`AgentTask` em mapper.ts/types.ts e
+   * PARIDADE.md pro achado completo). Hidratado com o `ts` REAL de `claude_events` em `fromRows`
+   * (histórico); atualizado com o instante observado no navegador em `applyLive` (mensagens do SSE
+   * não carregam timestamp de servidor) — mesma dualidade "reconstrói do zero vs. incrementa ao vivo"
+   * do resto deste arquivo.
+   */
+  agentTasks: Record<string, AgentTask>;
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {} });
 
 const ATTACH_NOTE = '\n\n[arquivo anexado:';
 
@@ -41,24 +50,29 @@ function userText(m: Extract<SdkMessage, { type: 'user' }>): string | undefined 
   return undefined;
 }
 
-function pushMessage(s: LiveState, m: SdkMessage): LiveState {
+function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): LiveState {
   // Mesma mensagem do SDK (mesmo uuid) já aplicada: acontece ao reconectar, quando o histórico
   // recarregado e os eventos que chegaram pelo stream enquanto ele carregava se sobrepõem.
   const uuid = (m as { uuid?: string }).uuid;
   if (uuid && s.messages.some(x => (x as { uuid?: string }).uuid === uuid)) return s;
+  // Mapa de agentes (ver noteAgentTask/AgentTask): olha toda mensagem 'assistant'/'user' que passa por
+  // aqui, tanto reconstruída de `fromRows` quanto ao vivo — `when` é o `ts` real da linha (histórico)
+  // ou o instante observado no navegador (SSE, sem timestamp de servidor). Antes do dedup de uuid
+  // acima não faria sentido (reprocessaria a mesma mensagem 2x), por isso vem depois dele.
+  const agentTasks = noteAgentTask(s.agentTasks, m, when);
   // O runner ecoa o prompt como mensagem 'user'; se o SDK ecoar de novo (mesmo texto, ou texto +
   // as notas de arquivo anexo), ignora a duplicata. tool_result (sem texto) nunca é tratado como eco.
   if (m.type === 'user') {
     const t = userText(m);
     if (t !== undefined) {
-      if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return s;
+      if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return { ...s, agentTasks };
       // Nova mensagem do usuário: a interrupção do turno anterior (se houve) não vale mais pro que
       // vem a seguir — mesma janela de vida do erro genuíno (limpo quando volta a rodar, ver 'status').
-      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null };
+      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks };
     }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
-  return { ...s, messages: [...s.messages, m], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking };
+  return { ...s, messages: [...s.messages, m], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking, agentTasks };
 }
 
 /** Reconstrói o estado a partir das linhas persistidas + verdade do servidor sobre pendências. */
@@ -67,9 +81,16 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
   const reqs = new Map<string, PermReq>();
   for (const r of rows) {
     const p = r.payload ?? {};
+    // `when`: `ts` REAL da linha persistida (claude_events.ts, já devolvido por GET .../sessions/:id)
+    // — alimenta o Mapa de agentes (ver noteAgentTask/pushMessage acima) com startedAt/endedAt de
+    // verdade em vez de aproximar pelo instante da reconstrução. `Date.now()` só no caso defensivo de
+    // uma linha sem `ts`/`ts` inválido (não deveria acontecer — a coluna é NOT NULL — mas nunca gera
+    // NaN num campo que a tela depois formata).
+    const when = r.ts ? Date.parse(r.ts) : NaN;
+    const whenOk = Number.isFinite(when) ? when : Date.now();
     switch (r.type) {
-      case 'user_prompt': s = pushMessage(s, { type: 'user', message: { content: String(p.prompt ?? ''), attachments: Array.isArray(p.attachments) ? p.attachments : undefined } }); break;
-      case 'system': case 'assistant': case 'user': case 'result': s = pushMessage(s, p as SdkMessage); break;
+      case 'user_prompt': s = pushMessage(s, { type: 'user', message: { content: String(p.prompt ?? ''), attachments: Array.isArray(p.attachments) ? p.attachments : undefined } }, whenOk); break;
+      case 'system': case 'assistant': case 'user': case 'result': s = pushMessage(s, p as SdkMessage, whenOk); break;
       case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false, toolUseId: typeof p.toolUseId === 'string' ? p.toolUseId : undefined }); break;
       case 'permission_resolved': { const q = reqs.get(p.id); if (q) { q.decision = p.decision; if (typeof p.message === 'string') q.answer = p.message; } break; }
       case 'error': s = { ...s, error: String(p.message ?? 'erro') }; break;
@@ -87,8 +108,14 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
   return { ...s, status, pending, resolvedPerms: [...resolved, ...expirados], error: status === 'error' ? s.error : null };
 }
 
-/** Aplica um evento do stream (SSE). Pura. */
-export function applyLive(s: LiveState, ev: any): LiveState {
+/**
+ * Aplica um evento do stream (SSE). Pura (dado o `now` injetado — mesma convenção de
+ * `relativeTime`/`groupSessions`/`computeRealUsageBars` em mapper.ts). `now`: só usado pelo caso
+ * `'message'`, pra alimentar `startedAt`/`endedAt` do Mapa de agentes (ver `pushMessage`/
+ * `noteAgentTask`) — eventos de SSE não carregam timestamp de servidor, diferente das linhas
+ * persistidas que `fromRows` reconstrói (essas usam o `ts` real).
+ */
+export function applyLive(s: LiveState, ev: any, now: number = Date.now()): LiveState {
   switch (ev?.type) {
     case 'hello': {
       const known = new Map(s.pending.map(p => [p.id, p]));
@@ -102,7 +129,7 @@ export function applyLive(s: LiveState, ev: any): LiveState {
     // vida do erro genuíno logo abaixo (redundante com o reset em pushMessage no caminho normal, mas
     // essa é a primeira coisa que o servidor emite ao começar um turno — defesa a mais).
     case 'status': return { ...s, status: ev.status, error: ev.status === 'running' ? null : s.error, interrupted: ev.status === 'running' ? null : s.interrupted };
-    case 'message': return pushMessage(s, ev.message);
+    case 'message': return pushMessage(s, ev.message, now);
     case 'partial': {
       const e = ev.event ?? {};
       if (e.type === 'message_start') return { ...s, partialText: '', partialThinking: '' };

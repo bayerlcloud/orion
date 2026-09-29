@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { formatCost, computeUsageBars, messageHistory, currentPermission, type UsageBar } from './mapper';
+import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight } from './icons';
+import AgentMap from './AgentMap';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon } from './icons';
 import './claude.css';
 
 type Tab = { id: string; draft?: boolean; projectId?: number };
@@ -32,6 +33,9 @@ export default function ClaudePage() {
   const [effort, setEffort] = useState<Effort>('medium');
   const [model, setModel] = useState<ModelAlias>('default');
   const [draftProject, setDraftProject] = useState<number | undefined>(undefined);
+  // "Mapa de agentes" (ver AgentMap.tsx) — pedido ao vivo do Bayerl 28/09/2026, gatilho na faixa de
+  // ações da aba (`.cc-tab-actions`, mesmo grupo de Sync/Power/Dots), painel em portal próprio.
+  const [agentMapOpen, setAgentMapOpen] = useState(false);
   const [erro, setErro] = useState('');
   // true até o primeiro fetch de sessões terminar (sucesso ou falha) — enquanto isso, a lateral
   // mostra "Carregando sessões…" em vez de pular direto pra "Nenhuma sessão" (ver Sidebar.tsx;
@@ -174,6 +178,11 @@ export default function ClaudePage() {
   // permission_request — ver mapper.ts): sempre o pedido pendente mais antigo, nunca mais de um ao
   // mesmo tempo — ver PermissionDock/currentPermission e PARIDADE.md "Card de permissão docado".
   const dockedPermission = useMemo(() => currentPermission(events), [events]);
+  // Mapa de agentes: subagentes (Task) desta sessão, ordenados por ordem de disparo (ver
+  // agentTaskList/AgentTask em mapper.ts/types.ts), e o total de tokens já gastos na sessão (soma dos
+  // "result" de cada turno concluído — undefined antes do 1º turno terminar, nunca "0" fabricado).
+  const agentTasks = useMemo(() => agentTaskList(state.agentTasks), [state.agentTasks]);
+  const sessionTokens = useMemo(() => sumSessionTokens(events), [events]);
   // Reobserva sempre que a sessão ativa muda: `.cc-float` (ver JSX abaixo) só existe com `activeId`
   // truthy — é condicional, igual `.cc-dock` já era antes dele — então o nó do DOM observado troca a
   // cada montagem/desmontagem (sem sessão aberta, sem composer, sem altura pra medir).
@@ -350,6 +359,7 @@ export default function ClaudePage() {
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
+            <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
             <button className="cc-icon" title="Renomear sessão" onClick={rename}><Dots size={13} /></button>
@@ -406,6 +416,17 @@ export default function ClaudePage() {
           <span>{login ? `Claude Code ${login.version}` : ''}</span><span>{sessions.filter(s => s.status === 'running' || s.status === 'waiting').length} ativa(s)</span>
         </div>
       </main>
+      {activeId && (
+        <AgentMap
+          open={agentMapOpen}
+          onClose={() => setAgentMapOpen(false)}
+          sessionTitle={title}
+          sessionStatus={state.status}
+          modelLabel={modelLabel}
+          sessionTokens={sessionTokens}
+          tasks={agentTasks}
+        />
+      )}
     </div>
   );
 }
