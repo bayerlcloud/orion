@@ -39,7 +39,7 @@
 
 .tls-name { font-weight: 600; }
 .tls-desc { color: var(--fg2); line-height: 1.4; margin: 0; }
-.tls-link { color: #85b6ff; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tls-link { color: var(--link); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tls-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 .tls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
