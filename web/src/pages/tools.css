@@ -43,7 +43,7 @@
 .tls-desc { color: var(--fg2); line-height: 1.4; margin: 0; }
 .tls-link { color: var(--link); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.tls-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.tls-card-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 4px; }
 .tls-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .tls-dot.is-ativo { background: var(--ok); }
 .tls-dot.is-inativo { background: var(--fg2); }
@@ -118,3 +118,16 @@
 .tls-toggles { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--fg2); margin-top: 2px; }
 .tls-toggles label { display: flex; align-items: center; gap: 4px; text-transform: uppercase; letter-spacing: .05em; }
 .tls-toggles select { font: inherit; font-size: 12px; text-transform: none; letter-spacing: 0; padding: 2px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 5px; }
+
+/* cards de conta (aba Conectores): nome + subtítulo, linhas rótulo/valor com reticências, explicação com "ver mais" */
+.tls-card.is-conta { gap: 10px; }
+.tls-card.is-conta .tls-name { font-size: 15px; }
+.tls-sub { color: var(--fg2); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tls-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 10px; margin: 0; font-size: 12px; align-items: baseline; }
+.tls-rows dt { color: var(--fg2); margin: 0; }
+.tls-rows dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; color: var(--fg); }
+.tls-rows dd.cp { cursor: copy; }
+.tls-rows dd.cp:hover { color: var(--link); }
+.tls-notes { color: var(--fg2); font-size: 12.5px; line-height: 1.45; margin: 0; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.tls-notes.is-open { display: block; }
+.tls-more { border: 0; background: none; color: var(--link); font: inherit; font-size: 12px; padding: 0; cursor: pointer; align-self: flex-start; margin-top: -6px; }
