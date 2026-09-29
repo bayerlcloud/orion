@@ -1,9 +1,13 @@
 // Espelho no cliente das regras puras da Memória (mesma lógica de server/memories/util.ts).
+// Pirâmide de níveis 0-4; nota (1-10) é exclusiva do nível 4.
 
-export type Status = 'deus' | 'aprendizagem' | 'rascunho';
+export type Level = 0 | 1 | 2 | 3 | 4;
 
 export const SUMMARY_MAX = 144;
 export const MAX_KEYWORDS = 4;
+export const NOTA_MIN = 1;
+export const NOTA_MAX = 10;
+export const NOTA_INICIAL = 5;
 
 /** Slug curto em kebab-case (só [a-z0-9-]). */
 export function slugify(input: string): string {
@@ -18,66 +22,54 @@ export function slugify(input: string): string {
   return base || 'memoria';
 }
 
-/** Maior = mais importante. deus(7) · aprendizagem 5..1 (6..2) · rascunho(1). */
-export function importanceRank(status: string, level?: number | null): number {
-  if (status === 'deus') return 7;
-  if (status === 'aprendizagem') {
-    const l = Number(level);
-    const lv = Number.isFinite(l) ? Math.max(1, Math.min(5, Math.round(l))) : 1;
-    return lv + 1;
+/** Rótulo de cada nível: 0 Constituição, 1 Automática, 2 Regra, 3 Decisão, 4 Micro-fato. */
+export function nivelLabel(level: number): string {
+  switch (Number(level)) {
+    case 0: return 'Constituição';
+    case 1: return 'Automática';
+    case 2: return 'Regra';
+    case 3: return 'Decisão';
+    case 4: return 'Micro-fato';
+    default: return `Nível ${level}`;
   }
-  return 1;
 }
 
-/** "Deus", "Aprendizagem 4", "Rascunho". */
-export function statusLabel(status: string, level?: number | null): string {
-  if (status === 'deus') return 'Deus';
-  if (status === 'aprendizagem') {
-    const l = Number(level);
-    const lv = Number.isFinite(l) ? Math.max(1, Math.min(5, Math.round(l))) : 1;
-    return `Aprendizagem ${lv}`;
+/** Token de cor (variável CSS global): 0 accent, 1 info, 2 ok, 3 warn, 4 fg2. */
+export function nivelColor(level: number): string {
+  switch (Number(level)) {
+    case 0: return 'accent';
+    case 1: return 'info';
+    case 2: return 'ok';
+    case 3: return 'warn';
+    default: return 'fg2';
   }
-  if (status === 'rascunho') return 'Rascunho';
-  return status;
-}
-
-/** Token de cor (variável CSS global): deus->accent, aprendizagem alta->info / baixa->warn, rascunho->fg2. */
-export function statusColor(status: string, level?: number | null): string {
-  if (status === 'deus') return 'accent';
-  if (status === 'aprendizagem') {
-    const l = Number(level);
-    const lv = Number.isFinite(l) ? l : 1;
-    return lv >= 3 ? 'info' : 'warn';
-  }
-  return 'fg2';
 }
 
 /** var(--token) para usar direto em style. */
-export function colorVar(status: string, level?: number | null): string {
-  return `var(--${statusColor(status, level)})`;
+export function colorVar(level: number): string {
+  return `var(--${nivelColor(level)})`;
 }
 
-/** Os 7 níveis de importância, do topo para a base, para o seletor do leitor. */
-export const IMPORTANCE_OPTIONS: { key: string; status: Status; level: number | null; label: string }[] = [
-  { key: 'deus', status: 'deus', level: null, label: 'Deus' },
-  { key: 'apr-5', status: 'aprendizagem', level: 5, label: 'Aprendizagem 5' },
-  { key: 'apr-4', status: 'aprendizagem', level: 4, label: 'Aprendizagem 4' },
-  { key: 'apr-3', status: 'aprendizagem', level: 3, label: 'Aprendizagem 3' },
-  { key: 'apr-2', status: 'aprendizagem', level: 2, label: 'Aprendizagem 2' },
-  { key: 'apr-1', status: 'aprendizagem', level: 1, label: 'Aprendizagem 1' },
-  { key: 'rascunho', status: 'rascunho', level: null, label: 'Rascunho' },
+/** Escada de escrita: 0 é do Danilo e 1 do script; o painel só edita do 2 para baixo. */
+export function nivelEditavel(level: number): boolean {
+  return Number(level) >= 2;
+}
+
+/** Banner do editor para os níveis somente leitura (null nos editáveis). */
+export function nivelBanner(level: number): string | null {
+  if (Number(level) === 0) return 'Nível 0 (Constituição): gerido pelo Danilo, direto no CLAUDE.md. Somente leitura aqui.';
+  if (Number(level) === 1) return 'Nível 1 (Automática): gerido por script (regenerado a cada ciclo do inventário). Somente leitura aqui.';
+  return null;
+}
+
+/** Os níveis do seletor do leitor (a escada de escrita trava 0 e 1 fora do editor). */
+export const NIVEL_OPTIONS: { level: Level; label: string }[] = [
+  { level: 0, label: '0: Constituição' },
+  { level: 1, label: '1: Automática' },
+  { level: 2, label: '2: Regra' },
+  { level: 3, label: '3: Decisão' },
+  { level: 4, label: '4: Micro-fato' },
 ];
-
-/** Chave da opção atual (para o value do <select>). */
-export function optionKey(status: string, level?: number | null): string {
-  if (status === 'aprendizagem') {
-    const l = Number(level);
-    const lv = Number.isFinite(l) ? Math.max(1, Math.min(5, Math.round(l))) : 1;
-    return `apr-${lv}`;
-  }
-  if (status === 'deus') return 'deus';
-  return 'rascunho';
-}
 
 /** Data/hora em pt-BR, "nunca" quando vazio. */
 export function fmtDateTime(ts: string | null | undefined, vazio = 'nunca'): string {
@@ -87,7 +79,7 @@ export function fmtDateTime(ts: string | null | undefined, vazio = 'nunca'): str
 }
 
 /** Só a data em pt-BR. */
-export function fmtDate(ts: string | null | undefined, vazio = '—'): string {
+export function fmtDate(ts: string | null | undefined, vazio = '-'): string {
   if (!ts) return vazio;
   const d = new Date(ts);
   return Number.isNaN(+d) ? vazio : d.toLocaleDateString('pt-BR');

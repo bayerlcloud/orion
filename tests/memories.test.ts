@@ -1,15 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
   ValidationError,
-  importanceRank,
+  NOTA_INICIAL,
+  nivelColor,
+  nivelLabel,
   normalizeKeywords,
-  normalizeLearningLevel,
+  normalizeLevel,
+  normalizeNota,
   normalizeScopeId,
-  normalizeStatus,
   normalizeSummary,
   slugify,
-  statusColor,
-  statusLabel,
+  truncateSummary,
+  uniqueCode,
   SUMMARY_MAX,
 } from '../server/memories/util.js';
 import * as web from '../web/src/pages/memoriaUtils';
@@ -30,43 +32,55 @@ describe('slugify', () => {
   });
 });
 
-describe('importanceRank', () => {
-  it('ordena deus > aprendizagem 5..1 > rascunho', () => {
-    const ranks = [
-      importanceRank('deus'),
-      importanceRank('aprendizagem', 5),
-      importanceRank('aprendizagem', 4),
-      importanceRank('aprendizagem', 3),
-      importanceRank('aprendizagem', 2),
-      importanceRank('aprendizagem', 1),
-      importanceRank('rascunho'),
-    ];
-    expect(ranks).toEqual([7, 6, 5, 4, 3, 2, 1]);
-    // estritamente decrescente
-    for (let i = 1; i < ranks.length; i++) expect(ranks[i]).toBeLessThan(ranks[i - 1]);
-  });
-  it('nível ausente na aprendizagem não quebra', () => {
-    expect(importanceRank('aprendizagem', null)).toBe(2);
+describe('nivelLabel', () => {
+  it('um rótulo por andar da pirâmide', () => {
+    expect(nivelLabel(0)).toBe('Constituição');
+    expect(nivelLabel(1)).toBe('Automática');
+    expect(nivelLabel(2)).toBe('Regra');
+    expect(nivelLabel(3)).toBe('Decisão');
+    expect(nivelLabel(4)).toBe('Micro-fato');
   });
 });
 
-describe('statusLabel', () => {
-  it('rótulos legíveis', () => {
-    expect(statusLabel('deus')).toBe('Deus');
-    expect(statusLabel('aprendizagem', 4)).toBe('Aprendizagem 4');
-    expect(statusLabel('rascunho')).toBe('Rascunho');
+describe('nivelColor', () => {
+  it('mapeia para os tokens de cor globais', () => {
+    expect(nivelColor(0)).toBe('accent');
+    expect(nivelColor(1)).toBe('info');
+    expect(nivelColor(2)).toBe('ok');
+    expect(nivelColor(3)).toBe('warn');
+    expect(nivelColor(4)).toBe('fg2');
   });
 });
 
-describe('statusColor', () => {
-  it('mapeia para os tokens de cor', () => {
-    expect(statusColor('deus')).toBe('accent');
-    expect(statusColor('aprendizagem', 5)).toBe('info');
-    expect(statusColor('aprendizagem', 4)).toBe('info');
-    expect(statusColor('aprendizagem', 3)).toBe('info');
-    expect(statusColor('aprendizagem', 2)).toBe('warn');
-    expect(statusColor('aprendizagem', 1)).toBe('warn');
-    expect(statusColor('rascunho')).toBe('fg2');
+describe('normalizeLevel', () => {
+  it('aceita 0 a 4', () => {
+    for (const n of [0, 1, 2, 3, 4]) expect(normalizeLevel(n)).toBe(n);
+    expect(normalizeLevel('3')).toBe(3);
+  });
+  it('recusa fora da pirâmide', () => {
+    expect(() => normalizeLevel(5)).toThrow(ValidationError);
+    expect(() => normalizeLevel(-1)).toThrow(ValidationError);
+    expect(() => normalizeLevel(2.5)).toThrow(ValidationError);
+    expect(() => normalizeLevel('deus')).toThrow(ValidationError);
+  });
+});
+
+describe('normalizeNota', () => {
+  it('no nível 4: 1..10, vazio vira a nota inicial', () => {
+    expect(normalizeNota(4, 7)).toBe(7);
+    expect(normalizeNota(4, null)).toBe(NOTA_INICIAL);
+    expect(normalizeNota(4, undefined)).toBe(NOTA_INICIAL);
+    expect(normalizeNota(4, '')).toBe(NOTA_INICIAL);
+    expect(() => normalizeNota(4, 0)).toThrow(ValidationError);
+    expect(() => normalizeNota(4, 11)).toThrow(ValidationError);
+    expect(() => normalizeNota(4, 5.5)).toThrow(ValidationError);
+  });
+  it('fora do nível 4, obrigatoriamente null', () => {
+    for (const lv of [0, 1, 2, 3]) {
+      expect(normalizeNota(lv, null)).toBeNull();
+      expect(normalizeNota(lv, undefined)).toBeNull();
+      expect(() => normalizeNota(lv, 5)).toThrow(ValidationError);
+    }
   });
 });
 
@@ -81,6 +95,18 @@ describe('normalizeSummary', () => {
   });
 });
 
+describe('truncateSummary (versão tolerante da tool)', () => {
+  it('mantém o que cabe', () => {
+    expect(truncateSummary('a'.repeat(144))).toHaveLength(144);
+    expect(truncateSummary('curto')).toBe('curto');
+  });
+  it('corta em 144 em vez de recusar', () => {
+    const t = truncateSummary('a'.repeat(200));
+    expect(t).toHaveLength(144);
+    expect(t.endsWith('…')).toBe(true);
+  });
+});
+
 describe('normalizeKeywords', () => {
   it('aceita até 4, tira vazias e repetidas', () => {
     expect(normalizeKeywords(['a', 'b', 'a', '', '  c '])).toEqual(['a', 'b', 'c']);
@@ -91,32 +117,6 @@ describe('normalizeKeywords', () => {
   });
   it('recusa quando não é lista', () => {
     expect(() => normalizeKeywords('a,b,c' as unknown)).toThrow(ValidationError);
-  });
-});
-
-describe('normalizeStatus', () => {
-  it('aceita os três válidos', () => {
-    expect(normalizeStatus('deus')).toBe('deus');
-    expect(normalizeStatus('aprendizagem')).toBe('aprendizagem');
-    expect(normalizeStatus('rascunho')).toBe('rascunho');
-  });
-  it('recusa outros', () => {
-    expect(() => normalizeStatus('outro')).toThrow(ValidationError);
-  });
-});
-
-describe('normalizeLearningLevel', () => {
-  it('exige 1..5 na aprendizagem', () => {
-    expect(normalizeLearningLevel('aprendizagem', 3)).toBe(3);
-    expect(() => normalizeLearningLevel('aprendizagem', 0)).toThrow(ValidationError);
-    expect(() => normalizeLearningLevel('aprendizagem', 6)).toThrow(ValidationError);
-    expect(() => normalizeLearningLevel('aprendizagem', null)).toThrow(ValidationError);
-    expect(() => normalizeLearningLevel('aprendizagem', 2.5)).toThrow(ValidationError);
-  });
-  it('obriga null fora da aprendizagem', () => {
-    expect(normalizeLearningLevel('deus', null)).toBeNull();
-    expect(normalizeLearningLevel('rascunho', undefined)).toBeNull();
-    expect(() => normalizeLearningLevel('deus', 3)).toThrow(ValidationError);
   });
 });
 
@@ -137,19 +137,28 @@ describe('normalizeScopeId', () => {
   });
 });
 
+describe('uniqueCode', () => {
+  it('devolve a base quando está livre', async () => {
+    const code = await uniqueCode(async () => ({ rowCount: 0 }), 'Regra de Ouro');
+    expect(code).toBe('regra-de-ouro');
+  });
+  it('acrescenta -2, -3... até achar livre', async () => {
+    const ocupados = new Set(['regra-de-ouro', 'regra-de-ouro-2']);
+    const code = await uniqueCode(
+      async (_sql, params) => ({ rowCount: ocupados.has(params[0] as string) ? 1 : 0 }),
+      'Regra de Ouro',
+    );
+    expect(code).toBe('regra-de-ouro-3');
+  });
+});
+
 describe('paridade servidor <-> cliente', () => {
-  it('importanceRank, statusLabel, statusColor e slugify batem', () => {
-    const casos: { s: string; l: number | null }[] = [
-      { s: 'deus', l: null },
-      { s: 'aprendizagem', l: 5 },
-      { s: 'aprendizagem', l: 2 },
-      { s: 'rascunho', l: null },
-    ];
-    for (const { s, l } of casos) {
-      expect(web.importanceRank(s, l)).toBe(importanceRank(s, l));
-      expect(web.statusLabel(s, l)).toBe(statusLabel(s, l));
-      expect(web.statusColor(s, l)).toBe(statusColor(s, l));
+  it('nivelLabel, nivelColor e slugify batem', () => {
+    for (const lv of [0, 1, 2, 3, 4]) {
+      expect(web.nivelLabel(lv)).toBe(nivelLabel(lv));
+      expect(web.nivelColor(lv)).toBe(nivelColor(lv));
     }
     expect(web.slugify('Orion é o painel Único!')).toBe(slugify('Orion é o painel Único!'));
+    expect(web.NOTA_INICIAL).toBe(NOTA_INICIAL);
   });
 });

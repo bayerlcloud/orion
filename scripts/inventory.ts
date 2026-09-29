@@ -7,6 +7,7 @@ import { createPool } from '../server/db.js';
 import { migrate } from '../server/migrations.js';
 import { collectInventory, saveSnapshot, SNAPSHOTS_GUARDADOS } from '../server/inventory.js';
 import { generateNivel1 } from '../server/nivel1/generate.js';
+import { decairMicrofatos } from '../server/memories/decay.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,6 +28,17 @@ async function main() {
   const nivel1 = await generateNivel1(pool, data.binarios);
   console.log(`nível 1: ${nivel1.escritos.length ? `regenerados ${nivel1.escritos.join(', ')}` : 'nada regenerado'}`);
   for (const a of nivel1.avisos) console.log('aviso nível 1:', a);
+
+  // Decaimento diário do enxame (nível 4): determinístico, com guarda de 1x/dia. Nunca aborta o ciclo.
+  try {
+    const decay = await decairMicrofatos(pool);
+    if (decay.pulado) console.log('decaimento nível 4: já rodou hoje, nada a fazer');
+    else console.log(
+      `decaimento nível 4: ${decay.decaidas.length} decaíram${decay.decaidas.length ? ` (${decay.decaidas.join(', ')})` : ''}, ` +
+      `${decay.mortas.length} morreram${decay.mortas.length ? ` (${decay.mortas.join(', ')})` : ''}`);
+  } catch (e: any) {
+    console.log('aviso decaimento nível 4:', e?.message ?? e);
+  }
 
   await pool.end();
 }

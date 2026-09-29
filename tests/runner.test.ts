@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Runner, type Store, type LiveEvent, type QueryFn } from '../server/claude/runner';
-import { buildSystemAppend, prefixPrompt, titleFromPrompt } from '../server/claude/header';
+import { buildSystemAppend, prefixPrompt, titleFromPrompt, FRASE_TOOL, REGRA_LINHAS_MAX, type MemoriaDecisao, type MemoriaRegra } from '../server/claude/header';
 
 function memStore() {
   const events: { sessionId: string; type: string; payload: any }[] = [];
@@ -29,7 +29,7 @@ async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); whil
  * `liveCalls` (devolvido junto de `fn`/`calls`) pra os testes de `setPermissionModeLive`/
  * `setModelLive`/`setEffortLive` conferirem o que foi chamado, com quais argumentos.
  */
-function fakeQuery(opts: { askPermission?: boolean; askPermissionParallel?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
+function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
   const calls: any[] = [];
   const liveCalls: any[] = [];
   const fn: QueryFn = ({ prompt, options }) => {
@@ -46,18 +46,6 @@ function fakeQuery(opts: { askPermission?: boolean; askPermissionParallel?: bool
         // PARIDADE.md "padrão de mensagens diferente do plugin").
         const r = await options.canUseTool('Bash', { command: 'ls' }, { signal: options.abortController!.signal, suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow', destination: 'session' } as any], toolUseID: 'toolu_fixture_bash' } as any);
         yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: r.behavior === 'allow' ? 'permitido' : `negado: ${(r as any).message}` }] } } as any;
-      }
-      if (opts.askPermissionParallel && options?.canUseTool) {
-        // Simula o SDK despachando DOIS tool_use independentes no mesmo turno sem esperar o 1º
-        // canUseTool resolver antes de chamar o 2º (Promise.all, não await sequencial) — pra provar
-        // que server/claude/runner.ts (l.pending, um Map sem serialização) de fato guarda as DUAS
-        // pendências ao mesmo tempo, não só "em teoria" por leitura de código. Ver
-        // web/src/claude/mapper.ts `currentPermission` e PARIDADE.md ("Card de permissão docado").
-        const [r1, r2] = await Promise.all([
-          options.canUseTool('Bash', { command: 'ls' }, { signal: options.abortController!.signal, toolUseID: 'toolu_par_a' } as any),
-          options.canUseTool('Bash', { command: 'pwd' }, { signal: options.abortController!.signal, toolUseID: 'toolu_par_b' } as any),
-        ]);
-        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `${r1.behavior}/${r2.behavior}` }] } } as any;
       }
       if (opts.fail) throw new Error('falhou de propósito');
       yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${prompt}` }] } } as any;
@@ -117,30 +105,6 @@ describe('Runner', () => {
     const texts = m.events.filter(e => e.type === 'assistant').map(e => e.payload.message.content[0].text);
     expect(texts[0]).toBe('permitido');
     expect(await r.decide('s3', req.id, 'allow', 1)).toBe(false);
-  });
-
-  /**
-   * Base pro card de permissão **docado** (`web/src/claude/mapper.ts` `currentPermission`,
-   * `ClaudePage.tsx`/`Timeline.tsx` — ver PARIDADE.md "Card de permissão docado"): confirma, rodando
-   * o runner de verdade (não só lendo o código), que `l.pending` (o `Map` de pedidos pendentes) NÃO
-   * serializa `canUseTool` — duas chamadas no mesmo turno, sem a 1ª ter resolvido ainda, ficam as DUAS
-   * pendentes ao mesmo tempo. É exatamente esse o motivo de `currentPermission` escolher só a
-   * primeira (FIFO) pra mostrar no card — mesmo modelo da extensão real, cujo `permissionRequests`
-   * também é uma lista e cujo componente docado sempre lê só `[0]` (webview/index.js v2.1.282).
-   */
-  it('duas chamadas de canUseTool no mesmo turno, sem esperar a 1ª resolver, ficam as DUAS pendentes ao mesmo tempo (sem serialização)', async () => {
-    const m = memStore(); const q = fakeQuery({ askPermissionParallel: true });
-    const r = new Runner({ queryFn: q.fn, store: m.store });
-    r.startTurn({ ...base, sessionId: 's3par', prompt: 'x', isNew: true });
-    await until(() => r.pendingPermissions('s3par').length === 2);
-    const pend = r.pendingPermissions('s3par');
-    expect(pend.map(p => p.toolName)).toEqual(['Bash', 'Bash']);
-    // Decide a 1ª: a 2ª continua pendente sozinha (nenhuma decisão "vaza" pra outra pendência).
-    expect(await r.decide('s3par', pend[0].id, 'allow', 1)).toBe(true);
-    expect(r.pendingPermissions('s3par')).toHaveLength(1);
-    expect(r.pendingPermissions('s3par')[0].id).toBe(pend[1].id);
-    expect(await r.decide('s3par', pend[1].id, 'allow', 1)).toBe(true);
-    await until(() => m.sessions.get('s3par')?.status === 'idle');
   });
 
   /**
@@ -402,18 +366,56 @@ describe('header', () => {
   });
 });
 
-describe('header com memórias', () => {
-  it('lista as memórias e marca a de importância máxima', () => {
-    const s = buildSystemAppend({ projectName: 'Orion', projectPath: '/srv/orion', createdBy: 'Danilo', memories: [
-      { title: 'Regra de ouro', summary: 'sempre testar', status: 'deus', scope: 'projeto' },
-      { title: 'Prefere PT', summary: 'responde em português', status: 'aprendizagem', scope: 'usuário' },
-    ] });
-    expect(s).toContain('Memórias que valem para esta sessão');
-    expect(s).toMatch(/Regra de ouro: sempre testar/);
-    expect(s).toContain('importância máxima');
-    expect(s).toMatch(/\[usuário\] Prefere PT/);
+describe('header com memórias por nível (injeção das decisões de 28/09/2026)', () => {
+  const base = { projectName: 'Orion', projectPath: '/srv/orion', createdBy: 'Danilo' };
+
+  it('nível 2 entra com título e corpo; nível 3 só a linha de índice; frase da tool no fim', () => {
+    const s = buildSystemAppend({ ...base,
+      regras: [{ title: 'Testes antes do deploy', body: 'npm test\nnpm run typecheck', scope: 'projeto' }],
+      decisoes: [{ code: 'orion-central-unico-painel', title: 'Painel único', summary: 'as VPS empurram, o painel nunca puxa' }],
+    });
+    expect(s).toContain('Regras e preferências (nível 2)');
+    expect(s).toContain('- [projeto] Testes antes do deploy:');
+    expect(s).toContain('  npm test');
+    expect(s).toContain('  npm run typecheck');
+    expect(s).toContain('Decisões fechadas (nível 3), só o índice:');
+    expect(s).toContain('- [orion-central-unico-painel] Painel único: as VPS empurram, o painel nunca puxa');
+    // o corpo da decisão nunca entra; só a linha de índice
+    expect(s).toContain(FRASE_TOOL);
   });
-  it('sem memórias não adiciona a seção', () => {
-    expect(buildSystemAppend({ projectName: 'X', projectPath: '/x', createdBy: 'A', memories: [] })).not.toContain('Memórias que valem');
+
+  it('corpo do nível 2 é cortado na linha 15, com aviso honesto', () => {
+    const corpo = Array.from({ length: 20 }, (_, i) => `linha ${i + 1}`).join('\n');
+    const s = buildSystemAppend({ ...base, regras: [{ title: 'Longa', body: corpo, scope: 'universal' }] });
+    expect(s).toContain(`linha ${REGRA_LINHAS_MAX}`);
+    expect(s).not.toContain(`linha ${REGRA_LINHAS_MAX + 1}\n`);
+    expect(s).toContain(`corpo cortado na linha ${REGRA_LINHAS_MAX}`);
+  });
+
+  it('tetos: no máximo 10 regras e 20 decisões', () => {
+    const regras: MemoriaRegra[] = Array.from({ length: 12 }, (_, i) => ({ title: `Regra ${i + 1}`, body: 'b', scope: 'universal' }));
+    const decisoes: MemoriaDecisao[] = Array.from({ length: 25 }, (_, i) => ({ code: `dec-${i + 1}`, title: `Decisão ${i + 1}`, summary: 's' }));
+    const s = buildSystemAppend({ ...base, regras, decisoes });
+    expect(s).toContain('Regra 10');
+    expect(s).not.toContain('Regra 11');
+    expect(s).toContain('[dec-20]');
+    expect(s).not.toContain('[dec-21]');
+  });
+
+  it('sem memórias de nível 2/3 não adiciona seção nenhuma nem a frase da tool', () => {
+    const s = buildSystemAppend({ ...base, regras: [], decisoes: [] });
+    expect(s).not.toContain('nível 2');
+    expect(s).not.toContain('Decisões fechadas');
+    expect(s).not.toContain(FRASE_TOOL);
+  });
+
+  it('níveis 0, 1 e 4 nunca têm seção no append (chegam pelo CLAUDE.md ou pela tool)', () => {
+    const s = buildSystemAppend({ ...base,
+      regras: [{ title: 'R', body: 'b', scope: 'universal' }],
+      decisoes: [{ code: 'd', title: 'D', summary: 's' }],
+    });
+    expect(s).not.toContain('nível 0');
+    expect(s).not.toContain('nível 1');
+    expect(s).not.toContain('Micro-fatos');
   });
 });

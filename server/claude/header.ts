@@ -1,12 +1,39 @@
-/** Cabeçalho de sessão (decisão 10): quem, qual projeto, qual pasta, regras e memória. Puro, testável. */
+/**
+ * Cabeçalho de sessão (decisão 10): quem, qual projeto, qual pasta, regras e memória. Puro, testável.
+ *
+ * Injeção por nível (decisões fechadas 28/09/2026):
+ * - Níveis 0 e 1 NUNCA entram aqui: já chegam pelo CLAUDE.md nativo (constituição + @import dos
+ *   mapas). Duplicar no systemAppend é pagar o mesmo contexto duas vezes.
+ * - Nível 2 (regras/preferências): título + corpo, com teto de linhas por memória e de memórias.
+ * - Nível 3 (decisões fechadas): só a linha de índice; o corpo é lido sob demanda pela tool.
+ * - Nível 4 (micro-fatos): nunca no append; só via busca da tool orion-memory.
+ */
+export type MemoriaRegra = { title: string; body: string; scope: 'universal' | 'projeto' | 'usuário' };
+export type MemoriaDecisao = { code: string; title: string; summary: string };
+
+export const REGRAS_MAX = 10;
+export const REGRA_LINHAS_MAX = 15;
+export const DECISOES_MAX = 20;
+export const FRASE_TOOL =
+  'Para ler o corpo de uma decisão nível 3 ou buscar micro-fatos (nível 4), use a tool orion-memory.';
+
 export type SessionHeader = {
   projectName: string;
   projectPath: string;
   createdBy: string;
   rules?: string | null;
   userMemory?: string | null;
-  memories?: { title: string; summary: string; status: string; scope: 'universal' | 'projeto' | 'usuário' }[] | null;
+  regras?: MemoriaRegra[] | null;
+  decisoes?: MemoriaDecisao[] | null;
 };
+
+/** Corpo de uma regra nível 2, limitado a REGRA_LINHAS_MAX linhas e indentado sob o título. */
+function corpoRegra(body: string): string[] {
+  const linhas = (body ?? '').split('\n');
+  const corte = linhas.slice(0, REGRA_LINHAS_MAX).map((l) => `  ${l}`.trimEnd());
+  if (linhas.length > REGRA_LINHAS_MAX) corte.push(`  (corpo cortado na linha ${REGRA_LINHAS_MAX}; o resto fica no painel)`);
+  return corte;
+}
 
 export function buildSystemAppend(h: SessionHeader): string {
   const lines = [
@@ -17,10 +44,21 @@ export function buildSystemAppend(h: SessionHeader): string {
   ];
   if (h.rules?.trim()) lines.push('', 'Regras do projeto definidas no painel:', h.rules.trim());
   if (h.userMemory?.trim()) lines.push('', `Memória sobre ${h.createdBy}:`, h.userMemory.trim());
-  if (h.memories && h.memories.length) {
-    lines.push('', 'Memórias que valem para esta sessão (do painel Memória). Leve-as em conta e, se aprender algo novo e durável, sugira registrar:');
-    for (const m of h.memories) lines.push(`- [${m.scope}${m.status === 'deus' ? ', importância máxima' : ''}] ${m.title}: ${m.summary}`);
+
+  const regras = (h.regras ?? []).slice(0, REGRAS_MAX);
+  const decisoes = (h.decisoes ?? []).slice(0, DECISOES_MAX);
+  if (regras.length) {
+    lines.push('', 'Regras e preferências (nível 2) que valem para esta sessão. Siga-as sem precisar confirmar:');
+    for (const m of regras) {
+      lines.push(`- [${m.scope}] ${m.title}:`);
+      lines.push(...corpoRegra(m.body));
+    }
   }
+  if (decisoes.length) {
+    lines.push('', 'Decisões fechadas (nível 3), só o índice:');
+    for (const d of decisoes) lines.push(`- [${d.code}] ${d.title}: ${d.summary}`);
+  }
+  if (regras.length || decisoes.length) lines.push(FRASE_TOOL);
   return lines.join('\n');
 }
 
