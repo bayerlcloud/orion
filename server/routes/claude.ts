@@ -17,6 +17,10 @@ import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } fr
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
 import { createWorktreeForProject } from '../claude/worktree.js';
+import {
+  PERMISSION_BEHAVIORS, settingsPathForScope, readPermissionRuleSet, mutatePermissionRuleSet,
+  validateRuleText, addRule, removeRule, replaceRule, type PermissionBehavior, type PermissionScope,
+} from '../claude/permissionRules.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -195,6 +199,87 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get('/api/claude/projects', async () => {
     const { rows } = await app.pool.query('SELECT id, slug, name, path, rules FROM projects ORDER BY id');
     return { projects: rows };
+  });
+
+  /**
+   * Editor de regras de permissão (allow/deny/ask) — "Aba Claude" (ver `web/src/claude/PARIDADE.md`,
+   * item 9 da seção 13, e `server/claude/permissionRules.ts` pra decisão de arquitetura completa: lê
+   * e escreve DIRETO nos dois arquivos `settings.json` que `Runner`/`settingSources: ['user',
+   * 'project']` de fato usa — nunca `.claude/settings.local.json`, que o Orion não lê hoje). `scope`:
+   * `'user'` (`~/.claude/settings.json` do usuário do SO que roda o servidor — global, afeta TODOS os
+   * projetos/usuários do Orion) ou `'project'` (`<project.path>/.claude/settings.json`, exige
+   * `project_id`). Escrever no escopo `'user'` é restrito a `role === 'owner'` (mesmo padrão já usado
+   * em `DELETE /api/claude/sessions/:id`, linha ~476) por causa do raio de efeito global; leitura é
+   * livre pra qualquer usuário autenticado nos dois escopos, e escrita em `'project'` também (mesmo
+   * nível de confiança que o resto do app já dá a `projects.rules`, sem ACL por projeto no schema).
+   */
+  async function resolveRuleScopePath(scope: unknown, projectId: unknown): Promise<{ ok: true; path: string } | { ok: false; code: number; error: string }> {
+    if (scope !== 'user' && scope !== 'project') return { ok: false, code: 400, error: 'scope inválido (use "user" ou "project")' };
+    if (scope === 'user') return { ok: true, path: settingsPathForScope('user', { homeDir: homedir() }) };
+    const pid = Number(projectId);
+    if (!pid) return { ok: false, code: 400, error: 'project_id é obrigatório pro scope "project"' };
+    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [pid]);
+    const projectPath = rows[0]?.path;
+    if (!projectPath) return { ok: false, code: 404, error: 'projeto não encontrado' };
+    try {
+      return { ok: true, path: settingsPathForScope('project', { homeDir: homedir(), projectPath }) };
+    } catch (e: any) {
+      return { ok: false, code: 500, error: e?.message ?? 'projeto com caminho inválido' };
+    }
+  }
+  function requireOwnerForUserScope(scope: unknown, req: { user?: { role: string } | null }): string | null {
+    if (scope === 'user' && req.user?.role !== 'owner') return 'só o admin edita regras de usuário (afeta todos os projetos e usuários do Orion)';
+    return null;
+  }
+
+  app.get<{ Querystring: { scope?: string; project_id?: string } }>('/api/claude/permission-rules', async (req, reply) => {
+    const r = await resolveRuleScopePath(req.query.scope, req.query.project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    const { set, error } = await readPermissionRuleSet(r.path);
+    return { ...set, ...(error ? { error } : {}) };
+  });
+
+  type PermRuleBody = { scope?: PermissionScope; project_id?: number; behavior?: PermissionBehavior; rule?: string };
+  app.post<{ Body: PermRuleBody }>('/api/claude/permission-rules', async (req, reply) => {
+    const { scope, project_id, behavior, rule } = req.body ?? {};
+    const denied = requireOwnerForUserScope(scope, req);
+    if (denied) return reply.code(403).send({ error: denied });
+    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior)) return reply.code(400).send({ error: 'behavior inválido (use allow, ask ou deny)' });
+    const msg = validateRuleText(rule ?? '');
+    if (msg) return reply.code(400).send({ error: msg });
+    const r = await resolveRuleScopePath(scope, project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    try {
+      return await mutatePermissionRuleSet(r.path, (s) => addRule(s, behavior, rule!.trim()));
+    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao salvar' }); }
+  });
+
+  type PermRuleEditBody = PermRuleBody & { old_behavior?: PermissionBehavior; old_rule?: string };
+  app.put<{ Body: PermRuleEditBody }>('/api/claude/permission-rules', async (req, reply) => {
+    const { scope, project_id, behavior, rule, old_behavior, old_rule } = req.body ?? {};
+    const denied = requireOwnerForUserScope(scope, req);
+    if (denied) return reply.code(403).send({ error: denied });
+    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior)) return reply.code(400).send({ error: 'behavior inválido (use allow, ask ou deny)' });
+    if (!old_behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(old_behavior) || !old_rule) return reply.code(400).send({ error: 'regra original ausente' });
+    const msg = validateRuleText(rule ?? '');
+    if (msg) return reply.code(400).send({ error: msg });
+    const r = await resolveRuleScopePath(scope, project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    try {
+      return await mutatePermissionRuleSet(r.path, (s) => replaceRule(s, old_behavior, old_rule, behavior, rule!.trim()));
+    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao salvar' }); }
+  });
+
+  app.delete<{ Body: PermRuleBody }>('/api/claude/permission-rules', async (req, reply) => {
+    const { scope, project_id, behavior, rule } = req.body ?? {};
+    const denied = requireOwnerForUserScope(scope, req);
+    if (denied) return reply.code(403).send({ error: denied });
+    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior) || !rule) return reply.code(400).send({ error: 'regra inválida' });
+    const r = await resolveRuleScopePath(scope, project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    try {
+      return await mutatePermissionRuleSet(r.path, (s) => removeRule(s, behavior, rule));
+    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao remover' }); }
   });
 
   app.get('/api/claude/sessions', async () => {
