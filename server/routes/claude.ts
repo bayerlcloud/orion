@@ -20,6 +20,7 @@ import { safeFilename } from '../driveUtils.js';
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const tabListeners = new Map<number, Set<(e: unknown) => void>>();
 
 /** Pasta dos anexos do Claude. Padrão /srv/claude-uploads, ou CLAUDE_UPLOAD_DIR. */
 export function claudeUploadDir(): string {
@@ -127,11 +128,27 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { tabs: rows[0]?.claude_open_tabs ?? [], active_id: rows[0]?.claude_active_session ?? null };
   });
 
-  app.put<{ Body: { tabs?: string[]; active_id?: string | null } }>('/api/claude/ui-state', async (req) => {
+  app.put<{ Body: { tabs?: string[]; active_id?: string | null; client?: string } }>('/api/claude/ui-state', async (req) => {
     const tabs = Array.isArray(req.body?.tabs) ? req.body!.tabs.filter(x => typeof x === 'string').slice(0, 50) : [];
     const activeId = typeof req.body?.active_id === 'string' ? req.body!.active_id : null;
     await app.pool.query('UPDATE users SET claude_open_tabs = $2, claude_active_session = $3 WHERE id = $1', [req.user!.id, JSON.stringify(tabs), activeId]);
+    for (const send of tabListeners.get(req.user!.id) ?? []) send({ tabs, client: req.body?.client });
     return { ok: true };
+  });
+
+  // Abas abertas em tempo real entre guias/dispositivos do mesmo usuário: cada PUT acima avisa
+  // todas as conexões deste usuário. ponytail: em memória, um processo só; se virar cluster, LISTEN/NOTIFY.
+  app.get('/api/claude/ui-state/stream', async (req, reply) => {
+    const uid = req.user!.id;
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+    const send = (e: unknown) => { res.write(`data: ${JSON.stringify(e)}\n\n`); };
+    let set = tabListeners.get(uid);
+    if (!set) tabListeners.set(uid, set = new Set());
+    set.add(send);
+    const hb = setInterval(() => res.write(': hb\n\n'), 15_000);
+    req.raw.on('close', () => { clearInterval(hb); set!.delete(send); if (!set!.size) tabListeners.delete(uid); });
   });
 
   app.get('/api/claude/projects', async () => {

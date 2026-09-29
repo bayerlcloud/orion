@@ -11,6 +11,8 @@ import './claude.css';
 
 type Tab = { id: string; draft?: boolean; projectId?: number };
 const isDraft = (id: string) => id.startsWith('draft-');
+/** Identifica esta guia no stream de abas, pra ignorar o eco das próprias mudanças. */
+const CLIENT_ID = crypto.randomUUID();
 
 function toSummary(s: ApiSession): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
@@ -51,6 +53,7 @@ export default function ClaudePage() {
   const draftCounter = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const restoredRef = useRef(false);
+  const savedKeyRef = useRef('');
   // Pilha de sessões fechadas recentemente (só ids reais, nunca rascunho) — estilo aba de navegador
   // pro Ctrl/Cmd+Shift+T: cada fechamento empilha, reabrir desempilha o mais recente. Cap de 10, igual
   // ao `recentlyClosedSessions`/rk0 da extensão real (extension.js) — é de fato uma pilha pequena, não
@@ -95,42 +98,72 @@ export default function ClaudePage() {
   }, [refreshSessions, refreshUsage]);
 
   // Sempre que as abas abertas mudam, lembra por usuário (sobrevive a reload/troca de dispositivo).
+  // Pula o PUT quando nada mudou de fato (ex.: a lista acabou de chegar de outra guia).
   useEffect(() => {
     if (!restoredRef.current) return;
     const ids = tabs.filter(t => !t.draft).map(t => t.id);
     const active = activeId && !isDraft(activeId) ? activeId : null;
-    void claudeApi.saveUiState({ tabs: ids, active_id: active }).catch(() => { /* melhor esforço */ });
+    const key = JSON.stringify([ids, active]);
+    if (key === savedKeyRef.current) return;
+    savedKeyRef.current = key;
+    void claudeApi.saveUiState({ tabs: ids, active_id: active, client: CLIENT_ID }).catch(() => { /* melhor esforço */ });
   }, [tabs, activeId]);
 
-  // Abre a sessão ativa: carrega histórico e liga o stream.
+  // Abas em tempo real entre guias/dispositivos: outra guia abriu/fechou sessão → aplica aqui.
+  // Só a lista de abas é sincronizada; cada guia continua com a sua aba ativa (senão brigam).
+  useEffect(() => {
+    const es = new EventSource('/api/claude/ui-state/stream');
+    es.onmessage = (m) => {
+      try {
+        const ev = JSON.parse(m.data) as { tabs: string[]; client?: string };
+        if (ev.client === CLIENT_ID) return;
+        void refreshSessions(); // sessão criada na outra guia ainda não está na lista local
+        setTabs(t => [...ev.tabs.map(id => ({ id })), ...t.filter(x => x.draft)]);
+        setActiveId(a => a && !isDraft(a) && !ev.tabs.includes(a) ? (ev.tabs.at(-1) ?? null) : a);
+      } catch { /* ignora */ }
+    };
+    return () => es.close();
+  }, [refreshSessions]);
+
+  // Abre a sessão ativa: liga o stream PRIMEIRO e só então carrega o histórico, a cada (re)conexão.
+  // Antes era o contrário (histórico, depois stream): o que o Claude emitia nesse intervalo, ou
+  // enquanto a conexão estava caída, se perdia, e a tela ficava parada até alguém "cutucar" a
+  // sessão. Agora os eventos que chegam durante a carga ficam num buffer e são aplicados por cima
+  // do histórico (duplicados são ignorados em pushMessage/permission_request).
   useEffect(() => {
     esRef.current?.close(); esRef.current = null;
     if (!activeId || isDraft(activeId)) return;
     let alive = true;
+    let buffer: any[] | null = [];
+    let first = true; // modo/modelo só vêm do servidor na primeira carga (reconexão não desfaz o seletor)
     setStreamStatus('connecting');
-    claudeApi.get(activeId).then(r => {
-      if (!alive) return;
-      setLive(l => ({ ...l, [activeId]: fromRows(r.events, r.session.status, r.pending) }));
-      const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
-      es.onmessage = (m) => { try { const ev = JSON.parse(m.data); setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) })); if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions(); if (ev.type === 'turn_end') void refreshUsage(); } catch { /* ignora */ } };
-      // O EventSource nativo reconecta sozinho — isso só avisa visualmente que a conexão caiu (antes
-      // era um no-op puro, silêncio total). onopen dispara de novo quando a reconexão automática do
-      // navegador der certo (dispara também na primeira conexão, por isso 'connecting' antes disso).
-      es.onopen = () => { setStreamStatus('connected'); };
-      es.onerror = () => { setStreamStatus('disconnected'); };
-      esRef.current = es;
-      const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
-      setModel(matchModelAlias(s.model));
-      // Esforço: mesma restauração que modo/modelo já tinham (paridade trazida agora — ver
-      // PARIDADE.md, follow-up de 28/09/2026). matchEffort nunca confia cegamente no valor do banco
-      // (nullable: sessão sem escolha explícita, ou criada antes da coluna existir) e sempre resolve
-      // pra um Effort concreto ('medium' se ausente/inválido) — ao contrário do guard de `mode` acima,
-      // que só chama setMode quando o valor já é válido: aqui sempre chamamos setEffort, senão trocar
-      // de uma sessão com esforço escolhido pra outra sem nada persistido deixaria o valor da sessão
-      // ANTERIOR "vazado" no seletor (e indo junto, sem o usuário ter escolhido, no próximo turno).
-      setEffort(matchEffort(s.effort));
-    }).catch(e => setErro(e.message));
-    return () => { alive = false; esRef.current?.close(); esRef.current = null; };
+    const apply = (ev: any) => {
+      setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) }));
+      if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
+      if (ev.type === 'turn_end') void refreshUsage();
+    };
+    const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
+    es.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (buffer) buffer.push(ev); else apply(ev); } catch { /* ignora */ } };
+    // onopen dispara na primeira conexão e em cada reconexão automática do navegador: nas duas,
+    // recarrega o histórico pra recuperar o que aconteceu enquanto não estava ouvindo.
+    es.onopen = () => {
+      setStreamStatus('connected');
+      buffer = buffer ?? [];
+      claudeApi.get(activeId).then(r => {
+        if (!alive) return;
+        const pending = buffer ?? []; buffer = null;
+        setLive(l => ({ ...l, [activeId]: pending.reduce((st, ev) => applyLive(st, ev), fromRows(r.events, r.session.status, r.pending)) }));
+        if (!first) return;
+        first = false;
+        const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
+        setModel(matchModelAlias(s.model));
+        // Esforço: sempre resolve pra um valor concreto (ver matchEffort), senão o da sessão anterior vaza.
+        setEffort(matchEffort(s.effort));
+      }).catch(e => { buffer = null; setErro(e.message); });
+    };
+    es.onerror = () => { setStreamStatus('disconnected'); };
+    esRef.current = es;
+    return () => { alive = false; es.close(); esRef.current = null; };
   }, [activeId, refreshSessions, refreshUsage]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
@@ -285,6 +318,7 @@ export default function ClaudePage() {
       <Sidebar sessions={summaries} usage={usage} activeId={activeId} loading={sessionsLoading} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} />
       <main className="cc-main">
         <div className="cc-tabs">
+          <div className="cc-tabs-scroll">
           {tabs.map(t => {
             const s = sessions.find(x => x.id === t.id);
             const label = t.draft ? 'Nova sessão' : (s?.title ?? '…');
@@ -295,7 +329,7 @@ export default function ClaudePage() {
               </div>
             );
           })}
-          <span className="cc-spacer" />
+          </div>
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
