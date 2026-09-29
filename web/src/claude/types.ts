@@ -45,6 +45,14 @@ export type ConvEvent =
   | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string }
   /**
+   * Prompt REJEITADO por um hook UserPromptSubmit (exit 2): o SDK manda `system` com
+   * `prevent_continuation: true` e o `result` vem "success" com 0 turnos — o Claude nunca viu a
+   * mensagem. Sem este evento ela sumia em silêncio (incidente 2026-09-29, claude-mem "worker
+   * unreachable for 3 consecutive hooks"). `prompt`/`attachments` são os do bubble anterior,
+   * pro botão Reenviar da Timeline.
+   */
+  | { id: string; kind: 'blocked'; reason: string; prompt: string; attachments?: UserAttachment[] }
+  /**
    * Indicador "pensando" ao vivo (ícone + palavra pulsando/trocando) — sintético, nunca persistido;
    * gerado só em `toConvEvents` (live.ts) quando `status==='running'` (turno rodando, sem pedido de
    * permissão pendente — mesma condição de `visiblyBusy && !permissionRequests.length` da extensão
