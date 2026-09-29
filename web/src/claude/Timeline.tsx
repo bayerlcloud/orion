@@ -639,9 +639,18 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
   // Só agentes ATIVOS entram nas linhas dobráveis — mesma seleção do componente real (`MA1` recebe
   // as tasks do fold de "rodando"); concluídos/falhos já têm a linha `TaskAgent` de sempre acima.
   const liveAgents = useMemo(() => (agentTasks ?? []).filter(t => t.status === 'running' || t.status === 'waiting'), [agentTasks]);
-  return (
-    <div className="cc-timeline">
-      {folded.map(e => {
+  // Agrupa em turnos (cada mensagem do usuário abre um), igual ao `turn_07S1Yg` do plugin: a mensagem
+  // do usuário fica `position: sticky` no topo só enquanto o turno dela está na tela; o próximo turno
+  // empurra e assume o lugar (ver .cc-turn / .cc-user-row.is-sticky no claude.css).
+  const turns = useMemo(() => {
+    const out: ConvEvent[][] = [];
+    for (const e of folded) {
+      if (e.kind === 'user' || out.length === 0) out.push([]);
+      out[out.length - 1].push(e);
+    }
+    return out;
+  }, [folded]);
+  const renderEvent = (e: ConvEvent) => {
         if (e.kind === 'system' || e.kind === 'result') return null;
         // Permissão pendente (sem decisão) ou já decidida (allow/allow_always/deny/answer): nenhuma
         // das duas aparece mais aqui. A pendente foi pro card docado (PermissionDock, montado por
@@ -680,9 +689,10 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
               {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
             </div>
           );
-          if (!m) return <div key={e.id} className="cc-user-row is-anon">{bubble}</div>;
+          const sticky = e.text ? ' is-sticky' : '';
+          if (!m) return <div key={e.id} className={`cc-user-row is-anon${sticky}`}>{bubble}</div>;
           return (
-            <div key={e.id} className="cc-user-row">
+            <div key={e.id} className={`cc-user-row${sticky}`}>
               <UserAvatar name={m[1]} />
               {bubble}
             </div>
@@ -695,7 +705,10 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
             {e.kind === 'tool' && <ToolBlock e={e} agentTasks={agentTasks} />}
           </div>
         );
-      })}
+  };
+  return (
+    <div className="cc-timeline">
+      {turns.map((t, i) => <div key={t[0]?.id ?? i} className="cc-turn">{t.map(renderEvent)}</div>)}
       {liveAgents.length > 0 && <SubagentRows tasks={liveAgents} />}
     </div>
   );
