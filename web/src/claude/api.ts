@@ -15,6 +15,14 @@ export type Project = { id: number; slug: string; name: string; path: string; ru
 export type ApiSessionGroup = { id: string; name: string; created_at: string };
 export type Mode = 'acceptEdits' | 'default' | 'plan' | 'auto';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * Escolha do seletor de esforço: os 5 níveis reais do SDK ou o degrau extra "Ultracode" — um nível
+ * ACIMA de max no mesmo seletor, paridade com a extensão real v2.1.283 (`IV0="Ultracode"`,
+ * `fe = "Ultracode - xhigh + workflows"`, `enableUltracode()`; ver PARIDADE-seletor.md). O valor de
+ * fio 'ultracode' vai como está pro servidor (rotas aceitam e persistem em `claude_sessions.effort`);
+ * a tradução pro SDK (xhigh + instrução de orquestração) é toda do server/claude/ultracode.ts.
+ */
+export type EffortChoice = Effort | 'ultracode';
 export type Me = { id: number; name: string; email: string; role: string };
 /** Anexo já salvo no servidor pelo endpoint de upload. */
 export type Attachment = { kind: 'image' | 'file'; media_type: string; name: string; path: string; size?: number };
@@ -38,11 +46,11 @@ export const claudeApi = {
   sessions: () => api<{ sessions: ApiSession[] }>('/api/claude/sessions'),
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null; client?: string }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),
-  usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[]; real: RealUsage }>('/api/claude/usage'),
+  usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[]; real: RealUsage; by_model?: { model: string | null; cost: string }[] }>('/api/claude/usage'),
   /** `worktree_name`: cria um git worktree novo (branch `feature/<nome>`) e a sessão já nasce com `cwd` apontando pra ele — ver PARIDADE.md seção 14. Ausente/vazio = sessão normal na raiz do projeto, como sempre foi. */
-  create: (b: { project_id: number; prompt: string; permission_mode: Mode; model?: string; effort?: Effort; attachments?: Attachment[]; worktree_name?: string }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
+  create: (b: { project_id: number; prompt: string; permission_mode: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[]; worktree_name?: string }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
-  send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: Effort; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
+  send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
   // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
   uploads: async (files: File[]): Promise<{ attachments: Attachment[] }> => {
     const fd = new FormData();
@@ -66,7 +74,7 @@ export const claudeApi = {
   /** `model` omitido/vazio = "sem override" (volta pro modelo padrão da sessão/conta ao vivo, sem mexer no que já está persistido — mesma semântica de `send`). */
   setModel: (id: string, model?: string) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/model`, { method: 'POST', body: JSON.stringify({ model }) }),
   /** Esforço nunca é persistido por sessão (sempre reenviado em create/send) — esta chamada só tem o lado ao vivo. */
-  setEffort: (id: string, effort: Effort) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/effort`, { method: 'POST', body: JSON.stringify({ effort }) }),
+  setEffort: (id: string, effort: EffortChoice) => api<{ ok: true; live: boolean }>(`/api/claude/sessions/${id}/effort`, { method: 'POST', body: JSON.stringify({ effort }) }),
   stop: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/stop`, { method: 'POST' }),
   rename: (id: string, title: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/rename`, { method: 'POST', body: JSON.stringify({ title }) }),
   archive: (id: string, archived: boolean) => api<{ ok: true; archived: boolean }>(`/api/claude/sessions/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),
@@ -116,6 +124,14 @@ export const MODE_ORDER: Mode[] = ['acceptEdits', 'default', 'plan', 'auto'];
 
 export const EFFORT_LABEL: Record<Effort, string> = { low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
 export const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** Rótulo curto do degrau Ultracode no pill (extensão real: `kV0` devolve `IV0`="Ultracode" quando selecionado). */
+export const ULTRACODE_LABEL = 'Ultracode';
+/** String literal EXATA da extensão real (`fe = IV0 + " - xhigh + workflows"`) — rótulo do degrau no menu/slider. */
+export const ULTRACODE_MENU_LABEL = 'Ultracode - xhigh + workflows';
+/** Rótulo do pill/tooltip pra qualquer escolha do seletor, incluindo o degrau Ultracode. */
+export function effortPillLabel(e: EffortChoice): string {
+  return e === 'ultracode' ? ULTRACODE_LABEL : EFFORT_LABEL[e];
+}
 
 /**
  * Esforço válido a partir do valor persistido em `claude_sessions.effort` (coluna nova, nullable —
@@ -127,7 +143,8 @@ export const EFFORT_ORDER: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
  * efeito de carga só faria sentido disparar quando há valor pra restaurar) — `'medium'` é o mesmo
  * padrão do `useState<Effort>('medium')` inicial em `ClaudePage.tsx`.
  */
-export function matchEffort(effort: string | null | undefined): Effort {
+export function matchEffort(effort: string | null | undefined): EffortChoice {
+  if (effort === 'ultracode') return 'ultracode'; // degrau extra persistido como está (ver EffortChoice)
   return (EFFORT_ORDER as string[]).includes(effort ?? '') ? (effort as Effort) : 'medium';
 }
 

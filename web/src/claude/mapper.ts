@@ -1,4 +1,5 @@
 import type { AgentTask, AgentTaskUsage, ConvEvent, HookEntry, SdkContentBlock, SdkMessage, SessionGroupInfo, SessionSummary, ToolStatus } from './types';
+import { matchModelAlias, MODEL_LABEL } from './api';
 
 type Rec = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -632,6 +633,36 @@ export function computeUsageBars(rows: UsageRow[], real?: RealUsage, now = Date.
   const realBars = real ? computeRealUsageBars(real.rate_limits, real.subscription_type, now) : [];
   if (realBars.length) return realBars;
   return computeProxyUsageBars(rows);
+}
+
+/** Linha de `by_model` de GET /api/claude/usage: custo somado (7 dias) por id de modelo da coluna `claude_sessions.model`. */
+export type ModelCostRow = { model: string | null; cost: string | number };
+export type ModelAttribution = { name: string; pct: number };
+/**
+ * Breakdown "% do uso" por modelo da tela Conta e Uso — paridade com o bloco de atribuição da
+ * extensão real (string "% of usage", classes `attribution*_QET5Ow`, componente `J11` no webview
+ * v2.1.283; ver PARIDADE-seletor.md). Lá a fonte é telemetria de atribuição do servidor deles; aqui
+ * o proxy é o custo por modelo que o Orion já tem (`claude_sessions.model` + `cost_usd`, janela de
+ * 7 dias agregada no servidor). Ids de modelo diferentes com o mesmo alias conhecido são somados sob
+ * o rótulo do seletor (ex.: claude-sonnet-* → "Sonnet", via `matchModelAlias`/`MODEL_LABEL`); id sem
+ * alias conhecido fica com o id cru; sessão sem modelo resolvido (null) é pulada — sem rótulo não há
+ * o que atribuir. Ordena por % desc (mesma `iW0` real) e arredonda como a real (`Math.round`).
+ * Lista vazia quando não há custo nenhum — o bloco não aparece (sem % inventado de divisão por zero).
+ */
+export function computeModelAttribution(rows: ModelCostRow[] | null | undefined): ModelAttribution[] {
+  const byName = new Map<string, number>();
+  for (const r of rows ?? []) {
+    if (!r.model) continue;
+    const alias = matchModelAlias(r.model);
+    const name = alias !== 'default' ? MODEL_LABEL[alias] : r.model;
+    byName.set(name, (byName.get(name) ?? 0) + (Number(r.cost) || 0));
+  }
+  let total = 0;
+  for (const v of byName.values()) total += v;
+  if (total <= 0) return [];
+  return [...byName.entries()]
+    .map(([name, cost]) => ({ name, pct: Math.round((cost / total) * 100) }))
+    .sort((a, b) => b.pct - a.pct);
 }
 
 export function relativeTime(ts: number, now = Date.now()): string {

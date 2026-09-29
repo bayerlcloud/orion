@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch, Mic } from './icons';
-import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, type Mode, type Effort, type ModelAlias, type Project } from './api';
+import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type Project } from './api';
 import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, type CycleState } from './mapper';
+import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 import Lightbox, { type LightboxImage } from './Lightbox';
@@ -85,9 +86,86 @@ function Menu({ open, onClose, children, className = '' }: { open: boolean; onCl
   );
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed }: {
+/**
+ * Controle deslizante de esforço com o degrau extra "Ultracode" — cópia do componente `ye` da
+ * extensão real (webview v2.1.283, classes `toggle/fill/fillUltracode/notch/notchUltracode/thumb`
+ * `_P1HaRA`; ver PARIDADE-seletor.md): trilho de 76×18px, um notch por nível + um último notch
+ * Ultracode (sempre na cor própria), preenchimento até o thumb (na cor Ultracode quando ele está
+ * selecionado), clique OU arrasto (pointer capture) escolhem o degrau mais próximo. Mesmos cálculos
+ * de posição (`calc()` com --thumb-size/--thumb-inset) e o mesmo comportamento de `P(O)`: o último
+ * índice chama `onSelectUltracode`, os demais `onSelect(nível)`.
+ */
+function EffortSlider({ effort, onSelect, onSelectUltracode }: { effort: EffortChoice; onSelect: (e: Effort) => void; onSelectUltracode: () => void }) {
+  const drag = useRef<number | null>(null);
+  const total = EFFORT_ORDER.length + 1; // 5 níveis reais + o degrau Ultracode
+  const idx = effort === 'ultracode' ? total - 1 : Math.max(0, EFFORT_ORDER.indexOf(effort));
+  const frac = idx / (total - 1);
+  const span = '(100% - var(--thumb-size) - 2 * var(--thumb-inset))';
+  const thumbLeft = `calc(var(--thumb-inset) + ${frac} * ${span})`;
+  const fillWidth = `calc(var(--thumb-inset) + ${frac} * ${span} + var(--thumb-size) + var(--thumb-inset))`;
+  const notchLeft = (f: number) => `calc(var(--thumb-inset) + ${f} * ${span} + var(--thumb-size) / 2)`;
+  function indexAt(e: PointerEvent<HTMLButtonElement>): number {
+    const r = e.currentTarget.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    return Math.round(f * (total - 1));
+  }
+  function pick(i: number) {
+    if (i === total - 1) { onSelectUltracode(); return; }
+    const level = EFFORT_ORDER[i];
+    if (level) onSelect(level);
+  }
+  function down(e: PointerEvent<HTMLButtonElement>) {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const i = indexAt(e);
+    drag.current = i;
+    pick(i);
+  }
+  function move(e: PointerEvent<HTMLButtonElement>) {
+    if (drag.current === null) return;
+    const i = indexAt(e);
+    if (i === drag.current) return;
+    drag.current = i;
+    pick(i);
+  }
+  function up() { drag.current = null; }
+  return (
+    <button type="button" className="cc-effort-toggle" title="Clique ou arraste para definir o esforço"
+      onMouseDown={e => e.preventDefault()} onPointerDown={down} onPointerMove={move}
+      onPointerUp={up} onPointerCancel={up} onLostPointerCapture={up} onClick={e => e.stopPropagation()}>
+      <div className={`cc-effort-fill ${effort === 'ultracode' ? 'is-ultracode' : ''}`} style={{ width: fillWidth }} />
+      {Array.from({ length: total }, (_, i) => (
+        <div key={i} className={`cc-effort-notch ${i === total - 1 ? 'is-ultracode' : ''}`} style={{ left: notchLeft(i / (total - 1)) }} />
+      ))}
+      <div className="cc-effort-thumb" style={{ left: thumbLeft }} />
+    </button>
+  );
+}
+
+/** Fileira de 5 pontinhos do nível de esforço — cópia do `fV0` real (svg 30×12, círculos r=2.5 a cada 6px, opacidade 0.15 nos não preenchidos). Ultracode conta como xhigh (4 pontos), igual à real (`effortLevel` fica "xhigh" com Ultracode ligado). */
+const EFFORT_DOT_COUNT: Record<Effort, number> = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
+function EffortDots({ effort }: { effort: EffortChoice }) {
+  const n = EFFORT_DOT_COUNT[effort === 'ultracode' ? 'xhigh' : effort];
+  return (
+    <svg width="30" height="12" viewBox="0 0 30 12" style={{ display: 'block' }}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <circle key={i} cx={2.5 + 1 + i * 6} cy="6" r="2.5" fill="currentColor" opacity={i < n ? 1 : 0.15} />
+      ))}
+    </svg>
+  );
+}
+
+/** Tooltip da legenda do canto do composer — cópia do `cZ5` real ("Effort: X · Fast mode enabled/cooling down"), em pt-BR como o resto do painel. */
+function sparkTitle(effort: EffortChoice, fast: FastModeState): string {
+  const parts = [`Esforço: ${effortPillLabel(effort)}`];
+  if (fast === 'on') parts.push('Modo rápido ativado');
+  else if (fast === 'cooldown') parts.push('Modo rápido esfriando');
+  return parts.join(' · ');
+}
+
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode }: {
   onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
-  effort?: Effort; onEffort?: (e: Effort) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
+  effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
   history?: string[];
   /** Comandos de barra reais da sessão (Query.supportedCommands(), via ClaudePage); sem isso, usa SLASH_FALLBACK. */
@@ -103,6 +181,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
    */
   worktreeName?: string; onWorktreeName?: (name: string) => void;
   elapsed?: string;
+  /** Estado do fast mode da sessão (`fast_mode_state` do SDK, via live.ts) — alimenta a legenda `sparkLegend` e o atributo `data-spark`; ausente/'off' = indicador escondido (o caso de hoje, ver PARIDADE-seletor.md). */
+  fastMode?: FastModeState;
 }) {
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree'>('');
@@ -311,7 +391,23 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
-      onDrop={onDrop}>
+      onDrop={onDrop}
+      {...(fastMode && fastMode !== 'off' ? { 'data-spark': fastMode } : {})}>
+      {/*
+        Legenda do canto superior direito do composer — cópia do `<legend>` real (classes
+        `sparkLegend/sparkIcon/sparkCooldown_cKsPxg`, ver PARIDADE-seletor.md): pontinhos do nível de
+        esforço + raio quando o fast mode está 'on'/'cooldown' (cooldown acinzenta o raio), visível só
+        com o composer em foco (CSS :focus-within, igual à real). Tooltip = `cZ5` real em pt-BR.
+        `data-spark` no container espelha o `data-spark` do fieldset real. Hoje `fastMode` fica 'off'
+        (o SDK não manda `fast_mode_state` pros turnos do Orion) — o raio nunca aparece; a estrutura
+        liga sozinha quando o dado vier.
+      */}
+      {onEffort && (
+        <span className={`cc-spark-legend ${fastMode === 'cooldown' ? 'is-cooldown' : ''}`} title={sparkTitle(effort ?? 'medium', fastMode ?? 'off')}>
+          <EffortDots effort={effort ?? 'medium'} />
+          {(fastMode === 'on' || fastMode === 'cooldown') && <Bolt size={12} className="cc-spark-icon" />}
+        </span>
+      )}
       <input ref={fileInput} type="file" multiple hidden onChange={onPick} />
       {attachments.length > 0 && (
         <div className="cc-attach-row">
@@ -415,16 +511,34 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         )}
         {onEffort && (
           <div className="cc-pop">
+            {/* Pill: "Ultracode" quando o degrau extra está selecionado (mesmo `kV0` real, que devolve `IV0` no lugar do rótulo do nível). */}
             <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'effort' ? '' : 'effort')} title="Esforço de raciocínio">
-              <Bolt size={12} /> {EFFORT_LABEL[effort ?? 'medium']} <Chevron size={10} className="cc-chev-down" />
+              <Bolt size={12} /> {effortPillLabel(effort ?? 'medium')} <Chevron size={10} className="cc-chev-down" />
             </button>
             <Menu open={menu === 'effort'} onClose={() => setMenu('')} className="cc-menu-up">
               <div className="cc-menu-title">Esforço</div>
+              {/*
+                Linha do slider — espelha o `effortRow` real (popup `eB0` do webview v2.1.283): rótulo
+                "Esforço (nível atual)" + o controle deslizante com o degrau Ultracode no fim (ver
+                EffortSlider acima e PARIDADE-seletor.md). Com Ultracode selecionado, o texto inline é
+                a string literal exata da real: "Ultracode - xhigh + workflows" (`fe` no bundle).
+                Os itens de menu por nível continuam abaixo (padrão que o seletor do Orion já tinha).
+              */}
+              <div className="cc-effort-row">
+                <span className="cc-effort-row-label" title={effort === 'ultracode' ? ULTRACODE_MENU_LABEL : undefined}>
+                  <Bolt size={11} /> <span className="cc-effort-inline">({effort === 'ultracode' ? ULTRACODE_MENU_LABEL : EFFORT_LABEL[effort ?? 'medium']})</span>
+                </span>
+                <EffortSlider effort={effort ?? 'medium'} onSelect={ef => onEffort(ef)} onSelectUltracode={() => onEffort('ultracode')} />
+              </div>
               {EFFORT_ORDER.map(ef => (
                 <button key={ef} className={`cc-menu-item ${ef === effort ? 'is-active' : ''}`} role="menuitem" onClick={() => { onEffort(ef); setMenu(''); }}>
                   <span className="cc-menu-item-name">{EFFORT_LABEL[ef]}</span>
                 </button>
               ))}
+              {/* O degrau ACIMA de max — rótulo exato da extensão real (`fe = "Ultracode - xhigh + workflows"`). */}
+              <button className={`cc-menu-item ${effort === 'ultracode' ? 'is-active' : ''}`} role="menuitem" onClick={() => { onEffort('ultracode'); setMenu(''); }}>
+                <span className="cc-menu-item-name">{ULTRACODE_MENU_LABEL}</span>
+              </button>
             </Menu>
           </div>
         )}

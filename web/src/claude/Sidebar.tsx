@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
-import type { UsageBar } from './mapper';
+import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
 import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch, Folder } from './icons';
 
@@ -104,9 +104,12 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   );
 }
 
-export default function Sidebar({ sessions, usage, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
+export default function Sidebar({ sessions, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
   {
-    sessions: SessionSummary[]; usage: UsageBar[]; activeId: string | null; loading?: boolean;
+    sessions: SessionSummary[]; usage: UsageBar[];
+    /** "% do uso" por modelo (7 dias) — breakdown de atribuição da extensão real (`attribution*_QET5Ow`, string "% of usage"); ver computeModelAttribution em mapper.ts e PARIDADE-seletor.md. Vazio = bloco escondido. */
+    modelAttribution?: ModelAttribution[];
+    activeId: string | null; loading?: boolean;
     /** Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — `[]` quando nenhuma foi criada ainda; o modo "Por pasta" e o seletor "Mover para pasta" por sessão só aparecem de fato úteis quando há pelo menos uma. */
     folders: SessionGroupInfo[];
     onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
@@ -176,6 +179,31 @@ export default function Sidebar({ sessions, usage, activeId, loading, folders, o
                 {u.resetText && <div className="cc-usage-note">Reinicia {u.resetText}</div>}
               </div>
             ))}
+            {/*
+              "% do uso" por modelo — cópia do bloco de atribuição da tela Account & Usage real
+              (componente `J11`, header com o título do grupo + a coluna "% of usage", classes
+              `attributionGroup/HeaderRow/Title/List/Row/Name/Pct/More_QET5Ow`; ver
+              PARIDADE-seletor.md). Aqui o grupo é "Por modelo" (custo de 7 dias por
+              `claude_sessions.model`, ver computeModelAttribution em mapper.ts), truncado em 4
+              linhas + "+N mais". Sem dado (lista vazia), o bloco some inteiro.
+            */}
+            {(modelAttribution?.length ?? 0) > 0 && (
+              <div className="cc-attr-group">
+                <div className="cc-attr-head">
+                  <span className="cc-attr-title">Por modelo (7 dias)</span>
+                  <span className="cc-attr-pct">% do uso</span>
+                </div>
+                <div className="cc-attr-list">
+                  {modelAttribution!.slice(0, 4).map(a => (
+                    <div key={a.name} className="cc-attr-row">
+                      <span className="cc-attr-name" title={a.name}>{a.name}</span>
+                      <span className="cc-attr-pct">{a.pct}%</span>
+                    </div>
+                  ))}
+                  {modelAttribution!.length > 4 && <span className="cc-attr-more">+{modelAttribution!.length - 4} mais</span>}
+                </div>
+              </div>
+            )}
           </>
         )}
       </section>
