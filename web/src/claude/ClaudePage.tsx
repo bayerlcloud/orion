@@ -204,6 +204,7 @@ export default function ClaudePage() {
     // onopen dispara na primeira conexão e em cada reconexão automática do navegador: nas duas,
     // recarrega o histórico pra recuperar o que aconteceu enquanto não estava ouvindo.
     es.onopen = () => {
+      if (dropTimer) { clearTimeout(dropTimer); dropTimer = null; }
       setStreamStatus('connected');
       buffer = buffer ?? [];
       claudeApi.get(activeId).then(r => {
@@ -220,9 +221,12 @@ export default function ClaudePage() {
         setOutputStyle(s.output_style || 'default');
       }).catch(e => { buffer = null; falha(e); });
     };
-    es.onerror = () => { setStreamStatus('disconnected'); };
+    // Só avisa se a queda passar de 4s: deploy (restart do serviço) e piscadas de rede reconectam
+    // sozinhas em 1 a 3s, e o banner aparecendo e sumindo a cada uma parecia instabilidade.
+    let dropTimer: ReturnType<typeof setTimeout> | null = null;
+    es.onerror = () => { if (!dropTimer) dropTimer = setTimeout(() => { dropTimer = null; setStreamStatus('disconnected'); }, 4000); };
     esRef.current = es;
-    return () => { alive = false; es.close(); esRef.current = null; };
+    return () => { alive = false; if (dropTimer) clearTimeout(dropTimer); es.close(); esRef.current = null; };
   }, [activeId, refreshSessions, refreshUsage]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
