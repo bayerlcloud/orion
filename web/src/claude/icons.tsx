@@ -33,3 +33,5 @@ export const Wrench = ({ size, className }: P) => <svg {...base(size)} className
 /** Escudo — gatilho do editor de "Regras de permissão" (ver PermissionRules.tsx). Sem equivalente
  * pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
 export const Shield = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 2l5 2v4c0 3.3-2.1 5.5-5 6.5C5.1 13.5 3 11.3 3 8V4l5-2z" /><path d="M6 8l1.4 1.4L10.5 6" /></svg>;
+/** Pasta — "Nova pasta"/pastas nomeadas na lateral de sessões (ver Sidebar.tsx, PARIDADE.md item 12 da seção 13: `newGroupButton`/`newGroupIcon` da extensão real). Sem equivalente pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
+export const Folder = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M2.5 4.5a1 1 0 0 1 1-1h2.8l1.3 1.6h5.4a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-9.5a1 1 0 0 1-1-1z" /></svg>;

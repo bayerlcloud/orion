@@ -1,12 +1,21 @@
 import { useState } from 'react';
-import type { SessionSummary } from './types';
+import type { SessionGroupInfo, SessionSummary } from './types';
 import type { UsageBar } from './mapper';
-import { relativeTime, filterSessions, groupSessions, type GroupBy } from './mapper';
-import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch } from './icons';
+import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
+import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch, Folder } from './icons';
 
-function SessionRow({ s, active, onSelect, onRename, onArchive }: {
+/**
+ * Sentinela usado pelo `<select>` "Mover para pasta" de cada sessão pra representar "solta, sem
+ * pasta nenhuma" — `<option value="">` colidiria com um `groupId` real vazio (nunca acontece, mas
+ * evita ambiguidade) e não dá pra usar `null` como `value` de um elemento HTML. Convertido de volta
+ * pra `null` em `onMoveToGroup` (ver `SessionRow` abaixo).
+ */
+const UNGROUPED = '__sem_pasta__';
+
+function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveToGroup }: {
   s: SessionSummary; active: boolean; onSelect: () => void;
   onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
+  folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(s.title);
@@ -26,6 +35,23 @@ function SessionRow({ s, active, onSelect, onRename, onArchive }: {
       {s.worktreeName && <span className="cc-item-worktree" title={`Worktree: ${s.worktreeName}`}><GitBranch size={10} /> {s.worktreeName}</span>}
       <span className="cc-item-time">{relativeTime(s.updatedAt)}</span>
       <span className="cc-item-actions">
+        {/*
+          "Mover para pasta" — alternativa a arrastar-e-soltar (ver PARIDADE.md item 12 da seção 13,
+          decisão de escopo: a extensão real move sessão pra pasta por drag-and-drop OU por um menu de
+          contexto "Add to group"/"Remove from group"; aqui só o caminho de menu, um `<select>` nativo
+          — totalmente acessível por teclado, e sem nenhum estado de DOM/evento de drag pra acertar
+          sem poder testar num navegador de verdade). Só aparece quando existe pelo menos uma pasta
+          criada (senão não haveria pra onde mover) — mesmo padrão já usado pelo filtro de projeto
+          logo acima em Sidebar (`projectOptions.length > 1`).
+        */}
+        {onMoveToGroup && folders.length > 0 && (
+          <select className="cc-select cc-mini-select cc-item-move" title="Mover para pasta" value={s.groupId ?? UNGROUPED}
+            onClick={e => e.stopPropagation()}
+            onChange={e => onMoveToGroup(s.id, e.target.value === UNGROUPED ? null : e.target.value)}>
+            <option value={UNGROUPED}>Sem pasta</option>
+            {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+          </select>
+        )}
         <button className="cc-item-act" title="Renomear" onClick={() => { setDraft(s.title); setEditing(true); }}><Pencil size={12} /></button>
         <button className="cc-item-act" title={s.archived ? 'Desarquivar' : 'Arquivar'} onClick={() => onArchive(s.id, !s.archived)}><Archive size={12} /></button>
       </span>
@@ -33,19 +59,44 @@ function SessionRow({ s, active, onSelect, onRename, onArchive }: {
   );
 }
 
-function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive }: {
+function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive, folders, onMoveToGroup, isFolder, onRenameGroup, onDeleteGroup }: {
   groupKey: string; label: string; sessions: SessionSummary[]; collapsible: boolean; collapsed: boolean; onToggle: () => void;
   activeId: string | null; onSelect: (id: string) => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
+  folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void;
+  /** `isFolder`: esta seção é uma pasta nomeada de verdade (não "Sem pasta"/os baldes automáticos de projeto/recência) — só então mostra os ícones de renomear/excluir. */
+  isFolder?: boolean; onRenameGroup?: (name: string) => void; onDeleteGroup?: () => void;
 }) {
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(label);
+  function commitName() {
+    const t = draftName.trim();
+    setEditingName(false);
+    if (t && t !== label) onRenameGroup?.(t);
+  }
   return (
     <div key={groupKey}>
-      <div className={`cc-group-head ${collapsible ? 'cc-clickable' : ''}`} onClick={collapsible ? onToggle : undefined}>
-        <Chevron size={11} className={`cc-chev ${collapsed ? '' : 'is-open'}`} /> {label} <span className="cc-badge">{sessions.length}</span>
+      <div className={`cc-group-head ${collapsible ? 'cc-clickable' : ''}`} onClick={collapsible && !editingName ? onToggle : undefined}>
+        <Chevron size={11} className={`cc-chev ${collapsed ? '' : 'is-open'}`} />
+        {editingName ? (
+          <input className="cc-item-edit" autoFocus value={draftName} onChange={e => setDraftName(e.target.value)}
+            onClick={e => e.stopPropagation()} onBlur={commitName}
+            onKeyDown={e => { if (e.key === 'Enter') commitName(); if (e.key === 'Escape') setEditingName(false); }} />
+        ) : (
+          <>{label} </>
+        )}
+        <span className="cc-badge">{sessions.length}</span>
+        {isFolder && !editingName && (
+          <span className="cc-group-actions">
+            <button className="cc-item-act" title="Renomear pasta" onClick={e => { e.stopPropagation(); setDraftName(label); setEditingName(true); }}><Pencil size={11} /></button>
+            <button className="cc-item-act" title="Excluir pasta" onClick={e => { e.stopPropagation(); onDeleteGroup?.(); }}><X size={11} /></button>
+          </span>
+        )}
       </div>
       {!collapsed && (
         <div className="cc-list">
           {sessions.map(s => (
-            <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive} />
+            <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive}
+              folders={folders} onMoveToGroup={onMoveToGroup} />
           ))}
         </div>
       )}
@@ -53,9 +104,15 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   );
 }
 
-export default function Sidebar({ sessions, usage, activeId, loading, onSelect, onNew, onRename, onArchive }:
-  { sessions: SessionSummary[]; usage: UsageBar[]; activeId: string | null; loading?: boolean;
-    onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void; }) {
+export default function Sidebar({ sessions, usage, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
+  {
+    sessions: SessionSummary[]; usage: UsageBar[]; activeId: string | null; loading?: boolean;
+    /** Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — `[]` quando nenhuma foi criada ainda; o modo "Por pasta" e o seletor "Mover para pasta" por sessão só aparecem de fato úteis quando há pelo menos uma. */
+    folders: SessionGroupInfo[];
+    onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
+    onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void;
+    onMoveToGroup: (sessionId: string, groupId: string | null) => void;
+  }) {
   const [where, setWhere] = useState<'local' | 'web'>('local');
   const [open, setOpen] = useState(true);
   const [acctOpen, setAcctOpen] = useState(true);
@@ -68,13 +125,28 @@ export default function Sidebar({ sessions, usage, activeId, loading, onSelect, 
   function toggleGroup(key: string) {
     setCollapsedGroups(s => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
+  // "Nova pasta" (`newGroupButton`/`newGroupIcon` da extensão real) — inline, mesmo padrão já usado
+  // pro campo "New worktree name" do compositor (ver Composer.tsx, PARIDADE.md seção 14): digita o
+  // nome ANTES de criar (em vez de criar com um nome-padrão e entrar em modo de renomear depois —
+  // mais simples de verificar sem navegador, um só passo). Só aparece no modo "Por pasta": é onde
+  // faz sentido perguntar "criar uma pasta pra quê", já que é o único momento em que as pastas
+  // aparecem como seções navegáveis na lateral.
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  function commitNewFolder() {
+    const err = validateGroupName(newFolderName);
+    if (err) return; // campo continua aberto; sem UI de erro dedicada (mesmo nível de simplicidade do rename de sessão/pasta, que também não tem)
+    onCreateGroup(newFolderName.trim());
+    setNewFolderName('');
+    setCreatingFolder(false);
+  }
 
   const isActive = (s: SessionSummary) => s.status === 'running' || s.status === 'waiting';
   const activeCount = sessions.filter(isActive).length;
   const filter = { term: q, project: projectFilter || undefined, activeOnly };
   const localList = where === 'local' ? filterSessions(sessions.filter(s => !s.archived), filter) : [];
   const archivedList = where === 'local' ? filterSessions(sessions.filter(s => s.archived), filter) : [];
-  const groups = groupSessions(localList, groupBy);
+  const groups = groupSessions(localList, groupBy, Date.now(), folders);
 
   // Projetos presentes entre as sessões, para o filtro (slug → rótulo). Só aparece quando há mais de um.
   const projectOptions: [string, string][] = [];
@@ -134,12 +206,28 @@ export default function Sidebar({ sessions, usage, activeId, loading, onSelect, 
               <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
                 <Bolt size={11} /> Ativas · {activeCount}
               </button>
+              {/*
+                "Por pasta" — modo ADICIONAL de agrupamento (ver PARIDADE.md item 12 da seção 13), ao
+                lado de Nenhum/Projeto/Data (automáticos, nunca persistidos) — não os substitui.
+              */}
               <select className="cc-select cc-mini-select" value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} title="Agrupar sessões">
                 <option value="none">Sem agrupar</option>
                 <option value="project">Por projeto</option>
                 <option value="recency">Por data</option>
+                <option value="folder">Por pasta</option>
               </select>
             </div>
+            {groupBy === 'folder' && (
+              creatingFolder ? (
+                <div className="cc-item cc-new-folder-row">
+                  <input className="cc-item-edit" autoFocus placeholder="Nome da pasta" value={newFolderName}
+                    onChange={e => setNewFolderName(e.target.value)} onBlur={() => (newFolderName.trim() ? commitNewFolder() : setCreatingFolder(false))}
+                    onKeyDown={e => { if (e.key === 'Enter') commitNewFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); } }} />
+                </div>
+              ) : (
+                <button className="cc-new" onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}><Folder size={13} /> Nova pasta</button>
+              )
+            )}
             {where === 'web' ? (
               <div className="cc-empty">Sessões na nuvem em breve</div>
             ) : loading ? (
@@ -151,7 +239,11 @@ export default function Sidebar({ sessions, usage, activeId, loading, onSelect, 
                 {groups.map(g => (
                   <SessionGroupSection key={g.key} groupKey={g.key} label={g.label} sessions={g.sessions}
                     collapsible={groupBy !== 'none'} collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-                    activeId={activeId} onSelect={onSelect} onRename={onRename} onArchive={onArchive} />
+                    activeId={activeId} onSelect={onSelect} onRename={onRename} onArchive={onArchive}
+                    folders={folders} onMoveToGroup={onMoveToGroup}
+                    isFolder={groupBy === 'folder' && g.key !== 'ungrouped'}
+                    onRenameGroup={g.key.startsWith('folder:') ? (name) => onRenameGroup(g.key.slice('folder:'.length), name) : undefined}
+                    onDeleteGroup={g.key.startsWith('folder:') ? () => onDeleteGroup(g.key.slice('folder:'.length)) : undefined} />
                 ))}
                 {localList.length === 0 && <div className="cc-empty">Nenhuma sessão</div>}
                 {archivedList.length > 0 && (
@@ -162,7 +254,8 @@ export default function Sidebar({ sessions, usage, activeId, loading, onSelect, 
                     {showArchived && (
                       <div className="cc-list">
                         {archivedList.map(s => (
-                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive} />
+                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive}
+                            folders={folders} onMoveToGroup={onMoveToGroup} />
                         ))}
                       </div>
                     )}

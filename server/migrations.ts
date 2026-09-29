@@ -172,6 +172,33 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // "Aba Claude" — agrupamento de sessões em pastas nomeadas (ver PARIDADE.md, item 12 da seção
+    // 13): até aqui `claude_sessions` não tinha nenhum conceito de pasta/grupo manual — só o
+    // "Agrupar por Nenhum/Projeto/Atividade" automático e nunca persistido (web/src/claude/mapper.ts
+    // `groupSessions`). Tabela nova em vez de só uma coluna: uma pasta tem metadados próprios (nome,
+    // quem criou, quando) independentes de qualquer sessão, inclusive pode existir vazia (criada mas
+    // sem nada dentro ainda) — uma coluna sozinha em claude_sessions não teria onde guardar isso.
+    // `id TEXT` (não SERIAL) pro mesmo padrão de `claude_sessions.id` (gerado com randomUUID() na
+    // rota, não pelo Postgres). `created_by` só pra auditoria — grupos são compartilhados entre todos
+    // os usuários (mesmo modelo de "caixa compartilhada" que claude_sessions já tem: GET
+    // /api/claude/sessions devolve as sessões de TODOS os usuários, sem filtro por dono; ver
+    // PARIDADE.md pra essa decisão de escopo). `group_id` em claude_sessions: FK nullable com
+    // ON DELETE SET NULL — apagar uma pasta solta as sessões de volta pro nível raiz ("Sem pasta"),
+    // nunca apaga a sessão em si.
+    id: '011_claude_session_groups',
+    sql: `
+      CREATE TABLE IF NOT EXISTS claude_session_groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_by INT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS group_id TEXT REFERENCES claude_session_groups(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS claude_sessions_group_idx ON claude_sessions (group_id);
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

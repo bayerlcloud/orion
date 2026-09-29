@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
-import type { ConvEvent, SdkMessage, SessionSummary, AgentTask } from '../web/src/claude/types';
+import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
 /** Payload real de um AskUserQuestion da sessão de produção "Esta ai?" (fcc5ee4b-96f2-45a5-baf3-78e9f1f71ecd,
  * claude_approvals.id = 8cddcaaa-9e86-4db9-a038-c967ff0af86f): uma pergunta com multiSelect e 4 opções. */
@@ -536,6 +536,82 @@ describe('groupSessions', () => {
   it("'recency' sem sessões antigas não mostra o balde 'Mais antigas'", () => {
     const g = groupSessions([sessions[0]], 'recency', now);
     expect(g.map(x => x.key)).toEqual(['today']);
+  });
+});
+
+/**
+ * Pastas nomeadas manuais (ver PARIDADE.md, item 12 da seção 13) — diferente dos critérios acima
+ * ('project'/'recency'), que são automáticos e derivados só das sessões: aqui os grupos em si são
+ * uma lista à parte, persistida (`SessionGroupInfo[]`, vinda de `GET /api/claude/session-groups`),
+ * então `groupSessions` precisa receber essa lista pra saber quais pastas existem — inclusive as
+ * vazias, que uma sessão sozinha nunca revelaria (diferente de 'project', onde um grupo só aparece
+ * se pelo menos uma sessão tiver aquele projeto).
+ */
+describe("groupSessions — 'folder' (pastas nomeadas)", () => {
+  const now = Date.parse('2026-09-29T12:00:00Z');
+  const sessions: SessionSummary[] = [
+    { id: 's1', title: 'A', status: 'running', updatedAt: now, groupId: 'g1' },
+    { id: 's2', title: 'B', status: 'idle', updatedAt: now, groupId: 'g2' },
+    { id: 's3', title: 'C', status: 'idle', updatedAt: now, groupId: 'g1' },
+    { id: 's4', title: 'D', status: 'idle', updatedAt: now },
+    // groupId aponta pra uma pasta que não existe mais na lista de `folders` (apagada) — deve cair em "Sem pasta", não sumir.
+    { id: 's5', title: 'E', status: 'idle', updatedAt: now, groupId: 'pasta-apagada' },
+  ];
+  const folders: SessionGroupInfo[] = [
+    { id: 'g1', name: 'Trabalho', createdAt: now - 2000 },
+    { id: 'g2', name: 'Pessoal', createdAt: now - 1000 },
+  ];
+
+  it('uma seção por pasta, na ordem de criação, com "Sem pasta" sempre por último', () => {
+    const g = groupSessions(sessions, 'folder', now, folders);
+    expect(g.map(x => x.key)).toEqual(['folder:g1', 'folder:g2', 'ungrouped']);
+    expect(g.map(x => x.label)).toEqual(['Trabalho', 'Pessoal', 'Sem pasta']);
+  });
+
+  it('cada sessão vai pra pasta do seu groupId', () => {
+    const g = groupSessions(sessions, 'folder', now, folders);
+    expect(g.find(x => x.key === 'folder:g1')?.sessions.map(s => s.id)).toEqual(['s1', 's3']);
+    expect(g.find(x => x.key === 'folder:g2')?.sessions.map(s => s.id)).toEqual(['s2']);
+  });
+
+  it('sessão sem groupId OU com groupId de pasta apagada cai em "Sem pasta"', () => {
+    const g = groupSessions(sessions, 'folder', now, folders);
+    expect(g.find(x => x.key === 'ungrouped')?.sessions.map(s => s.id)).toEqual(['s4', 's5']);
+  });
+
+  it('pasta recém-criada sem sessão nenhuma ainda aparece vazia (não é derivada das sessões)', () => {
+    const emptyFolders: SessionGroupInfo[] = [{ id: 'g3', name: 'Vazia', createdAt: now }];
+    const g = groupSessions([], 'folder', now, emptyFolders);
+    expect(g.map(x => x.key)).toEqual(['folder:g3', 'ungrouped']);
+    expect(g.find(x => x.key === 'folder:g3')?.sessions).toEqual([]);
+  });
+
+  it('sem nenhuma pasta cadastrada, devolve só "Sem pasta" com tudo dentro', () => {
+    const g = groupSessions(sessions, 'folder', now, []);
+    expect(g).toEqual([{ key: 'ungrouped', label: 'Sem pasta', sessions }]);
+  });
+});
+
+/**
+ * Validação do nome de uma pasta — mesmo limite (120 caracteres) e mesma regra ("vazio depois de
+ * trim é inválido") já usados por `POST /api/claude/sessions/:id/rename` (server/routes/claude.ts:
+ * `title.trim().slice(0, 120)`), reaproveitado aqui em vez de inventar um limite novo. Cópia do lado
+ * cliente da validação autoritativa do servidor (`server/claude/groups.ts`, `validateGroupName`) —
+ * mesmo padrão já usado por `validateWorktreeName` (client mirror, nunca a fonte da verdade).
+ */
+describe('validateGroupName', () => {
+  it('nome vazio ou só espaço é inválido', () => {
+    expect(validateGroupName('')).toBeTruthy();
+    expect(validateGroupName('   ')).toBeTruthy();
+  });
+
+  it('nome válido (com espaço nas pontas) devolve null', () => {
+    expect(validateGroupName('  Trabalho  ')).toBeNull();
+  });
+
+  it('limite de 120 caracteres: 121 é inválido, 120 é válido', () => {
+    expect(validateGroupName('a'.repeat(121))).toBeTruthy();
+    expect(validateGroupName('a'.repeat(120))).toBeNull();
   });
 });
 

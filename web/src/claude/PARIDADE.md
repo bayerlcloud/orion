@@ -1631,10 +1631,11 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
     skills (ver `Skill` tool desta própria sessão). **IMPLEMENTADO em 29/09/2026, ver seção 17** —
     habilitar/desabilitar de verdade (via `Options.skills` do SDK, filtro de contexto, nunca escreve
     arquivo/roda comando), modelo de 2 estados (não os 4 reais — ver seção 17 pro porquê).
-12. **Agrupamento de sessões em pastas nomeadas** — classes `newGroupButton/newGroupIcon/
-    groupHeader/groupChevron/groupChevronExpanded/groupName/groupNameEditing/groupCount`. O Orion
-    já tem um "Agrupar por Nenhum/Projeto/Atividade" (ver Resumo, rodada anterior 2) que é um
-    equivalente leve — esse aqui parece ser pastas nomeadas arrastáveis, mais pesado.
+12. **Agrupamento de sessões em pastas nomeadas** — **IMPLEMENTADO em 29/09/2026, ver seção 19.**
+    Classes `newGroupButton/newGroupIcon/groupHeader/groupChevron/groupChevronExpanded/groupName/
+    groupNameEditing/groupCount`. O Orion já tem um "Agrupar por Nenhum/Projeto/Atividade" (ver
+    Resumo, rodada anterior 2) que é um equivalente leve — esse aqui parece ser pastas nomeadas
+    arrastáveis, mais pesado.
 13. **Checklist de onboarding/milestones** — classes `milestoneList/milestoneRow/
     milestoneRowCompleted/milestoneRowNext/milestoneText/milestoneTextBold`, função
     `dismissOnboarding()`. Fluxo de primeiro uso; baixa prioridade pro Orion (ambiente
@@ -2665,6 +2666,198 @@ regra além de não-vazio (a extensão real também não valida); qualquer coisa
 vivo (decisão de arquitetura documentada acima: ler/escrever o arquivo é suficiente e mais simples
 pro modelo multi-projeto do Orion).
 
+## 19. Agrupamento de sessões em pastas nomeadas — implementado em 29/09/2026 (item 12 da seção 13), worktree isolada `feature/session-groups`
+
+Item 12 da investigação da seção 13 ("Agrupamento de sessões em pastas nomeadas"), até aqui só
+levantado por nome de classe, sem confirmação de lógica. Implementado numa worktree isolada
+(`/srv/orion-worktrees/session-groups`, branch `feature/session-groups`) pra não mexer em `main` nem
+nos processos de outras sessões paralelas rodando na mesma rodada (`permission-rules`, `skills-hooks`,
+`voice-dictation` — confirmado com `git worktree list` antes de começar).
+
+### O que a extensão real faz de verdade
+
+Lido em `/srv/orion-reference-2.1.283/webview/index.js` (a versão mais nova, preferida pela própria
+seção 13) — grep pelas 8 classes já levantadas (`newGroupButton/newGroupIcon/groupHeader/
+groupChevron/groupChevronExpanded/groupName/groupNameEditing/groupCount`) e pelo contexto de JSX/
+funções ao redor delas, não só o nome:
+
+- **Persistência é um par de mensagens IPC pro host, não uma API HTTP**: `getSessionGroups(){return
+  this.sendRequest({type:"get_session_groups"})}` e `updateSessionGroups($){return
+  this.sendRequest({type:"update_session_groups",groups:$})}` — a extensão manda a lista INTEIRA de
+  grupos de volta a cada mudança (replace completo, não um CRUD granular), o host (processo Node da
+  extensão, fora do sandbox do webview) grava em disco. Erros reais encontrados como string literal:
+  `"Failed to load session groups:"` / `"Failed to persist session groups:"`. Um evento
+  `"session_groups_changed"` (`this.sessionGroupsVersion.value++`) sincroniza entre janelas/instâncias
+  do mesmo host.
+- **Forma de um grupo**: `{id, name, sessionIds: string[]}` — confirmado no menu de contexto real
+  (função que monta as opções de clique-direito numa sessão selecionada): `let
+  Q=J.filter((z)=>!$.every((G)=>z.sessionIds.includes(G)))` (lista de grupos que NÃO contêm toda a
+  seleção — vira o submenu "Add to group") e `$.some((z)=>J.some((G)=>G.sessionIds.includes(z)))`
+  (mostra "Remove from group" se a seleção tem algo em algum grupo).
+- **Criar um grupo**: `createGroupFromSelection:()=>{...let JY=OS($8,"New group",M4);if(!JY.groupId)
+  return;q9(JY.groups),V0(""),D0(!1),B0(mG),v8(JY.groupId),o6()}` — cria com o nome fixo **"New
+  group"** (nunca pergunta o nome antes) e imediatamente entra em modo de renomear
+  (`v8(JY.groupId)`, o mesmo setter usado por "Rename group" no menu). Rótulo do próprio gatilho no
+  menu muda dinamicamente conforme a seleção: `` `New group from ${$.length} sessions` `` quando mais
+  de uma sessão está selecionada, só `"New group"` com uma ou nenhuma.
+- **Mover sessão pra dentro/fora**: `moveSelectionToGroup:($8)=>G9({kind:"group",groupId:$8},M4)`,
+  `removeSelectionFromGroups:()=>G9({kind:"ungrouped"},M4)` — as DUAS vias que o pedido desta tarefa
+  antecipou existem de verdade: (1) **drag-and-drop** — `` `${H5.groupHeader} ${Y?H5.dropTarget:""}` ``
+  confirma que o cabeçalho do grupo vira alvo de soltura (`Y` é o estado "sendo arrastado por cima");
+  (2) **menu de contexto** com "Add to group" (submenu por grupo existente) / "Remove from group" —
+  exatamente a alternativa que o pedido desta tarefa já sugeria como caminho mais simples.
+- **Renomear**: `{label:"Rename group",onSelect:()=>v8(K0.id)}` — mesmo setter que liga o modo
+  `groupNameEditing` (input inline no lugar do texto, confirmado pela classe existir separada de
+  `groupName`).
+- **Apagar**: `{label:"Delete group",separatorBefore:!0,onSelect:()=>{let M4=E4.current;if(!M4)return;
+  let q9=uT1(M4,K0.id);if(q9.length!==M4.length)B5(q9)}}` — só remove o grupo da lista; nada no trecho
+  lido reatribui `sessionIds` de volta pra "ungrouped" explicitamente, porque a lista de sessões
+  "sem grupo" na UI real É derivada (qualquer sessão cujo id não aparece em `sessionIds` de nenhum
+  grupo already é implicitamente "Ungrouped") — apagar o grupo já basta.
+- **"Ungrouped"**: balde implícito com esse rótulo fixo (`"Ungrouped"`), sempre presente — achado
+  também `ungroupedCollapsed`/`archivedCollapsed` como chaves de um objeto de preferências
+  persistido (estado de colapso de CADA seção sobrevive a reload, não só a existência dos grupos).
+- **Criar sessão nova já dentro do grupo**: `{label:"Start new session in this group",
+  onSelect:()=>C(K0.id)}` no menu de contexto do CABEÇALHO do grupo (não da sessão) — atalho pra não
+  precisar criar solto e depois mover.
+- **`groupHeaderAction`** (classe extra achada durante esta investigação, fora das 8 já listadas no
+  ponto de partida da tarefa): ícones de ação no próprio cabeçalho do grupo — condiz com "Rename
+  group"/"Delete group" também estarem acessíveis sem precisar abrir o menu de contexto da sessão.
+
+### O que já existia no lado do Orion
+
+`claude_sessions` (Postgres) não tinha nenhum conceito de grupo/pasta — confirmado por grep antes de
+mexer (`group` aparecia só como um campo morto, nunca lido/escrito, em `SessionSummary.group` no
+tipo do front; não tocado nesta rodada, sem relação com a feature nova). `GET /api/claude/sessions`
+já devolve as sessões de TODOS os usuários juntas, sem filtro por dono (`u.name AS user_name` é só
+metadado de exibição) — o mesmo vale pra `rename`/`archive`, nenhuma rota de sessão hoje restringe
+por `user_id`. O "Agrupar por Nenhum/Projeto/Atividade" já existente (`GroupBy`/`groupSessions` em
+`web/src/claude/mapper.ts`, `Sidebar.tsx`) é automático, derivado só das sessões, nunca persistido
+(`useState` local) — confirmado que continua funcionando sem nenhuma mudança de comportamento (os
+343+ testes de `groupSessions` pré-existentes passam intactos).
+
+### Decisões de escopo (documentadas, não pedidas de volta)
+
+- **Menu/dropdown em vez de drag-and-drop.** A extensão real tem as duas vias (achado acima:
+  `dropTarget`/`moveSelectionToGroup` servem tanto arrastar quanto o menu de contexto). Drag-and-drop
+  é interação de DOM/mouse pura — sem navegador neste ambiente (mesma limitação de toda rodada
+  anterior), qualquer bug de `dragstart`/`dragover`/`drop`/estado visual do alvo ficaria invisível até
+  alguém testar ao vivo. Implementado só o caminho de menu: um `<select>` nativo "Mover para pasta"
+  por sessão (`.cc-item-move`, dentro de `.cc-item-actions`, hover-revelado igual Renomear/Arquivar já
+  existentes) — sem seleção múltipla de sessões (o Orion não tem multi-seleção em lugar nenhum da
+  lista lateral hoje; "New group from N sessions" da extensão real não foi replicado por depender
+  disso). Decisão explicitamente antecipada e sancionada pelo pedido desta tarefa.
+- **Sem confirmação de senha/diálogo pra apagar pasta.** Apagar uma pasta nunca apaga sessão nenhuma
+  (`ON DELETE SET NULL`) — mesmo nível de risco que renomear/arquivar, que também não têm diálogo de
+  confirmação hoje.
+- **Criar pasta pergunta o nome ANTES, não depois.** Diferente da extensão real (cria com "New group"
+  fixo, entra em modo de renomear na hora — dois passos, dois estados de UI: criado-mas-vazio→editando)
+  — aqui o botão "Nova pasta" abre direto um campo de texto (mesmo padrão já usado pelo campo "New
+  worktree name" do compositor, seção 15), Enter cria já com o nome digitado. Um passo em vez de dois,
+  mais simples de raciocinar sem poder ver renderizado.
+- **Migração nova (tabela), não só uma coluna.** `claude_session_groups` (id, name, created_by,
+  created_at, updated_at) + `claude_sessions.group_id` (FK nullable, `ON DELETE SET NULL`) — migração
+  `011_claude_session_groups` (`010` já estava reservado pela worktree paralela `skills-hooks`,
+  conferido com `grep` antes de escolher o número, mesmo cuidado usado pra escolher esta seção como
+  17 e não 16). Uma pasta tem metadados próprios (nome, autor, quando foi criada) independentes de
+  qualquer sessão — inclusive pode existir vazia (criada, ainda sem nada dentro), o que uma coluna
+  sozinha em `claude_sessions` não teria onde guardar. Sem coluna de `position`/ordem manual nem de
+  cor: a extensão real não expôs evidência de reordenação manual de pastas (achado nenhuma função tipo
+  `reorderGroups`), e cor não apareceu em nenhuma classe/string — pastas são ordenadas por
+  `created_at` (ordem de criação), sem drag-reorder das pastas em si.
+- **Grupos compartilhados entre usuários, não por dono.** Mesmo modelo de "caixa compartilhada" que
+  `claude_sessions`/`GET /api/claude/sessions` já tinha antes desta rodada (todo usuário vê as sessões
+  de todo mundo, sem filtro) — `created_by` em `claude_session_groups` só é auditoria, nunca escopo de
+  visibilidade nem de permissão de editar/apagar. Decisão consciente: dividir pastas POR usuário exigiria
+  uma tabela de associação `(group_id, session_id, user_id)` bem mais complexa (a mesma sessão
+  pertenceria a pastas diferentes conforme quem está olhando) — desproporcional ao pedido, e
+  inconsistente com o resto do modelo de dados do Orion nesta tela, que já é "todo mundo vê tudo".
+- **Sem colapso persistido por pasta.** A extensão real persiste (achado acima: `ungroupedCollapsed`/
+  `archivedCollapsed`); aqui o colapso reusa o `Set<string>` (`collapsedGroups`) já existente em
+  `Sidebar.tsx` pro "Agrupar por" automático — mesmo comportamento (reseta a cada reload) pros três
+  modos automáticos E pro modo "Por pasta" novo, em vez de dar tratamento especial só pra este. Redução
+  de escopo deliberada: persistir colapso por pasta exigiria uma coluna a mais + uma rota a mais só
+  pra um detalhe de UI que nem o "Agrupar por" já existente tem.
+- **"Por pasta" é um valor A MAIS no mesmo seletor "Agrupar por"**, não uma tela/toggle separado —
+  `GroupBy` ganhou `'folder'` ao lado de `'none'/'project'/'recency'`, todos continuando a funcionar
+  exatamente como antes (nenhum teste pré-existente de `groupSessions` foi alterado). Diferente de
+  `'project'` (um grupo só existe se alguma sessão tiver aquele projeto — derivado), uma pasta
+  aparece mesmo vazia, porque é uma entidade persistida à parte das sessões — replica o "Ungrouped
+  sempre presente" da extensão real, adaptado (aqui, "Sem pasta" sempre por último, mesmo vazio).
+
+### O que foi implementado
+
+**Migração** `011_claude_session_groups` (`server/migrations.ts`): tabela `claude_session_groups` +
+coluna `claude_sessions.group_id` (índice em `group_id`).
+
+**Servidor** (`server/claude/groups.ts`, novo): `validateGroupName`/`sanitizeGroupName` — regra
+deliberadamente simples (não uma cópia da regra de nome de worktree, que é estrita porque vira nome
+de branch git; aqui é só um rótulo livre no Postgres, sem restrição de caractere, mesmo limite de 120
+caracteres que `POST /api/claude/sessions/:id/rename` já usa pro título da sessão). `server/routes/
+claude.ts`: `GET /api/claude/session-groups` (lista, ordenada por `created_at`), `POST
+/api/claude/session-groups` (cria), `POST /api/claude/session-groups/:id/rename`, `DELETE
+/api/claude/session-groups/:id` (apaga; `ON DELETE SET NULL` solta as sessões de volta sozinho, sem
+`UPDATE` explícito), `POST /api/claude/sessions/:id/group` (move/solta uma sessão — `group_id: null`
+solta). `GET /api/claude/sessions` ganhou `s.group_id` no `SELECT` (mesmo padrão que `effort`/`model`
+já seguiam quando ganharam coluna própria).
+
+**Cliente**: `web/src/claude/types.ts` — `SessionGroupInfo` (`{id, name, createdAt}`) novo,
+`SessionSummary.groupId?: string | null` novo. `web/src/claude/mapper.ts` — `GroupBy` ganhou
+`'folder'`; `groupSessions` ganhou um 4º parâmetro opcional `folders: SessionGroupInfo[] = []` (não
+quebra nenhuma chamada existente) e um branch novo que monta uma seção por pasta (ordenada por
+`createdAt`, mesmo vazia) mais "Sem pasta" sempre por último (sessão sem `groupId`, ou com `groupId`
+de uma pasta que não existe mais na lista atual — apagada — cai ali, nunca some da lateral);
+`validateGroupName` (cópia client-side da regra do servidor, mesmo padrão de `validateWorktreeName`).
+`web/src/claude/api.ts` — `ApiSession.group_id`, `ApiSessionGroup`, `claudeApi.sessionGroups/
+createGroup/renameGroup/deleteGroup/moveToGroup`. `web/src/claude/icons.tsx` — ícone `Folder` novo
+(nenhum equivalente pronto no arquivo). `web/src/claude/Sidebar.tsx`: opção "Por pasta" no seletor
+"Agrupar por" já existente; botão "Nova pasta" (só visível nesse modo) com campo inline; cada seção de
+pasta (quando `groupBy==='folder'`) ganha ícones de Renomear (`Pencil`, abre input inline no lugar do
+nome — igual `groupNameEditing` real) e Excluir (`X`), hover-revelados (`.cc-group-actions`, mesmo
+padrão de `.cc-item-actions`); cada linha de sessão (em qualquer modo de agrupamento, não só "Por
+pasta" — mover pra pasta é independente de como a lista está agrupada no momento) ganha um `<select>`
+"Mover para pasta" hover-revelado quando existe pelo menos uma pasta criada. `web/src/claude/
+ClaudePage.tsx`: estado `groups`/`refreshGroups` (mesmo padrão de `projects`/`sessions`), `toSummary`
+propaga `group_id`→`groupId`, handlers `createGroup/renameGroup/deleteGroup/moveToGroup` (otimistas
+onde faz sentido — mover/renomear refletem na hora — recarregando a lista depois da resposta pros
+outros dois), passados pro `<Sidebar>`.
+
+### Testes (TDD, vermelho→verde confirmado)
+
+`tests/groups.test.ts` (novo, servidor, 5 testes): `validateGroupName` — vazio, só espaço, nome
+normal, limite exato de 120/121 caracteres, sem restrição de caractere (emoji/símbolos passam,
+diferente do nome de worktree). `tests/mapper.test.ts` (+8 testes, cliente): `groupSessions —
+'folder'` (5 casos: uma seção por pasta na ordem de criação com "Sem pasta" sempre por último, cada
+sessão na pasta certa pelo `groupId`, sessão sem `groupId` OU com `groupId` de pasta apagada cai em
+"Sem pasta", pasta vazia aparece mesmo sem sessão nenhuma — prova que não é derivada das sessões como
+`'project'` é —, sem nenhuma pasta cadastrada devolve só "Sem pasta" com tudo dentro) +
+`validateGroupName` (3 casos, cópia client-side, confere que bate com a regra do servidor sem duplicar
+cada caso já coberto em `groups.test.ts`). Ciclo vermelho→verde confirmado rodando `npx vitest run`
+antes de cada implementação (8 falhas em `mapper.test.ts` por função/campo ausente, 0 em
+`groups.test.ts` por módulo inexistente — depois, verde nos dois). Suíte inteira nesta branch: **549
+testes** (536 antes desta rodada + 13 novos), `npm run typecheck` (`tsc -p tsconfig.server.json` e
+`tsc -p tsconfig.json`, os dois `--noEmit`) e `npm run build` (`vite build && tsc -p
+tsconfig.server.json`) verdes — único aviso é o de chunk grande do `Editor` (CodeMirror),
+pré-existente, sem relação com esta mudança.
+
+**Limitações honestas**: sem harness de teste pra rotas Fastify neste repo (confirmado por grep antes
+de assumir, mesma limitação já documentada em rodadas anteriores) — as 5 rotas novas de
+`server/routes/claude.ts` foram verificadas por leitura cuidadosa comparando com o padrão já em
+produção (`rename`/`archive`/`mode`/`model`/`effort`) + `tsc --noEmit`, não por teste de integração
+HTTP. **Sem navegador/visual-testing neste ambiente** (mesma limitação de sempre) — o `<select>`
+"Mover para pasta", os ícones hover-revelados de renomear/excluir pasta, e o campo inline de "Nova
+pasta" não foram vistos renderizados de verdade, só revisados por leitura cuidadosa comparando com o
+padrão já em produção dos controles equivalentes (seletor de Modelo/Esforço/Modo, campo "New worktree
+name", ícones de Renomear/Arquivar por sessão) — mesmo motivo, aliás, pelo qual drag-and-drop foi
+descartado de propósito em favor do `<select>` (ver decisões de escopo acima): um `<select>` nativo
+tem muito menos superfície de estado/evento pra errar sem poder ver. Esta branch foi criada a partir
+do `main` ANTES do merge de `feature/voice-dictation` (seção 16) — não incorpora esse trabalho nem foi
+testada junto com ele; a reconciliação de `mapper.ts`/`mapper.test.ts`/`claude.css`/`icons.tsx`/
+`PARIDADE.md` entre as duas branches (ambas tocam esses mesmos arquivos) fica pra quando alguém
+integrar as branches paralelas desta rodada — o número desta seção (19) e da migração (`011`) foram
+escolhidos consultando o estado mais recente do `main` bem antes de escrever, exatamente pra minimizar
+esse atrito.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -2970,3 +3163,29 @@ pro modelo multi-projeto do Orion).
   build` verdes. Fora do escopo (decisão documentada na seção 18): escopo `'local'`, seções só-leitura
   da extensão real (sem equivalente no modelo do Orion), bloco "Workspace directories", qualquer coisa
   via Query ao vivo. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.
+- **implementado nesta rodada** (29/09/2026 — "Aba Claude": agrupamento de sessões em pastas
+  nomeadas, item 12 da seção 13, worktree isolada `feature/session-groups`; ver seção 19 para os
+  detalhes e evidências completas): confirmado no webview real (v2.1.283) que a feature existe de
+  verdade — `getSessionGroups`/`updateSessionGroups` (IPC pro host, replace completo da lista),
+  grupo no formato `{id, name, sessionIds}`, criado com nome fixo "New group" e entra direto em modo
+  de renomear, movido por drag-and-drop OU por menu de contexto ("Add to group"/"Remove from group" —
+  as duas vias existem de verdade), "Ungrouped" como balde implícito sempre presente. Implementado no
+  lado do Orion com **tabela nova** (`claude_session_groups` + `claude_sessions.group_id`, migração
+  `011_claude_session_groups` — `010` já estava reservado pela worktree paralela `skills-hooks`) em
+  vez de só uma coluna, porque uma pasta tem metadados próprios e pode existir vazia; **compartilhada
+  entre usuários** (mesmo modelo de caixa compartilhada que `claude_sessions` já tinha, `created_by`
+  só por auditoria); **sem drag-and-drop** — só o caminho de menu (`<select>` nativo "Mover para
+  pasta" por sessão), decisão de escopo explicitamente sancionada pelo pedido desta tarefa por não
+  haver navegador neste ambiente pra verificar interação de arrastar-e-soltar; "Por pasta" entra como
+  4º valor do seletor "Agrupar por" já existente (`GroupBy`/`groupSessions` em mapper.ts), ao lado de
+  Nenhum/Projeto/Data — não os substitui, nenhum teste pré-existente foi alterado. 5 rotas novas em
+  `server/routes/claude.ts` (listar/criar/renomear/apagar pasta, mover sessão), UI em `Sidebar.tsx`
+  (botão "Nova pasta", ícones de renomear/excluir hover-revelados no cabeçalho da pasta, `<select>`
+  "Mover para pasta" por sessão). 13 testes novos (5 em `tests/groups.test.ts`, servidor; 8 em
+  `tests/mapper.test.ts`, cliente — `groupSessions — 'folder'` + `validateGroupName`), TDD
+  (vermelho→verde confirmado); suíte inteira nesta branch **549 testes** (536 antes + 13 novos —
+  branch criada a partir do `main` antes do merge de `feature/voice-dictation`, seção 16, não
+  incorpora nem foi testada junto com esse trabalho), `npm run typecheck` e `npm run build` verdes.
+  Sem harness de teste pra rotas Fastify neste repo (mesma limitação de sempre) e sem
+  navegador/visual-testing neste ambiente — motivo, aliás, da decisão de menu em vez de
+  drag-and-drop.
