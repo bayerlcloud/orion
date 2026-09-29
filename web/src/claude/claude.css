@@ -340,8 +340,7 @@
    compensa a altura deste bloco no fim de `.cc-scroll` (pra nunca esconder a última mensagem atrás
    dele): `floatRef`/`floatHeight`/`ResizeObserver` em `ClaudePage.tsx`, mesmo mecanismo do `U`/`V`/`z`
    reais. Ver PARIDADE.md "Layout flutuante do composer" pra evidência completa. */
-/* Sem o max-width:680px real: composer na largura toda do chat, pedido do Danilo em 29/09/2026. */
-.cc-float { position: absolute; z-index: 20; display: flex; flex-direction: column; gap: 8px; margin: 0 auto; bottom: 16px; left: 16px; right: 16px; }
+.cc-float { position: absolute; z-index: 20; display: flex; flex-direction: column; gap: 8px; max-width: 680px; margin: 0 auto; bottom: 16px; left: 16px; right: 16px; }
 .cc-perm-dock { margin: 0; }
 
 /* ===== composer ===== */
