@@ -1,0 +1,9 @@
+[Unit]
+Description=Orion: roda como root um comando aprovado no chat quando chega /srv/root/pedidos/*.json
+
+[Path]
+PathExistsGlob=/srv/root/pedidos/*.json
+Unit=orion-root.service
+
+[Install]
+WantedBy=multi-user.target

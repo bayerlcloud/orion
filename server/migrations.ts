@@ -199,6 +199,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE INDEX IF NOT EXISTS claude_sessions_group_idx ON claude_sessions (group_id);
     `,
   },
+  {
+    // Ponte de root do chat (server/claude/rootTool.ts + deploy/root-run.py): cada aprovação de
+    // mcp__orion-root__exec vale para UMA execução; o helper marca used_at ao consumir.
+    id: '012_claude_approvals_used_at',
+    sql: `ALTER TABLE claude_approvals ADD COLUMN IF NOT EXISTS used_at TIMESTAMPTZ;`,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

@@ -272,10 +272,12 @@ export class Runner {
     const p = l.pending.get(approvalId);
     if (!p) return false;
     clearTimeout(p.timer); l.pending.delete(approvalId);
+    // Grava a decisão ANTES de soltar a ferramenta: o helper root (deploy/root-run.py) confere a
+    // aprovação no banco assim que o pedido chega, então ela precisa já estar lá.
+    await this.deps.store.decideApproval(approvalId, decision, decidedBy);
     if (decision === 'answer') p.resolve({ behavior: 'deny', message: `O usuário respondeu à sua pergunta: "${(message ?? '').trim()}". Continue a partir dessa escolha, sem repetir a pergunta.` });
     else if (decision === 'deny') p.resolve({ behavior: 'deny', message: message?.trim() || 'Negado pelo usuário no painel Orion' });
     else p.resolve({ behavior: 'allow', ...(decision === 'allow_always' && p.suggestions ? { updatedPermissions: p.suggestions } : {}) });
-    await this.deps.store.decideApproval(approvalId, decision, decidedBy);
     await this.deps.store.appendEvent(sessionId, 'permission_resolved', { id: approvalId, decision, message: message ?? null });
     // A mensagem (ex.: a resposta escolhida num AskUserQuestion) vai junto do evento ao vivo também,
     // não só do persistido — senão a tela não tem o que mostrar no bubble "Você respondeu" sem recarregar.

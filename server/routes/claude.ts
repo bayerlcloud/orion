@@ -13,6 +13,7 @@ import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../
 import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
+import { orionRootServer } from '../claude/rootTool.js';
 import { composicaoPara } from '../tools/skillPrefs.js';
 import { estiloConhecido } from '../tools/outputStyles.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
@@ -126,6 +127,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     ...githubMcpServers(await listarContasGithub(app.pool)),
     ...(cofreMcpServers(cofreCdpUrl()) ?? {}),
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
+    'orion-root': orionRootServer(sessionId),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
 
