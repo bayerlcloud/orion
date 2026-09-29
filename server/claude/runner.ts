@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { policyHook } from './policy.js';
 import { readFile } from 'node:fs/promises';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
@@ -328,6 +329,8 @@ export class Runner {
       cwd: p.cwd,
       permissionMode: p.permissionMode,
       canUseTool,
+      // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
+      hooks: { PreToolUse: [{ hooks: [policyHook] }] },
       abortController: abort,
       includePartialMessages: true,
       settingSources: ['user', 'project'],
