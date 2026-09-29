@@ -8,7 +8,7 @@ export default function ToolsNotas({ texto }: { texto: string }) {
   return (
     <>
       <p className={`tls-notes ${open ? 'is-open' : ''}`}>{texto}</p>
-      {longa && <button className="tls-more" onClick={() => setOpen(o => !o)}>{open ? 'ver menos' : 'ver mais'}</button>}
+      {longa && <button className="tls-more" onClick={e => { e.stopPropagation(); setOpen(o => !o); }}>{open ? 'ver menos' : 'ver mais'}</button>}
     </>
   );
 }

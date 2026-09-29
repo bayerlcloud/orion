@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 import ToolsNotas, { copiar } from './ToolsNotas';
+import ToolsContaModal from './ToolsContaModal';
 
 type Conta = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; nome: string; url: string; token_hint: string };
 const vazio = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
@@ -13,6 +14,7 @@ export default function ToolsCloudflare({ user }: { user: User }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Conta | null>(null);
   const [form, setForm] = useState(vazio());
+  const [open, setOpen] = useState<Conta | null>(null);
   const admin = user.role === 'owner';
 
   async function load() {
@@ -80,20 +82,20 @@ export default function ToolsCloudflare({ user }: { user: User }) {
       ) : (
         <div className="tls-grid">
           {contas.map(c => (
-            <div key={c.id} className="tls-card is-conector is-conta">
+            <div key={c.id} className="tls-card is-conector is-conta" onClick={() => setOpen(c)}>
               <div className="tls-card-top"><span className="tls-icon">☁️</span><span className="tls-badge is-conector">Conector</span></div>
               <div>
                 <div className="tls-name">{c.label}</div>
                 <div className="tls-sub" title={c.account_name}>{c.email || c.account_name}</div>
               </div>
               <dl className="tls-rows">
-                <dt>account</dt><dd className="cp" title="clique para copiar" onClick={() => copiar(c.account_id)}>{c.account_id}</dd>
+                <dt>account</dt><dd className="cp" title="clique para copiar" onClick={e => { e.stopPropagation(); copiar(c.account_id); }}>{c.account_id}</dd>
                 <dt>proxy</dt><dd className="cp" title={`${c.url}  (clique para copiar)`} onClick={() => copiar(c.url)}>{c.url.replace(/^https?:\/\/[^/]+/, '')}</dd>
                 <dt>token</dt><dd>{c.token_hint}</dd>
               </dl>
               <ToolsNotas texto={c.notes} />
               {admin && (
-                <div className="tls-card-foot">
+                <div className="tls-card-foot" onClick={e => e.stopPropagation()}>
                   <span className="tls-spacer" />
                   <button className="tls-icon-btn" onClick={() => startEdit(c)} title="Editar nome e explicação">✎</button>
                   <button className="tls-icon-btn" onClick={() => remove(c)} title="Remover">🗑</button>
@@ -102,6 +104,12 @@ export default function ToolsCloudflare({ user }: { user: User }) {
             </div>
           ))}
         </div>
+      )}
+
+      {open && (
+        <ToolsContaModal icone="☁️" badge="Conector" badgeClass="is-conector" titulo={open.label} sub={`${open.account_name}${open.email ? ` · ${open.email}` : ''}`}
+          linhas={[['account', open.account_id], ['proxy', open.url], ['token', open.token_hint]]} notas={open.notes}
+          onEdit={admin ? () => { setOpen(null); startEdit(open); } : undefined} onClose={() => setOpen(null)} />
       )}
     </>
   );
