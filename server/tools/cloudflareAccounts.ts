@@ -1,7 +1,8 @@
 import type { Pool } from 'pg';
 
 /** Contas Cloudflare conectadas (aba Tools). Uma linha por conta; cada uma vira o MCP remoto oficial da
- *  Cloudflare (bindings: Workers, KV, R2, D1, Hyperdrive) em toda sessão. Mesmo desenho de githubAccounts.ts. */
+ *  Cloudflare em toda sessão como CONECTOR SIMPLES: a sessão chama a API v4 pelo proxy local /conector/<nome>
+ *  (routes/conector.ts) sem token; o Orion injeta o Bearer. Tabela e rotas seguem o desenho de githubAccounts.ts. */
 export async function ensureCloudflareAccountsTable(pool: Pool): Promise<void> {
   await pool.query(`CREATE TABLE IF NOT EXISTS cloudflare_accounts (
     id SERIAL PRIMARY KEY, label TEXT NOT NULL UNIQUE, account_id TEXT NOT NULL, account_name TEXT NOT NULL DEFAULT '',
@@ -34,8 +35,8 @@ export async function cloudflareContaDe(accountId: string, token: string): Promi
   } catch { return null; }
 }
 
-/** Nome do MCP server: cloudflare-<label em slug>. As tools ficam mcp__cloudflare-<slug>__*. */
-export function nomeMcpCloudflare(label: string): string {
+/** Nome do conector: cloudflare-<label em slug>. O proxy fica em /conector/cloudflare-<slug>/. */
+export function nomeConectorCloudflare(label: string): string {
   const slug = label.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return `cloudflare-${slug || 'conta'}`;
 }
@@ -44,16 +45,24 @@ export function maskCloudflareToken(t: string): string {
   return `${t.slice(0, 5)}…${t.slice(-4)}`;
 }
 
-export type HttpMcpServerConfig = { type: 'http'; url: string; headers: Record<string, string> };
-
-/** Um MCP remoto oficial da Cloudflare (bindings) por conta, com o token da conta como Bearer — {} sem contas. */
-export function cloudflareMcpServers(contas: Pick<CloudflareAccount, 'label' | 'token'>[]): Record<string, HttpMcpServerConfig> {
-  const out: Record<string, HttpMcpServerConfig> = {};
-  for (const c of contas) out[nomeMcpCloudflare(c.label)] = { type: 'http', url: 'https://bindings.mcp.cloudflare.com/mcp', headers: { Authorization: `Bearer ${c.token}` } };
-  return out;
+export const CONECTOR_BASE = `http://127.0.0.1:${process.env.PORT ?? 3000}/conector`;
+/** URL que a sessão usa (sem token) para falar com a API v4 da conta. */
+export function urlDoConector(nome: string): string {
+  return `${CONECTOR_BASE}/${nome}`;
+}
+export function contaDoConector(nome: string, contas: CloudflareAccount[]): CloudflareAccount | null {
+  return contas.find(c => nomeConectorCloudflare(c.label) === nome) ?? null;
+}
+/** Pedido local direto: socket em loopback e sem X-Forwarded-For (tudo que vem pelo Caddy traz esse header). */
+export function ehPedidoLocal(remoteAddress: string | undefined, xForwardedFor: unknown): boolean {
+  return !xForwardedFor && (remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1');
+}
+/** ponytail: única trava do proxy — não apaga zona nem projeto Pages inteiro; o resto a permissão do token decide. */
+export function bloqueadoNoConector(method: string, caminho: string): boolean {
+  return method === 'DELETE' && /^\/?(zones\/[0-9a-f]{32}|accounts\/[0-9a-f]{32}\/pages\/projects\/[^/]+)\/?$/.test(caminho);
 }
 
-export type CloudflareNoHeader = { nome: string; account_id: string; account_name: string; email: string; notes: string };
+export type CloudflareNoHeader = { nome: string; url: string; account_id: string; account_name: string; email: string; notes: string };
 export function cloudflareParaHeader(contas: CloudflareAccount[]): CloudflareNoHeader[] {
-  return contas.map(c => ({ nome: nomeMcpCloudflare(c.label), account_id: c.account_id, account_name: c.account_name, email: c.email, notes: c.notes }));
+  return contas.map(c => { const nome = nomeConectorCloudflare(c.label); return { nome, url: urlDoConector(nome), account_id: c.account_id, account_name: c.account_name, email: c.email, notes: c.notes }; });
 }

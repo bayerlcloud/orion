@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 
-type Conta = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; mcp: string; token_hint: string };
+type Conta = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; nome: string; url: string; token_hint: string };
 const vazio = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
 
-/** Contas Cloudflare: cada uma vira o MCP oficial (bindings) em toda sessão; a explicação entra no prompt. Só o admin mexe. */
+/** Contas Cloudflare: conector simples. Cada conta vira um proxy local (/conector/<nome>) que injeta o token; a explicação entra no prompt. Só o admin mexe. */
 export default function ToolsCloudflare({ user }: { user: User }) {
   const [contas, setContas] = useState<Conta[]>([]);
   const [erro, setErro] = useState('');
@@ -30,7 +30,7 @@ export default function ToolsCloudflare({ user }: { user: User }) {
     } catch (e: any) { setErro(e.message); } finally { setBusy(false); }
   }
   async function remove(c: Conta) {
-    if (!window.confirm(`Remover a conta "${c.label}"? As sessões perdem as tools ${c.mcp}.`)) return;
+    if (!window.confirm(`Remover a conta "${c.label}"? As sessões perdem o conector ${c.nome}.`)) return;
     try { await api(`/api/tools/cloudflare/${c.id}`, { method: 'DELETE' }); await load(); } catch (e: any) { setErro(e.message); }
   }
 
@@ -40,13 +40,13 @@ export default function ToolsCloudflare({ user }: { user: User }) {
         <h2>Cloudflare</h2>
         {admin && <button className="btn-primary" onClick={startCreate} style={{ marginLeft: 12 }}>+ Conta</button>}
       </div>
-      <p className="muted small">Cada conta vira o MCP oficial da Cloudflare em toda sessão (Workers, KV, R2, D1, Hyperdrive). A explicação diz ao Claude o que vive em cada conta.</p>
+      <p className="muted small">Conector simples, não é MCP: em toda sessão o Claude chama a API da Cloudflare (Pages, DNS, Workers, R2, D1…) por um proxy local do Orion, que injeta o token. O token nunca entra na sessão. A explicação diz ao Claude o que vive em cada conta.</p>
       {erro && <div className="erro">{erro}</div>}
 
       {showForm && (
         <div className="tls-form">
           <div className="tls-form-grid">
-            <label className="tls-form-name">nome (as tools ficam mcp__cloudflare-&lt;nome&gt;__*)
+            <label className="tls-form-name">nome (o proxy fica em /conector/cloudflare-&lt;nome&gt;/)
               <input value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))} placeholder="ex.: fisioexpert" autoFocus />
             </label>
             <label>e-mail de login
@@ -79,10 +79,10 @@ export default function ToolsCloudflare({ user }: { user: User }) {
       ) : (
         <div className="tls-grid">
           {contas.map(c => (
-            <div key={c.id} className="tls-card is-mcp">
-              <div className="tls-card-top"><span className="tls-icon">☁️</span><span className="tls-badge is-mcp">MCP</span></div>
+            <div key={c.id} className="tls-card is-conector">
+              <div className="tls-card-top"><span className="tls-icon">☁️</span><span className="tls-badge is-conector">Conector</span></div>
               <div className="tls-name">{c.label}</div>
-              <p className="tls-desc">conta <span className="mono">{c.account_name || c.account_id}</span>{c.email && <> · <span className="mono">{c.email}</span></>} · tools <span className="mono">mcp__{c.mcp}__*</span> · token <span className="mono">{c.token_hint}</span></p>
+              <p className="tls-desc">conta <span className="mono">{c.account_name || c.account_id}</span>{c.email && <> · <span className="mono">{c.email}</span></>} · proxy <span className="mono">{c.url}</span> · token <span className="mono">{c.token_hint}</span></p>
               {c.notes && <p className="tls-desc">{c.notes}</p>}
               {admin && (
                 <div className="tls-card-foot">
