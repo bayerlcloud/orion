@@ -17,7 +17,7 @@ import { composicaoPara } from '../tools/skillPrefs.js';
 import { estiloConhecido } from '../tools/outputStyles.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
-import { cloudflareMcpServers, cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
+import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { ULTRACODE, resolveUltracode, withUltracodeAppend } from '../claude/ultracode.js';
 import { safeFilename } from '../driveUtils.js';
@@ -117,11 +117,11 @@ export async function claudeRoutes(app: FastifyInstance) {
     return attachments.length ? { text, attachments } : text;
   }
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
-  // MCPs de toda sessão: hostinger (quando há token) + um github e um cloudflare por conta cadastrada na aba Tools + orion-memory (sempre).
+  // MCPs de toda sessão: hostinger (quando há token) + um github por conta cadastrada na aba Tools + orion-memory (sempre).
+  // Cloudflare não é MCP: é conector simples (proxy local /conector/<nome>), só entra no header.
   const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number) => ({
     ...(hostingerMcpServers(await getSetting(app.pool, KEYS.hostingerToken)) ?? {}),
     ...githubMcpServers(await listarContasGithub(app.pool)),
-    ...cloudflareMcpServers(await listarContasCloudflare(app.pool)),
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });

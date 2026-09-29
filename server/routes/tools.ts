@@ -6,7 +6,7 @@ import { KEYS, getSetting, sdkEnv } from '../settings.js';
 import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type SkillItem } from '../tools/skillsScan.js';
 import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
 import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
-import { cloudflareContaDe, ensureCloudflareAccountsTable, listarContasCloudflare, looksLikeCloudflareAccountId, looksLikeCloudflareToken, maskCloudflareToken, nomeMcpCloudflare, type CloudflareAccount } from '../tools/cloudflareAccounts.js';
+import { cloudflareContaDe, ensureCloudflareAccountsTable, listarContasCloudflare, looksLikeCloudflareAccountId, looksLikeCloudflareToken, maskCloudflareToken, nomeConectorCloudflare, urlDoConector, type CloudflareAccount } from '../tools/cloudflareAccounts.js';
 
 const KINDS = new Set(['tool', 'skill', 'mcp']);
 
@@ -184,8 +184,8 @@ export async function toolsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // ---------- contas Cloudflare (mesmo desenho das contas GitHub) ----------
-  const cfPublica = (c: CloudflareAccount) => ({ id: c.id, label: c.label, account_id: c.account_id, account_name: c.account_name, email: c.email, notes: c.notes, mcp: nomeMcpCloudflare(c.label), token_hint: maskCloudflareToken(c.token) });
+  // ---------- contas Cloudflare (conector simples; tabela e rotas no desenho das contas GitHub) ----------
+  const cfPublica = (c: CloudflareAccount) => ({ id: c.id, label: c.label, account_id: c.account_id, account_name: c.account_name, email: c.email, notes: c.notes, nome: nomeConectorCloudflare(c.label), url: urlDoConector(nomeConectorCloudflare(c.label)), token_hint: maskCloudflareToken(c.token) });
 
   app.get('/api/tools/cloudflare', async () => ({ contas: (await listarContasCloudflare(app.pool)).map(cfPublica) }));
 

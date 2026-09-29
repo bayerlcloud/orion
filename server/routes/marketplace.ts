@@ -16,7 +16,6 @@ import {
 } from '../tools/marketplace.js';
 import { KEYS, getSetting, hostingerMcpServers } from '../settings.js';
 import { listarContasGithub, nomeMcpGithub } from '../tools/githubAccounts.js';
-import { listarContasCloudflare, nomeMcpCloudflare } from '../tools/cloudflareAccounts.js';
 
 export async function marketplaceRoutes(app: FastifyInstance) {
   await ensureSkillPrefsTable(app.pool);
@@ -128,8 +127,8 @@ export async function marketplaceRoutes(app: FastifyInstance) {
   /**
    * Servidores MCP configurados nas sessões do Orion — a lista `mcpServerList` da extensão real,
    * montada do que o runner realmente injeta em toda sessão (server/routes/claude.ts:
-   * turnMcpServers): hostinger (com token em Configurações), um GitHub e um Cloudflare por conta da
-   * aba Tools, e o orion-memory (sempre, em processo). Nunca expõe token/URL com credencial.
+   * turnMcpServers): hostinger (com token em Configurações), um GitHub por conta da aba Tools, e o
+   * orion-memory (sempre, em processo). Cloudflare não é MCP (conector simples via proxy /conector). Nunca expõe token/URL com credencial.
    * Status é "configurado" — o estado vivo (connected/failed) só existe dentro de uma sessão real,
    * simplificação documentada em PARIDADE-marketplace.md.
    */
@@ -143,9 +142,6 @@ export async function marketplaceRoutes(app: FastifyInstance) {
     }
     for (const c of await listarContasGithub(app.pool)) {
       servers.push({ nome: nomeMcpGithub(c.label), tipo: 'http', detalhe: 'https://api.githubcopilot.com/mcp/ (token da conta, nunca exposto)', origem: `Conta GitHub "${c.label}" (${c.login}) na aba Tools`, escopo: 'todas as sessões' });
-    }
-    for (const c of await listarContasCloudflare(app.pool)) {
-      servers.push({ nome: nomeMcpCloudflare(c.label), tipo: 'http', detalhe: 'MCP oficial da Cloudflare (token da conta, nunca exposto)', origem: `Conta Cloudflare "${c.label}" na aba Tools`, escopo: 'todas as sessões' });
     }
     servers.push({ nome: 'orion-memory', tipo: 'sdk', detalhe: 'servidor em processo do próprio Orion (server/claude/memoryTool.ts)', origem: 'memória do painel, sempre presente', escopo: 'todas as sessões' });
     return { servers };
