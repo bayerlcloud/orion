@@ -1,5 +1,5 @@
 import type { AgentTask, ConvEvent, SdkMessage, SlashCommandInfo } from './types';
-import { applyPendingToolWaitStatus, describeTool, interruptedLabel, noteAgentTask, reduceSdkMessages } from './mapper';
+import { applyPendingToolWaitStatus, describeTool, interruptedLabel, noteAgentTask, reduceSdkMessages, markUnfinishedTools } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
 /**
@@ -66,6 +66,9 @@ function userText(m: Extract<SdkMessage, { type: 'user' }>): string | undefined 
   return undefined;
 }
 
+/** Cópia da mensagem com `_when` (instante real): o mapper usa pra medir o thinking ("Pensou por 20 s"). */
+const stamp = (m: SdkMessage, when: number): SdkMessage => Object.assign({}, m, { _when: when });
+
 function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): LiveState {
   // Mesma mensagem do SDK (mesmo uuid) já aplicada: acontece ao reconectar, quando o histórico
   // recarregado e os eventos que chegaram pelo stream enquanto ele carregava se sobrepõem.
@@ -87,11 +90,11 @@ function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): Li
       if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return { ...s, agentTasks };
       // Nova mensagem do usuário: a interrupção do turno anterior (se houve) não vale mais pro que
       // vem a seguir — mesma janela de vida do erro genuíno (limpo quando volta a rodar, ver 'status').
-      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode };
+      return { ...s, messages: [...s.messages, stamp(m, when)], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode };
     }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
-  return { ...s, messages: [...s.messages, m], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking, agentTasks, fastMode };
+  return { ...s, messages: [...s.messages, stamp(m, when)], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking, agentTasks, fastMode };
 }
 
 /** Reconstrói o estado a partir das linhas persistidas + verdade do servidor sobre pendências. */
@@ -204,7 +207,7 @@ export function toConvEvents(s: LiveState): ConvEvent[] {
   // real do SDK, nunca um heurístico (ver applyPendingToolWaitStatus/toolRunningLabel em mapper.ts,
   // achado numa investigação de "o padrão de mensagens tá diferente do plugin", PARIDADE.md).
   const pendingToolIds = s.pending.map(p => p.toolUseId).filter((x): x is string => !!x);
-  const out = applyPendingToolWaitStatus(reduceSdkMessages(s.messages), pendingToolIds);
+  const out = markUnfinishedTools(applyPendingToolWaitStatus(reduceSdkMessages(s.messages), pendingToolIds), s.status);
   if (s.partialThinking) out.push({ id: 'partial-thinking', kind: 'thinking', text: s.partialThinking, streaming: true });
   if (s.partialText) out.push({ id: 'partial-text', kind: 'text', text: s.partialText, streaming: true });
   // Stop manual: o que sobrou da resposta cortada, tagueado como interrompido (nunca some — ver bug

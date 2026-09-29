@@ -31,7 +31,8 @@ export type ConvEvent =
    * Ausente/undefined no caso normal (texto completo, sem interrupção).
    */
   | { id: string; kind: 'text'; text: string; streaming?: boolean; interrupted?: string }
-  | { id: string; kind: 'thinking'; text: string; streaming?: boolean }
+  /** `durationMs`: quanto tempo o modelo pensou (distância entre a mensagem anterior e esta — ver reduceSdkMessages); só existe quando as mensagens têm `_when`. */
+  | { id: string; kind: 'thinking'; text: string; streaming?: boolean; durationMs?: number }
   | {
       id: string; kind: 'tool'; toolUseId: string; name: string; label: string; description?: string;
       input: unknown; inputText?: string; output?: string; isError?: boolean; status: ToolStatus;

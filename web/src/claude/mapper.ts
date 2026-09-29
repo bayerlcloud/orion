@@ -64,7 +64,13 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
   let n = 0;
   const nid = () => `e${++n}`;
 
+  let prevWhen: number | undefined;
   for (const m of messages) {
+    // `_when` (live.ts pushMessage): ts real da linha no histórico, instante de chegada ao vivo. A
+    // distância pra mensagem anterior é a duração do thinking desta mensagem ("Pensou por 20 s").
+    const mWhen = (m as { _when?: unknown })._when;
+    const durMs = typeof mWhen === 'number' && prevWhen !== undefined && mWhen > prevWhen ? mWhen - prevWhen : undefined;
+    if (typeof mWhen === 'number') prevWhen = mWhen;
     // Mensagem de SUBAGENTE (`parent_tool_use_id` = o tool_use da tool `Task` pai — campo real do
     // SDK, ver types.ts): nunca entra na timeline principal. Antes desta rodada (29/09/2026, ver
     // PARIDADE-agentmap.md) o campo era ignorado e o transcript inteiro do subagente vazava misturado
@@ -92,7 +98,7 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
     if (m.type === 'assistant') {
       for (const b of m.message.content) {
         if (b.type === 'text' && b.text.trim()) out.push({ id: nid(), kind: 'text', text: b.text });
-        else if (b.type === 'thinking' && b.thinking.trim()) out.push({ id: nid(), kind: 'thinking', text: b.thinking });
+        else if (b.type === 'thinking' && b.thinking.trim()) out.push({ id: nid(), kind: 'thinking', text: b.thinking, ...(durMs !== undefined ? { durationMs: durMs } : {}) });
         else if (b.type === 'tool_use') {
           const d = describeTool(b.name, b.input);
           toolIndex.set(b.id, out.length);
@@ -140,6 +146,27 @@ export function hookBlockReason(content: string): string {
   const i = semPrompt.lastIndexOf(']: ');
   const motivo = (i >= 0 ? semPrompt.slice(i + 3) : semPrompt.replace(/^UserPromptSubmit operation blocked by hook:\s*/, '')).trim();
   return motivo.length > 400 ? motivo.slice(0, 400) + '…' : motivo;
+}
+
+/** Rótulo do bloco de thinking: "Pensando…" enquanto streama; "Pensou por 20 s" (ou só "Pensou", sem duração) depois. */
+export function thinkingLabel(streaming: boolean, durationMs?: number): string {
+  if (streaming) return 'Pensando…';
+  return durationMs !== undefined ? `Pensou por ${formatDuration(durationMs)}` : 'Pensou';
+}
+
+export const TOOL_NAO_TERMINOU = 'Não terminou: a sessão parou antes de a ferramenta responder (parada manual ou reinício do servidor).';
+
+/**
+ * Sessão parada (`status` idle/error) com ferramenta ainda "executando…": ela NUNCA vai responder — o
+ * processo do SDK morreu (deploy reinicia o orion-central: 25 vezes em 2026-09-29) ou foi parado. Antes
+ * ficava piscando pra sempre, sem spinner, e não dava pra saber se era pra esperar. Vira aviso com a
+ * explicação na saída. Com a sessão rodando/esperando permissão não mexe em nada.
+ */
+export function markUnfinishedTools(events: ConvEvent[], status: string): ConvEvent[] {
+  if (status === 'running' || status === 'waiting') return events;
+  return events.map(e => e.kind === 'tool' && (e.status === 'running' || e.status === 'waiting')
+    ? { ...e, status: 'warning' as ToolStatus, isError: true, output: e.output ?? TOOL_NAO_TERMINOU }
+    : e);
 }
 
 export function estimateTokens(text: string): number {
@@ -400,17 +427,18 @@ export function spinnerGlyphAt(step: number): string {
  * inglês, extraída do bundle com `json.loads` (não digitada à mão). Ordem alfabética, igual ao real.
  */
 export const SPINNER_WORDS: readonly string[] = [
-  'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Booping', 'Brewing', 'Calculating', 'Cerebrating',
-  'Channeling', 'Churning', 'Clauding', 'Coalescing', 'Cogitating', 'Computing', 'Combobulating', 'Concocting',
-  'Considering', 'Contemplating', 'Cooking', 'Crafting', 'Creating', 'Crunching', 'Deciphering', 'Deliberating',
-  'Determining', 'Discombobulating', 'Doing', 'Effecting', 'Elucidating', 'Enchanting', 'Envisioning', 'Finagling',
-  'Flibbertigibbeting', 'Forging', 'Forming', 'Frolicking', 'Generating', 'Germinating', 'Hatching', 'Herding',
-  'Honking', 'Ideating', 'Imagining', 'Incubating', 'Inferring', 'Manifesting', 'Marinating', 'Meandering',
-  'Moseying', 'Mulling', 'Mustering', 'Musing', 'Noodling', 'Percolating', 'Perusing', 'Philosophizing',
-  'Pontificating', 'Pondering', 'Processing', 'Puttering', 'Puzzling', 'Reticulating', 'Ruminating', 'Scheming',
-  'Schlepping', 'Shimmying', 'Simmering', 'Smooshing', 'Spelunking', 'Spinning', 'Stewing', 'Sussing',
-  'Synthesizing', 'Thinking', 'Tinkering', 'Transmuting', 'Unfurling', 'Unraveling', 'Vibing', 'Wandering',
-  'Whirring', 'Wibbling', 'Working', 'Wrangling',
+  // Tradução 1:1 das 84 palavras da extensão real (pedido do Bayerl, 2026-09-29): mesma ordem, mesma quantidade.
+  'Realizando', 'Acionando', 'Concretizando', 'Assando', 'Bipando', 'Fermentando', 'Calculando', 'Cerebrando',
+  'Canalizando', 'Batendo', 'Claudeando', 'Coalescendo', 'Cogitando', 'Computando', 'Combobulando', 'Maquinando',
+  'Considerando', 'Contemplando', 'Cozinhando', 'Lapidando', 'Criando', 'Mastigando', 'Decifrando', 'Deliberando',
+  'Determinando', 'Descombobulando', 'Fazendo', 'Efetuando', 'Elucidando', 'Encantando', 'Vislumbrando', 'Improvisando',
+  'Tagarelando', 'Forjando', 'Formando', 'Brincando', 'Gerando', 'Germinando', 'Chocando', 'Pastoreando',
+  'Buzinando', 'Ideando', 'Imaginando', 'Incubando', 'Inferindo', 'Manifestando', 'Marinando', 'Serpenteando',
+  'Perambulando', 'Remoendo', 'Reunindo', 'Meditando', 'Rabiscando', 'Percolando', 'Perscrutando', 'Filosofando',
+  'Pontificando', 'Ponderando', 'Processando', 'Ajeitando', 'Cismando', 'Reticulando', 'Ruminando', 'Tramando',
+  'Carregando', 'Rebolando', 'Fervilhando', 'Amassando', 'Explorando', 'Girando', 'Refogando', 'Sacando',
+  'Sintetizando', 'Pensando', 'Fuçando', 'Transmutando', 'Desdobrando', 'Desemaranhando', 'Curtindo', 'Vagando',
+  'Zumbindo', 'Balançando', 'Trabalhando', 'Domando',
 ];
 
 /**

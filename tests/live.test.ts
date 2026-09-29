@@ -145,7 +145,7 @@ describe('applyLive', () => {
     expect(toConvEvents(s).map(e => e.kind)).toEqual(['text']);
   });
   it('não duplica o eco do prompt', () => {
-    let s = applyLive(emptyLive(), { type: 'message', message: { type: 'user', message: { content: '[D] oi' } } });
+    let s = applyLive(applyLive(emptyLive(), { type: 'status', status: 'running' }), { type: 'message', message: { type: 'user', message: { content: '[D] oi' } } });
     s = applyLive(s, { type: 'message', message: { type: 'user', message: { content: '[D] oi' } } });
     expect(s.messages).toHaveLength(1);
   });
@@ -283,7 +283,7 @@ describe('toConvEvents — status do tool_use com permissão pendente (toolUseId
   });
 
   it('ao vivo (sem reload): o mesmo tool_use, assim que o pedido de permissão chega com o toolUseId real, também vira waiting', () => {
-    let s = applyLive(emptyLive(), { type: 'message', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } });
+    let s = applyLive(applyLive(emptyLive(), { type: 'status', status: 'running' }), { type: 'message', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } });
     // Antes do pedido de permissão chegar: o tool_use aparece "running" (mesmo comportamento de sempre).
     expect(toConvEvents(s).find(e => e.kind === 'tool')).toMatchObject({ status: 'running' });
     s = applyLive(s, { type: 'permission_request', id: 'approval-1', toolName: 'Bash', input: { command: BASH_CMD }, hasSuggestions: true, toolUseId: TOOL_USE_ID });
@@ -291,7 +291,7 @@ describe('toConvEvents — status do tool_use com permissão pendente (toolUseId
   });
 
   it('depois de resolvido e o tool_result chegar: volta a refletir o resultado normal (success), não fica travado em waiting', () => {
-    let s = applyLive(emptyLive(), { type: 'message', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } });
+    let s = applyLive(applyLive(emptyLive(), { type: 'status', status: 'running' }), { type: 'message', message: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Bash', input: { command: BASH_CMD } }] } } });
     s = applyLive(s, { type: 'permission_request', id: 'approval-1', toolName: 'Bash', input: { command: BASH_CMD }, hasSuggestions: true, toolUseId: TOOL_USE_ID });
     s = applyLive(s, { type: 'permission_resolved', id: 'approval-1', decision: 'allow_always' });
     s = applyLive(s, { type: 'message', message: { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: TOOL_USE_ID, content: 'saída do comando', is_error: false }] } } });
@@ -345,14 +345,43 @@ describe('LiveState.agentTasks — Mapa de agentes', () => {
   });
   it('applyLive: tool_use do Task chegando ao vivo (sem ts de servidor) usa o "now" injetado como startedAt', () => {
     const msg = { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Task', input: { description: 'Ler logs' } }] } };
-    const s = applyLive(emptyLive(), { type: 'message', message: msg }, 12345);
+    const s = applyLive(applyLive(emptyLive(), { type: 'status', status: 'running' }), { type: 'message', message: msg }, 12345);
     expect(s.agentTasks[TOOL_USE_ID]).toMatchObject({ description: 'Ler logs', status: 'running', startedAt: 12345 });
   });
   it('applyLive: tool_result chegando depois fecha a entrada com o "now" desse instante', () => {
     const use = { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Task', input: { description: 'Ler logs' } }] } };
     const result = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: TOOL_USE_ID, content: 'ok', is_error: false }] } };
-    let s = applyLive(emptyLive(), { type: 'message', message: use }, 1000);
+    let s = applyLive(applyLive(emptyLive(), { type: 'status', status: 'running' }), { type: 'message', message: use }, 1000);
     s = applyLive(s, { type: 'message', message: result }, 5000);
     expect(s.agentTasks[TOOL_USE_ID]).toMatchObject({ status: 'success', startedAt: 1000, endedAt: 5000 });
+  });
+});
+
+describe('turno cortado por restart do servidor (sessão real 517a48e1, 2026-09-29 22:01)', () => {
+  const rows = [
+    { type: 'user_prompt', ts: '2026-09-29T22:00:43.000Z', payload: { prompt: '[Danilo] ?' } },
+    { type: 'assistant', ts: '2026-09-29T22:01:03.000Z', payload: { type: 'assistant', uuid: 'a1', message: { content: [{ type: 'thinking', thinking: 'pensando...' }] } } },
+    { type: 'assistant', ts: '2026-09-29T22:01:34.000Z', payload: { type: 'assistant', uuid: 'a2', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'git commit', description: 'Commitar e juntar na main' } }] } } },
+  ] as any;
+  it('sessão idle (boot marcou idle, não retomou): thinking com duração pelo ts real, Bash sem resposta vira aviso, sem spinner', () => {
+    const ev = toConvEvents(fromRows(rows, 'idle', []));
+    const th = ev.find(e => e.kind === 'thinking');
+    expect(th?.kind === 'thinking' && th.durationMs).toBe(20_000);
+    const tool = ev.find(e => e.kind === 'tool');
+    expect(tool?.kind === 'tool' && tool.status).toBe('warning');
+    expect(tool?.kind === 'tool' && tool.output).toContain('Não terminou');
+    expect(ev.some(e => e.kind === 'busy')).toBe(false);
+  });
+  it('mesma sessão rodando: Bash segue executando e o spinner fica o turno inteiro', () => {
+    const ev = toConvEvents(fromRows(rows, 'running', []));
+    const tool = ev.find(e => e.kind === 'tool');
+    expect(tool?.kind === 'tool' && tool.status).toBe('running');
+    expect(ev[ev.length - 1].kind).toBe('busy');
+  });
+  it('ao vivo: status idle chegando pelo SSE depois do tool_use também marca a ferramenta', () => {
+    let s = fromRows(rows, 'running', []);
+    s = applyLive(s, { type: 'status', status: 'idle' });
+    const tool = toConvEvents(s).find(e => e.kind === 'tool');
+    expect(tool?.kind === 'tool' && tool.status).toBe('warning');
   });
 });
