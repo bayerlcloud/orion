@@ -110,6 +110,10 @@ export function renderCapacidades(versaoClaude: string | null, custom: Customiza
 - Conta Claude Max conectada no home do danilo (login pelo navegador na aba Configurações). Orçamento padrão: US$ 5 por sessão.
 - Modos: default / acceptEdits / plan / auto. Modelo e esforço selecionáveis por sessão.
 
+## Publicar o Orion (deploy com fila)
+- Botão "Publicar main" em Configurações (só owner) ou, de qualquer sessão: escrever /srv/builds/pedido.json com {"ref":"main","por":"<seu nome>"}. O systemd constrói num checkout limpo, roda typecheck e testes, troca /srv/orion-live e reinicia; falhou, volta sozinho. Um por vez; estado em /srv/builds/status.json.
+- Nunca rodar npm run build na pasta /srv/orion nem reiniciar o serviço na mão.
+
 ## MCPs e integrações
 - hostinger: DNS do bayerl.cloud (token na tabela settings). Sempre registro A explícito.
 - Anexos no chat: imagens viram blocos base64; outros arquivos chegam como caminho em /srv/claude-uploads (ler com ferramentas).
