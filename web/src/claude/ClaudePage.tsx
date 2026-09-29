@@ -39,6 +39,15 @@ export default function ClaudePage() {
   // nativo já reconecta sozinho; antes o onerror era um no-op puro, silêncio total pro usuário).
   const [streamStatus, setStreamStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Overlay flutuante do composer + card de permissão (ver claude.css `.cc-float`/`.cc-fade` e
+  // PARIDADE.md "Layout flutuante do composer", rodada 7): mede a altura real do bloco flutuante via
+  // ResizeObserver, igual ao `inputContainer_07S1Yg` da extensão real (webview/index.js v2.1.282:
+  // `new ResizeObserver(es=>{for(let e of es)V(e.contentRect.height)})` observando o próprio nó do
+  // inputContainer) — o valor vira a altura de um spacer no fim de `.cc-scroll` logo abaixo, senão a
+  // última mensagem ficaria escondida atrás do card/composer flutuante (que agora sobrepõe a área que
+  // rola em vez de empurrá-la, diferente da rodada 6/`.cc-dock`).
+  const floatRef = useRef<HTMLDivElement>(null);
+  const [floatHeight, setFloatHeight] = useState(0);
   const draftCounter = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const restoredRef = useRef(false);
@@ -124,7 +133,22 @@ export default function ClaudePage() {
   // permission_request — ver mapper.ts): sempre o pedido pendente mais antigo, nunca mais de um ao
   // mesmo tempo — ver PermissionDock/currentPermission e PARIDADE.md "Card de permissão docado".
   const dockedPermission = useMemo(() => currentPermission(events), [events]);
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [events.length, state.partialText.length, state.partialThinking.length, activeId]);
+  // Reobserva sempre que a sessão ativa muda: `.cc-float` (ver JSX abaixo) só existe com `activeId`
+  // truthy — é condicional, igual `.cc-dock` já era antes dele — então o nó do DOM observado troca a
+  // cada montagem/desmontagem (sem sessão aberta, sem composer, sem altura pra medir).
+  useEffect(() => {
+    const el = floatRef.current;
+    if (!el) { setFloatHeight(0); return; }
+    const ro = new ResizeObserver(entries => { for (const e of entries) setFloatHeight(e.contentRect.height); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeId]);
+  // `floatHeight` entra nas dependências porque o card de permissão pode crescer o composer flutuante
+  // (ver `.cc-float` em claude.css) no MESMO instante em que o evento de permissão é adicionado a
+  // `events` — sem isso, o `scrollTo` deste efeito rodaria com o `scrollHeight` de ANTES do spacer
+  // crescer (o ResizeObserver acima dispara um frame depois), deixando a última mensagem visível por
+  // baixo do card recém-aparecido por um instante.
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [events.length, state.partialText.length, state.partialThinking.length, activeId, floatHeight]);
 
   const active = sessions.find(s => s.id === activeId);
   const activeTab = tabs.find(t => t.id === activeId);
@@ -283,25 +307,39 @@ export default function ClaudePage() {
         {activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
         )}
-        <div className="cc-scroll" ref={scrollRef}>
-          {!activeId && (
-            <div className="cc-empty-state">
-              <div className="cc-brand-big">✳ Claude Code</div>
-              <p>Escolha uma sessão à esquerda ou clique em <b>Nova sessão</b>.</p>
-              <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
+        {/* `.cc-chat` = `.chatContainer_07S1Yg` real: âncora `position:relative` pras duas camadas
+            absolutas por cima da área que rola (`.cc-fade`/`.cc-float` abaixo) — ver claude.css e
+            PARIDADE.md "Layout flutuante do composer". */}
+        <div className="cc-chat">
+          <div className="cc-scroll" ref={scrollRef}>
+            {!activeId && (
+              <div className="cc-empty-state">
+                <div className="cc-brand-big">✳ Claude Code</div>
+                <p>Escolha uma sessão à esquerda ou clique em <b>Nova sessão</b>.</p>
+                <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
+              </div>
+            )}
+            {activeId && <Timeline events={events} onDecide={decide} />}
+            {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
+                `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
+                `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer
+                flutuante, nunca fique escondida atrás dele. */}
+            {activeId && <div style={{ height: floatHeight, minHeight: floatHeight }} aria-hidden="true" />}
+          </div>
+          {/* Camada de esmaecimento entre o texto que rola e o composer flutuante — `.messageGradient_07S1Yg`
+              real: gradiente sólido até a cor de fundo, NÃO blur/backdrop-filter (nenhum dos dois existe
+              nesta área do bundle real — ver claude.css/PARIDADE.md). */}
+          {activeId && <div className="cc-fade" aria-hidden="true" />}
+          {activeId && (
+            <div className="cc-float" ref={floatRef}>
+              <PermissionDock event={dockedPermission} onDecide={decide} />
+              <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
+                model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
+                projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
+                onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
             </div>
           )}
-          {activeId && <Timeline events={events} onDecide={decide} />}
         </div>
-        {activeId && (
-          <div className="cc-dock">
-            <PermissionDock event={dockedPermission} onDecide={decide} />
-            <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
-              model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
-              projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
-              onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
-          </div>
-        )}
         <div className="cc-status">
           <span>{active?.project_slug ?? '—'}</span><span className="cc-mono">{active?.cwd ?? ''}</span><span className="cc-spacer" />
           <span>{login ? `Claude Code ${login.version}` : ''}</span><span>{sessions.filter(s => s.status === 'running' || s.status === 'waiting').length} ativa(s)</span>

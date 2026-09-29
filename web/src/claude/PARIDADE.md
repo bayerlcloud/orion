@@ -160,7 +160,8 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Render distinto Read/Edit/Write/Bash (`bashCommand_F2hEIg`, `filename_adbcGQ`) | **implementado agora** | caminho de arquivo em destaque; Bash mostra comando |
 | Diff colorido para Edit (`insertions/deletions_oblbPg`, `char-insert/delete`) | **implementado agora (28/09/2026, rodada 2)** | diff unificado simples (linhas -/+) **+ destaque de caractere dentro da linha trocada** — ver nota abaixo |
 | Permission card allow/deny (`permissionRequestContainer_qlaBag`) | já tem | `cc-perm` |
-| Card de permissão **docado** acima do compositor (`position:absolute;bottom:16px`, fora da área que rola) — nunca dentro da lista de mensagens | **implementado agora (28/09/2026, rodada 6 — pedido ao vivo do Bayerl)** | `PermissionDock` (Timeline.tsx) montado por `ClaudePage.tsx` como irmão do `Composer`, fora da `cc-timeline`/`cc-scroll` — ver seção nova abaixo |
+| Card de permissão **docado** acima do compositor (`position:absolute;bottom:16px`, fora da área que rola) — nunca dentro da lista de mensagens | **implementado agora (28/09/2026, rodada 6 — pedido ao vivo do Bayerl; mecânica `position:absolute` real adotada de verdade na rodada 7)** | `PermissionDock` (Timeline.tsx) montado por `ClaudePage.tsx` como irmão do `Composer`, dentro do MESMO `.cc-float` flutuante — fora da `cc-timeline`/`cc-scroll` — ver seção nova abaixo |
+| Composer + área de mensagens não divididos em blocos separados: input flutuante, centralizado, sobrepondo a área que rola, texto esmaecendo atrás dele (`inputContainer_07S1Yg`/`messageGradient_07S1Yg`) | **implementado agora (28/09/2026, rodada 7 — pedido ao vivo do Bayerl, apontando pra esta MESMA extensão como referência)** | `.cc-float`/`.cc-fade`/`.cc-chat` em `claude.css`, `floatRef`/`floatHeight`/`ResizeObserver` em `ClaudePage.tsx` — ver seção nova abaixo |
 | Status do tool_use enquanto aguarda decisão (não mostrar "executando…" antes da aprovação) | **corrigido agora (28/09/2026, rodada 4)** | novo `ToolStatus` `'waiting'`, ligado pelo `toolUseId` real do SDK — ver seção nova abaixo |
 | "Sim, e não perguntar de novo" (`Yes, and don't ask again`) | já tem | `allow_always` |
 | Escopo do allow_always (session/settings) | n/a | sem UI de escopo; SDK decide |
@@ -1016,6 +1017,173 @@ dois momentos, nenhum teste existente alterado ou quebrado + `npm run typecheck`
 tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`, sem erro) + `npm run build` (`vite
 build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta mudança).
 
+### Layout flutuante do composer — rodada de 28/09/2026 (7)
+
+Pedido AO VIVO do Bayerl, nas próprias palavras, apontando pra esta MESMA extensão Claude Code (que ele
+chama de "claude do antigravity" — a que está rodando nesta mesma sessão, usada como referência visual
+direta em vez de só uma captura de tela): "quero que a UI da tela seja igual do claude do antigravity...
+ou seja não tem divisão entre a parte do bloco de input do restante da tela... tá vendo que o input não
+ocupa 100% da tela... fica no meio... e o texto nasce em cima dele... mas se eu rolo a tela ele passa
+por trás com uma camada... enfim só copiar 100% a UI aqui, para ficar igual no orion v2". Continuação
+direta da rodada 6 ("Card de permissão docado" acima): aquela rodada já tinha achado e citado o CSS real
+do `inputContainer_07S1Yg`/`permissionsContainer_07S1Yg` pro CARD DE PERMISSÃO, mas deliberadamente não
+tinha adotado a mecânica `position:absolute`/`ResizeObserver` de verdade ("aqui, mais simples...
+over-engineering pra um efeito que o grid normal já resolve" — texto antigo, agora removido de
+`claude.css`/`Timeline.tsx`). Esta rodada estende o MESMO tratamento flutuante pro composer inteiro
+(não só o card de permissão), porque é a mesma caixa (`inputContainer_07S1Yg`) na extensão real.
+
+**Estrutura real, reconfirmada lendo o JSX bruto do componente inteiro** (não só a citação isolada de
+CSS da rodada 6) — `webview/index.js` v2.1.282, função que monta a tela de sessão (achada pelo mapa de
+classes CSS Modules `f0={sessionLayout:...,chatContainer:...,messagesContainer:...,messageGradient:...,
+inputContainer:...,permissionsContainer:...,...}`, todas com o mesmo sufixo de hash `_07S1Yg` — ou seja,
+literalmente o MESMO arquivo/componente de origem pras três camadas):
+
+```
+R("div",{className:f0.sessionLayout, children:[
+  R("div",{className:f0.chatContainer, children:[
+    ...dropInfoOverlay, errorBanner, loadingState, emptyState (condicionais)...
+    f5 && R("div",{ref:Q, className:`${f0.messagesContainer} ${f0.stickyMode} ...`, children:[
+      ...turnos/mensagens...,
+      F("div",{ref:Y, style:{height:`${U}px`, minHeight:`${U}px`}})   // spacer medido
+    ]}),
+    F("div",{className:`${f0.messageGradient} ...`}),                 // camada de esmaecimento
+    R("div",{ref:z, className:`${f0.inputContainer} ...`, children:[
+      ...awsAuthInProgress, diálogos de permissão (permissionsContainer), hostUnresponsive...,
+      F5   // o composer de verdade (promptInputContainer > NK0/editor)
+    ]}),
+  ]}),
+]})
+```
+
+`chatContainer`, `messagesContainer`, `messageGradient` e `inputContainer` são os QUATRO filhos diretos
+de `chatContainer` (os 3 últimos, junto com os banners condicionais) — `messagesContainer` (a área que
+rola) e `inputContainer` (o composer flutuante) são IRMÃOS, nunca um dentro do outro, com
+`messageGradient` entre os dois na ordem do DOM (mas visualmente por cima de `messagesContainer`, por
+`position:absolute`+`z-index`). Confirma e estende o achado da rodada 6 (que já sabia isso só pro card
+de permissão): é a MESMA relação estrutural pro composer inteiro.
+
+**CSS exato** (extraído do `index.css` v2.1.282 minificado com Python/regex, não digitado de memória —
+arquivo é uma única linha de 429KB, `grep -oP` sozinho travava por backtracking; resolvido baixando o
+arquivo e processando localmente):
+
+- `.chatContainer_07S1Yg{display:flex;overflow:hidden;position:relative;flex-direction:column;flex:1;
+  min-width:0;line-height:1.5}` — a âncora `position:relative` de tudo.
+- `.messagesContainer_07S1Yg{overflow-y:auto;overflow-x:hidden;display:flex;background-color:
+  var(--app-primary-background);position:relative;flex-direction:column;flex:1;gap:0;min-width:0;
+  padding:20px 20px 40px}` — variante BASE (sem `stickyMode`, que na produção real É aplicado sempre
+  via classe extra e troca o padding-top por um spacer `:before{height:20px}`; Orion não tem cabeçalho
+  de mensagem fixo ao rolar — ver seção 1 "n/a" — então adotamos só a variante base, padding
+  `20px 20px 40px` idêntico).
+- `.messageGradient_07S1Yg{position:absolute;background:linear-gradient(to bottom,transparent 0%,
+  var(--app-primary-background)100%);pointer-events:none;z-index:2;height:150px;bottom:0;left:0;
+  right:0}` — a camada de esmaecimento. **Confirmado que NÃO é `backdrop-filter`/blur**: busca no
+  `index.css` inteiro (429KB) por `backdrop-filter` devolve exatamente 1 ocorrência em todo o arquivo,
+  `.popup_v2CdxQ{...backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);...}` — um dropdown
+  de MENU do compositor (não a área de mensagens), sem nenhuma relação com este componente (sufixo de
+  hash diferente, `_v2CdxQ`). Busca por `mask-image` devolve 2 ocorrências, nenhuma aqui: uma em
+  `.toolBodyRowContent_ZUQaOA` (recorte de saída de ferramenta longa, gradiente de opacidade, feature
+  já implementada no Orion como `cc-tool-pre` com scroll simples) e uma em `.wave_VBlAgQ` (ícone SVG de
+  onda sonora). Ou seja: "o texto... passa por trás com uma camada" que o Bayerl descreveu é este
+  GRADIENTE SÓLIDO (transparente → cor de fundo opaca), não um desfoque.
+- `.inputContainer_07S1Yg{position:absolute;display:flex;z-index:20;flex-direction:column;
+  max-width:680px;margin:0 auto;bottom:16px;left:16px;right:16px}` — o composer flutuante, MESMO
+  seletor já citado na rodada 6 (reconfirmado, valores idênticos).
+- `.permissionsContainer_07S1Yg{width:100%;max-width:680px;margin:0 auto}` — dentro do
+  `inputContainer` (que já tem `max-width:680px`), então redundante ali; existe porque a mesma classe
+  é reusada em outro contexto do bundle sem essa restrição herdada.
+- `.inputContainer_cKsPxg{background:var(--app-input-secondary-background);border:1px solid
+  var(--app-input-border);border-radius:var(--corner-radius-large);color:var(--app-input-foreground);
+  display:flex;position:relative;flex-direction:column;min-width:0;margin:0;padding:0;
+  box-shadow:0 1px 2px #0000001a}` — a CAIXA do editor de verdade (outro CSS module, sufixo `_cKsPxg`,
+  não confundir com `inputContainer_07S1Yg` acima, que é só o wrapper posicionador). O único detalhe
+  novo adotado daqui: `box-shadow:0 1px 2px #0000001a` (nosso `.cc-composer` não tinha sombra nenhuma
+  antes — agora tem, valor idêntico).
+
+**JS exato do spacer/`ResizeObserver`** (a resposta pra "como a extensão evita esconder a última
+mensagem atrás do composer flutuante", achada perto da função de render, não hipotetizada):
+
+```js
+o(() => {
+  if (!z.current) return;
+  let q1 = new ResizeObserver((Z0) => { for (let R0 of Z0) V(R0.contentRect.height) });
+  return q1.observe(z.current), () => { q1.disconnect() }
+}, [])
+```
+
+`z` é o `ref` do `inputContainer` (o composer flutuante inteiro, incluindo o card de permissão quando
+presente); `V` é o setter de um estado `U` (inicial 0), cujo valor vira `height`/`minHeight` do spacer
+`<div ref={Y}>` no fim de `messagesContainer` (citado na árvore JSX acima) — E também é passado como
+prop `inputContainerHeight` pro componente de estado vazio (`JH0`), pro placeholder "como posso
+ajudar" também respeitar a mesma altura reservada (Orion não tem esse estado vazio específico — o
+`cc-empty-state` do Orion só aparece SEM sessão nenhuma selecionada, quando o composer nem monta — não
+precisa do mesmo tratamento).
+
+**Implementado no Orion** (`web/src/claude/`):
+- `claude.css`: `.cc-main` trocado de `display:grid;grid-template-rows:auto auto 1fr auto auto` pra
+  `display:flex;flex-direction:column` — o grid de 5 trilhas fixas presumia posição exata de cada
+  filho (qualquer banner condicional a mais desalinhava a trilha `1fr` da área que rola pro `.cc-head`
+  ocupar por engano); flex resolve isso sem depender de contagem, mesma classe de problema que o
+  `.chatContainer_07S1Yg`/`.sessionLayout_07S1Yg` reais evitam não usando NENHUMA trilha de grid fixa.
+  `.cc-chat` novo (= `.chatContainer_07S1Yg`: `position:relative;display:flex;flex-direction:column;
+  overflow:hidden;flex:1`), único item `flex:1` de `.cc-main`. `.cc-scroll` (=`messagesContainer`
+  variante base) ganhou `flex:1;min-height:0;position:relative;background:var(--cc-bg);
+  padding:20px 20px 40px` (era `overflow-y:auto;min-height:0;padding:16px 18px 8px` — sem `flex`
+  porque vivia direto num item de grid antes). `.cc-fade` novo (=`messageGradient`, valores citados
+  acima, com `var(--cc-bg)` no lugar de `var(--app-primary-background)`). `.cc-float` novo (substitui
+  `.cc-dock` da rodada 6, =`inputContainer_07S1Yg`, valores EXATOS citados acima) — `gap:8px` entre
+  `PermissionDock` e `Composer` é NOSSO (a extensão real não declara gap explícito ali; o espaçamento
+  dela vem de margem própria dos filhos, não replicada 1:1 por simplicidade). `.cc-composer` perdeu a
+  margem própria (o posicionamento agora é todo do `.cc-float` pai) e ganhou `box-shadow:0 1px 2px
+  #0000001a` (=`inputContainer_cKsPxg` real, citado acima).
+- `ClaudePage.tsx`: `floatRef`/`floatHeight` (novo `useState(0)`) + `useEffect` com `ResizeObserver`
+  observando `floatRef.current`, reobservando quando `activeId` muda (o nó troca de identidade a cada
+  montagem/desmontagem do `.cc-float` condicional) — mesmo mecanismo do `z`/`U`/`V`/`ResizeObserver`
+  reais citados acima, adaptado pra um nó condicional (o real nunca desmonta o `inputContainer`, então
+  o efeito dele roda só uma vez com `[]`; o nosso precisa do `[activeId]` porque `.cc-float` É
+  condicional — mesma precedente da rodada 6/`.cc-dock`, mantida de propósito, fora de escopo mudar
+  agora). JSX reestruturado: `.cc-scroll` (com um `<div>` spacer novo no fim, altura=`floatHeight`,
+  espelhando o `<div ref={Y}>` real) + `.cc-fade` + `.cc-float` (com `PermissionDock` e `Composer`
+  dentro, mesma ordem de antes) agora são os 3 filhos de um `.cc-chat` novo, em vez de `.cc-scroll` e
+  `.cc-dock` serem 2 itens de grid separados. O `useEffect` de scroll-pro-fim ganhou `floatHeight` nas
+  dependências: sem isso, quando um card de permissão aparece (crescendo `.cc-float`) no MESMO instante
+  em que o evento é adicionado a `events`, o `scrollTo` rodaria com o `scrollHeight` de ANTES do
+  spacer crescer (o `ResizeObserver` dispara um frame depois do `events.length` mudar), deixando a
+  última mensagem visível por baixo do card por um instante.
+- `Timeline.tsx`: só o comentário JSDoc de `PermissionDock` atualizado (a função em si não mudou nesta
+  rodada) — a frase antiga "aqui, mais simples: sem overlay/position:absolute" não era mais verdade,
+  substituída por uma nota explicando a mudança de mecânica e apontando pra esta seção.
+
+**Desvios deliberados, documentados (não escondidos)**:
+- `.cc-float` só monta quando `activeId` é truthy (igual `.cc-dock` antes dele) — a extensão real monta
+  `inputContainer`/`messageGradient` SEMPRE (incondicional, `f5` só gate `messagesContainer`). Não
+  mudado: o Orion tem um estado "nenhuma sessão selecionada" que a extensão real não tem (ela sempre
+  tem uma sessão ativa); mudar isso é decisão de produto, fora do pedido de hoje.
+- `gap:8px` em `.cc-float` é nosso, não existe na extensão real (que usa margem própria dos filhos).
+- Composer continua visível/habilitado com uma permissão pendente (decisão da rodada 6, não revisitada
+  aqui — a extensão real esconde com `display:none`).
+- Breakpoint mobile (`@media (max-width:800px)`) não foi re-verificado especificamente por não haver
+  navegador aqui; o risco de um `flex:1`/`height:auto` num container com altura indeterminada é o MESMO
+  tipo de aresta que já existia com `grid-template-rows:auto` + `1fr` antes desta rodada (não uma
+  regressão nova introduzida agora).
+
+**TDD**: nada de lógica pura nova nesta rodada (é puramente estrutura CSS/JSX + uma medição de DOM via
+`ResizeObserver`, que não é testável de forma significativa em `jsdom`/`vitest` sem simular
+`ResizeObserver` e layout de verdade — o que só teatraliza cobertura sem testar nada real) — seguindo a
+instrução explícita de não forçar teste onde não há lógica pura pra testar. Nenhuma função em
+`mapper.ts`/`live.ts`/`api.ts` mudou.
+
+**Verificação**: sem navegador/visual-testing neste ambiente (mesma limitação de sempre, ainda mais
+crítica numa mudança de layout/CSS pura — sem forma de tirar print) — compensado lendo o CSS/JS reais
+com processamento local (Python, não `grep -oP` remoto, que travava por backtracking num arquivo de
+429KB numa única linha) em vez de estimar/chutar nenhum valor, e citando cada seletor/valor usado one a
+one contra a fonte. `vitest`: 429 testes (23 arquivos), mesma contagem de antes desta rodada (nenhum
+teste novo, nenhum quebrado — coerente com "nada de lógica pura nova" acima). `npm run typecheck`
+(`tsc -p tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`) sem erro. `npm run build`
+(`vite build` + `tsc -p tsconfig.server.json`) limpo, mesmo aviso pré-existente de chunk grande (não
+relacionado). `git diff --stat` confirma só os 3 arquivos esperados tocados (`ClaudePage.tsx`,
+`Timeline.tsx`, `claude.css`) — nenhum arquivo dos agentes concorrentes (`effort-persist`,
+`image-lightbox`) tocado.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -1135,3 +1303,20 @@ build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta
   repassado, novo `ToolStatus` `'waiting'` ligado pelo id real, nunca um heurístico). 43 testes
   novos, confirmado via `git diff` (31 `mapper.test.ts`, 11 `live.test.ts`, 1 `runner.test.ts`);
   suíte inteira 403 testes, `tsc --noEmit` e `vite build` verdes.
+- **implementado nesta rodada (7)** (28/09/2026 — "layout flutuante do composer", pedido ao vivo do
+  Bayerl apontando pra esta MESMA extensão Claude Code como referência; ver seção 4/"Layout flutuante
+  do composer" para os detalhes e evidências completas): estende o tratamento `position:absolute` que
+  a rodada 6 já tinha adotado só pro card de permissão pro COMPOSER INTEIRO, igual à extensão real —
+  `.cc-scroll` (a área que rola) agora ocupa a página inteira (era um item de grid dividido com
+  `.cc-dock`), e `.cc-float` (substitui `.cc-dock`; contém `PermissionDock`+`Composer`) flutua POR
+  CIMA dela, centralizado, `max-width:680px`, ancorado no rodapé (`.inputContainer_07S1Yg` real, valores
+  exatos). `.cc-fade` novo reproduz a camada de esmaecimento real (`messageGradient_07S1Yg`: gradiente
+  sólido até a cor de fundo — confirmado, buscando o CSS inteiro, que NÃO é blur/backdrop-filter, que só
+  aparece 1x no bundle inteiro, num componente sem relação nenhuma). Spacer no fim de `.cc-scroll` com
+  altura medida por `ResizeObserver` (`floatRef`/`floatHeight` em `ClaudePage.tsx`) — mesmo mecanismo
+  exato do `z`/`U`/`V`/`ResizeObserver` reais, achado lendo o JS decompilado direto (não hipotetizado).
+  `.cc-main` trocado de `grid-template-rows` de 5 trilhas fixas pra `flex-direction:column`, corrigindo
+  de quebra uma fragilidade estrutural (posição de banner condicional podia desalinhar a trilha `1fr`).
+  Sem lógica pura nova (mudança de layout/CSS + medição de DOM, não testável de forma significativa em
+  `jsdom`); suíte inteira mantida em 429 testes (nenhum novo, nenhum quebrado), `tsc --noEmit` (server e
+  front) e `vite build` verdes, `git diff --stat` confirmando só os 3 arquivos esperados tocados.
