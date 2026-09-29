@@ -255,7 +255,7 @@ export default function ClaudePage() {
   // quanto usando as setinhas.
   useEffect(() => {
     if (!activeId) return;
-    const el = document.querySelector(`.cc-tabs-scroll [data-tab-id=${activeId}]`);
+    const el = document.querySelector(`.cc-tabs-scroll [data-tab-id="${activeId}"]`);
     el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
   }, [activeId]);
 
