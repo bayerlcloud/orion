@@ -13,6 +13,8 @@ type ToolItem = {
 
 const KIND_LABEL: Record<Kind, string> = { tool: 'Tool', skill: 'Skill', mcp: 'MCP' };
 const KIND_ORDER: Kind[] = ['tool', 'skill', 'mcp'];
+type Aba = 'conectores' | 'skills' | 'catalogo';
+const ABAS: [Aba, string][] = [['conectores', 'Conectores'], ['skills', 'Skills'], ['catalogo', 'Catálogo']];
 
 function emptyForm(): { kind: Kind; name: string; description: string; icon: string; link: string; details: string } {
   return { kind: 'tool', name: '', description: '', icon: '⚙️', link: '', details: '' };
@@ -27,6 +29,7 @@ export default function Tools({ user }: { user: User }) {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [open, setOpen] = useState<ToolItem | null>(null);
+  const [aba, setAba] = useState<Aba>('conectores');
 
   useEffect(() => {
     if (!open) return;
@@ -78,13 +81,16 @@ export default function Tools({ user }: { user: User }) {
     <div className="tls">
       <div className="tls-head">
         <h1>Tools</h1>
-        <button className="btn-primary" onClick={startCreate}>+ Nova</button>
+        {aba === 'catalogo' && <button className="btn-primary" onClick={startCreate}>+ Nova</button>}
       </div>
-      <ToolsSkills user={user} />
-      <ToolsGithub user={user} />
-      <ToolsCloudflare user={user} />
+      <div className="tabs" style={{ marginTop: 14 }}>
+        {ABAS.map(([id, label]) => <button key={id} className={aba === id ? 'active' : ''} onClick={() => setAba(id)}>{label}</button>)}
+      </div>
 
-      <div className="tls-sec-head" style={{ marginTop: 28 }}><h2>Catálogo manual</h2></div>
+      {aba === 'conectores' && <><ToolsGithub user={user} /><ToolsCloudflare user={user} /></>}
+      {aba === 'skills' && <ToolsSkills user={user} />}
+      {aba === 'catalogo' && <>
+      <div className="tls-sec-head"><h2>Catálogo manual</h2></div>
       <p className="muted small">Tools gerenciadas, MCPs e anotações à mão. Cada card é uma entrada: abasteça pelo botão + Nova ou peça pro Claude cadastrar via API.</p>
       {erro && <div className="erro">{erro}</div>}
 
@@ -151,6 +157,7 @@ export default function Tools({ user }: { user: User }) {
           ))}
         </div>
       )}
+      </>}
 
       {open && (
         <div className="tls-modal-bg" onClick={() => setOpen(null)}>
