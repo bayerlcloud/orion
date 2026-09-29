@@ -941,3 +941,147 @@ export function sessionWorktreeName(cwd: string | null | undefined, projectPath:
   const segs = c.split('/').filter(Boolean);
   return segs.length ? segs[segs.length - 1] : null;
 }
+
+/**
+ * Ditado por voz no compositor (Composer.tsx) — item 7 da seção 13 do PARIDADE.md ("Ditado por voz
+ * no compositor"), até esta rodada listado como achado por NOME DE CLASSE sem confirmação de lógica
+ * funcional. Investigado e CONFIRMADO como feature real nesta rodada (29/09/2026), lendo o webview
+ * decompilado v2.1.283 (`/srv/orion-reference-2.1.283/webview/index.js`, versão mais nova indicada
+ * como preferencial pela própria seção 13): as classes `micButton`/`micIcon`/`micIconPuck`/
+ * `micTooltip`/`micTooltipError`/`micTooltipShortcut`/`recording`/`voiceInterim` vivem TODAS no MESMO
+ * objeto de CSS module (`var O7={...}`) do Composer, junto com `messageInput`/
+ * `attachedFilesContainer`/`inputContainer` — não é CSS órfão. O botão é guardado por
+ * `X.speechToTextEnabled`/`X.speechToTextMicDenied` (getters reais na classe `ED1`, lendo config da
+ * conexão), mostra `aria-label` dinâmico ("Voice dictation"/"Stop recording"/"Microphone access
+ * denied"/"Dictation error: {msg}") e o tooltip mostra "Tap or hold to record" + o atalho real
+ * (`⌘D`/`Ctrl+D`, função `j11()` detecta Mac por UA/platform — CONFIRMADO no código, não suposto).
+ *
+ * **Achado que CORRIGE a suspeita original do pedido**: `voiceRecordingStarted`/
+ * `voiceRecordingStopped` são mesmo sons de acessibilidade DO PRÓPRIO EDITOR (registrados como
+ * `accessibility.signals.voiceRecordingStarted`/`Stopped` numa classe `u2`/catálogo genérico de sinais
+ * que também registra `errorAtPosition`/`format`/`save`/`progress` — nada específico da extensão
+ * Claude Code) — MAS isso não significa que a feature de voz seja falsa: a suspeita era só sobre ESSA
+ * evidência específica (os nomes de arquivo de som), não sobre a feature como um todo. Achei evidência
+ * INDEPENDENTE e completa de lógica funcional (não sons): o componente real do compositor lê
+ * `X.speechToTextEnabled` pra decidir se renderiza o botão, e chama `J.startSpeechToText(callback)`/
+ * `J.stopSpeechToText()` (classe da sessão) a cada clique/atalho — é uma feature real, só a pista dos
+ * sons é que não prova nada por si só.
+ *
+ * **Segundo achado que corrige o pedido**: a classe `wave` citada no levantamento original
+ * (`wave_VBlAgQ`) NÃO pertence ao componente de voz — o sufixo de hash do CSS module é DIFERENTE
+ * (`_VBlAgQ`, não `_cKsPxg` do resto do mic), usada por um componente completamente diferente (`XF0`,
+ * uma barra "divider" que aparece perto do texto "View output logs" — nada a ver com microfone). Não
+ * replicada aqui; documentado pra não confundir quem ler o levantamento original de novo.
+ *
+ * **Diferença de arquitetura relevante, também confirmada por busca no bundle inteiro (não achada, não
+ * suposta)**: a extensão real NÃO usa a Web Speech API do navegador — `SpeechRecognition`/
+ * `webkitSpeechRecognition` não aparecem em lugar nenhum do webview, nem `getUserMedia`/
+ * `MediaRecorder`. Em vez disso, o webview manda uma mensagem pro HOST da extensão
+ * (`{type:"start_speech_to_text",channelId}`/`stop_speech_to_text`) e recebe de volta um stream de
+ * texto (`case"speech_to_text_message"`) — a captura de áudio de verdade roda FORA do sandbox do
+ * webview, no processo da extensão (Node/Electron do editor), não uma chamada de API de nuvem nem
+ * `getUserMedia` dentro do iframe. O Orion não tem um processo de "extensão host" — só o navegador
+ * comum servindo a página — então esse caminho não existe aqui; adaptado com a Web Speech API do
+ * navegador (`webkitSpeechRecognition`/`SpeechRecognition`, 100% client-side, sem servidor novo), que
+ * é a única opção disponível sem construir transcrição server-side (fora de escopo, não pedido).
+ * `speechAudioLevel` (as barrinhas do componente real `VK0`, que reagem ao volume captado) também não
+ * é replicado: a Web Speech API não expõe nenhum nível de áudio — em vez de fabricar uma animação
+ * fake "reagindo" a um volume que não existe, o ícone só pulsa (`@keyframes cc-pulse`, já existente em
+ * claude.css) enquanto grava.
+ *
+ * `composeDictationText`/`accumulateFinalTranscript` abaixo reimplementam, adaptado pro `<textarea>`
+ * simples do Orion (decisão de arquitetura já documentada na rodada de recall ArrowUp/ArrowDown — a
+ * extensão real usa um `contentEditable` com Range API completo), o equivalente funcional de `mW0` do
+ * webview real: mesclam o texto já confirmado (final) e o trecho ainda em reconhecimento (interim) no
+ * ponto onde o cursor estava quando a gravação começou, preservando o texto antes/depois do cursor.
+ * Diferente do real (que estiliza o trecho interim EMBUTIDO no próprio campo, em itálico/cinza, porque
+ * tem um DOM rico por trás), o Orion escreve o texto confirmado direto no valor do `<textarea>` (que
+ * não aceita estilo por trecho) e mostra o trecho interim numa legenda separada, pequena, perto do
+ * botão (itálico/cinza — mesma cor de `voiceInterim_cKsPxg` real: `--app-secondary-foreground`) — ver
+ * `Composer.tsx`/`claude.css` `.cc-mic-interim`.
+ *
+ * **Simplificação deliberada, documentada**: a extensão real distingue "toque" (alterna gravação,
+ * fica ligada até novo toque) de "segurar e soltar" (grava só enquanto o botão/atalho está
+ * pressionado — limiar real confirmado no código, `V2=200`ms) tanto no mouse quanto no teclado. O
+ * Orion implementa só o alternar por clique/atalho (sem o gesto de segurar), pelas mesmas razões que a
+ * própria extensão documenta como risco: temporização fina de gesto (mousedown/keyup com um limiar de
+ * 200ms) não é verificável sem um navegador de verdade neste ambiente (sem mouse/teclado real, sem
+ * microfone real) — implementar um estado a mais sem conseguir testá-lo de verdade era mais risco que
+ * valor. Atalho `⌘D`/`Ctrl+D` alterna gravação (liga se estava desligada, desliga se estava ligada).
+ *
+ * **Limitação conhecida, documentada**: se o usuário digitar manualmente no campo enquanto o ditado
+ * está gravando, o próximo resultado de reconhecimento pode sobrescrever a edição manual (porque
+ * `composeDictationText` sempre recalcula a partir do `before`/`after` capturados no INÍCIO da
+ * gravação, não do valor atual do campo) — a extensão real detecta essa situação e aborta o ditado
+ * (`mW0` retornando o sentinela `"edited"`); não replicado aqui (exigiria comparar o valor esperado
+ * vs. o valor real do campo a cada tecla, mais uma peça de estado não crítica pro caso comum de só
+ * ditar sem digitar ao mesmo tempo).
+ */
+export function isMacPlatform(info: { platform?: string; userAgent?: string } = {}): boolean {
+  const { userAgent = '', platform = '' } = info;
+  if (/iPad|iPhone|iPod/.test(userAgent) || platform === 'MacIntel') return true;
+  if (/Mac/.test(platform) || /Macintosh|Mac OS X/.test(userAgent)) return true;
+  return false;
+}
+
+/** Rótulo do atalho de ditado — `⌘D` no Mac, `Ctrl+D` nos demais, igual ao tooltip real (`micTooltipShortcut`, função `j11()` decide qual mostrar). */
+export function micShortcutLabel(isMac: boolean): string {
+  return isMac ? '⌘D' : 'Ctrl+D';
+}
+
+/**
+ * Mensagens de erro do reconhecimento de voz do navegador, traduzidas — a Web Speech API define um
+ * conjunto FIXO de códigos em `SpeechRecognitionErrorEvent.error` (spec W3C); nunca inventa um código
+ * que o navegador não mandou.
+ */
+const MIC_ERROR_MESSAGES: Record<string, string> = {
+  'no-speech': 'Nenhuma fala detectada',
+  aborted: 'Gravação cancelada',
+  'audio-capture': 'Não foi possível acessar o microfone',
+  network: 'Erro de rede no reconhecimento de voz',
+  'not-allowed': 'Acesso ao microfone negado',
+  'service-not-allowed': 'Acesso ao microfone negado',
+  'bad-grammar': 'Erro de gramática de reconhecimento',
+  'language-not-supported': 'Idioma não suportado',
+};
+export function micErrorMessage(code: string): string {
+  return MIC_ERROR_MESSAGES[code] ?? 'Erro no ditado por voz';
+}
+/**
+ * `not-allowed`/`service-not-allowed`: permissão negada de vez — equivalente ao
+ * `speechToTextMicDenied` real (desabilita o botão até o usuário mudar a permissão no navegador),
+ * diferente de um erro passageiro (sem fala, rede, etc.) que não deveria travar o botão.
+ */
+export function isMicPermissionError(code: string): boolean {
+  return code === 'not-allowed' || code === 'service-not-allowed';
+}
+
+/**
+ * Acumula um trecho FINAL (já confirmado pelo reconhecimento, `isFinal:true` no resultado da Web
+ * Speech API) no texto final acumulado desta gravação — junta com um único espaço, nunca duplica
+ * espaço, ignora trecho vazio/só espaço (alguns navegadores mandam resultados finais vazios).
+ */
+export function accumulateFinalTranscript(finalText: string, newFinalChunk: string): string {
+  const chunk = newFinalChunk.trim();
+  if (!chunk) return finalText;
+  if (!finalText) return chunk;
+  return /\s$/.test(finalText) ? finalText + chunk : `${finalText} ${chunk}`;
+}
+
+/**
+ * Mescla o texto já confirmado (`finalText`) e o trecho ainda em reconhecimento (`interimText`) no
+ * ponto do `<textarea>` onde o cursor estava quando a gravação começou (`before`/`after` = o valor do
+ * campo partido nesse ponto, capturados UMA VEZ no início — nunca o valor atual do campo, que já
+ * inclui o que esta própria função escreveu na chamada anterior). Insere um espaço separador de cada
+ * lado só quando precisa (não duplica espaço já existente em `before`/`after`, não gruda o ditado em
+ * texto colado). Cursor sempre logo depois do texto ditado, antes de `after` — pronto pra continuar
+ * ditando ou voltar a digitar dali. Sem nada reconhecido ainda (final e interim vazios, ex. instante
+ * em que a gravação acabou de começar), devolve `before+after` sem mexer, cursor em `before.length`.
+ */
+export function composeDictationText(before: string, after: string, finalText: string, interimText: string): { value: string; cursor: number } {
+  const spoken = finalText && interimText ? `${finalText} ${interimText}` : (finalText || interimText);
+  if (!spoken) return { value: before + after, cursor: before.length };
+  const lead = before === '' || /\s$/.test(before) ? '' : ' ';
+  const trail = after === '' || /^\s/.test(after) ? '' : ' ';
+  return { value: before + lead + spoken + trail + after, cursor: (before + lead + spoken).length };
+}

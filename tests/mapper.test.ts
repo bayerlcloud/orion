@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask } from '../web/src/claude/types';
 
@@ -1119,5 +1119,117 @@ describe('sessionWorktreeName — deriva do cwd, sem coluna nova', () => {
   });
   it('barra final não confunde a comparação', () => {
     expect(sessionWorktreeName('/srv/orion/', '/srv/orion')).toBeNull();
+  });
+});
+
+/**
+ * Ditado por voz no compositor — item 7 da seção 13 do PARIDADE.md, confirmado como feature real
+ * nesta rodada (29/09/2026, ver mapper.ts para as citações completas do webview decompilado
+ * v2.1.283). `isMacPlatform` espelha `j11()`; `micErrorMessage`/`isMicPermissionError` traduzem os
+ * códigos reais de `SpeechRecognitionErrorEvent.error`; `accumulateFinalTranscript`/
+ * `composeDictationText` reimplementam `mW0` (mescla do texto ditado no `<textarea>` simples do
+ * Orion, ver mapper.ts para a justificativa da adaptação).
+ */
+describe('isMacPlatform — mesma checagem da extensão real (função j11 do webview)', () => {
+  it('MacIntel ou UA de iPad/iPhone/iPod: true', () => {
+    expect(isMacPlatform({ platform: 'MacIntel' })).toBe(true);
+    expect(isMacPlatform({ userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)' })).toBe(true);
+    expect(isMacPlatform({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' })).toBe(true);
+  });
+  it('UA/platform contendo Mac/Macintosh/Mac OS X: true', () => {
+    expect(isMacPlatform({ platform: 'Mac68K' })).toBe(true);
+    expect(isMacPlatform({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' })).toBe(true);
+  });
+  it('Windows/Linux: false', () => {
+    expect(isMacPlatform({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' })).toBe(false);
+    expect(isMacPlatform({ platform: 'Linux x86_64', userAgent: 'Mozilla/5.0 (X11; Linux x86_64)' })).toBe(false);
+  });
+  it('sem nada informado: false (nunca lança)', () => {
+    expect(isMacPlatform()).toBe(false);
+    expect(isMacPlatform({})).toBe(false);
+  });
+});
+
+describe('micShortcutLabel', () => {
+  it('⌘D no Mac, Ctrl+D nos demais — mesmo texto do tooltip real (micTooltipShortcut)', () => {
+    expect(micShortcutLabel(true)).toBe('⌘D');
+    expect(micShortcutLabel(false)).toBe('Ctrl+D');
+  });
+});
+
+describe('micErrorMessage / isMicPermissionError', () => {
+  it('traduz os códigos conhecidos da Web Speech API', () => {
+    expect(micErrorMessage('no-speech')).toMatch(/fala/i);
+    expect(micErrorMessage('audio-capture')).toMatch(/microfone/i);
+    expect(micErrorMessage('network')).toMatch(/rede/i);
+    expect(micErrorMessage('not-allowed')).toMatch(/negado/i);
+    expect(micErrorMessage('service-not-allowed')).toMatch(/negado/i);
+  });
+  it('código desconhecido cai num texto genérico, nunca lança', () => {
+    expect(micErrorMessage('algum-codigo-novo-do-browser')).toMatch(/ditado/i);
+  });
+  it('só not-allowed/service-not-allowed contam como negação permanente', () => {
+    expect(isMicPermissionError('not-allowed')).toBe(true);
+    expect(isMicPermissionError('service-not-allowed')).toBe(true);
+    expect(isMicPermissionError('no-speech')).toBe(false);
+    expect(isMicPermissionError('network')).toBe(false);
+  });
+});
+
+describe('accumulateFinalTranscript', () => {
+  it('primeiro trecho: vira o texto final, sem espaço extra na frente', () => {
+    expect(accumulateFinalTranscript('', 'olá mundo')).toBe('olá mundo');
+  });
+  it('junta trechos seguintes com um único espaço', () => {
+    expect(accumulateFinalTranscript('olá mundo', 'como vai')).toBe('olá mundo como vai');
+  });
+  it('nunca duplica espaço se o texto final já termina em espaço', () => {
+    expect(accumulateFinalTranscript('olá mundo ', 'como vai')).toBe('olá mundo como vai');
+  });
+  it('trecho novo vazio/só espaço: não muda nada', () => {
+    expect(accumulateFinalTranscript('olá', '   ')).toBe('olá');
+    expect(accumulateFinalTranscript('olá', '')).toBe('olá');
+  });
+  it('apara espaço nas pontas do trecho novo antes de juntar', () => {
+    expect(accumulateFinalTranscript('olá', '  mundo  ')).toBe('olá mundo');
+  });
+});
+
+describe('composeDictationText', () => {
+  it('nada reconhecido ainda: devolve before+after sem mexer, cursor no fim do before', () => {
+    expect(composeDictationText('oi ', ' tudo bem', '', '')).toEqual({ value: 'oi  tudo bem', cursor: 3 });
+  });
+  it('só interim, before/after vazios: vira o próprio interim', () => {
+    expect(composeDictationText('', '', '', 'olá')).toEqual({ value: 'olá', cursor: 3 });
+  });
+  it('só final (frase já confirmada), sem interim', () => {
+    expect(composeDictationText('', '', 'olá mundo', '')).toEqual({ value: 'olá mundo', cursor: 9 });
+  });
+  it('final + interim juntos, separados por um espaço', () => {
+    const r = composeDictationText('', '', 'olá', 'mundo');
+    expect(r.value).toBe('olá mundo');
+    expect(r.cursor).toBe('olá mundo'.length);
+  });
+  it('insere espaço antes do ditado quando "before" não termina em espaço', () => {
+    expect(composeDictationText('escreve aqui', '', 'olá', '')).toEqual({ value: 'escreve aqui olá', cursor: 'escreve aqui olá'.length });
+  });
+  it('não duplica espaço quando "before" já termina em espaço/quebra de linha', () => {
+    expect(composeDictationText('escreve aqui ', '', 'olá', '')).toEqual({ value: 'escreve aqui olá', cursor: 'escreve aqui olá'.length });
+    expect(composeDictationText('escreve aqui\n', '', 'olá', '')).toEqual({ value: 'escreve aqui\nolá', cursor: 'escreve aqui\nolá'.length });
+  });
+  it('insere espaço antes de "after" quando ele não começa com espaço, sem mexer no que vem depois', () => {
+    const r = composeDictationText('', 'resto do texto', 'olá', '');
+    expect(r.value).toBe('olá resto do texto');
+    expect(r.cursor).toBe('olá'.length);
+  });
+  it('não duplica espaço quando "after" já começa com espaço', () => {
+    const r = composeDictationText('', ' resto', 'olá', '');
+    expect(r.value).toBe('olá resto');
+    expect(r.cursor).toBe(3);
+  });
+  it('cursor sempre logo após o texto ditado, nunca depois de "after"', () => {
+    const r = composeDictationText('a', 'z', 'meio', '');
+    expect(r.value).toBe('a meio z');
+    expect(r.cursor).toBe('a meio'.length);
   });
 });

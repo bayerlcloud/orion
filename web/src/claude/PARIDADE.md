@@ -292,7 +292,7 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
 | Miniatura de anexo pendente clicável → popup (componente real `AI0`/`yw` — mesmo componente usado tanto no compositor quanto na mensagem já enviada, classes `previewOverlay_vRjSkQ`/`previewContainer_vRjSkQ`/`previewImage_vRjSkQ`/`previewCloseButton_vRjSkQ`) | **corrigido agora (28/09/2026, rodada 7 — pedido ao vivo do Bayerl)** | antes abria a imagem em nova aba (commit `5b445b6`, de uma sessão diferente no mesmo dia — o Bayerl pediu ao vivo pra trocar por um popup, nunca implementado até agora); agora abre o mesmo `Lightbox` usado pelo histórico — ver seção 10 |
 | Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora (28/09/2026)** | era uma lista fixa de 4 (`/clear /compact /context /cost`); agora vem de `Query.supportedCommands()` do SDK quando a sessão já rodou pelo menos um turno neste processo (inclui skills, comandos de projeto, etc.), com fallback pros 4 fixos antes disso — ver seção "Compositor — rodada de 28/09/2026" |
 | @-menções (`mentionChip_uq5aLg`, "Add context") | n/a | fora de escopo (pedido) |
-| Microfone/voz (`micButton_cKsPxg`) | n/a | fora de escopo (pedido) |
+| Microfone/voz (`micButton_cKsPxg`) | **implementado agora (29/09/2026, ver seção 16)** | Web Speech API do navegador (client-side, adaptado — a extensão real delega pro processo da extensão, que o Orion não tem); botão + tooltip + atalho `⌘D`/`Ctrl+D` + transcrição parcial |
 | Projeto da nova sessão | já tem | extra nosso (`cc-select`) |
 
 ### Compositor — rodada de 28/09/2026 (recall, seletor de modelo, comandos reais)
@@ -1603,11 +1603,15 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
 
 ### Achados por nome de classe + contexto de código (sem string literal ainda confirmada — checar antes de construir)
 
-7. **Ditado por voz no compositor** — classes `micButton/micIcon/micIconPuck/micTooltip/
-   micTooltipError/micTooltipShortcut/recording/voiceInterim/wave`; strings encontradas
-   (`voiceRecordingStarted`/`voiceRecordingStopped`) parecem ser sons de acessibilidade do VS Code
-   em si, não necessariamente da extensão — precisa confirmar se é feature real da extensão ou
-   herdada do host.
+7. **Ditado por voz no compositor** — **INVESTIGADO E IMPLEMENTADO em 29/09/2026, ver seção 16.**
+   Classes `micButton/micIcon/micIconPuck/micTooltip/micTooltipError/micTooltipShortcut/recording/
+   voiceInterim` confirmadas como feature real (não CSS órfão) — todas no MESMO objeto de CSS module
+   do Composer, ligadas a lógica funcional de verdade (`X.speechToTextEnabled`, `J.startSpeechToText`).
+   A suspeita original sobre `voiceRecordingStarted`/`voiceRecordingStopped` (sons de acessibilidade
+   do próprio editor, não da extensão) **se confirmou** — mas isso não invalidava a feature, só essa
+   evidência específica; achei evidência independente e completa da lógica real. A classe `wave`
+   citada acima **não pertence** ao componente de voz (hash de CSS module diferente, pertence a um
+   componente não relacionado) — achado que corrige o levantamento original, ver seção 16.
 8. **"Teleport" de sessão entre janelas/dispositivos** — `pendingRemoteTeleport`,
    `unresolvedBootRemoteId`, `teleportError*`, `notifyPanelTeleportResolved/Abandoned`. Pode
    sobrepor com o que já existe no Orion (`GET /api/claude/ui-state/stream`, sincronização
@@ -2082,6 +2086,129 @@ em `tsconfig.json` (front). `npm run build` (`vite build && tsc -p tsconfig.serv
 foram vistos renderizados de verdade, só revisados por leitura cuidadosa comparando com o padrão já
 em produção dos seletores de Modelo/Esforço/Modo (`cc-pop`/`Menu`/`cc-menu-item`, reuso literal).
 
+## 16. Ditado por voz no compositor — implementado em 29/09/2026 (item 7 da seção 13), worktree isolada `feature/voice-dictation`
+
+Pedido: investigar e, se real, implementar o item 7 da seção 13 ("Ditado por voz no compositor"),
+que até esta rodada só tinha evidência de NOME DE CLASSE, sem confirmação de lógica funcional —
+inclusive com um aviso explícito de que `voiceRecordingStarted`/`voiceRecordingStopped` podiam ser só
+sons de acessibilidade do próprio VS Code, não da extensão. Investigação feita lendo o webview
+decompilado **v2.1.283** (`/srv/orion-reference-2.1.283/webview/{index.js,index.css}`, a mais nova,
+preferida pela própria seção 13), não a v2.1.282.
+
+### Investigação — confirmando (e corrigindo) a suspeita original
+
+- As 8 classes citadas no levantamento original (`micButton`/`micIcon`/`micIconPuck`/
+  `micButtonWrapper`/`micTooltip`/`micTooltipError`/`micTooltipShortcut`/`recording`/`voiceInterim`)
+  vivem TODAS no mesmo objeto de CSS module (`var O7={...}`) do componente do compositor, junto com
+  `messageInput`/`attachedFilesContainer`/`inputContainer` — não é CSS órfão de uma feature morta.
+- **A suspeita original sobre os sons SE CONFIRMOU, mas não desmente a feature**: `voiceRecordingStarted`/
+  `voiceRecordingStopped` são registrados numa classe `u2` como
+  `accessibility.signals.voiceRecordingStarted`/`Stopped` (`legacySoundSettingsKey:
+  "audioCues.voiceRecordingStarted"`), no MESMO catálogo genérico que também registra
+  `errorAtPosition`/`format`/`save`/`progress` — é o framework de sinais de acessibilidade do próprio
+  editor, sons que tocam pra QUALQUER feature de voz do host, não específicos da extensão Claude Code.
+  Só que essa era só UMA pista, ambígua; achei uma pista completamente diferente e conclusiva: o
+  componente real do compositor (achado lendo o JSX ao redor de `O7.micButton`, não só grep de nome)
+  é guardado por um getter de verdade — `get speechToTextEnabled(){return
+  this.comms.connection.value?.config.value?.speechToTextEnabled??!1}` (classe `ED1`) — e o clique
+  chama `J.startSpeechToText(callback)`/`J.stopSpeechToText()` (métodos reais de uma classe de sessão,
+  com `speechToTextActive`/`speechToTextError`/`speechAudioLevel` como estado observável próprio). Isso
+  é lógica funcional completa, não decoração — a feature é real.
+- **Achado que corrige o levantamento original**: a classe `wave` citada (`wave_VBlAgQ`) **não
+  pertence** ao componente de voz — confirmado comparando o sufixo de hash do CSS module: todo o resto
+  do mic usa `_cKsPxg` (o hash do Composer); `wave_VBlAgQ` tem um hash DIFERENTE, e ler o JSX ao redor
+  mostra que pertence a um componente `XF0` — uma barra "divider" que aparece perto do texto "View
+  output logs", sem nenhuma relação com microfone. Não replicado; documentado aqui pra não confundir
+  quem ler o levantamento original de novo.
+- **Diferença de arquitetura, confirmada por busca no bundle inteiro (não achada = evidência, não
+  suposição)**: `SpeechRecognition`, `webkitSpeechRecognition`, `getUserMedia` e `MediaRecorder` **não
+  aparecem em nenhum lugar** do webview. A extensão real NÃO usa a Web Speech API do navegador — o
+  webview manda uma mensagem pro HOST da extensão (`{type:"start_speech_to_text",channelId}`/
+  `stop_speech_to_text`) e recebe de volta um stream de texto (`case"speech_to_text_message"`); a
+  captura de áudio de verdade roda FORA do sandbox do webview, no processo da extensão
+  (Node/Electron do editor) — não uma chamada de API de nuvem, nem `getUserMedia` dentro do iframe. O
+  Orion não tem esse processo de "extensão host", só o navegador comum servindo a página — por isso a
+  implementação usa a Web Speech API do navegador (`webkitSpeechRecognition`/`SpeechRecognition`,
+  100% client-side, sem servidor novo), a única opção sem construir transcrição server-side (fora de
+  escopo, não pedido — bate com a suposição do pedido original, agora confirmada por leitura de
+  código em vez de assumida).
+- **Interação real, mais rica do que o pedido original supunha**: o botão real tem um gesto duplo —
+  "toque" (mousedown/mouseup rápido, ou tecla batida e solta rápido) alterna a gravação e ela FICA
+  ligada até um novo toque; "segurar" (mousedown mantido, ou tecla mantida) grava só enquanto
+  pressionado, estilo push-to-talk — limiar real confirmado no código minificado: `V2=200` (200ms).
+  Tooltip real ("Tap or hold to record") + atalho `⌘D`/`Ctrl+D` (função `j11()` detecta Mac por
+  `navigator.userAgent`/`platform`) — CONFIRMADO no código, não suposto (é exatamente o que
+  `micTooltipShortcut` sugeria no levantamento original).
+
+### Implementado
+
+`web/src/claude/mapper.ts` (novo bloco, TDD vermelho→verde confirmado — 22 testes falhando por função
+ausente antes da implementação, depois verdes):
+- `isMacPlatform(info)` — mesma checagem da função real `j11()` (UA/platform).
+- `micShortcutLabel(isMac)` — `"⌘D"`/`"Ctrl+D"`, mesmo texto do tooltip real.
+- `micErrorMessage(code)`/`isMicPermissionError(code)` — traduzem os códigos fixos de
+  `SpeechRecognitionErrorEvent.error` (spec W3C) pro PT-BR; `not-allowed`/`service-not-allowed` contam
+  como negação permanente (equivalente a `speechToTextMicDenied` real), o resto é erro passageiro.
+- `accumulateFinalTranscript(finalText, newChunk)` — acumula um trecho já confirmado pelo
+  reconhecimento, com espaçamento correto (nunca duplica espaço, ignora trecho vazio).
+- `composeDictationText(before, after, finalText, interimText)` — reimplementação funcional de `mW0`
+  do webview real, adaptada pro `<textarea>` simples do Orion (decisão de arquitetura já documentada
+  na rodada de recall ArrowUp/ArrowDown — a extensão real usa `contentEditable` com Range API
+  completo): mescla o texto ditado no ponto do cursor capturado no INÍCIO da gravação, preservando
+  antes/depois, com espaçamento automático nas duas pontas e cursor sempre logo após o texto inserido.
+
+`web/src/claude/Composer.tsx`: tipos locais mínimos pra Web Speech API (`MicRecognition` etc. — nomes
+próprios, de propósito, pra não colidir com uma eventual declaração global de `SpeechRecognition` em
+alguma versão do `lib.dom.d.ts`); `micSupported` (feature-detect uma vez, `useMemo`) esconde o botão
+inteiro em navegador sem suporte (Firefox, por exemplo) — mesmo padrão do `X.speechToTextEnabled &&`
+real (esconde tudo, não só desabilita); botão no canto superior direito do campo, posição EXATA da
+extensão real (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`); estados
+`micRecording`/`micInterim`/`micError`/`micDenied`; `startMic`/`stopMic`/`toggleMic` chamando a Web
+Speech API (`continuous:true`, `interimResults:true`); atalho `⌘D`/`Ctrl+D` (listener de teclado
+próprio do Composer, mesmo padrão já usado pelo Esc no mesmo arquivo); para a gravação sozinho ao
+trocar de sessão ou desmontar (nunca deixa o microfone "preso" ligado). `web/src/claude/icons.tsx`:
+ícone `Mic` novo, mesmo estilo minimalista (traço 1.5, 16×16) dos demais. `web/src/claude/claude.css`:
+`.cc-mic*` (botão, tooltip, legenda de interim), reaproveitando `--cc-failure` (vermelho já existente
+no tema) pro estado de gravação e `@keyframes cc-pulse` (já existia, sem uso) pro ícone pulsar.
+
+### Simplificações e achados negativos — documentados, não escondidos
+
+- **Gesto de segurar-e-soltar (push-to-talk) NÃO replicado** — só o alternar por clique/atalho. Decisão
+  deliberada: a temporização fina do gesto real (mousedown/keyup com limiar de 200ms, ver achado
+  acima) não é verificável sem um navegador de verdade neste ambiente (sem mouse/teclado real). Um
+  estado a mais que eu não conseguiria testar de verdade era mais risco do que valor — melhor um
+  alternar simples que funciona com certeza do que um gesto duplo que eu não posso confirmar.
+- **`speechAudioLevel`/barras reagindo a volume (componente real `VK0`) NÃO replicado**: a Web Speech
+  API do navegador não expõe nenhum nível de áudio captado — só resultados de texto e eventos de
+  erro/fim. Em vez de fabricar uma animação fake "reagindo" a um volume que não existe (o que seria
+  inventar comportamento, contra a prática já estabelecida neste arquivo de nunca fabricar dado sem
+  fonte real), o ícone só pulsa enquanto grava (`@keyframes cc-pulse`).
+- **Editar manualmente durante o ditado**: `composeDictationText` sempre recalcula a partir do
+  `before`/`after` capturados no INÍCIO da gravação, não do valor atual do campo — se o usuário digitar
+  enquanto dita, o próximo resultado de reconhecimento pode sobrescrever a edição manual. A extensão
+  real detecta essa situação e aborta o ditado (`mW0` retornando o sentinela `"edited"`); não
+  replicado aqui (exigiria comparar o valor esperado vs. o valor real do campo a cada tecla — mais uma
+  peça de estado pro caso incomum de digitar E ditar ao mesmo tempo).
+- **Transcrição parcial ("interim") não fica embutida no próprio campo em itálico**: a extensão real
+  usa `contentEditable`, que aceita estilo por trecho; o `<textarea>` do Orion não. O texto CONFIRMADO
+  (final) é escrito direto no valor do campo — igual ao real, aparece "ao vivo" enquanto fala; o trecho
+  ainda em reconhecimento aparece numa legenda separada, pequena, itálico/cinza (`.cc-mic-interim`,
+  mesma cor de `voiceInterim_cKsPxg` real), perto do botão — desaparece assim que aquele trecho é
+  confirmado e vira texto normal no campo.
+
+### Verificação
+
+TDD: 22 testes novos em `tests/mapper.test.ts` (`isMacPlatform`, `micShortcutLabel`,
+`micErrorMessage`/`isMicPermissionError`, `accumulateFinalTranscript`, `composeDictationText`),
+vermelho→verde confirmado (rodei a suíte com os testes novos ANTES da implementação: 22 falhas por
+função ausente; implementei; rodei de novo: 203/203 em `mapper.test.ts`). Suíte inteira: **558
+testes** (536 antes desta rodada + 22 novos), `npm run typecheck` (server e front) e `npm run build`
+verdes. **Sem navegador neste ambiente** — não dá pra testar o reconhecimento de voz de verdade (a Web
+Speech API depende de um microfone real e de permissão real do navegador, nenhum dos dois existe numa
+sessão SSH sem cabeça); a wiring de `startMic`/`stopMic`/eventos do `MicRecognition` foi verificada por
+leitura cuidadosa + `tsc --noEmit` + `vite build` limpo, não por gravação de voz real — mesma
+limitação, honestamente documentada, de toda rodada anterior sem visual-testing.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -2316,3 +2443,25 @@ em produção dos seletores de Modelo/Esforço/Modo (`cc-pop`/`Menu`/`cc-menu-it
   `tsc --noEmit` (server e front) e `npm run build` verdes. Fora do escopo (pedido explícito):
   `availableWorktrees`/listagem completa de worktrees, remoção de worktree. Sem
   navegador/visual-testing neste ambiente — mesma limitação de sempre.
+- **implementado nesta rodada** (29/09/2026 — "Aba Claude": ditado por voz no compositor, item 7 da
+  seção 13, worktree isolada `feature/voice-dictation`; ver seção 16 para os detalhes e evidências
+  completas): investigação confirmou que a feature É REAL (não CSS órfão) — a suspeita original de que
+  `voiceRecordingStarted`/`voiceRecordingStopped` eram sons de acessibilidade do próprio editor **se
+  confirmou**, mas achei evidência independente e conclusiva de lógica funcional (`X.speechToTextEnabled`,
+  `J.startSpeechToText`/`stopSpeechToText`) lendo o JSX ao redor das classes `mic*`. Achado que corrige
+  o levantamento original: a classe `wave` citada não pertence ao componente de voz (hash de CSS
+  module diferente, componente não relacionado). Também confirmado por busca no bundle inteiro: a
+  extensão real NÃO usa a Web Speech API do navegador nem `getUserMedia`/`MediaRecorder` — delega a
+  captura de áudio pro processo da extensão (fora do sandbox do webview), caminho que o Orion não tem;
+  implementado com a Web Speech API do navegador (`webkitSpeechRecognition`/`SpeechRecognition`),
+  única opção client-side sem servidor novo. `isMacPlatform`/`micShortcutLabel`/`micErrorMessage`/
+  `isMicPermissionError`/`accumulateFinalTranscript`/`composeDictationText` (mapper.ts, TDD); botão no
+  canto superior direito do campo (posição exata da extensão real) com tooltip, estado de gravação,
+  atalho `⌘D`/`Ctrl+D` real (confirmado, não suposto) e transcrição parcial numa legenda separada
+  (`Composer.tsx`/`icons.tsx`/`claude.css`). Simplificações documentadas e não escondidas: sem o gesto
+  de segurar-e-soltar real (limiar de 200ms confirmado no código, não replicado — não verificável sem
+  navegador neste ambiente), sem barras de nível de áudio (a Web Speech API não expõe volume — só
+  pulso CSS), sem detecção de edição manual durante o ditado. 22 testes novos em `tests/mapper.test.ts`,
+  TDD (vermelho→verde confirmado); suíte inteira **558 testes**, `npm run typecheck` e `npm run build`
+  verdes. Sem navegador neste ambiente — não dá pra testar o reconhecimento de voz de verdade (depende
+  de microfone e permissão reais); mesma limitação de sempre, honestamente documentada.
