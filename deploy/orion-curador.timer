@@ -1,0 +1,10 @@
+[Unit]
+Description=Orion: curador da memoria, diario as 03:10 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:10:00 UTC
+Persistent=true
+Unit=orion-curador.service
+
+[Install]
+WantedBy=timers.target

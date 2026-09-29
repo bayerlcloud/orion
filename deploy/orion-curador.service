@@ -1,0 +1,13 @@
+[Unit]
+Description=Orion: curador diario da memoria (funde duplicatas nivel 4 e grava propostas de curadoria)
+After=network-online.target postgresql.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=danilo
+WorkingDirectory=/srv/orion
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion/dist/server/curador/run.js
+TimeoutStartSec=900
+Nice=10

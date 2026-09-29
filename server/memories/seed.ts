@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { NOTA_INICIAL } from './util.js';
+import { NOTA_INICIAL, uniqueCode } from './util.js';
 
 type SeedMemory = {
   code: string;
@@ -106,4 +106,50 @@ export async function seedMemories(pool: Pool): Promise<void> {
       [m.code, m.title, m.summary, m.body_md, m.level, m.nota, m.rewritable, m.keywords, scopeProject],
     );
   }
+}
+
+/** Esqueleto do perfil nível 2 por pessoa: seções vazias que a IA preenche conforme aprende. */
+export function perfilBody(nome: string): string {
+  return [
+    `# Perfil de ${nome}`,
+    '',
+    '## Preferências',
+    '',
+    '',
+    '## Contexto',
+    '',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Seed idempotente dos perfis nível 2 por pessoa (roda em todo boot, junto do seedMemories):
+ * cria perfil-<slug do nome> (escopo do usuário, rewritable) para quem ainda não tem NENHUMA
+ * memória nível 2 de escopo próprio. Quem já tem (ex.: o Danilo, cujo perfil é a danilo-role)
+ * é pulado; nada é recriado nem sobrescrito.
+ */
+export async function seedPerfisNivel2(pool: Pool): Promise<string[]> {
+  const { rows: usuarios } = await pool.query<{ id: number; name: string }>(
+    `SELECT u.id, u.name FROM users u
+      WHERE NOT EXISTS (SELECT 1 FROM memories m WHERE m.level = 2 AND m.scope_user_id = u.id)
+      ORDER BY u.id`,
+  );
+  const criados: string[] = [];
+  for (const u of usuarios) {
+    const code = await uniqueCode((sql, params) => pool.query(sql, params), `perfil ${u.name}`);
+    await pool.query(
+      `INSERT INTO memories (code, title, summary, body_md, level, nota, rewritable, keywords, scope_user_id)
+       VALUES ($1,$2,$3,$4,2,NULL,true,'{}',$5)
+       ON CONFLICT (code) DO NOTHING`,
+      [
+        code,
+        `Perfil de ${u.name}`,
+        `Preferências e contexto de ${u.name}; a IA preenche conforme aprende`,
+        perfilBody(u.name),
+        u.id,
+      ],
+    );
+    criados.push(code);
+  }
+  return criados;
 }

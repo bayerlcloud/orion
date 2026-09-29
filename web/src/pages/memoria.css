@@ -152,3 +152,37 @@
   border-radius: 10px; padding: 1px 8px;
 }
 .mem-field-nota select { max-width: 260px; }
+
+/* ===== Curadoria (propostas do curador diário) ===== */
+.mem-page { display: flex; flex-direction: column; gap: 16px; }
+.mem-cur {
+  border: 1px solid var(--line); background: var(--bg2); border-radius: 8px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px;
+}
+.mem-cur-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mem-cur-head h2 { margin: 0; font-size: 14px; }
+.mem-cur-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg2);
+}
+.mem-cur-badge.has-pend { border-color: var(--warn); color: var(--warn); }
+.mem-cur-cards { display: flex; flex-direction: column; gap: 8px; }
+.mem-cur-card {
+  border: 1px solid var(--line); background: var(--bg); border-radius: 6px;
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;
+}
+.mem-cur-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mem-cur-tipo { font-weight: 600; }
+.mem-cur-just { margin: 0; color: var(--fg2); line-height: 1.45; }
+.mem-cur-mem { cursor: pointer; font: inherit; font-size: 11px; }
+.mem-cur-mem:hover { background: var(--hover); color: var(--fg); }
+.mem-cur-texto pre {
+  margin: 6px 0 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg2); white-space: pre-wrap; max-height: 240px; overflow: auto;
+}
+.mem-cur-actions { display: flex; gap: 8px; }
+.mem-cur-hist summary { cursor: pointer; color: var(--fg2); }
+.mem-cur-hist-list { margin: 6px 0 0; padding-left: 18px; color: var(--fg2); }
+.mem-cur-status { font-size: 11px; padding: 1px 6px; border-radius: 8px; border: 1px solid var(--line); }
+.mem-cur-status.is-aprovada { color: var(--ok); border-color: var(--ok); }
+.mem-cur-status.is-rejeitada { color: var(--fg2); }

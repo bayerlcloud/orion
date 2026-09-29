@@ -47,6 +47,30 @@ type Memory = ListItem & {
 
 type Meta = { projects: { id: number; name: string }[]; users: { id: number; name: string }[] };
 type Toast = { kind: 'ok' | 'bad'; text: string } | null;
+
+type Proposta = {
+  id: number;
+  tipo: 'promocao' | 'reescrita' | 'delecao' | 'conflito';
+  payload: {
+    memoria_ids?: number[];
+    memorias?: { id: number; code: string; title: string; level: number; nota: number | null }[];
+    texto?: string;
+    justificativa?: string;
+  };
+  status: 'pendente' | 'aprovada' | 'rejeitada';
+  created_at: string;
+  decided_at: string | null;
+  applied_at: string | null;
+  decided_by_name: string | null;
+};
+type Curadoria = { pendentes: Proposta[]; decididas: Proposta[] };
+
+const TIPO_LABEL: Record<Proposta['tipo'], string> = {
+  promocao: 'Promoção',
+  reescrita: 'Reescrita',
+  delecao: 'Deleção',
+  conflito: 'Conflito',
+};
 type NivelFilter = '' | '0' | '1' | '2' | '3' | '4';
 type ScopeFilter = '' | 'universais' | 'projeto' | 'usuario';
 
@@ -95,7 +119,29 @@ export default function Memoria({ user }: { user: User }) {
   const [toast, setToast] = useState<Toast>(null);
   const [erro, setErro] = useState('');
   const [syncProj, setSyncProj] = useState<number | null>(null);
+  const [curadoria, setCuradoria] = useState<Curadoria>({ pendentes: [], decididas: [] });
   const readerRef = useRef<HTMLDivElement>(null);
+
+  async function loadCuradoria() {
+    try {
+      setCuradoria(await api<Curadoria>('/api/curadoria'));
+    } catch { /* painel de curadoria é acessório: não derruba a página */ }
+  }
+
+  async function decidirProposta(id: number, acao: 'aprovar' | 'rejeitar') {
+    setBusy(true);
+    setToast(null);
+    try {
+      const r = await api<{ ok: boolean; resultado?: string }>(`/api/curadoria/${id}/${acao}`, { method: 'POST' });
+      setToast({ kind: 'ok', text: r.resultado ?? (acao === 'aprovar' ? 'Proposta aprovada.' : 'Proposta rejeitada.') });
+      await Promise.all([loadCuradoria(), loadList()]);
+    } catch (e: any) {
+      setToast({ kind: 'bad', text: e.message });
+      await loadCuradoria();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function loadList() {
     const params = new URLSearchParams();
@@ -112,6 +158,8 @@ export default function Memoria({ user }: { user: User }) {
 
   useEffect(() => {
     api<Meta>('/api/memories/meta').then(m => { setMeta(m); setSyncProj(p => p ?? m.projects[0]?.id ?? null); }).catch(() => {});
+    void loadCuradoria();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Busca com pequeno atraso; filtros mudam na hora.
@@ -251,7 +299,72 @@ export default function Memoria({ user }: { user: User }) {
   }
 
   return (
-    <div className="mem">
+    <div className="mem-page">
+      <section className="mem-cur">
+        <div className="mem-cur-head">
+          <h2>Curadoria</h2>
+          <span className={`mem-cur-badge ${curadoria.pendentes.length ? 'has-pend' : ''}`}>
+            {curadoria.pendentes.length} pendente{curadoria.pendentes.length === 1 ? '' : 's'}
+          </span>
+          <span className="muted small">o curador diário propõe; só o admin aplica</span>
+        </div>
+        {curadoria.pendentes.length > 0 && (
+          <div className="mem-cur-cards">
+            {curadoria.pendentes.map((p) => (
+              <div key={p.id} className="mem-cur-card">
+                <div className="mem-cur-card-top">
+                  <span className="mem-cur-tipo">{TIPO_LABEL[p.tipo] ?? p.tipo}</span>
+                  <span className="muted small">{fmtDateTime(p.created_at)}</span>
+                </div>
+                {p.payload.justificativa && <p className="mem-cur-just">{p.payload.justificativa}</p>}
+                {(p.payload.memorias?.length ?? 0) > 0 && (
+                  <div className="mem-kw-line">
+                    {p.payload.memorias!.map((m) => (
+                      <button
+                        key={m.id}
+                        className="mem-kw mem-cur-mem"
+                        onClick={() => abrir(m.id, true)}
+                        title={`abrir ${m.code}`}
+                      >
+                        {m.title} · nível {m.level}{m.nota != null ? ` · nota ${m.nota}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {p.tipo === 'reescrita' && p.payload.texto && (
+                  <details className="mem-cur-texto">
+                    <summary className="small">texto proposto</summary>
+                    <pre className="mono small">{p.payload.texto}</pre>
+                  </details>
+                )}
+                <div className="mem-cur-actions">
+                  {user.role === 'owner' && (
+                    <button className="btn-primary" onClick={() => decidirProposta(p.id, 'aprovar')} disabled={busy}>Aprovar</button>
+                  )}
+                  <button onClick={() => decidirProposta(p.id, 'rejeitar')} disabled={busy}>Rejeitar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {curadoria.decididas.length > 0 && (
+          <details className="mem-cur-hist">
+            <summary className="small">últimas decisões ({curadoria.decididas.length})</summary>
+            <ul className="mem-cur-hist-list small">
+              {curadoria.decididas.map((p) => (
+                <li key={p.id}>
+                  <span className={`mem-cur-status is-${p.status}`}>{p.status}</span>{' '}
+                  {TIPO_LABEL[p.tipo] ?? p.tipo}: {p.payload.memorias?.map((m) => m.code).join(', ') ?? '?'}
+                  {p.decided_by_name ? ` · por ${p.decided_by_name}` : ' · automática (fusão)'}
+                  {p.decided_at ? ` · ${fmtDateTime(p.decided_at)}` : ''}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </section>
+
+      <div className="mem">
       <div className="mem-list">
         <div className="mem-list-head">
           <button className="mem-nova" onClick={nova} disabled={busy}>+ Nova memória</button>
@@ -495,6 +608,7 @@ export default function Memoria({ user }: { user: User }) {
             </div>
           </>
         )}
+      </div>
       </div>
     </div>
   );

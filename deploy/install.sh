@@ -11,12 +11,16 @@ fi
 install -m 644 deploy/orion-central.service /etc/systemd/system/orion-central.service
 install -m 644 deploy/orion-inventory.service /etc/systemd/system/orion-inventory.service
 install -m 644 deploy/orion-inventory.timer /etc/systemd/system/orion-inventory.timer
+install -m 644 deploy/orion-curador.service /etc/systemd/system/orion-curador.service
+install -m 644 deploy/orion-curador.timer /etc/systemd/system/orion-curador.timer
 install -m 644 deploy/Caddyfile /etc/caddy/Caddyfile
 systemctl daemon-reload
 systemctl enable --now orion-central
 systemctl restart orion-central
 # Inventário: timer de hora em hora + uma coleta agora, para a aba "Instalado" já sair atualizada.
 systemctl enable --now orion-inventory.timer
+# Curador da memória: uma rodada por dia (03:10 UTC), sem coleta inicial (gasta tokens).
+systemctl enable --now orion-curador.timer
 systemctl start orion-inventory.service || echo "aviso: coleta inicial do inventário falhou (journalctl -u orion-inventory)"
 caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy || systemctl restart caddy
 sleep 2

@@ -11,7 +11,7 @@ import {
   uniqueCode,
 } from '../memories/util.js';
 import { ensureMemoriesSchema } from '../memories/migrate.js';
-import { seedMemories } from '../memories/seed.js';
+import { seedMemories, seedPerfisNivel2 } from '../memories/seed.js';
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -93,6 +93,8 @@ export async function memoriesRoutes(app: FastifyInstance) {
   `);
   await ensureMemoriesSchema(app.pool);
   await seedMemories(app.pool);
+  // Perfis nível 2 por pessoa (idempotente): quem já tem memória nível 2 de escopo próprio é pulado.
+  await seedPerfisNivel2(app.pool);
 
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
