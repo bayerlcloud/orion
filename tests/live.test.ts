@@ -317,3 +317,42 @@ describe('reconexão: histórico recarregado + eventos do buffer', () => {
     expect(after.messages).toHaveLength(1);
   });
 });
+
+/**
+ * "Mapa de agentes" — `LiveState.agentTasks` (ver `noteAgentTask`/`AgentTask` em mapper.ts/types.ts e
+ * PARIDADE.md pro achado completo na extensão real). Duas fontes de tempo, igual ao resto do arquivo
+ * (mesmo espírito de `fromRows` reconstruir do zero e `applyLive` incrementar ao vivo):
+ * `fromRows` usa o `ts` REAL de cada linha persistida (`claude_events.ts`, coluna que já existe —
+ * `server/routes/claude.ts` já seleciona e devolve no `GET /api/claude/sessions/:id`); `applyLive`
+ * (mensagens do SSE, sem timestamp de servidor) usa `now` — injetável, mesma convenção de
+ * `relativeTime`/`groupSessions`/`computeRealUsageBars` já usada no resto do arquivo/mapper.ts.
+ */
+describe('LiveState.agentTasks — Mapa de agentes', () => {
+  const TOOL_USE_ID = 'toolu_task_1';
+  it('emptyLive(): agentTasks começa vazio', () => {
+    expect(emptyLive().agentTasks).toEqual({});
+  });
+  it('fromRows: tool_use + tool_result do Task já persistidos viram uma entrada com startedAt/endedAt REAIS (do ts da linha)', () => {
+    const rows = [
+      { seq: 1, ts: '2026-09-28T10:00:00.000Z', type: 'assistant', payload: { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Task', input: { description: 'Investigar bug', subagent_type: 'debugger' } }] } } },
+      { seq: 2, ts: '2026-09-28T10:01:30.000Z', type: 'user', payload: { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: TOOL_USE_ID, content: 'achei', is_error: false }] } } },
+    ];
+    const s = fromRows(rows, 'idle', []);
+    expect(s.agentTasks[TOOL_USE_ID]).toMatchObject({
+      description: 'Investigar bug', subagentType: 'debugger', status: 'success',
+      startedAt: Date.parse('2026-09-28T10:00:00.000Z'), endedAt: Date.parse('2026-09-28T10:01:30.000Z'),
+    });
+  });
+  it('applyLive: tool_use do Task chegando ao vivo (sem ts de servidor) usa o "now" injetado como startedAt', () => {
+    const msg = { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Task', input: { description: 'Ler logs' } }] } };
+    const s = applyLive(emptyLive(), { type: 'message', message: msg }, 12345);
+    expect(s.agentTasks[TOOL_USE_ID]).toMatchObject({ description: 'Ler logs', status: 'running', startedAt: 12345 });
+  });
+  it('applyLive: tool_result chegando depois fecha a entrada com o "now" desse instante', () => {
+    const use = { type: 'assistant', message: { content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Task', input: { description: 'Ler logs' } }] } };
+    const result = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: TOOL_USE_ID, content: 'ok', is_error: false }] } };
+    let s = applyLive(emptyLive(), { type: 'message', message: use }, 1000);
+    s = applyLive(s, { type: 'message', message: result }, 5000);
+    expect(s.agentTasks[TOOL_USE_ID]).toMatchObject({ status: 'success', startedAt: 1000, endedAt: 5000 });
+  });
+});

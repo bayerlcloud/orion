@@ -1,4 +1,4 @@
-import type { ConvEvent, SdkContentBlock, SdkMessage, SessionSummary, ToolStatus } from './types';
+import type { AgentTask, AgentTaskUsage, ConvEvent, SdkContentBlock, SdkMessage, SessionSummary, ToolStatus } from './types';
 
 type Rec = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -766,4 +766,139 @@ export function cycleMessageIndex(direction: -1 | 1, state: CycleState, history:
 export function attachmentImageUrl(a: { kind: 'image' | 'file'; media_type?: string; path?: string }): string | undefined {
   if (a.kind !== 'image' || !a.path || !a.media_type) return undefined;
   return `/api/claude/attachments?path=${encodeURIComponent(a.path)}&type=${encodeURIComponent(a.media_type)}`;
+}
+
+/**
+ * "Mapa de agentes" (Agent map) — pedido ao vivo do Bayerl 28/09/2026, retomando o que a rodada de
+ * Task/Agent (ver `taskStatusLabel` acima) tinha deixado de fora de propósito: telemetria de tempo
+ * decorrido e tokens por subagente. Achados completos, com citações do webview decompilado real
+ * (v2.1.282 e v2.1.283) e do `.d.ts` do Agent SDK, em PARIDADE.md — resumo aqui:
+ * - A extensão real tem um painel de verdade (`title:"Agent map"`) com uma árvore raiz→agentes.
+ * - Duração de cada agente (`b85`/`v85` no webview real): enquanto roda, `Date.now()-startTime`
+ *   (`startTime` é observado no CLIENTE no instante em que o `tool_use` chega, não um timestamp de
+ *   servidor — a extensão real faz exatamente isso também); depois de terminar, prefere
+ *   `usage.durationMs` (quando `status==="finished"`) sobre o `endTime-startTime` computado; abaixo
+ *   de 1s, não mostra nada.
+ * - Tokens (`usage.totalTokens`): vêm de um campo REAL do SDK, `SDKUserMessage.tool_use_result`
+ *   (`sdk.d.ts`: "Structured tool output... For the Agent/Task tool the completed shape is the
+ *   subagent's final report... plus run totals — render from it instead of parsing the tool_result
+ *   text"), forma `AgentOutput` (`sdk-tools.d.ts`, branch `status:"completed"`:
+ *   `totalTokens`/`totalToolUseCount`/`totalDurationMs`). O runner do Orion já persiste a mensagem
+ *   inteira do SDK (`server/claude/runner.ts`: `appendEvent(id, m.type, m)`), então esse campo,
+ *   quando o SDK o populam, já chega ao front sem nenhuma mudança de backend — não confirmado ao vivo
+ *   em produção nesta rodada (sem acesso a credenciais de banco neste ambiente); ver PARIDADE.md.
+ */
+
+/**
+ * Lê `tool_use_result` (ver `SdkMessage` em types.ts) de forma defensiva, nunca lança. Só devolve
+ * algo quando o SDK realmente mandou a forma `AgentOutput` com `status:"completed"` E pelo menos um
+ * dos 3 totais é um número de verdade — nunca inventa um campo ausente (um subagente disparado em
+ * background, por exemplo, chega com `status:"async_launched"`, sem totais ainda: `undefined`, de
+ * propósito, não um objeto vazio).
+ */
+export function parseAgentTaskUsage(toolUseResult: unknown): AgentTaskUsage | undefined {
+  if (typeof toolUseResult !== 'object' || toolUseResult === null) return undefined;
+  const r = toolUseResult as Rec;
+  if (r.status !== 'completed') return undefined;
+  const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const totalTokens = num(r.totalTokens);
+  const toolUses = num(r.totalToolUseCount);
+  const durationMs = num(r.totalDurationMs);
+  if (totalTokens === undefined && toolUses === undefined && durationMs === undefined) return undefined;
+  return { totalTokens, toolUses, durationMs };
+}
+
+/**
+ * Atualiza o mapa de subagentes (`LiveState.agentTasks`, ver live.ts) a partir de UMA mensagem do SDK
+ * já reduzida — usado tanto por `fromRows` (histórico reconstruído, `when` = `ts` real da linha)
+ * quanto por `applyLive` (mensagem ao vivo do SSE, `when` = instante observado no navegador). Pura:
+ * devolve a MESMA referência quando nada muda (mesma disciplina de `applyPendingToolWaitStatus`) —
+ * cria uma entrada nova só no `tool_use` da tool `Task` (nunca sobrescreve uma já existente com o
+ * mesmo id — o SDK não repete `tool_use.id`), e só fecha (status final + `endedAt` + `usage`) no
+ * `tool_result` casado por `tool_use_id`, e só se ainda não tiver sido fechada antes (protege o
+ * `endedAt`/`usage` REAIS de uma reconexão/replay que reenvie o mesmo `tool_result` com um `when`
+ * mais novo, o que aconteceria toda vez que `fromRows` roda de novo num reconnect do SSE).
+ */
+export function noteAgentTask(tasks: Record<string, AgentTask>, message: SdkMessage, when: number): Record<string, AgentTask> {
+  if (message.type === 'assistant') {
+    let next: Record<string, AgentTask> | undefined;
+    for (const b of message.message.content) {
+      if (b.type !== 'tool_use' || b.name !== 'Task' || tasks[b.id] || next?.[b.id]) continue;
+      const i = (b.input ?? {}) as Rec;
+      const entry: AgentTask = {
+        toolUseId: b.id,
+        description: typeof i.description === 'string' ? i.description : b.name,
+        subagentType: typeof i.subagent_type === 'string' ? i.subagent_type : undefined,
+        status: 'running',
+        startedAt: when,
+      };
+      next = { ...(next ?? tasks), [b.id]: entry };
+    }
+    return next ?? tasks;
+  }
+  if (message.type === 'user') {
+    const c = message.message.content;
+    if (typeof c === 'string') return tasks;
+    let next: Record<string, AgentTask> | undefined;
+    for (const b of c) {
+      if (b.type !== 'tool_result') continue;
+      const cur = (next ?? tasks)[b.tool_use_id];
+      if (!cur || cur.endedAt !== undefined) continue;
+      const usage = parseAgentTaskUsage(message.tool_use_result);
+      const closed: AgentTask = { ...cur, status: b.is_error ? 'failure' : 'success', endedAt: when, usage };
+      next = { ...(next ?? tasks), [b.tool_use_id]: closed };
+    }
+    return next ?? tasks;
+  }
+  return tasks;
+}
+
+/**
+ * Duração de um subagente pra exibir no card do Mapa de agentes — mesma prioridade da extensão real
+ * (funções `b85`/`v85` do webview decompilado, ver PARIDADE.md): rodando/aguardando, tempo decorrido
+ * até `now`; terminado com sucesso, prefere `usage.durationMs` (o total que o próprio SDK reportou)
+ * sobre o `endedAt-startedAt` computado; terminado com falha (ou outro status), o inverso — prefere o
+ * computado. `undefined` sem nenhum dado de tempo, ou quando o resultado é menor que 1s (mesmo
+ * limiar da extensão real — não vale a pena mostrar durações irrisórias).
+ */
+export function agentTaskDuration(task: AgentTask, now: number): number | undefined {
+  if (task.status === 'running' || task.status === 'waiting') {
+    return task.startedAt === undefined ? undefined : now - task.startedAt;
+  }
+  const computed = task.startedAt !== undefined && task.endedAt !== undefined && task.endedAt > task.startedAt
+    ? task.endedAt - task.startedAt : undefined;
+  const reported = task.usage?.durationMs !== undefined && task.usage.durationMs > 0 ? task.usage.durationMs : undefined;
+  const ms = task.status === 'success' ? (reported ?? computed) : (computed ?? reported);
+  return ms === undefined || ms < 1000 ? undefined : ms;
+}
+
+/** Formata uma duração de subagente no estilo compacto do print do Bayerl ("25m 44s"). */
+export function formatAgentDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m === 0 ? `${s}s` : `${m}m ${s}s`;
+}
+
+/**
+ * Total de tokens (entrada+saída) já gastos nesta sessão, somando todos os turnos já concluídos —
+ * mesma soma que já alimenta o "N↑ / N↓ tokens" do `Result` em Timeline.tsx (`sumModelUsage`), só que
+ * acumulada pra sessão inteira em vez de por turno. Usado como a meta do nó raiz do Mapa de agentes.
+ * `undefined` sem nenhum turno concluído ainda — nunca mostra "0 tokens" fabricado antes do 1º turno
+ * terminar.
+ */
+export function sumSessionTokens(events: ConvEvent[]): number | undefined {
+  let total: number | undefined;
+  for (const e of events) {
+    if (e.kind !== 'result') continue;
+    total = (total ?? 0) + (e.inputTokens ?? 0) + (e.outputTokens ?? 0);
+  }
+  return total;
+}
+
+/** `LiveState.agentTasks` (mapa por `toolUseId`) como lista ordenada pro Mapa de agentes — ordem de
+ * disparo (`startedAt` crescente); entradas sem `startedAt` (não deveria acontecer na prática, já que
+ * `noteAgentTask` sempre grava um `startedAt`) vão por último, de forma estável. */
+export function agentTaskList(tasks: Record<string, AgentTask>): AgentTask[] {
+  return Object.values(tasks).sort((a, b) => (a.startedAt ?? Infinity) - (b.startedAt ?? Infinity));
 }

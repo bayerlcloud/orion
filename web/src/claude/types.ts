@@ -64,9 +64,48 @@ export type SdkMessage =
   | { type: 'system'; subtype: 'init'; session_id?: string; model?: string; cwd?: string }
   | { type: 'system'; subtype: string; [k: string]: unknown }
   | { type: 'assistant'; message: { content: SdkContentBlock[] } }
-  | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] } }
+  /**
+   * `tool_use_result` (opcional, 28/09/2026 — Mapa de agentes, ver mapper.ts `parseAgentTaskUsage`/
+   * PARIDADE.md): campo real e documentado do SDK (`SDKUserMessage.tool_use_result` em
+   * `@anthropic-ai/claude-agent-sdk/sdk.d.ts`) — "Structured tool output — the tool's full Output
+   * object, not the string content sent to the model... For the Agent/Task tool the completed shape
+   * is the subagent's final report... plus run totals — render from it instead of parsing the
+   * tool_result text". `unknown` de propósito (o SDK também documenta assim: forma por-tool, MCP e
+   * tools dinâmicas têm forma própria) — lido de forma defensiva, nunca assumido.
+   */
+  | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] }; tool_use_result?: unknown }
   | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
+
+/**
+ * Telemetria real (quando o SDK a populou) de um subagente `Task` já concluído — nunca estimada.
+ * Fonte: `tool_use_result` (ver `SdkMessage`/`parseAgentTaskUsage` acima) no formato `AgentOutput`
+ * (`@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts`, branch `status:"completed"`):
+ * `totalTokens`/`totalToolUseCount`/`totalDurationMs`. Não confirmado ao vivo em produção nesta
+ * rodada (ver PARIDADE.md, "Mapa de agentes" — lacuna de verificação documentada); qualquer campo
+ * ausente na fonte real fica `undefined` aqui, nunca um número inventado.
+ */
+export type AgentTaskUsage = { totalTokens?: number; toolUses?: number; durationMs?: number };
+
+/**
+ * Um subagente (`tool_use` da tool `Task`) disparado nesta sessão, pro "Mapa de agentes"
+ * (AgentMap.tsx). `startedAt`/`endedAt` são epoch ms: vêm do `ts` REAL de `claude_events` quando
+ * reconstruído de linhas já persistidas (`fromRows`, ver live.ts) — coluna que já existe e já é
+ * devolvida por `GET /api/claude/sessions/:id`, nenhuma mudança de backend precisou — ou, pra
+ * eventos que chegam ao vivo pelo SSE (que não carregam timestamp de servidor), o instante em que o
+ * navegador observou o evento (`applyLive`, parâmetro `now` injetável). `usage`: só populado quando o
+ * SDK realmente mandou `tool_use_result` com totais — ausente na maioria dos casos hoje (ver
+ * PARIDADE.md); a duração ainda é mostrada nesse caso via `startedAt`/`endedAt`.
+ */
+export type AgentTask = {
+  toolUseId: string;
+  description: string;
+  subagentType?: string;
+  status: ToolStatus;
+  startedAt?: number;
+  endedAt?: number;
+  usage?: AgentTaskUsage;
+};
 
 /** Comando de barra real da sessão (server/claude/runner.ts, via Query.supportedCommands() do SDK) — nome, descrição e dica de argumento, iguais ao que a extensão real lista no menu `/`. */
 export type SlashCommandInfo = { name: string; description: string; argumentHint?: string };

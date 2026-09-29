@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
-import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
+import type { ConvEvent, SdkMessage, SessionSummary, AgentTask } from '../web/src/claude/types';
 
 /** Payload real de um AskUserQuestion da sessão de produção "Esta ai?" (fcc5ee4b-96f2-45a5-baf3-78e9f1f71ecd,
  * claude_approvals.id = 8cddcaaa-9e86-4db9-a038-c967ff0af86f): uma pergunta com multiSelect e 4 opções. */
@@ -911,5 +911,168 @@ describe('attachmentImageUrl', () => {
   it('escapa caracteres especiais no caminho (espaço, acento)', () => {
     const url = attachmentImageUrl({ kind: 'image', media_type: 'image/jpeg', path: '/srv/claude-uploads/2/x-foto café.jpg' });
     expect(url).toBe('/api/claude/attachments?path=%2Fsrv%2Fclaude-uploads%2F2%2Fx-foto%20caf%C3%A9.jpg&type=image%2Fjpeg');
+  });
+});
+
+/**
+ * "Mapa de agentes" (Agent map) — pedido ao vivo do Bayerl 28/09/2026 ("essa parte de multi agentes
+ * igual aqui o claude code do antigravity coloca no claude do orion v2"), retomando o que a rodada
+ * anterior (Task/Agent, ver `taskStatusLabel` acima) explicitamente deixou de fora: "telemetria ao
+ * vivo (tempo decorrido, tokens, contagem de tool calls do subagente)". Achado confirmado lendo o
+ * webview decompilado da extensão real (v2.1.282 e v2.1.283,
+ * `/srv/orion-reference/vscode-extension/extension/webview/` e `/srv/orion-reference-2.1.283/webview/`):
+ * painel de verdade `title:"Agent map"`, árvore raiz→agentes com linhas de conexão CSS
+ * (`.tree`/`.node`/`.children`/`.child`), cada agente com duração (`b85`: prefer `usage.durationMs`
+ * quando `status==="finished"`, senão `endTime-startTime`; ao vivo, `Date.now()-startTime`) e tokens
+ * (`usage.totalTokens`). O dado de `usage` real (`totalTokens`/`toolUses`/`durationMs`) vem, no SDK
+ * real, de `SDKUserMessage.tool_use_result` — campo documentado em
+ * `@anthropic-ai/claude-agent-sdk/sdk.d.ts`: "Structured tool output... For the Agent/Task tool the
+ * completed shape is the subagent's final report... plus run totals — render from it instead of
+ * parsing the tool_result text" — e no schema de `AgentOutput` em `sdk-tools.d.ts`
+ * (`{status:"completed", totalTokens, totalToolUseCount, totalDurationMs, usage:{...}}`). O runner do
+ * Orion (`server/claude/runner.ts`) já persiste a mensagem SDK INTEIRA (`appendEvent(id, m.type, m)`),
+ * então esse campo, quando o SDK o popular, já chega ao front sem nenhuma mudança de backend — mas
+ * não pôde ser confirmado ao vivo em produção nesta rodada (sem acesso a credenciais de banco neste
+ * ambiente); ver PARIDADE.md pra o relato completo dessa lacuna de verificação.
+ */
+describe('parseAgentTaskUsage', () => {
+  it('undefined: sem dado nenhum', () => {
+    expect(parseAgentTaskUsage(undefined)).toBeUndefined();
+  });
+  it('não é objeto: undefined', () => {
+    expect(parseAgentTaskUsage('texto qualquer')).toBeUndefined();
+  });
+  it('status "async_launched" (subagente em background, ainda sem totais): undefined — nunca inventa um total', () => {
+    expect(parseAgentTaskUsage({ status: 'async_launched', agentId: 'a1', outputFile: '/tmp/x' })).toBeUndefined();
+  });
+  it('status "completed" com os 3 totais reais: extrai totalTokens/toolUses/durationMs', () => {
+    const out = parseAgentTaskUsage({ status: 'completed', totalTokens: 311800, totalToolUseCount: 12, totalDurationMs: 1544000 });
+    expect(out).toEqual({ totalTokens: 311800, toolUses: 12, durationMs: 1544000 });
+  });
+  it('status "completed" mas sem nenhum dos 3 campos numéricos: undefined (nada de útil pra mostrar)', () => {
+    expect(parseAgentTaskUsage({ status: 'completed', agentId: 'a1' })).toBeUndefined();
+  });
+  it('status "completed" com só totalTokens: devolve só o que existe, sem inventar os outros', () => {
+    expect(parseAgentTaskUsage({ status: 'completed', totalTokens: 500 })).toEqual({ totalTokens: 500, toolUses: undefined, durationMs: undefined });
+  });
+});
+
+describe('noteAgentTask', () => {
+  const taskUse = (id: string, description = 'Investigar o bug', subagent_type?: string): SdkMessage =>
+    ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Task', input: { description, prompt: 'faça x', ...(subagent_type ? { subagent_type } : {}) } }] } } as unknown as SdkMessage);
+  const toolResult = (toolUseId: string, isError = false, toolUseResult?: unknown): SdkMessage =>
+    ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'ok', is_error: isError }] }, ...(toolUseResult !== undefined ? { tool_use_result: toolUseResult } : {}) } as unknown as SdkMessage);
+
+  it('tool_use do Task: cria uma entrada nova, status running, com startedAt = when', () => {
+    const out = noteAgentTask({}, taskUse('t1', 'Corrigir o bug do login', 'debugger'), 1000);
+    expect(out.t1).toEqual({ toolUseId: 't1', description: 'Corrigir o bug do login', subagentType: 'debugger', status: 'running', startedAt: 1000, endedAt: undefined, usage: undefined });
+  });
+  it('tool_use de outra ferramenta (não Task): não cria nenhuma entrada, devolve a MESMA referência', () => {
+    const bash: SdkMessage = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls' } }] } } as unknown as SdkMessage;
+    const map = {};
+    expect(noteAgentTask(map, bash, 1000)).toBe(map);
+  });
+  it('tool_result de sucesso pro toolUseId certo: fecha a entrada (status success, endedAt)', () => {
+    const started = noteAgentTask({}, taskUse('t1'), 1000);
+    const out = noteAgentTask(started, toolResult('t1'), 5000);
+    expect(out.t1).toMatchObject({ status: 'success', startedAt: 1000, endedAt: 5000 });
+  });
+  it('tool_result com is_error: fecha como failure', () => {
+    const started = noteAgentTask({}, taskUse('t1'), 1000);
+    const out = noteAgentTask(started, toolResult('t1', true), 5000);
+    expect(out.t1).toMatchObject({ status: 'failure', endedAt: 5000 });
+  });
+  it('tool_result de um toolUseId desconhecido: não muda nada, devolve a MESMA referência', () => {
+    const started = noteAgentTask({}, taskUse('t1'), 1000);
+    expect(noteAgentTask(started, toolResult('outro-id'), 5000)).toBe(started);
+  });
+  it('tool_result com tool_use_result estruturado (AgentOutput completed real): extrai usage real', () => {
+    const started = noteAgentTask({}, taskUse('t1'), 1000);
+    const out = noteAgentTask(started, toolResult('t1', false, { status: 'completed', totalTokens: 311800, totalToolUseCount: 7, totalDurationMs: 1544000 }), 5000);
+    expect(out.t1?.usage).toEqual({ totalTokens: 311800, toolUses: 7, durationMs: 1544000 });
+  });
+  it('tool_result repetido (replay/reconexão) pro mesmo toolUseId já fechado: não sobrescreve o endedAt real com um "when" mais novo', () => {
+    const started = noteAgentTask({}, taskUse('t1'), 1000);
+    const closed = noteAgentTask(started, toolResult('t1'), 5000);
+    const again = noteAgentTask(closed, toolResult('t1'), 9999);
+    expect(again).toBe(closed);
+  });
+  it('mensagem sem nenhum tool_use/tool_result (ex.: texto puro): devolve a MESMA referência', () => {
+    const map = {};
+    const text: SdkMessage = { type: 'assistant', message: { content: [{ type: 'text', text: 'oi' }] } } as unknown as SdkMessage;
+    expect(noteAgentTask(map, text, 1000)).toBe(map);
+  });
+});
+
+describe('agentTaskDuration', () => {
+  const base: AgentTask = { toolUseId: 't1', description: 'x', status: 'running', startedAt: undefined, endedAt: undefined, usage: undefined };
+  it('rodando, com startedAt: tempo decorrido até "now"', () => {
+    expect(agentTaskDuration({ ...base, status: 'running', startedAt: 1000 }, 5000)).toBe(4000);
+  });
+  it('rodando, sem startedAt: undefined (nada pra medir)', () => {
+    expect(agentTaskDuration({ ...base, status: 'running' }, 5000)).toBeUndefined();
+  });
+  it('sucesso, sem usage.durationMs: usa endedAt-startedAt', () => {
+    expect(agentTaskDuration({ ...base, status: 'success', startedAt: 1000, endedAt: 5000 }, 9999)).toBe(4000);
+  });
+  it('sucesso, COM usage.durationMs: prefere o total real reportado pelo SDK (mesma prioridade da extensão real p/ status finished)', () => {
+    expect(agentTaskDuration({ ...base, status: 'success', startedAt: 1000, endedAt: 5000, usage: { durationMs: 9999 } }, 99999)).toBe(9999);
+  });
+  it('falha, COM usage.durationMs e endedAt/startedAt: prefere o computado (mesma prioridade da extensão real p/ status != finished)', () => {
+    expect(agentTaskDuration({ ...base, status: 'failure', startedAt: 1000, endedAt: 5000, usage: { durationMs: 9999 } }, 99999)).toBe(4000);
+  });
+  it('duração menor que 1s: undefined (mesmo limiar da extensão real — não mostra durações irrisórias)', () => {
+    expect(agentTaskDuration({ ...base, status: 'success', startedAt: 1000, endedAt: 1500 }, 9999)).toBeUndefined();
+  });
+  it('sem nenhum dado de tempo: undefined', () => {
+    expect(agentTaskDuration({ ...base, status: 'success' }, 9999)).toBeUndefined();
+  });
+});
+
+describe('formatAgentDuration', () => {
+  it('só segundos', () => { expect(formatAgentDuration(5000)).toBe('5s'); });
+  it('minutos e segundos', () => { expect(formatAgentDuration(65000)).toBe('1m 5s'); });
+  it('exemplo do print do Bayerl: 25m 44s', () => { expect(formatAgentDuration(25 * 60_000 + 44_000)).toBe('25m 44s'); });
+  it('arredonda pro segundo mais próximo', () => { expect(formatAgentDuration(1499)).toBe('1s'); });
+});
+
+describe('sumSessionTokens', () => {
+  it('sem nenhum evento "result": undefined (nunca mostra 0 fabricado)', () => {
+    expect(sumSessionTokens([{ id: 'e1', kind: 'text', text: 'oi' }])).toBeUndefined();
+  });
+  it('um result com tokens: soma entrada+saída', () => {
+    const events: ConvEvent[] = [{ id: 'e1', kind: 'result', ok: true, inputTokens: 100, outputTokens: 50 }];
+    expect(sumSessionTokens(events)).toBe(150);
+  });
+  it('vários results (vários turnos): soma tudo', () => {
+    const events: ConvEvent[] = [
+      { id: 'e1', kind: 'result', ok: true, inputTokens: 100, outputTokens: 50 },
+      { id: 'e2', kind: 'result', ok: true, inputTokens: 20, outputTokens: 5 },
+    ];
+    expect(sumSessionTokens(events)).toBe(175);
+  });
+  it('result sem outputTokens: trata como 0, não quebra', () => {
+    const events: ConvEvent[] = [{ id: 'e1', kind: 'result', ok: true, inputTokens: 30 }];
+    expect(sumSessionTokens(events)).toBe(30);
+  });
+});
+
+describe('agentTaskList', () => {
+  it('mapa vazio: lista vazia', () => {
+    expect(agentTaskList({})).toEqual([]);
+  });
+  it('ordena por startedAt crescente (ordem de disparo dos agentes)', () => {
+    const map: Record<string, AgentTask> = {
+      t2: { toolUseId: 't2', description: 'segundo', status: 'running', startedAt: 2000 },
+      t1: { toolUseId: 't1', description: 'primeiro', status: 'running', startedAt: 1000 },
+    };
+    expect(agentTaskList(map).map(t => t.toolUseId)).toEqual(['t1', 't2']);
+  });
+  it('entradas sem startedAt vão por último, de forma estável', () => {
+    const map: Record<string, AgentTask> = {
+      t2: { toolUseId: 't2', description: 'sem tempo', status: 'running' },
+      t1: { toolUseId: 't1', description: 'com tempo', status: 'running', startedAt: 1000 },
+    };
+    expect(agentTaskList(map).map(t => t.toolUseId)).toEqual(['t1', 't2']);
   });
 });
