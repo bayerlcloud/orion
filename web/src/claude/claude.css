@@ -4,6 +4,8 @@
   --cc-bg: var(--bg); --cc-bg2: var(--bg2); --cc-panel: var(--panel); --cc-fg: var(--fg); --cc-fg2: var(--fg2); --cc-line: var(--line);
   --cc-hover: var(--hover); --cc-active: var(--active); --cc-orange: var(--accent); --cc-success: #74c991; --cc-failure: #c74e39;
   --cc-warning: #e1c08d; --cc-busy: #89d185; --cc-pending: #3b82f6; --cc-code: var(--code-block);
+  /* Cor do degrau Ultracode do seletor de esforço: `--app-ultracode-color` real resolve em `--vscode-charts-purple,#a855f7` (webview v2.1.283). */
+  --cc-ultracode: #a855f7;
   --cc-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; --r: 6px;
   display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 100vh; height: 100vh; min-height: 0; margin: 0; background: var(--cc-bg); color: var(--cc-fg);
   font-size: 13px; line-height: 1.45; color-scheme: dark;
@@ -28,6 +30,17 @@
 .cc-track { height: 6px; border-radius: 3px; background: var(--cc-line); overflow: hidden; margin: 4px 0 3px; }
 .cc-fill { height: 100%; background: var(--cc-fg2); }
 .cc-usage-note { font-size: 11px; color: var(--cc-fg2); }
+/* ===== "% do uso" por modelo (Conta e Uso) =====
+   Cópia das classes reais `attributionGroup/HeaderRow/Title/List/Row/Name/Pct/More_QET5Ow` (webview
+   v2.1.283) — mesmos tamanhos/opacidades/tabular-nums; ver Sidebar.tsx e PARIDADE-seletor.md. */
+.cc-attr-group { display: flex; flex-direction: column; gap: 2px; padding: 4px 6px 8px; }
+.cc-attr-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cc-attr-title { color: var(--cc-fg2); font-size: 11px; font-weight: 600; }
+.cc-attr-list { display: flex; flex-direction: column; gap: 1px; }
+.cc-attr-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 1px 0 1px 12px; }
+.cc-attr-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cc-fg); opacity: .8; user-select: text; flex: 1; min-width: 0; font-size: 12px; }
+.cc-attr-pct { color: var(--cc-fg); opacity: .5; font-variant-numeric: tabular-nums; flex-shrink: 0; font-size: 12px; }
+.cc-attr-more { color: var(--cc-fg); opacity: .4; padding-left: 12px; font-size: 11px; }
 .cc-sessions { border-top: 1px solid var(--cc-line); padding-top: 8px; }
 .cc-new { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: var(--r); }
 .cc-new:hover { background: var(--cc-hover); }
@@ -87,12 +100,13 @@
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
 .cc-tab-spark { color: var(--claude); }
+/* Dot de status na própria aba (destino do status da barra de título removida — ver PARIDADE-seletor.md). */
+.cc-tab-dot { width: 6px; height: 6px; }
 .cc-tab-title { overflow: hidden; text-overflow: ellipsis; }
 .cc-tab-x { opacity: 0; display: inline-flex; padding: 2px; border-radius: 3px; }
 .cc-tab:hover .cc-tab-x, .cc-tab.is-active .cc-tab-x { opacity: 1; }
 .cc-tab-x:hover { background: var(--cc-hover); }
 .cc-tab-actions { display: flex; flex-shrink: 0; gap: 12px; align-items: center; padding: 0 12px; color: var(--cc-fg2); }
-.cc-head { padding: 12px 18px; font-weight: 600; border-bottom: 1px solid var(--cc-line); }
 /* `.cc-chat` = `.chatContainer_07S1Yg` real, EXATO: `display:flex;overflow:hidden;position:relative;
    flex-direction:column;flex:1;min-width:0`. Âncora relativa pras duas camadas absolutas que flutuam
    por cima da área que rola (`.cc-fade`/`.cc-float`, mais abaixo) — ver PARIDADE.md "Layout flutuante
@@ -250,6 +264,16 @@
    Posição igual à extensão real (`.micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`) —
    canto superior direito do campo, não na barra de rodapé com os outros botões. */
 .cc-mic-wrap { position: absolute; z-index: 2; top: 5px; right: 4px; }
+/* ===== legenda de esforço/fast mode no canto do composer =====
+   Cópia de `sparkLegend/sparkIcon/sparkCooldown_cKsPxg` reais (webview v2.1.283): fica em cima da
+   borda superior direita, só aparece com o composer em foco (:focus-within), a faixinha ::before de
+   3px "corta" a borda atrás dela (o real usa --app-root-background; aqui --cc-bg). O raio (sparkIcon)
+   usa a cor de aviso e acinzenta no cooldown. Ver Composer.tsx e PARIDADE-seletor.md. */
+.cc-spark-legend { position: absolute; display: none; z-index: 10; align-items: center; gap: 8px; height: 12px; padding: 0 4px; line-height: 0; top: -7px; right: 12px; color: var(--cc-fg2); }
+.cc-spark-legend::before { content: ""; position: absolute; background: var(--cc-bg); z-index: -1; pointer-events: none; height: 3px; top: 5px; left: 0; right: 0; }
+.cc-composer:focus-within .cc-spark-legend { display: flex; }
+.cc-spark-icon { color: var(--cc-warning); }
+.cc-spark-legend.is-cooldown .cc-spark-icon { color: var(--cc-fg2); }
 .cc-mic { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 5px; color: var(--cc-fg2); }
 .cc-mic:hover:not(:disabled) { background: var(--cc-hover); color: var(--cc-fg); }
 .cc-mic:disabled { color: var(--cc-fg2); opacity: .4; cursor: not-allowed; }
@@ -332,8 +356,7 @@
 .cc-worktree-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 18px 0; padding: 6px 6px 6px 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-panel); font-size: 12px; color: var(--cc-fg2); }
 .cc-worktree-banner-left { display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .cc-worktree-banner-name { border-radius: 4px; background: color-mix(in srgb, var(--cc-fg) 10%, transparent); color: var(--cc-fg); padding: 2px 8px; font-size: .95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cc-head { display: flex; align-items: center; gap: 12px; }
-.cc-head-meta { color: var(--cc-fg2); font-weight: 400; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+/* .cc-head/.cc-head-meta removidos (29/09/2026): a barra de título entre as abas e o chat saiu — a extensão real não a tem (ver PARIDADE-seletor.md). */
 .cc-empty-state { max-width: 520px; margin: 60px auto; text-align: center; }
 .cc-brand-big { font-size: 20px; margin-bottom: 12px; color: var(--claude); }
 .cc-select { appearance: none; border: 0; cursor: pointer; }
@@ -454,6 +477,20 @@
 .cc-menu-up { bottom: calc(100% + 6px); left: 0; }
 .cc-menu-right { left: auto; right: 0; }
 .cc-menu-title { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--cc-fg2); padding: 5px 8px 3px; }
+/* ===== seletor de esforço: slider com degrau Ultracode =====
+   Cópia das classes reais `toggle/fill/fillUltracode/notch/notchUltracode/thumb_P1HaRA` (webview
+   v2.1.283) — mesmos tamanhos (trilho 76×18, thumb 14, notch 4px), mesmas variáveis de cálculo
+   (--thumb-size/--thumb-inset usados pelos calc() em Composer.tsx) e mesma cor própria do Ultracode
+   no fill/notch (--cc-ultracode). Ver PARIDADE-seletor.md. */
+.cc-effort-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px 6px; }
+.cc-effort-row-label { display: inline-flex; align-items: center; gap: 4px; color: var(--cc-fg2); font-size: 12px; min-width: 0; }
+.cc-effort-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-effort-toggle { --track-height: 18px; --thumb-size: 14px; --thumb-inset: 2px; --track-width: 76px; position: relative; width: var(--track-width); height: var(--track-height); border-radius: calc(var(--track-height) / 2); background: var(--cc-line); cursor: pointer; overflow: hidden; touch-action: none; border: none; flex-shrink: 0; padding: 0; margin-left: auto; }
+.cc-effort-fill { position: absolute; background: var(--cc-orange); border-radius: calc(var(--track-height) / 2); transition: width .15s; top: 0; bottom: 0; left: 0; }
+.cc-effort-fill.is-ultracode { background: var(--cc-ultracode); }
+.cc-effort-notch { position: absolute; background: color-mix(in srgb, var(--cc-fg2) 40%, transparent); border-radius: 50%; width: 4px; height: 4px; top: 50%; transform: translate(-50%, -50%); }
+.cc-effort-notch.is-ultracode { background: var(--cc-ultracode); }
+.cc-effort-thumb { position: absolute; top: var(--thumb-inset); width: var(--thumb-size); height: var(--thumb-size); background: var(--cc-fg); border-radius: 50%; transition: left .15s; box-shadow: 0 1px 2px #0003; }
 .cc-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border-radius: 5px; text-align: left; width: 100%; }
 .cc-menu-item:hover { background: var(--cc-hover); }
 .cc-menu-item.is-active { background: var(--cc-active); }

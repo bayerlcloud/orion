@@ -17,11 +17,14 @@ import { composicaoPara } from '../tools/skillPrefs.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
+import { ULTRACODE, resolveUltracode, withUltracodeAppend } from '../claude/ultracode.js';
 import { safeFilename } from '../driveUtils.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
-const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+// 'ultracode' é o degrau extra do seletor (ver server/claude/ultracode.ts): aceito e persistido
+// como está em claude_sessions.effort, mas SEMPRE traduzido por resolveUltracode antes do SDK.
+const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max', ULTRACODE]);
 const tabListeners = new Map<number, Set<(e: unknown) => void>>();
 
 /** Pasta dos anexos do Claude. Padrão /srv/claude-uploads, ou CLAUDE_UPLOAD_DIR. */
@@ -89,12 +92,15 @@ export async function claudeRoutes(app: FastifyInstance) {
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
   type SessionRow = { id: string; cwd: string; project_id: number | null; user_id?: number; project_name: string | null; rules: string | null; creator: string };
   /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
-  async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max') {
+  async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: string) {
     // A tool orion-memory recebe o contexto da SESSÃO (projeto + criador, s.user_id): é ele que
     // vira o escopo padrão do salvar. Skills e memórias do header seguem com quem pediu o turno.
+    // `effort` chega no valor de fio (pode ser 'ultracode', vindo da rota ou da coluna persistida) —
+    // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
+    const eff = resolveUltracode(effort);
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
-      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)) }),
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)) }), eff.ultracode),
     });
   }
 
@@ -209,7 +215,17 @@ export async function claudeRoutes(app: FastifyInstance) {
           ORDER BY ts DESC LIMIT 1`);
       real = rlRows[0] ? { subscription_type: rlRows[0].subscription_type ?? null, rate_limits: rlRows[0].rate_limits } : null;
     }
-    return { usage: rows, real };
+    // "% do uso" por modelo (breakdown de atribuição da tela Conta e Uso — string real "% of usage",
+    // classes attribution*_QET5Ow; ver PARIDADE-seletor.md): custo por modelo dos últimos 7 dias, da
+    // coluna `claude_sessions.model` que o Orion já tem. O % é calculado no cliente
+    // (computeModelAttribution em web/src/claude/mapper.ts), que também agrupa ids de modelo
+    // diferentes sob o mesmo rótulo (ex.: claude-sonnet-* → "Sonnet").
+    const { rows: byModel } = await app.pool.query(
+      `SELECT model, COALESCE(SUM(cost_usd), 0) AS cost
+         FROM claude_sessions
+        WHERE updated_at > now() - interval '7 days'
+        GROUP BY model`);
+    return { usage: rows, real, by_model: byModel };
   });
 
   /** Upload de anexos (multipart). Salva em <uploadRoot>/<user_id>/<uuid>-<nome seguro> e devolve os metadados. */
@@ -276,7 +292,9 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (!project) return reply.code(400).send({ error: 'projeto não existe' });
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
-    const effort = EFFORTS.has(b.effort ?? '') ? (b.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
+    // Valor de fio (pode ser 'ultracode') — persistido como está; traduzido pro SDK logo abaixo.
+    const effort = EFFORTS.has(b.effort ?? '') ? b.effort : undefined;
+    const eff = resolveUltracode(effort);
     const attachments = await sanitizeAttachments(b.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     const id = randomUUID();
@@ -284,8 +302,8 @@ export async function claudeRoutes(app: FastifyInstance) {
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), maxBudgetUsd: d.budget,
-      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)) }),
+      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), maxBudgetUsd: d.budget,
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
@@ -334,7 +352,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // resolução automática por SDK) — só grava quando veio um valor válido e é diferente do já
     // persistido. Sem override, segue com s.effort (pode ser null: sessão sem esforço explícito
     // ainda, mesma semântica de "sem override" que model já tinha).
-    const effortOverride = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
+    const effortOverride = EFFORTS.has(req.body?.effort ?? '') ? req.body!.effort : undefined;
     if (effortOverride && effortOverride !== s.effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [s.id, effortOverride]);
     const effort = effortOverride || s.effort || undefined;
     await startFor(s, req.user!.id, buildPrompt(req.user!.name, prompt, attachments), mode, model, effort);
@@ -411,7 +429,11 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
     if (effort !== rows[0].effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [req.params.id, effort]);
     let live = false;
-    try { live = await runner.setEffortLive(req.params.id, effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max'); }
+    // 'ultracode' ao vivo: o SDK só aceita os 5 níveis reais — resolveUltracode traduz pra xhigh
+    // agora; a instrução de orquestração (systemAppend) só entra no PRÓXIMO turno, porque o system
+    // prompt de um turno já em andamento não pode ser trocado no meio (simplificação documentada
+    // em PARIDADE-seletor.md — a extensão real aplica a flag dela pelo mesmo canal de settings).
+    try { live = await runner.setEffortLive(req.params.id, resolveUltracode(effort).effort); }
     catch (e: any) { app.log.warn(`setEffort ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });

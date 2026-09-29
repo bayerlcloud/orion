@@ -2,6 +2,20 @@ import type { AgentTask, ConvEvent, SdkMessage, SlashCommandInfo } from './types
 import { applyPendingToolWaitStatus, describeTool, interruptedLabel, noteAgentTask, reduceSdkMessages } from './mapper';
 
 export type LiveStatus = 'running' | 'waiting' | 'idle' | 'error';
+/**
+ * Estado do "fast mode" da sessão — mesmos 3 valores do SDK (`FastModeState` em
+ * `@anthropic-ai/claude-agent-sdk/sdk.d.ts`: 'off' | 'cooldown' | 'on') e da extensão real
+ * (`fastModeState` no webview, alimentado por `fast_mode_state` do system/init e do result).
+ * Alimenta o indicador visual no composer (sparkLegend/sparkCooldown reais — ver Composer.tsx e
+ * PARIDADE-seletor.md). Hoje o SDK do Orion não costuma mandar o campo — o estado fica 'off' e o
+ * indicador não aparece; liga sozinho quando o dado vier (paridade estrutural pronta).
+ */
+export type FastModeState = 'off' | 'on' | 'cooldown';
+/** Lê `fast_mode_state` de uma mensagem do SDK (system/init ou result), defensivamente — undefined quando ausente/inválido. */
+export function fastModeFrom(m: unknown): FastModeState | undefined {
+  const v = (m as { fast_mode_state?: unknown } | null | undefined)?.fast_mode_state;
+  return v === 'on' || v === 'cooldown' || v === 'off' ? v : undefined;
+}
 /** `toolUseId`: id real do SDK pro tool_use que gerou este pedido (ver comentário de `toolRunningLabel`
  * em mapper.ts) — ausente em pedidos persistidos antes da correção de 28/09/2026. */
 export type PermReq = { id: string; toolName: string; input: Record<string, unknown>; hasSuggestions: boolean; decision?: string; answer?: string; toolUseId?: string };
@@ -32,10 +46,12 @@ export type LiveState = {
    * do resto deste arquivo.
    */
   agentTasks: Record<string, AgentTask>;
+  /** Último `fast_mode_state` visto nas mensagens do SDK desta sessão (ver `fastModeFrom` acima) — 'off' até o SDK mandar algo. */
+  fastMode: FastModeState;
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {} });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {}, fastMode: 'off' });
 
 const ATTACH_NOTE = '\n\n[arquivo anexado:';
 
@@ -60,6 +76,9 @@ function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): Li
   // ou o instante observado no navegador (SSE, sem timestamp de servidor). Antes do dedup de uuid
   // acima não faria sentido (reprocessaria a mesma mensagem 2x), por isso vem depois dele.
   const agentTasks = noteAgentTask(s.agentTasks, m, when);
+  // Fast mode (ver fastModeFrom/FastModeState acima): system/init e result do SDK podem trazer
+  // `fast_mode_state` — a última mensagem que trouxer vence; mensagem sem o campo mantém o que já era.
+  const fastMode = fastModeFrom(m) ?? s.fastMode;
   // O runner ecoa o prompt como mensagem 'user'; se o SDK ecoar de novo (mesmo texto, ou texto +
   // as notas de arquivo anexo), ignora a duplicata. tool_result (sem texto) nunca é tratado como eco.
   if (m.type === 'user') {
@@ -68,11 +87,11 @@ function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): Li
       if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return { ...s, agentTasks };
       // Nova mensagem do usuário: a interrupção do turno anterior (se houve) não vale mais pro que
       // vem a seguir — mesma janela de vida do erro genuíno (limpo quando volta a rodar, ver 'status').
-      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks };
+      return { ...s, messages: [...s.messages, m], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode };
     }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
-  return { ...s, messages: [...s.messages, m], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking, agentTasks };
+  return { ...s, messages: [...s.messages, m], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking, agentTasks, fastMode };
 }
 
 /** Reconstrói o estado a partir das linhas persistidas + verdade do servidor sobre pendências. */

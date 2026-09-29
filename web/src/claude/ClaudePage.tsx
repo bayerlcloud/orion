@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { formatCost, computeUsageBars, messageHistory, currentPermission, sumSessionTokens, agentTaskList, sessionWorktreeName, type UsageBar } from './mapper';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type Project } from './api';
+import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
@@ -40,6 +40,9 @@ export default function ClaudePage() {
   const [groups, setGroups] = useState<SessionGroupInfo[]>([]);
   const [login, setLogin] = useState<{ logged_in: boolean; linux_user: string | null; version: string } | null>(null);
   const [usage, setUsage] = useState<UsageBar[]>([]);
+  // "% do uso" por modelo na seção Conta e Uso (ver Sidebar.tsx e PARIDADE-seletor.md) — custo por
+  // modelo (7 dias) agregado pelo servidor em /api/claude/usage, percentual calculado no cliente.
+  const [modelAttribution, setModelAttribution] = useState<ModelAttribution[]>([]);
   const [email, setEmail] = useState<string | null>(null);
   // `role` só alimenta `canEditUser` do editor de "Regras de permissão" (ver PermissionRules.tsx) —
   // escrever no escopo "Usuário" é restrito a `role === 'owner'` porque afeta TODOS os projetos e
@@ -49,7 +52,7 @@ export default function ClaudePage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
-  const [effort, setEffort] = useState<Effort>('medium');
+  const [effort, setEffort] = useState<EffortChoice>('medium');
   const [model, setModel] = useState<ModelAlias>('default');
   const [draftProject, setDraftProject] = useState<number | undefined>(undefined);
   // "Mapa de agentes" (ver AgentMap.tsx) — pedido ao vivo do Bayerl 28/09/2026, gatilho na faixa de
@@ -98,6 +101,7 @@ export default function ClaudePage() {
     try {
       const r = await claudeApi.usage();
       setUsage(computeUsageBars(r.usage, r.real));
+      setModelAttribution(computeModelAttribution(r.by_model));
     } catch { /* silencioso */ }
   }, []);
   const refreshGroups = useCallback(async () => {
@@ -348,7 +352,7 @@ export default function ClaudePage() {
     if (m === model || !activeId || isDraft(activeId)) return;
     claudeApi.setModel(activeId, m !== 'default' ? m : undefined).catch(e => console.warn('troca de modelo ao vivo falhou:', e?.message ?? e));
   }
-  function handleEffort(e: Effort) {
+  function handleEffort(e: EffortChoice) {
     setEffort(e);
     if (e === effort || !activeId || isDraft(activeId)) return;
     claudeApi.setEffort(activeId, e).catch(err => console.warn('troca de esforço ao vivo falhou:', err?.message ?? err));
@@ -414,7 +418,7 @@ export default function ClaudePage() {
 
   return (
     <div className="cc">
-      <Sidebar sessions={summaries} usage={usage} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
+      <Sidebar sessions={summaries} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
         onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
         <div className="cc-tabs">
@@ -422,9 +426,15 @@ export default function ClaudePage() {
           {tabs.map(t => {
             const s = sessions.find(x => x.id === t.id);
             const label = t.draft ? 'Nova sessão' : (s?.title ?? '…');
+            // Tooltip da aba: título · projeto · criador — destino do que a barra de título removida
+            // mostrava (ver PARIDADE-seletor.md; a extensão real não tem barra entre as abas e o chat).
+            const tip = s ? [s.title, s.project_name, s.user_name].filter(Boolean).join(' · ') : label;
             return (
-              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''}`} onClick={() => setActiveId(t.id)}>
-                <span className="cc-tab-spark">✳</span><span className="cc-tab-title">{label}</span>
+              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''}`} onClick={() => setActiveId(t.id)} title={tip}>
+                <span className="cc-tab-spark">✳</span>
+                {/* Dot de status na própria aba — outro destino da barra removida (o texto de status ficava lá). */}
+                {s && <span className={`cc-dot cc-tab-dot is-${toSummary(s, projects).status}`} />}
+                <span className="cc-tab-title">{label}</span>
                 <button className="cc-tab-x" onClick={e => { e.stopPropagation(); closeTab(t.id); }} title="Fechar aba"><X size={11} /></button>
               </div>
             );
@@ -446,10 +456,13 @@ export default function ClaudePage() {
             O Claude não está logado na c3 como <span className="cc-mono">{login.linux_user ?? 'danilo'}</span>. Cole o token do Max em <b>Configurações</b>, ou no seu Mac: <span className="cc-mono">ssh c3</span> e depois <span className="cc-mono">sudo -iu danilo claude</span>.
           </div>
         )}
-        <div className="cc-head">
-          <span>{title}</span>
-          {active && <span className="cc-head-meta">{active.project_name ?? ''} · {active.user_name} · {formatCost(Number(active.cost_usd))} · {active.turns} turnos · <span className={`cc-dot is-${toSummary(active, projects).status}`} /> {active.status}</span>}
-        </div>
+        {/*
+          Barra de título REMOVIDA (pedido do Bayerl 29/09/2026): a extensão real não tem nenhuma
+          faixa entre as abas e o chat. Nada do que ela mostrava se perdeu (ver PARIDADE-seletor.md):
+          título/projeto/criador viraram tooltip da aba; status virou dot na aba (e já existia na
+          lateral); custo/turnos já aparecem na linha "Concluído · US$ … · N turnos" de cada result
+          na timeline e agregados na seção Conta e Uso; projeto/cwd seguem na barra de status embaixo.
+        */}
         {erro && <div className="cc-error-bar">{erro}</div>}
         {activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
@@ -496,6 +509,7 @@ export default function ClaudePage() {
             <div className="cc-float" ref={floatRef}>
               <PermissionDock event={dockedPermission} onDecide={decide} />
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
+                fastMode={state.fastMode}
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
                 onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }}
