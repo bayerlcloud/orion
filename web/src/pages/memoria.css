@@ -137,3 +137,18 @@
 .mem-sync { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 4px; font-size: 12px; }
 .mem-sync select { font: inherit; padding: 4px 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; }
 .mem-sync .link { color: #85b6ff; }
+
+/* ===== níveis: banner de somente leitura, selo e nota do micro-fato ===== */
+.mem-banner {
+  border: 1px solid var(--line); border-left: 3px solid var(--info);
+  background: var(--bg2); color: var(--fg2); border-radius: 8px;
+  padding: 8px 12px; margin-bottom: 10px; font-size: 12px;
+}
+.mem-selo-linha { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mem-nota { font-size: 12px; color: var(--fg2); }
+.mem-nota.is-promo {
+  color: var(--accent); font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 10px; padding: 1px 8px;
+}
+.mem-field-nota select { max-width: 260px; }

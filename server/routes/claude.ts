@@ -11,7 +11,8 @@ import { promisify } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
-import { buildSystemAppend, prefixPrompt, titleFromPrompt } from '../claude/header.js';
+import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
+import { orionMemoryServer } from '../claude/memoryTool.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
@@ -68,19 +69,29 @@ export async function claudeRoutes(app: FastifyInstance) {
     return attachments.length ? { text, attachments } : text;
   }
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
-  const turnMcpServers = async () => hostingerMcpServers(await getSetting(app.pool, KEYS.hostingerToken));
+  // MCPs de toda sessão: hostinger (quando há token) + orion-memory (sempre, com o contexto da sessão).
+  const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number) => ({
+    ...(hostingerMcpServers(await getSetting(app.pool, KEYS.hostingerToken)) ?? {}),
+    'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
+  });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
 
-  // Memórias relevantes para uma sessão: universais + do projeto + do usuário, por importância.
-  async function memoriasPara(projectId: number | null, userId: number): Promise<{ title: string; summary: string; status: string; scope: 'universal' | 'projeto' | 'usuário' }[]> {
+  // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
+  // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.
+  async function memoriasPara(projectId: number | null, userId: number): Promise<{ regras: MemoriaRegra[]; decisoes: MemoriaDecisao[] }> {
     try {
       const { rows } = await app.pool.query(
-        `SELECT title, summary, status, learning_level, scope_project_id, scope_user_id FROM memories
-          WHERE scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL)
-          ORDER BY CASE status WHEN 'deus' THEN 0 WHEN 'aprendizagem' THEN 1 ELSE 2 END, learning_level DESC NULLS LAST, updated_at DESC
-          LIMIT 20`, [projectId, userId]);
-      return rows.map((r: any) => ({ title: r.title, summary: r.summary, status: r.status, scope: r.scope_project_id ? 'projeto' : (r.scope_user_id ? 'usuário' : 'universal') }));
-    } catch { return []; }
+        `SELECT level, code, title, summary, body_md, scope_project_id, scope_user_id FROM memories
+          WHERE level IN (2, 3) AND (scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL))
+          ORDER BY level ASC, updated_at DESC`, [projectId, userId]);
+      const escopo = (r: any) => (r.scope_project_id ? 'projeto' : r.scope_user_id ? 'usuário' : 'universal') as MemoriaRegra['scope'];
+      return {
+        regras: rows.filter((r: any) => r.level === 2).slice(0, REGRAS_MAX)
+          .map((r: any) => ({ title: r.title, body: r.body_md, scope: escopo(r) })),
+        decisoes: rows.filter((r: any) => r.level === 3).slice(0, DECISOES_MAX)
+          .map((r: any) => ({ code: r.code, title: r.title, summary: r.summary })),
+      };
+    } catch { return { regras: [], decisoes: [] }; }
   }
 
   app.addHook('preHandler', async (req, reply) => {
@@ -195,8 +206,8 @@ export async function claudeRoutes(app: FastifyInstance) {
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(), maxBudgetUsd: d.budget,
-      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, memories: await memoriasPara(project.id, req.user!.id) }),
+      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), maxBudgetUsd: d.budget,
+      systemAppend: buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
@@ -243,8 +254,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     const model = modelOverride || s.model || undefined;
     const effort = EFFORTS.has(req.body?.effort ?? '') ? (req.body!.effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max') : undefined;
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(), maxBudgetUsd: (await defaults()).budget,
-      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, memories: await memoriasPara(s.project_id ?? null, req.user!.id) }),
+      sessionId: s.id, cwd: s.cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, req.user!.id), maxBudgetUsd: (await defaults()).budget,
+      systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, req.user!.id)) }),
     });
     return { ok: true, queued: runner.status(s.id) !== 'idle' };
   });
