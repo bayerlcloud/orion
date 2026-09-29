@@ -81,8 +81,8 @@
 .cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
 .cc-tabs-scroll::-webkit-scrollbar { height: 5px; }
 .cc-tabs-scroll::-webkit-scrollbar-track { background: transparent; }
-.cc-tabs-scroll::-webkit-scrollbar-thumb { background: var(--cc-line); border-radius: 3px; }
-.cc-tabs-scroll::-webkit-scrollbar-thumb:hover { background: var(--cc-fg2); }
+.cc-tabs-scroll::-webkit-scrollbar-thumb { background: #222224; border-radius: 3px; }
+.cc-tabs-scroll::-webkit-scrollbar-thumb:hover { background: #2c2c2f; }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
 .cc-tab-spark { color: var(--cc-orange); }
@@ -242,21 +242,22 @@
 
 /* Anexos: destaque de arrastar-soltar, chips pendentes no compositor e chips no histórico. */
 .cc-composer.is-dragover { border-color: var(--cc-orange); background: color-mix(in srgb, var(--cc-orange) 8%, var(--cc-bg2)); }
-.cc-attach-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; }
-.cc-attach { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 6px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-bg); font-size: 12px; color: var(--cc-fg); }
-.cc-attach.is-image { padding-left: 3px; }
-.cc-attach-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; flex-shrink: 0; display: block; }
-/* Botão da miniatura clicável (compositor E histórico — ver Lightbox.tsx) — antes era um <a
-   target="_blank"> (commit 5b445b6, abria em nova aba); substituído pelo popup de 28/09/2026. */
-.cc-attach-thumb-btn { display: flex; flex-shrink: 0; padding: 0; cursor: zoom-in; }
+/* Linha de anexos e pill: cópia do plugin real (attachedFilesContainerAbove_cKsPxg + pill_lcdCYQ). A linha
+   encosta nas bordas do compositor e é separada do texto por um traço. */
+.cc-attach-row { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; padding: 6px; margin: -8px -8px 6px; border-bottom: 1px solid var(--cc-line); }
+.cc-attach-row > * { flex-shrink: 0; }
+.cc-attach { --pill-bg: color-mix(in srgb, var(--cc-bg2) 85%, var(--cc-fg2)); position: relative; overflow: hidden; display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 24px; min-width: 0; max-width: 180px; padding: 4px 6px 4px 4px; background: var(--pill-bg); border: 1px solid var(--cc-line); border-radius: 4px; font-size: 11px; color: var(--cc-fg); transition: border-color .15s; }
+.cc-attach[role=button] { cursor: pointer; }
+.cc-attach:hover { border-color: color-mix(in srgb, var(--cc-line) 60%, var(--cc-fg)); }
+.cc-attach-thumb { width: 12px; height: 12px; object-fit: cover; border-radius: 1px; flex-shrink: 0; display: block; }
 .cc-attach-ico { display: inline-flex; color: var(--cc-fg2); flex-shrink: 0; }
-.cc-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cc-attach-x { display: inline-flex; padding: 2px; border-radius: 4px; color: var(--cc-fg2); flex-shrink: 0; }
-.cc-attach-x:hover { background: var(--cc-hover); color: var(--cc-fg); }
+.cc-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-weight: 500; }
+.cc-attach-meta { color: var(--cc-fg2); opacity: .6; white-space: nowrap; flex-shrink: 0; }
+.cc-attach-x { position: absolute; top: 0; bottom: 0; right: 0; width: 32px; display: flex; align-items: center; justify-content: flex-end; padding: 0 6px 0 0; border: 0; border-radius: 0 4px 4px 0; color: var(--cc-fg); opacity: 0; transition: opacity .15s; background: linear-gradient(to right, transparent 0%, var(--pill-bg) 50%, var(--pill-bg) 100%); cursor: pointer; }
+.cc-attach:hover .cc-attach-x, .cc-attach-x:focus-visible { opacity: 1; }
 .cc-attach-status { color: var(--cc-orange); }
 .cc-user-text { white-space: pre-wrap; }
-.cc-user-attach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.cc-attach.is-chip { background: var(--cc-panel); }
+.cc-user-attach { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 
 /* ===== popup de imagem (Lightbox) ===== */
 /* Replica o "preview overlay" real da extensão (webview/index.js v2.1.282, componente AI0/yw) —
@@ -265,11 +266,20 @@
    fixa via hex de 8 dígitos, não um token de tema — mesmo em tema claro. z-index bem acima de
    qualquer coisa no app (o maior já existente é 21, dos menus do compositor) — não precisa ser
    literalmente 10000 como no real (nada aqui chega perto disso), só maior que tudo. */
-.cc-preview-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; background: #000000d9; }
-.cc-preview-container { position: relative; cursor: default; max-width: 90vw; max-height: 90vh; }
-.cc-preview-image { display: block; object-fit: contain; max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 24px #00000080; }
+.cc-preview-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,.6); }
+.cc-preview-container { position: relative; cursor: default; max-width: 70vw; max-height: 70vh; }
+.cc-preview-image { display: block; object-fit: contain; max-width: 70vw; max-height: 70vh; border-radius: 8px; user-select: none; box-shadow: 0 4px 24px #00000080; }
 .cc-preview-close { position: absolute; top: -12px; right: -12px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--cc-bg2); border: 1px solid var(--cc-line); color: var(--cc-fg); transition: background-color .15s; }
 .cc-preview-close:hover { background: var(--cc-hover); }
+.cc-preview-nav { position: absolute; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; transition: background-color .15s; }
+.cc-preview-nav:hover { background: rgba(255,255,255,.25); }
+.cc-preview-nav.is-prev { left: 4vw; } .cc-preview-nav.is-prev svg { transform: scaleX(-1); }
+.cc-preview-nav.is-next { right: 4vw; }
+.cc-preview-strip { position: absolute; bottom: 3vh; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; max-width: 90vw; overflow-x: auto; scrollbar-width: thin; padding: 4px; }
+.cc-preview-strip button { flex-shrink: 0; padding: 0; border: 2px solid transparent; border-radius: 8px; background: none; cursor: pointer; opacity: .5; transition: opacity .15s, border-color .15s; }
+.cc-preview-strip button:hover { opacity: .85; }
+.cc-preview-strip button.is-on { opacity: 1; border-color: #fff; }
+.cc-preview-strip img { display: block; width: 52px; height: 52px; object-fit: cover; border-radius: 6px; }
 
 @media (max-width: 800px) {
   .cc { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; min-height: calc(100vh - 60px); }

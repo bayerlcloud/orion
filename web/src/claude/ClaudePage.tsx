@@ -231,6 +231,15 @@ export default function ClaudePage() {
     const next = i === -1 ? 0 : (i + dir + tabs.length) % tabs.length;
     setActiveId(tabs[next].id);
   }
+  // Rola a faixa de abas até a aba ativa aparecer, um pedaço de cada vez (scrollIntoView cuida
+  // disso sozinho: se já está visível não faz nada; senão desliza o mínimo — revela uma ponta,
+  // esconde a outra, igual pedido pelo Bayerl 29/09/2026). Roda tanto clicando direto numa aba
+  // quanto usando as setinhas.
+  useEffect(() => {
+    if (!activeId) return;
+    const el = document.querySelector(`.cc-tabs-scroll [data-tab-id=${activeId}]`);
+    el?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+  }, [activeId]);
 
   // Atalhos globais da aba Claude (package.json da extensão real, contributes.keybindings):
   // Ctrl/Cmd+N → newConversation (nova sessão, quando o painel do Claude está em foco — aqui, a
@@ -331,7 +340,7 @@ export default function ClaudePage() {
             const s = sessions.find(x => x.id === t.id);
             const label = t.draft ? 'Nova sessão' : (s?.title ?? '…');
             return (
-              <div key={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''}`} onClick={() => setActiveId(t.id)}>
+              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''}`} onClick={() => setActiveId(t.id)}>
                 <span className="cc-tab-spark">✳</span><span className="cc-tab-title">{label}</span>
                 <button className="cc-tab-x" onClick={e => { e.stopPropagation(); closeTab(t.id); }} title="Fechar aba"><X size={11} /></button>
               </div>
