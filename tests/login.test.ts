@@ -21,28 +21,35 @@ describe('parse do setup-token', () => {
   it('reconhece erro de código inválido', () => { expect(looksLikeError('boom Invalid code, try again')).toMatch(/Invalid code/); expect(looksLikeError('tudo certo')).toBeNull(); });
 });
 
-describe('LoginFlow com um comando falso', () => {
+// Polling com prazo folgado: sob carga (build da fila rodando os testes em paralelo), o spawn do
+// shell falso pode passar dos 3 s que o laço antigo esperava, e o teste falhava por acaso.
+async function enquanto(cond: () => boolean, ms = 10000): Promise<void> {
+  const fim = Date.now() + ms;
+  while (cond() && Date.now() < fim) await new Promise(r => setTimeout(r, 30));
+}
+
+describe('LoginFlow com um comando falso', { timeout: 30000 }, () => {
   it('captura a URL, recebe o código, salva o token e termina', async () => {
     const saved: string[] = [];
     const tok = 'sk-ant-oat01-' + 'x'.repeat(60);
     const fake = `printf 'Use the url below\\nhttps://claude.com/cai/oauth/authorize?code=true&state=1\\nPaste code here if prompted > '; read c; printf 'Your token: ${tok}\\n'`;
-    const f = new LoginFlow({ onToken: async (t) => { saved.push(t); }, command: fake, timeoutMs: 5000 });
+    const f = new LoginFlow({ onToken: async (t) => { saved.push(t); }, command: fake, timeoutMs: 15000 });
     f.start();
-    for (let i = 0; i < 100 && !f.url; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => !f.url);
     expect(f.state).toBe('awaiting_code'); expect(f.url).toContain('oauth/authorize');
     expect(f.submitCode('abc123')).toBe(true);
-    for (let i = 0; i < 100 && f.state !== 'done' && f.state !== 'error'; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => f.state !== 'done' && f.state !== 'error');
     expect(f.state).toBe('done'); expect(saved).toEqual([tok]);
     expect(f.snapshot().output_tail).not.toContain('\x1b');
   });
   it('sem token na saída vira erro, e cancelar funciona', async () => {
-    const f = new LoginFlow({ onToken: async () => {}, command: `printf 'https://claude.com/cai/oauth/authorize?x=1\\nPaste code here if prompted > '; read c; echo 'Invalid code'`, timeoutMs: 5000 });
+    const f = new LoginFlow({ onToken: async () => {}, command: `printf 'https://claude.com/cai/oauth/authorize?x=1\\nPaste code here if prompted > '; read c; echo 'Invalid code'`, timeoutMs: 15000 });
     f.start();
-    for (let i = 0; i < 100 && !f.url; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => !f.url);
     f.submitCode('errado');
-    for (let i = 0; i < 100 && f.state === 'exchanging'; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => f.state === 'exchanging');
     expect(f.state).toBe('error'); expect(f.error).toMatch(/Invalid code|sem token/);
-    const g = new LoginFlow({ onToken: async () => {}, command: 'sleep 5', timeoutMs: 5000 });
+    const g = new LoginFlow({ onToken: async () => {}, command: 'sleep 5', timeoutMs: 15000 });
     g.start(); g.cancel('teste'); expect(g.state).toBe('error'); expect(g.error).toBe('teste');
   });
 
@@ -54,13 +61,13 @@ describe('LoginFlow com um comando falso', () => {
       onFileAuth: async () => { fileAuthCalled = true; },
       readCredentialsFallback: async () => 'algum-access-token-do-arquivo',
       command: `printf 'Opening browser to sign in\\xe2\\x80\\xa6\\nhttps://claude.com/cai/oauth/authorize?code=true&scope=user%3Aprofile&state=1\\nPaste code here if prompted > '; read c; printf 'Login successful\\n'`,
-      timeoutMs: 5000,
+      timeoutMs: 15000,
     });
     f.start();
-    for (let i = 0; i < 100 && !f.url; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => !f.url);
     expect(f.state).toBe('awaiting_code');
     f.submitCode('abc123');
-    for (let i = 0; i < 100 && f.state !== 'done' && f.state !== 'error'; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => f.state !== 'done' && f.state !== 'error');
     expect(f.state).toBe('done');
     expect(fileAuthCalled).toBe(true);
     expect(tokenSaves).toEqual([]); // nunca guarda um snapshot estático nesse caminho
@@ -72,12 +79,12 @@ describe('LoginFlow com um comando falso', () => {
       onToken: async () => {},
       readCredentialsFallback: async () => null,
       command: `printf 'https://claude.com/cai/oauth/authorize?code=true&state=1\\nPaste code here if prompted > '; read c; printf 'terminou\\n'`,
-      timeoutMs: 5000,
+      timeoutMs: 15000,
     });
     f.start();
-    for (let i = 0; i < 100 && !f.url; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => !f.url);
     f.submitCode('abc123');
-    for (let i = 0; i < 100 && f.state !== 'done' && f.state !== 'error'; i++) await new Promise(r => setTimeout(r, 30));
+    await enquanto(() => f.state !== 'done' && f.state !== 'error');
     expect(f.state).toBe('error');
   });
 });

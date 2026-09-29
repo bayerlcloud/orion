@@ -15,7 +15,7 @@ import { seedMemories, seedPerfisNivel2 } from '../memories/seed.js';
 import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { claudeMemoryDir, parseFrontmatter, toMarkdown, isSafeMdName } from '../memories/markdown.js';
+import { claudeMemoryDir, parseFrontmatter, toMarkdown, isSafeMdName, donoPorNome, indiceMemory } from '../memories/markdown.js';
 import { gravarEmbedding } from '../memories/embed.js';
 
 // Colunas completas (leitor da direita) já com os nomes de projeto e usuário resolvidos.
@@ -244,18 +244,6 @@ export async function memoriesRoutes(app: FastifyInstance) {
     }),
   );
 
-  // Marca análise da IA (stub para o runner chamar depois).
-  app.post<{ Params: { id: string } }>(
-    '/api/memories/:id/analyzed',
-    guard(async (req, reply) => {
-      const id = intParam(req.params.id, 'id');
-      const upd = await app.pool.query('UPDATE memories SET last_analyzed_at = now() WHERE id = $1', [id]);
-      if (!upd.rowCount) return reply.code(404).send({ error: 'memória não encontrada' });
-      const { rows } = await app.pool.query(`${FULL_SELECT} WHERE m.id = $1`, [id]);
-      return { memory: rows[0] };
-    }),
-  );
-
   // ---- Ponte com as memórias que o Claude escreve em disco ----
   async function projetoDir(projectId: number): Promise<{ dir: string; project: { id: number; path: string; name: string } } | null> {
     const { rows } = await app.pool.query('SELECT id, path, name FROM projects WHERE id = $1', [projectId]);
@@ -264,8 +252,8 @@ export async function memoriesRoutes(app: FastifyInstance) {
   }
 
   // Importa os .md que o Claude criou para a tabela do painel (upsert por code).
-  // type user vira regra do usuário (nível 2), type project regra do projeto (nível 2);
-  // o resto entra no enxame como micro-fato (nível 4, nota inicial).
+  // type user vira regra da pessoa citada no arquivo (nível 2; sem dono claro, regra do projeto),
+  // type project regra do projeto (nível 2); o resto entra no enxame como micro-fato (nível 4, nota inicial).
   app.post<{ Body: { project_id?: number } }>(
     '/api/memories/import',
     guard(async (req, reply) => {
@@ -276,6 +264,7 @@ export async function memoriesRoutes(app: FastifyInstance) {
       let arquivos: string[] = [];
       try { arquivos = (await readdir(info.dir)).filter(f => isSafeMdName(f) && f.toLowerCase() !== 'memory.md'); }
       catch { return { importadas: 0, dir: info.dir, aviso: 'o Claude ainda não escreveu memórias para este projeto' }; }
+      const { rows: pessoas } = await app.pool.query('SELECT id, name FROM users');
       let n = 0; const nomes: string[] = [];
       for (const f of arquivos) {
         const raw = await readFile(path.join(info.dir, f), 'utf8').catch(() => '');
@@ -286,8 +275,9 @@ export async function memoriesRoutes(app: FastifyInstance) {
         const summary = normalizeSummary(parsed.description || '');
         const level = parsed.type === 'project' || parsed.type === 'user' ? 2 : 4;
         const nota = level === 4 ? NOTA_INICIAL : null;
-        const scopeProject = parsed.type === 'project' ? pid : null;
-        const scopeUser = parsed.type === 'user' ? (req.user!.id) : null;
+        const dono = parsed.type === 'user' ? donoPorNome(`${parsed.name} ${parsed.description} ${parsed.body}`, pessoas) : null;
+        const scopeUser = dono;
+        const scopeProject = parsed.type === 'project' || (parsed.type === 'user' && dono === null) ? pid : null;
         await app.pool.query(
           `INSERT INTO memories (code, title, summary, body_md, level, nota, rewritable, keywords, scope_project_id, scope_user_id, last_analyzed_at)
            VALUES ($1,$2,$3,$4,$5,$6,true,'{}',$7,$8, now())
@@ -311,15 +301,17 @@ export async function memoriesRoutes(app: FastifyInstance) {
       const { rows } = await app.pool.query(
         `SELECT code, title, summary, body_md, level, scope_project_id, scope_user_id FROM memories
           WHERE scope_project_id = $1 OR (scope_project_id IS NULL AND scope_user_id IS NULL) ORDER BY code`, [pid]);
-      const indice: string[] = [];
+      const doPainel = new Map<string, string>();
       for (const m of rows) {
         const scope = m.scope_project_id ? 'project' : (m.scope_user_id ? 'user' : 'reference');
         const nome = `${m.code}.md`;
         if (!isSafeMdName(nome)) continue;
         await writeFile(path.join(info.dir, nome), toMarkdown({ code: m.code, title: m.title, summary: m.summary, body_md: m.body_md, scope: scope as any }), 'utf8');
-        indice.push(`- [${m.title}](${nome}): ${m.summary}`);
+        doPainel.set(nome, `- [${m.title}](${nome}): ${m.summary}`);
       }
-      await writeFile(path.join(info.dir, 'MEMORY.md'), `# Memórias do projeto ${info.project.name}\n\n${indice.join('\n')}\n`, 'utf8');
+      const arquivos = await Promise.all((await readdir(info.dir)).filter(isSafeMdName)
+        .map(async nome => ({ nome, raw: await readFile(path.join(info.dir, nome), 'utf8').catch(() => '') })));
+      await writeFile(path.join(info.dir, 'MEMORY.md'), indiceMemory(info.project.name, arquivos, doPainel), 'utf8');
       return { exportadas: rows.length, dir: info.dir };
     }),
   );

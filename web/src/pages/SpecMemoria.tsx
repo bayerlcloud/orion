@@ -126,19 +126,19 @@ const buracos: { buraco: string; efeito: string; estado: string }[] = [
     estado: 'resolvido: o curador propõe reescrita, e o servidor só aceita em memória rewritable',
   },
   {
-    buraco: 'Export destrutivo no índice: reescreve o MEMORY.md inteiro a partir da tabela.',
-    efeito: 'Memória criada pelo Claude nos arquivos e nunca importada some do índice no próximo export.',
-    estado: 'aberto (importe antes de exportar)',
+    buraco: 'Export destrutivo no índice: reescrevia o MEMORY.md inteiro a partir da tabela.',
+    efeito: 'Memória criada pelo Claude nos arquivos e nunca importada sumia do índice no próximo export.',
+    estado: 'resolvido: o índice é montado a partir de todos os .md da pasta; o que só existe no disco continua listado',
   },
   {
-    buraco: 'Import atribui memória type: user a quem clicou no botão.',
-    efeito: 'O dono registrado pode não ser o dono real da memória.',
-    estado: 'aberto',
+    buraco: 'Import atribuía memória type: user a quem clicou no botão.',
+    efeito: 'O dono registrado podia não ser o dono real da memória.',
+    estado: 'resolvido: o dono é a única pessoa citada no arquivo; sem dono claro, vira regra do projeto',
   },
   {
-    buraco: '/api/memories/:id/analyzed ainda é stub.',
-    efeito: 'last_analyzed_at só muda pelo import; o curador não marca o que analisou.',
-    estado: 'aberto',
+    buraco: '/api/memories/:id/analyzed era stub.',
+    efeito: 'last_analyzed_at só mudava pelo import; o curador não marcava o que analisou.',
+    estado: 'resolvido: o listar do curador marca last_analyzed_at; a rota stub saiu',
   },
 ];
 
@@ -224,8 +224,8 @@ export default function SpecMemoria() {
       </table>
       <p>
         <strong>A ponte</strong> são os botões de importar/exportar por projeto (<code>server/routes/memories.ts</code>):
-        importar lê os .md do disco e faz upsert por <code>code</code> na tabela (<code>type</code> user ou project vira regra nível 2, o resto vira micro-fato nível 4);
-        exportar escreve os .md no disco e <strong>reescreve o MEMORY.md inteiro</strong> a partir da tabela.
+        importar lê os .md do disco e faz upsert por <code>code</code> na tabela (<code>type</code> user vira regra nível 2 da pessoa citada no arquivo, <code>type</code> project regra nível 2 do projeto, o resto micro-fato nível 4);
+        exportar escreve os .md no disco e remonta o MEMORY.md a partir de todos os .md da pasta (os do painel e os que só existem no disco).
       </p>
 
       <h2>4. Buracos conhecidos</h2>
