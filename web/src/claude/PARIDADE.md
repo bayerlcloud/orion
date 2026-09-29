@@ -1522,6 +1522,112 @@ o que mudou aqui. A validação de path traversal da rota nova é coberta indire
 era exercitada pelos testes de upload existentes) — não é um caminho novo e não testado, é o mesmo
 caminho de sempre, só compartilhado.
 
+## 13. Inventário de superfícies ainda não portadas — investigação profunda pedida pelo Bayerl em 28/09/2026 ("tem várias janelas clicáveis... investiga profundamente")
+
+**Contexto da investigação**: até agora toda a paridade foi construída contra `/srv/orion-reference/vscode-extension/extension/webview/` (v2.1.282), extraído de um `.vsix` baixado à parte. Nesta rodada descobri que "Antigravity IDE" (o host onde a sessão do Bayerl está rodando) é uma aplicação real e distinta (não confusão de nome — instalada em `/Applications`, dados de usuário em
+`~/Library/Application Support/Antigravity IDE/`), e que ela tem a extensão `anthropic.claude-code`
+**desempacotada e ao vivo** (não só cache de `.vsix`) em
+`~/.antigravity-ide/extensions/anthropic.claude-code-2.1.283-darwin-arm64/` — versão **mais nova**
+que a referência usada a sessão inteira. Copiada para o c3 em
+`/srv/orion-reference-2.1.283/{webview/index.{js,css},package.json,resources/}` (mesma estrutura,
+só com sufixo de versão) — usar essa como fonte preferencial daqui pra frente; a v2.1.282 antiga
+continua disponível para diff histórico.
+
+Metodologia: extraídos os ~810 nomes-raiz de classes CSS-module do `index.css` novo (agrupam por
+componente React), cruzados com strings literais de UI (`grep` por texto legível no `index.js`
+minificado) para confirmar o que cada grupo realmente faz antes de listar como gap. **Nenhum item
+abaixo foi implementado nesta rodada** — é levantamento, não construção; itens marcados com evidência
+direta (string literal encontrada) são confiáveis, os sem string literal são inferência por nome de
+classe + contexto de código e precisam de confirmação antes de virar trabalho.
+
+### Achados com evidência direta (string literal + lógica confirmadas no bundle)
+
+1. **Nível "Ultracode" no seletor de esforço/modelo** — string literal exata: `IV0="Ultracode"`,
+   `fe = \`${IV0} - xhigh + workflows\`` (ou seja, o rótulo mostrado é **"Ultracode - xhigh +
+   workflows"**), função `enableUltracode()`, estado `this.ultracodeEnabled`/`this.ultracodeSeeded`,
+   classes `fillUltracode_P1HaRA`/`notchUltracode_P1HaRA` no controle deslizante de esforço. É um
+   NÍVEL A MAIS acima de "max" no mesmo seletor de esforço já portado (`matchEffort`/`handleEffort`
+   em `ClaudePage.tsx`) — não é um controle separado. Bate exatamente com o parâmetro `Ultracode`
+   descrito na própria ferramenta `Workflow` desta sessão. Gap concreto: nosso seletor de esforço
+   hoje provavelmente só vai até "max"; falta o degrau extra "Ultracode" com esse texto e o toggle
+   de habilitação.
+
+2. **Criação/gestão de worktree pelo próprio chat** — strings literais: `"New worktree name"`,
+   `"Open worktree"`, `"Failed to create worktree"`, `"This session is in worktree"`; classes
+   `createWorktreeButton`, `worktreeBanner*`, `worktreeInput*`, `worktreePill*`; métodos
+   `createWorktree($)` → `sendRequest({type:"create_worktree", name:$})`,
+   `availableWorktrees`/`sessionsByWorktree` (mapeiam sessões por worktree). Ou seja: dá pra criar
+   um novo git worktree e iniciar uma sessão nele **direto pela UI do chat**, sem terminal — um
+   banner mostra em qual worktree a sessão atual está e permite abrir/trocar. Dado que TODO o
+   workflow de desenvolvimento do Orion (inclusive o desta própria investigação) já gira em torno de
+   worktree-por-tarefa, esse é provavelmente o item de maior valor prático da lista.
+
+3. **Marketplace de plugins/MCP** — strings literais: `"Official Claude Code marketplace"`,
+   `"Refresh marketplace"`, `"Refresh the marketplace and retry"`, `"Remove marketplace"`; métodos
+   `listMarketplaces()`, `addMarketplace($)`, `removeMarketplace($)`, `refreshMarketplace($)`,
+   `setPluginEnabled($,J)`; classes `pluginItem/pluginList/pluginHeader/pluginActions/mcpServerItem/
+   mcpServerList/serverItem/serverList/serverDetail/addMarketplaceForm`. Navegador completo de
+   marketplaces com adicionar/remover fonte + listar/habilitar plugins e servidores MCP individuais.
+
+4. **Output styles (estilo de resposta)** — strings literais: `"Output styles"`,
+   `"Select an output style"`, `"Switch to this style now"`, `"Build a custom style"`,
+   `"No output styles available"`, `"Shows in the Output styles menu and becomes the file name"`,
+   `"Change response formatting style"`. Menu pra trocar o estilo de formatação das respostas e
+   criar estilos customizados salvos (viram arquivo, com nome derivado da descrição).
+
+5. **Agent map / linhas de subagente na timeline** — já é o alvo do agente `feature/agent-map`
+   rodando em paralelo; achados novos repassados a ele por mensagem direta: classe `subagentRow`
+   (componente `MA1({tasks})`, linha dobrável com `data-testid="focus-subagent-row"` /
+   `"focus-subagent-overflow-row"`, label "Collapse"); classe `agentsPill` — botão pequeno
+   (`${modelPill} ${agentsPill}`) com atributo `data-agents-dot` (cor do dot = status) e
+   `aria-label` combinando contagem+status — é o **gatilho clicável** que abre o painel, deveria
+   existir no header/composer perto do model pill; classes `innerCall*`
+   (`innerCallHeader/innerCallList/innerCallSpinner/innerCallComplete/innerCallError`) — exibição
+   aninhada das tool calls dentro da linha de um subagente ao expandir.
+
+6. **Breakdown de uso "% of usage" por modelo** — string literal `"% of usage"`, classes
+   `attributionRow/attributionName/attributionPct/attributionGroup/attributionList/attributionMore`
+   (trunca com "+N mais"). Parece ser uma extensão da tela de Conta/Uso já portada (seção 3): uma
+   lista por modelo (Sonnet/Opus/Haiku/Ultracode) com percentual de uso, não só as barras agregadas
+   que já temos.
+
+### Achados por nome de classe + contexto de código (sem string literal ainda confirmada — checar antes de construir)
+
+7. **Ditado por voz no compositor** — classes `micButton/micIcon/micIconPuck/micTooltip/
+   micTooltipError/micTooltipShortcut/recording/voiceInterim/wave`; strings encontradas
+   (`voiceRecordingStarted`/`voiceRecordingStopped`) parecem ser sons de acessibilidade do VS Code
+   em si, não necessariamente da extensão — precisa confirmar se é feature real da extensão ou
+   herdada do host.
+8. **"Teleport" de sessão entre janelas/dispositivos** — `pendingRemoteTeleport`,
+   `unresolvedBootRemoteId`, `teleportError*`, `notifyPanelTeleportResolved/Abandoned`. Pode
+   sobrepor com o que já existe no Orion (`GET /api/claude/ui-state/stream`, sincronização
+   cross-tab/cross-device já implementada por outra sessão, ver commit `631aee9`) — precisa
+   comparar antes de decidir se é gap ou já coberto por outro mecanismo.
+9. **Editor de regras de permissão** — classes `ruleItem/ruleActions/ruleDescription/ruleInput/
+   ruleMain/ruleSource/ruleText/addRuleButton/confirmRule/confirmRemoveRow/confirmRemoveText`.
+   Provavelmente uma tela de Settings pra editar as regras de allow/deny (equivalente UI do que
+   hoje só existe em `settings.json`/CLAUDE.md).
+10. **Lista de hooks** — classe `hookRow`, sem string literal capturada ainda.
+11. **Painel de skills** — classes `skillRow/skillLock/skillNote/skillState` — lista/toggle de
+    skills (ver `Skill` tool desta própria sessão).
+12. **Agrupamento de sessões em pastas nomeadas** — classes `newGroupButton/newGroupIcon/
+    groupHeader/groupChevron/groupChevronExpanded/groupName/groupNameEditing/groupCount`. O Orion
+    já tem um "Agrupar por Nenhum/Projeto/Atividade" (ver Resumo, rodada anterior 2) que é um
+    equivalente leve — esse aqui parece ser pastas nomeadas arrastáveis, mais pesado.
+13. **Checklist de onboarding/milestones** — classes `milestoneList/milestoneRow/
+    milestoneRowCompleted/milestoneRowNext/milestoneText/milestoneTextBold`, função
+    `dismissOnboarding()`. Fluxo de primeiro uso; baixa prioridade pro Orion (ambiente
+    multi-usuário já configurado pelo admin, não onboarding individual).
+14. **Indicador de "fast mode" com cooldown** — classes `sparkLegend/sparkIcon/sparkCooldown`,
+    estado `fastModeState.value==="cooldown"`, aparece colado no pill de esforço. Detalhe pequeno,
+    não é um painel novo — só um estado visual a mais no seletor de esforço já existente.
+
+### Não priorizado nesta rodada
+Lista completa dos ~810 nomes de classe está salva localmente em
+`/tmp/orion-build/css-components-2.1.283.txt` (máquina do Bayerl, não no c3) para consulta futura
+caso surjam mais dúvidas sobre alguma tela específica — não copiado para o repo porque é matéria-prima
+de pesquisa, não parte da implementação.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
