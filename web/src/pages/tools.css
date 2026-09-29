@@ -121,6 +121,7 @@
 
 /* cards de conta (aba Conectores): nome + subtítulo, linhas rótulo/valor com reticências, explicação com "ver mais" */
 .tls-card.is-conta { gap: 10px; cursor: pointer; }
+.tls-card.is-conta .tls-icon, .tls-modal .tls-icon { filter: none; }
 .tls-modal .tls-rows { margin: 10px 0; }
 .tls-modal .tls-rows dd { white-space: normal; overflow-wrap: anywhere; }
 .tls-card.is-conta .tls-name { font-size: 15px; }
