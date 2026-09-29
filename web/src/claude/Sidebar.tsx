@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
-import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch, Folder } from './icons';
+import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch, Folder, Filter } from './icons';
 
 /**
  * Sentinela usado pelo `<select>` "Mover para pasta" de cada sessão pra representar "solta, sem
@@ -124,6 +124,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
   const [showArchived, setShowArchived] = useState(false);
   const [projectFilter, setProjectFilter] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   function toggleGroup(key: string) {
     setCollapsedGroups(s => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -217,11 +218,33 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
               <button className={where === 'local' ? 'is-on' : ''} onClick={() => setWhere('local')}>Local</button>
               <button className={where === 'web' ? 'is-on' : ''} onClick={() => setWhere('web')}>Web</button>
             </div>
-            <div className="cc-search">
-              <Search size={12} className="cc-search-icon" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…" />
-              {q && <button className="cc-search-clear" onClick={() => setQ('')} title="Limpar"><X size={11} /></button>}
+            {/* Linhas de controle iguais à lateral real: [funil ⌄ (agrupar/filtrar)] [⚡ Ativas · N] e [🔍] [+ Novo grupo]. */}
+            <div className="cc-filter-row">
+              <span className="cc-funnel" title="Agrupar sessões">
+                <Filter size={12} />
+                <select className="cc-funnel-select" value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} aria-label="Agrupar sessões">
+                  <option value="none">Sem agrupar</option>
+                  <option value="project">Por projeto</option>
+                  <option value="recency">Por data</option>
+                  <option value="folder">Por pasta</option>
+                </select>
+                <Chevron size={10} className="cc-chev-down" />
+              </span>
+              <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
+                <Bolt size={11} /> Ativas · {activeCount}
+              </button>
             </div>
+            <div className="cc-filter-row">
+              <button className={`cc-search-toggle ${searchOpen || q ? 'is-on' : ''}`} onClick={() => setSearchOpen(o => !o)} title="Buscar sessão"><Search size={12} /></button>
+              <button className="cc-new cc-new-group" onClick={() => { setGroupBy('folder'); setCreatingFolder(true); setNewFolderName(''); }}><Plus size={12} /> Novo grupo</button>
+            </div>
+            {(searchOpen || q) && (
+              <div className="cc-search">
+                <Search size={12} className="cc-search-icon" />
+                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…" onKeyDown={e => { if (e.key === 'Escape') { setQ(''); setSearchOpen(false); } }} />
+                {q && <button className="cc-search-clear" onClick={() => setQ('')} title="Limpar"><X size={11} /></button>}
+              </div>
+            )}
             {projectOptions.length > 1 && (
               <div className="cc-project-row">
                 <select className="cc-select cc-mini-select" value={projectFilter} onChange={e => setProjectFilter(e.target.value)} title="Filtrar por projeto">
@@ -230,21 +253,6 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
                 </select>
               </div>
             )}
-            <div className="cc-filter-row">
-              <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
-                <Bolt size={11} /> Ativas · {activeCount}
-              </button>
-              {/*
-                "Por pasta" — modo ADICIONAL de agrupamento (ver PARIDADE.md item 12 da seção 13), ao
-                lado de Nenhum/Projeto/Data (automáticos, nunca persistidos) — não os substitui.
-              */}
-              <select className="cc-select cc-mini-select" value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} title="Agrupar sessões">
-                <option value="none">Sem agrupar</option>
-                <option value="project">Por projeto</option>
-                <option value="recency">Por data</option>
-                <option value="folder">Por pasta</option>
-              </select>
-            </div>
             {groupBy === 'folder' && (
               creatingFolder ? (
                 <div className="cc-item cc-new-folder-row">
@@ -252,9 +260,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
                     onChange={e => setNewFolderName(e.target.value)} onBlur={() => (newFolderName.trim() ? commitNewFolder() : setCreatingFolder(false))}
                     onKeyDown={e => { if (e.key === 'Enter') commitNewFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); } }} />
                 </div>
-              ) : (
-                <button className="cc-new" onClick={() => { setCreatingFolder(true); setNewFolderName(''); }}><Folder size={13} /> Nova pasta</button>
-              )
+              ) : null
             )}
             {where === 'web' ? (
               <div className="cc-empty">Sessões na nuvem em breve</div>
