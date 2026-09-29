@@ -6,12 +6,13 @@ export async function ensureGithubAccountsTable(pool: Pool): Promise<void> {
   await pool.query(`CREATE TABLE IF NOT EXISTS github_accounts (
     id SERIAL PRIMARY KEY, label TEXT NOT NULL UNIQUE, login TEXT NOT NULL, token TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '',
     created_by INT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  await pool.query("ALTER TABLE github_accounts ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''");
 }
 
-export type GithubAccount = { id: number; label: string; login: string; token: string; notes: string };
+export type GithubAccount = { id: number; label: string; login: string; email: string; token: string; notes: string };
 
 export async function listarContasGithub(pool: Pool): Promise<GithubAccount[]> {
-  const { rows } = await pool.query('SELECT id, label, login, token, notes FROM github_accounts ORDER BY id');
+  const { rows } = await pool.query('SELECT id, label, login, email, token, notes FROM github_accounts ORDER BY id');
   return rows;
 }
 
@@ -48,7 +49,7 @@ export function githubMcpServers(contas: Pick<GithubAccount, 'label' | 'token'>[
   return out;
 }
 
-export type GithubNoHeader = { nome: string; login: string; notes: string };
+export type GithubNoHeader = { nome: string; login: string; email: string; notes: string };
 export function githubParaHeader(contas: GithubAccount[]): GithubNoHeader[] {
-  return contas.map(c => ({ nome: nomeMcpGithub(c.label), login: c.login, notes: c.notes }));
+  return contas.map(c => ({ nome: nomeMcpGithub(c.label), login: c.login, email: c.email, notes: c.notes }));
 }
