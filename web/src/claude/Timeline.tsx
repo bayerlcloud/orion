@@ -48,7 +48,6 @@ function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
       <summary>
         <span>{e.streaming ? 'Pensando...' : 'Pensou'}</span>
         {e.streaming && tokens > 0 && <span className="cc-thinking-tokens"> · {formatTokens(tokens)}</span>}
-        <Chevron size={16} className="cc-chev" />
       </summary>
       <div className="cc-thinking-body">{e.text}</div>
     </details>
@@ -653,7 +652,8 @@ export default function Timeline({ events, onDecide, agentTasks }: { events: Con
         // continua aqui: 'timeout' (expirado) — sem equivalente na extensão real (o processo dela não
         // reinicia do jeito que o Orion reinicia; ver foldExpiredPermissions) e sem ele o usuário não
         // teria NENHUM jeito de saber que aquele pedido nunca mais vai ser respondido.
-        if (e.kind === 'permission' && e.decision !== 'timeout') return null;
+        // Pedidos de permissão nunca viram linha na conversa (igual à extensão: vivem só no card flutuante).
+        if (e.kind === 'permission') return null;
         if (e.kind === 'busy') return <ThinkingIndicator key={e.id} />;
         if (e.kind === 'user') {
           // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira foto + nome ao lado da bolha.
@@ -678,7 +678,6 @@ export default function Timeline({ events, onDecide, agentTasks }: { events: Con
             {e.kind === 'text' && <AssistantText e={e} />}
             {e.kind === 'thinking' && <Thinking e={e} />}
             {e.kind === 'tool' && <ToolBlock e={e} agentTasks={agentTasks} />}
-            {e.kind === 'permission' && <Permission e={e} onDecide={(d, msg) => onDecide?.(e.id, d, msg)} />}
           </div>
         );
       })}

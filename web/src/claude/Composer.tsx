@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch, Mic, AgentsPill } from './icons';
+import { Bolt, Clock, Plus, Chevron, X, Image, File, GitBranch, Mic, AgentsPill, AddPlus, SendArrow, SlashCmd, StopSquare, ModeManual, ModeAcceptEdits, ModePlan, ModeAuto } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project } from './api';
 import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState } from './mapper';
 import type { FastModeState } from './live';
@@ -161,6 +161,21 @@ function sparkTitle(effort: EffortChoice, fast: FastModeState): string {
   if (fast === 'on') parts.push('Modo rápido ativado');
   else if (fast === 'cooldown') parts.push('Modo rápido esfriando');
   return parts.join(' · ');
+}
+
+/** Ícone pequeno do modo de permissão — `iconV2Small` real por modo (FP1/sB0/tB0/iB0). */
+function ModeIcon({ mode }: { mode: Mode }) {
+  if (mode === 'acceptEdits') return <ModeAcceptEdits />;
+  if (mode === 'plan') return <ModePlan />;
+  if (mode === 'auto') return <ModeAuto />;
+  return <ModeManual />;
+}
+/** "claude-opus-5-5" → "Opus 5.5", "claude-fable-5-1" → "Fable 5.1", "claude-haiku-4-5-20251001" → "Haiku 4.5"; outros textos passam intactos. */
+export function prettyModel(label: string): string {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?$/.exec(label);
+  if (!m) return label;
+  const nome = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+  return `${nome} ${m[2]}${m[3] ? '.' + m[3] : ''}`;
 }
 
 export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle }: {
@@ -406,7 +421,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const canSend = !sending && (!!text.trim() || attachments.length > 0) && !worktreeNameError;
 
   return (
-    <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`}
+    <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`} data-permission-mode={mode}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
       onDrop={onDrop}
@@ -436,7 +451,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       )}
       <Lightbox images={images} index={preview} onClose={closePreview} />
       <textarea ref={ta} value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
-        placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Claude está trabalhando… você pode enfileirar a próxima mensagem' : 'Escreva para o Claude. Enter envia, Shift+Enter quebra linha, Esc foca/desfoca'} />
+        placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
         (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).
@@ -463,9 +478,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       {/* Transcrição parcial ("interim") — itálico/cinza, some assim que o trecho é confirmado e vira texto normal no campo (ver composeDictationText em mapper.ts). */}
       {micRecording && micInterim && <span className="cc-mic-interim">{micInterim}</span>}
       <div className="cc-composer-foot">
-        <button className="cc-icon" title="Anexar arquivos ou imagens" onClick={() => fileInput.current?.click()}><Plus /></button>
+        <button className="cc-foot-btn" title="Anexar arquivos ou imagens" onClick={() => fileInput.current?.click()}><AddPlus /></button>
         <div className="cc-pop">
-          <button className="cc-icon" title="Comandos de barra" onClick={() => setMenu(m => m === 'slash' ? '' : 'slash')}><Slash /></button>
+          <button className="cc-foot-btn" title="Mostrar menu de comandos (/)" onClick={() => setMenu(m => m === 'slash' ? '' : 'slash')}><SlashCmd /></button>
           <Menu open={slashOpen && slashItems.length > 0} onClose={() => setMenu('')} className="cc-menu-up">
             <div className="cc-menu-title">Comandos</div>
             {slashItems.map(s => (
@@ -477,7 +492,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           </Menu>
         </div>
         {sending && <span className="cc-pill cc-pill-ghost cc-attach-status">enviando anexos…</span>}
-        {elapsed && <span className="cc-pill cc-pill-ghost"><Clock size={12} /> {elapsed}</span>}
+        {elapsed && <span className="cc-foot-btn is-static"><Clock size={14} /><span>{elapsed}</span></span>}
         {projects && onProject && (
           <select className="cc-pill cc-select" value={projectId ?? ''} onChange={e => onProject(Number(e.target.value))} title="Projeto da nova sessão">
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -523,38 +538,23 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             <span>{agentsPillCountLabel(agents.count)}</span>
           </button>
         )}
-        {onModel ? (
-          <div className="cc-pop">
-            <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'model' ? '' : 'model')} title="Modelo">
-              {modelLabel} <Chevron size={10} className="cc-chev-down" />
-            </button>
-            <Menu open={menu === 'model'} onClose={() => setMenu('')} className="cc-menu-up">
+        {/* modelPill_gGYT1w real: uma pílula só, "Modelo Esforço", sem chevron; o menu traz modelo, esforço (slider) e estilo de saída. */}
+        <div className="cc-pop">
+          <button className="cc-model-pill" onClick={() => (onModel || onEffort || onOutputStyle) && setMenu(m => m === 'model' ? '' : 'model')} title="Trocar modelo" role="combobox" aria-haspopup="listbox" aria-expanded={menu === 'model'}>
+            <span className="cc-model-pill-label">{prettyModel(modelLabel)}</span>
+            {onEffort && <> <span className="cc-model-pill-effort">{effortPillLabel(effort ?? 'medium')}</span></>}
+          </button>
+          <Menu open={menu === 'model'} onClose={() => setMenu('')} className="cc-menu-up">
+            {onModel && <>
               <div className="cc-menu-title">Modelo</div>
               {MODEL_ORDER.map(m => (
                 <button key={m} className={`cc-menu-item ${m === (model ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onModel(m); setMenu(''); }}>
                   <span className="cc-menu-item-name">{MODEL_LABEL[m]}</span>
                 </button>
               ))}
-            </Menu>
-          </div>
-        ) : (
-          <span className="cc-pill" title="Modelo da sessão">{modelLabel}</span>
-        )}
-        {onEffort && (
-          <div className="cc-pop">
-            {/* Pill: "Ultracode" quando o degrau extra está selecionado (mesmo `kV0` real, que devolve `IV0` no lugar do rótulo do nível). */}
-            <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'effort' ? '' : 'effort')} title="Esforço de raciocínio">
-              <Bolt size={12} /> {effortPillLabel(effort ?? 'medium')} <Chevron size={10} className="cc-chev-down" />
-            </button>
-            <Menu open={menu === 'effort'} onClose={() => setMenu('')} className="cc-menu-up">
+            </>}
+            {onEffort && <>
               <div className="cc-menu-title">Esforço</div>
-              {/*
-                Linha do slider — espelha o `effortRow` real (popup `eB0` do webview v2.1.283): rótulo
-                "Esforço (nível atual)" + o controle deslizante com o degrau Ultracode no fim (ver
-                EffortSlider acima e PARIDADE-seletor.md). Com Ultracode selecionado, o texto inline é
-                a string literal exata da real: "Ultracode - xhigh + workflows" (`fe` no bundle).
-                Os itens de menu por nível continuam abaixo (padrão que o seletor do Orion já tinha).
-              */}
               <div className="cc-effort-row">
                 <span className="cc-effort-row-label" title={effort === 'ultracode' ? ULTRACODE_MENU_LABEL : undefined}>
                   <Bolt size={11} /> <span className="cc-effort-inline">({effort === 'ultracode' ? ULTRACODE_MENU_LABEL : EFFORT_LABEL[effort ?? 'medium']})</span>
@@ -566,31 +566,17 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
                   <span className="cc-menu-item-name">{EFFORT_LABEL[ef]}</span>
                 </button>
               ))}
-              {/* O degrau ACIMA de max — rótulo exato da extensão real (`fe = "Ultracode - xhigh + workflows"`). */}
               <button className={`cc-menu-item ${effort === 'ultracode' ? 'is-active' : ''}`} role="menuitem" onClick={() => { onEffort('ultracode'); setMenu(''); }}>
                 <span className="cc-menu-item-name">{ULTRACODE_MENU_LABEL}</span>
               </button>
-            </Menu>
-          </div>
-        )}
-        {/*
-          Seletor de output style — o menu "Output styles" da extensão real (strings do webview
-          v2.1.283 em pt-BR: "Select an output style" → título; "No output styles available" →
-          vazio; "Build a custom style" → linha final, abre o assistente em OutputStyles.tsx).
-          Mesmo padrão cc-pop/Menu/cc-menu-item dos vizinhos. Ver PARIDADE-marketplace.md.
-        */}
-        {onOutputStyle && (
-          <div className="cc-pop">
-            <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'style' ? '' : 'style')} title="Estilo de saída">
-              {(outputStyles ?? []).find(s => s.nome === (outputStyle ?? 'default'))?.label ?? outputStyle ?? 'Estilo'} <Chevron size={10} className="cc-chev-down" />
-            </button>
-            <Menu open={menu === 'style'} onClose={() => setMenu('')} className="cc-menu-up cc-menu-styles">
-              <div className="cc-menu-title">Selecione um estilo de saída</div>
+            </>}
+            {onOutputStyle && <>
+              <div className="cc-menu-title">Estilo de saída</div>
               {(outputStyles ?? []).length === 0 && <div className="cc-style-empty">Nenhum estilo de saída disponível</div>}
-              {(outputStyles ?? []).map(s => (
-                <button key={s.nome} className={`cc-menu-item ${s.nome === (outputStyle ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onOutputStyle(s.nome); setMenu(''); }}>
-                  <span className="cc-menu-item-name">{s.label}</span>
-                  {s.descricao && <span className="cc-menu-item-desc">{s.descricao}{s.criado_por ? ` · ${s.criado_por}` : ''}</span>}
+              {(outputStyles ?? []).map(st => (
+                <button key={st.nome} className={`cc-menu-item ${st.nome === (outputStyle ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onOutputStyle(st.nome); setMenu(''); }}>
+                  <span className="cc-menu-item-name">{st.label}</span>
+                  {st.descricao && <span className="cc-menu-item-desc">{st.descricao}{st.criado_por ? ` · ${st.criado_por}` : ''}</span>}
                 </button>
               ))}
               {onBuildStyle && (
@@ -598,13 +584,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
                   <span className="cc-menu-item-name">Construir um estilo personalizado</span>
                 </button>
               )}
-            </Menu>
-          </div>
-        )}
+            </>}
+          </Menu>
+        </div>
         <span className="cc-spacer" />
         <div className="cc-pop">
-          <button className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'mode' ? '' : 'mode')} title="Modo de permissão">
-            <Bolt size={12} /> {MODE_LABEL[mode]} <Chevron size={10} className="cc-chev-down" />
+          <button className="cc-foot-btn cc-mode-btn" onClick={() => setMenu(m => m === 'mode' ? '' : 'mode')} title={MODE_DESC[mode]}>
+            <ModeIcon mode={mode} /><span>{MODE_LABEL[mode]}</span>
           </button>
           <Menu open={menu === 'mode'} onClose={() => setMenu('')} className="cc-menu-up cc-menu-right">
             <div className="cc-menu-title">Modo de permissão</div>
@@ -617,8 +603,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           </Menu>
         </div>
         {running && onStop
-          ? <button className="cc-send cc-stop" onClick={onStop} title="Parar"><span className="cc-stop-square" /></button>
-          : <button className="cc-send" onClick={() => void send()} disabled={!canSend} title="Enviar"><ArrowUp /></button>}
+          ? <button className="cc-send" data-permission-mode={mode} onClick={onStop} aria-label="Parar" title="Parar"><StopSquare className="cc-stop-icon" /></button>
+          : <button className="cc-send" data-permission-mode={mode} onClick={() => void send()} disabled={!canSend} aria-label="Enviar mensagem" title="Enviar mensagem"><SendArrow className="cc-send-icon" /></button>}
       </div>
     </div>
   );
