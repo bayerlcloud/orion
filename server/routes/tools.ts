@@ -5,6 +5,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { KEYS, getSetting, sdkEnv } from '../settings.js';
 import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type SkillItem } from '../tools/skillsScan.js';
 import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
+import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
 
 const KINDS = new Set(['tool', 'skill', 'mcp']);
 
@@ -138,6 +139,47 @@ export async function toolsRoutes(app: FastifyInstance) {
     }
     cache = null;
     return { explicadas: n, faltam: pendentes.size - n, cost_usd: cost };
+  });
+
+  // ---------- contas GitHub (cada uma vira um MCP em toda sessão; token nunca sai daqui) ----------
+  await ensureGithubAccountsTable(app.pool);
+  const contaPublica = (c: GithubAccount) => ({ id: c.id, label: c.label, login: c.login, email: c.email, notes: c.notes, mcp: nomeMcpGithub(c.label), token_hint: maskGithubToken(c.token) });
+  const soAdmin = (req: any, reply: any) => req.user!.role !== 'owner' ? reply.code(403).send({ error: 'só o admin' }) : null;
+
+  app.get('/api/tools/github', async () => ({ contas: (await listarContasGithub(app.pool)).map(contaPublica) }));
+
+  app.post<{ Body: { label?: string; token?: string; email?: string; notes?: string } }>('/api/tools/github', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const label = (req.body?.label ?? '').trim(); const token = (req.body?.token ?? '').trim(); const notes = (req.body?.notes ?? '').trim(); const email = (req.body?.email ?? '').trim();
+    if (!label) return reply.code(400).send({ error: 'nome é obrigatório' });
+    if (!looksLikeGithubToken(token)) return reply.code(400).send({ error: 'isso não parece um token do GitHub (ghp_… ou github_pat_…)' });
+    const login = await githubLoginDe(token);
+    if (!login) return reply.code(400).send({ error: 'o GitHub recusou esse token' });
+    const { rows } = await app.pool.query(
+      `INSERT INTO github_accounts (label, login, token, notes, email, created_by) VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (label) DO UPDATE SET login = EXCLUDED.login, token = EXCLUDED.token, notes = EXCLUDED.notes, email = EXCLUDED.email, updated_at = now()
+       RETURNING id, label, login, email, token, notes`, [label, login, token, notes, email, req.user!.id]);
+    return reply.code(201).send({ conta: contaPublica(rows[0]) });
+  });
+
+  app.put<{ Params: { id: string }; Body: { label?: string; email?: string; notes?: string } }>('/api/tools/github/:id', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const id = intParam(req.params.id);
+    if (!id) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query(
+      `UPDATE github_accounts SET label = COALESCE(NULLIF($2::text, ''), label), notes = COALESCE($3::text, notes), email = COALESCE($4::text, email), updated_at = now()
+        WHERE id = $1 RETURNING id, label, login, email, token, notes`, [id, (req.body?.label ?? '').trim(), req.body?.notes === undefined ? null : req.body.notes.trim(), req.body?.email === undefined ? null : req.body.email.trim()]);
+    if (!rows[0]) return reply.code(404).send({ error: 'não encontrada' });
+    return { conta: contaPublica(rows[0]) };
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/tools/github/:id', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const id = intParam(req.params.id);
+    if (!id) return reply.code(400).send({ error: 'id inválido' });
+    const del = await app.pool.query('DELETE FROM github_accounts WHERE id = $1', [id]);
+    if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
+    return { ok: true };
   });
 
   // ---------- catálogo manual (tabela tools) ----------

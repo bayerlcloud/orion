@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, type User } from '../api';
 import ToolsSkills from './ToolsSkills';
+import ToolsGithub from './ToolsGithub';
 import './tools.css';
 
 type Kind = 'tool' | 'skill' | 'mcp';
@@ -79,6 +80,7 @@ export default function Tools({ user }: { user: User }) {
         <button className="btn-primary" onClick={startCreate}>+ Nova</button>
       </div>
       <ToolsSkills user={user} />
+      <ToolsGithub user={user} />
 
       <div className="tls-sec-head" style={{ marginTop: 28 }}><h2>Catálogo manual</h2></div>
       <p className="muted small">Tools gerenciadas, MCPs e anotações à mão. Cada card é uma entrada: abasteça pelo botão + Nova ou peça pro Claude cadastrar via API.</p>
