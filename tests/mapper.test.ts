@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus } from '../web/src/claude/mapper';
 import { matchModelAlias } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
@@ -124,6 +124,55 @@ describe('foldExpiredPermissions', () => {
     expect(out.map(e => e.id)).toEqual(['a', 'mid', 'b']);
     expect(out[0].kind === 'permission' && out[0].expiredGroupCount).toBeUndefined();
     expect(out[2]).toMatchObject({ id: 'b', expiredGroupCount: 2 });
+  });
+});
+
+describe('currentPermission', () => {
+  const perm = (id: string, decision?: string, extra: Partial<Extract<ConvEvent, { kind: 'permission' }>> = {}): ConvEvent =>
+    ({ id, kind: 'permission', toolUseId: id, name: 'Bash', label: 'Bash', description: '', inputText: '', decision: decision as any, ...extra });
+  const text = (id: string): ConvEvent => ({ id, kind: 'text', text: 'oi' });
+
+  it('sem nenhum pedido de permissão: undefined', () => {
+    expect(currentPermission([text('a')])).toBeUndefined();
+  });
+  it('só pedidos já resolvidos (allow/deny/allow_always/answer): undefined — nenhum fica docado', () => {
+    const events = [perm('a', 'allow'), perm('b', 'deny'), perm('c', 'allow_always'), perm('d', 'answer')];
+    expect(currentPermission(events)).toBeUndefined();
+  });
+  it('só pedidos expirados (timeout): undefined — esses continuam na linha do tempo (foldExpiredPermissions), não no card docado', () => {
+    expect(currentPermission([perm('a', 'timeout')])).toBeUndefined();
+  });
+  it('um único pedido pendente: esse mesmo', () => {
+    const p = perm('a');
+    expect(currentPermission([p])).toBe(p);
+  });
+  /**
+   * server/claude/runner.ts: `l.pending` é um `Map<string, Pending>` sem NENHUMA serialização — cada
+   * chamada de `canUseTool` do SDK ganha sua própria entrada (`pid = randomUUID()`), então nada no
+   * runner impede duas (ou mais) chamadas simultâneas ficarem pendentes ao mesmo tempo, se o SDK
+   * despachar tool_use independentes em paralelo no mesmo turno (ver teste novo em runner.test.ts que
+   * prova isso na prática, não só por leitura de código). A extensão real trata isso exatamente assim
+   * — `permissionRequests` também é uma lista lá — e o componente docado sempre lê só `[0]`
+   * (confirmado lendo webview/index.js v2.1.282: `N=$.permissionRequests.value[0]`, dentro do render
+   * de `inputContainer`); os demais ficam na fila, invisíveis, até o primeiro ser decidido. Aqui:
+   * primeiro evento `permission` sem `decision` nenhuma, na ordem em que aparece no array (mesma
+   * ordem de `s.pending` em live.ts — FIFO, o pedido mais antigo ainda esperando).
+   */
+  it('dois pedidos pendentes ao mesmo tempo: mostra só o 1º (FIFO) — o 2º fica de fora, igual à extensão real (permissionRequests.value[0])', () => {
+    const p1 = perm('a'); const p2 = perm('b');
+    expect(currentPermission([p1, p2])).toBe(p1);
+  });
+  it('mistura resolvido + pendente: pula o resolvido e acha o pendente', () => {
+    const resolved = perm('a', 'allow'); const pending = perm('b');
+    expect(currentPermission([resolved, pending])).toBe(pending);
+  });
+  it('mistura expirado + pendente: pula o expirado (fica na timeline) e acha o pendente (vai pro card docado)', () => {
+    const expired = perm('a', 'timeout'); const pending = perm('b');
+    expect(currentPermission([expired, pending])).toBe(pending);
+  });
+  it('entremeado com outros tipos de evento (texto, etc.): acha a permissão pendente certa, ignorando o resto', () => {
+    const p = perm('a');
+    expect(currentPermission([text('x'), perm('resolved', 'deny'), text('y'), p])).toBe(p);
   });
 });
 

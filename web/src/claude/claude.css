@@ -153,6 +153,21 @@
 .cc-md th { font-weight: 600; }
 .cc-md a { color: #85b6ff; }
 
+/* ===== card de permissão docado ===== */
+/* `.cc-dock` é o mesmo item de grid de `.cc-main` que o `<Composer>` sozinho já ocupava (não uma
+   linha nova) — ver ClaudePage.tsx. Dentro dele, o card de permissão (quando há um pedido pendente —
+   ver PermissionDock/currentPermission em Timeline.tsx/mapper.ts) fica empilhado ACIMA do composer,
+   fora da `.cc-scroll` que rola (ver PARIDADE.md "Card de permissão docado"): nunca mais um `cc-perm`
+   perdido no meio do histórico, sempre um só visível, sempre colado no compositor. Sem
+   position:absolute/overlay (diferente do `.inputContainer_07S1Yg` real, que é `position:absolute;
+   bottom:16px` sobre a área que rola, com um spacer via ResizeObserver pra não tapar as últimas
+   mensagens) — aqui, mais simples: só mais um item do grid vertical existente, que cresce pra cima
+   quando o card aparece e empurra `.cc-scroll` (que já tem `min-height:0`) pra cima, sem precisar
+   medir altura em JS. Sem transição/animação de entrada, de propósito — a extensão real não tem
+   nenhuma ligada a esse card (conferido exaustivamente no CSS/JS decompilados; ver PermissionDock). */
+.cc-dock { display: flex; flex-direction: column; min-height: 0; }
+.cc-perm-dock { margin: 8px 18px 0; }
+
 /* ===== composer ===== */
 .cc-composer { margin: 8px 18px 6px; border: 1px solid var(--cc-line); border-radius: 10px; background: var(--cc-bg2); padding: 8px 8px 6px; }
 .cc-composer:focus-within { border-color: color-mix(in srgb, var(--cc-orange) 60%, transparent); }

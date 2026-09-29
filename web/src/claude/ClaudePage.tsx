@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, MODEL_LABEL, type ApiSession, type Mode, type Effort, type ModelAlias, type Project } from './api';
-import { formatCost, computeUsageBars, messageHistory, type UsageBar } from './mapper';
+import { formatCost, computeUsageBars, messageHistory, currentPermission, type UsageBar } from './mapper';
 import Sidebar from './Sidebar';
-import Timeline from './Timeline';
+import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
 import { X, Dots, Power, Sync } from './icons';
 import './claude.css';
@@ -120,6 +120,10 @@ export default function ClaudePage() {
   const events = useMemo(() => toConvEvents(state), [state]);
   // Recall ArrowUp/ArrowDown do compositor: mensagens já enviadas nesta sessão, mais recente primeiro.
   const history = useMemo(() => messageHistory(events), [events]);
+  // Card de permissão docado (Bash/Edit e AskUserQuestion passam pelo mesmo mecanismo de
+  // permission_request — ver mapper.ts): sempre o pedido pendente mais antigo, nunca mais de um ao
+  // mesmo tempo — ver PermissionDock/currentPermission e PARIDADE.md "Card de permissão docado".
+  const dockedPermission = useMemo(() => currentPermission(events), [events]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [events.length, state.partialText.length, state.partialThinking.length, activeId]);
 
   const active = sessions.find(s => s.id === activeId);
@@ -290,10 +294,13 @@ export default function ClaudePage() {
           {activeId && <Timeline events={events} onDecide={decide} />}
         </div>
         {activeId && (
-          <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
-            model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
-            projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
-            onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
+          <div className="cc-dock">
+            <PermissionDock event={dockedPermission} onDecide={decide} />
+            <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
+              model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
+              projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
+              onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }} />
+          </div>
         )}
         <div className="cc-status">
           <span>{active?.project_slug ?? '—'}</span><span className="cc-mono">{active?.cwd ?? ''}</span><span className="cc-spacer" />
