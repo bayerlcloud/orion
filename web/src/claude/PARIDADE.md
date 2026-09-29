@@ -2858,6 +2858,91 @@ integrar as branches paralelas desta rodada — o número desta seção (19) e d
 escolhidos consultando o estado mais recente do `main` bem antes de escrever, exatamente pra minimizar
 esse atrito.
 
+## 20. Bug ao vivo: "Conta e uso" descalibrado de novo — token OAuth do arquivo de credenciais expirado sem renovar — reportado pelo Bayerl em 29/09/2026
+
+**Sintoma reportado, com print em mãos**: duas capturas de tela lado a lado — a extensão real mostrando
+"Sessão atual 7% usado / Esta semana 32% usado / Fable esta semana 21% usado", e o Orion mostrando
+"Sessão (5h) 0% / Semanal (7 dias) 85% / Limite Fable 21%". Só o terceiro valor batia (21% == 21%) —
+os outros dois, não.
+
+**Investigação (`superpowers:systematic-debugging`, root cause antes de qualquer fix)**: o "bate só o
+terceiro, por coincidência" foi a pista — descartou de cara a hipótese óbvia ("um cálculo errado em
+geral") e apontou pra dois caminhos de dado DIFERENTES entre as barras. Rastreado até
+`computeUsageBars` (mapper.ts): quando `/api/claude/usage` não devolve `real` (limites reais da
+conta), ela cai pra `computeProxyUsageBars` — um proxy por CUSTO EM DÓLAR (`cost_5h`/`cost_7d`/
+`cost_total` da tabela `claude_sessions`, cada um dividido por um teto arbitrário fixo: 5, 25 e 100) —
+e **reusa exatamente os mesmos rótulos** das barras reais ("Sessão (5h)", "Semanal (7 dias)", "Limite
+Fable"), sem NENHUMA indicação visual de que é uma estimativa, não o dado oficial da conta. O "21%"
+bater com o real foi coincidência: `cost_total` da conta calhou de ser ~$21 de um teto arbitrário de
+$100, que por acaso ficou perto do percentual real do limite semanal do Fable — sem relação nenhuma
+entre as duas contas.
+
+Por que `real` estava vindo vazio: `server/claude/realUsage.ts` (`fetchRealUsage`) chama
+`GET https://api.anthropic.com/api/oauth/usage` com o `accessToken` lido direto de
+`~/.claude/.credentials.json` (arquivo do `claude auth login`, preferido sobre o token manual salvo
+no Postgres desde a rodada de login documentada mais acima neste arquivo). Confirmado ao vivo:
+chamando a mesma URL manualmente com esse token, a API devolvia `authentication_error: "OAuth access
+token has expired"` — o `expiresAt` salvo no arquivo (`2026-09-29T07:41:48`) já tinha passado há
+**5 horas** no momento do print. `readClaudeCredentials()` nunca checava `expiresAt`, e nada no Orion
+renovava o token — o comentário antigo em `realUsage.ts` assumia que "o próprio `claude` CLI
+auto-renova [o arquivo] a cada uso", o que só é verdade enquanto alguma sessão ativa de verdade estiver
+rodando o CLI com frequência; sem isso por um tempo, o token simplesmente expira e fica morto,
+travando a chamada real pra sempre até alguém rodar `claude auth login` nesse computador de novo (ou o
+CLI ser usado ativamente o bastante pra se auto-renovar sozinho) — explica o "de novo" no relato do
+Bayerl: já tinha acontecido antes por esse mesmo motivo estrutural, nunca corrigido na raiz.
+
+**Fix (raiz, não só o sintoma)**: implementado refresh automático do token, `server/claude/
+credentialsFile.ts`. Achado o formato exato da chamada lendo `extension.js` da extensão real (v2.1.283,
+`/Users/Bayerl/.antigravity-ide/extensions/anthropic.claude-code-2.1.283-darwin-arm64/extension.js` —
+o "backend"/host da extensão, não o `webview/index.js` de sempre; função `doRefreshOAuthToken`):
+`POST https://platform.claude.com/v1/oauth/token`, corpo
+`{grant_type:"refresh_token", refresh_token, client_id:"9d1c250a-e61b-44d9-88ed-5944d1962f5e", scope}`
+— o `client_id` confirmado pareado com `AI_ORIGIN:"https://claude.ai"` e este mesmo `TOKEN_URL` no
+bundle (é o mesmo fluxo que `claude auth login --claudeai` usa, `server/claude/login.ts`, então tem
+que ser o client_id que emitiu o token original). Novas funções: `isTokenExpired` (pura — expirado OU
+dentro de uma margem de 60s de segurança, mesma janela do cache de `fetchRealUsage`), `refreshAccessToken`
+(chama o endpoint, `fetchImpl`/`now` injetáveis — I/O injetável, mesmo padrão do projeto — `null` em
+qualquer falha, nunca lança), `getValidAccessToken` (orquestra: lê credenciais, renova se preciso,
+**persiste o token novo de volta no arquivo** — essencial, não cosmético: o endpoint reemite um
+`refreshToken` novo por rotação, e não persistir deixaria o PRÓXIMO refresh — do Orion ou do próprio
+`claude` CLI — tentando usar um `refreshToken` já invalidado, quebrando o login de vez em vez de só
+adiar o problema). `realUsage.ts`: `tokenForUsageCall` trocou de ler `accessToken` direto pra chamar
+`getValidAccessToken()`.
+
+**Não corrigido nesta rodada, documentado como lacuna conhecida**: `computeProxyUsageBars` continua
+reusando os mesmos rótulos das barras reais sem nenhuma marca visual de "isto é uma estimativa" — se
+o refresh falhar por qualquer outro motivo no futuro (ex.: o `refreshToken` também expirar, exigindo
+`claude auth login` manual de novo), a tela vai voltar a parecer "descalibrada" da mesma forma,
+mesmo com a causa raiz de hoje corrigida. Caberia uma rodada futura pra distinguir visualmente estimativa
+de dado real (ex.: rótulo diferente ou um indicador "~" nas barras de proxy) — fora do escopo desta
+correção pontual.
+
+**Verificação**: 13 testes novos em `tests/credentialsFile.test.ts` (TDD, vermelho→verde confirmado —
+funções ausentes antes da implementação), cobrindo `isTokenExpired` (todos os limites de margem),
+`refreshAccessToken` (corpo exato da chamada, reaproveita `refreshToken` antigo quando a resposta não
+reemite um novo, `null` em falha de rede/resposta não-200/sem `refreshToken`) e `getValidAccessToken`
+(token ainda válido não chama a rede; token expirado renova E persiste preservando as outras chaves do
+arquivo — `mcpOAuth`, `subscriptionType`; renovação que falha devolve `null` sem tocar o arquivo).
+Suíte inteira **667 testes**, `npm run typecheck` e `npm run build` verdes. Aplicado ao vivo em
+produção (não só testado): verificado ao vivo contra `~/.claude/.credentials.json` real do `danilo`
+na c3, chamando `GET /api/oauth/usage` de verdade com o token obtido por `getValidAccessToken()` —
+`status: 200`, `five_hour.utilization: 13`, `seven_day.utilization: 33`,
+`limits[kind=weekly_scoped].percent: 23` (números diferentes do print original do Bayerl porque o
+tempo passou entre o relato e a verificação — uso sobe, não é o mesmo instante; o que importa é que a
+chamada real agora FUNCIONA, em vez de cair no proxy por custo).
+
+**Incidente à parte, durante a investigação (documentado por transparência, não escondido)**: testando
+`getValidAccessToken()` contra o arquivo de credenciais REAL (sem backup antes — erro de cautela,
+independente da causa), o arquivo apareceu com `claudeAiOauth.accessToken`/`refreshToken` vazios E
+todos os ~80 tokens de plugins MCP (`mcpOAuth`) também vazios. Como `persistRefreshedTokens` só
+escreve em `claudeAiOauth` e nunca em `mcpOAuth`, e os dois ficaram vazios ao mesmo tempo, o mais
+provável é que não foi este código que causou — parece um logout completo feito por outro processo
+(o próprio `claude` CLI reagindo ao token expirado há 5h, ou outra sessão) — mas não há como provar
+com certeza sem backup pra comparar. Bayerl refez o login manualmente (`claude auth login`) depois;
+confirmado válido no momento desta verificação (expira 21:25 do mesmo dia, scopes corretos). Lição
+registrada: qualquer teste futuro contra esse arquivo específico faz backup antes, mesmo achando o
+código seguro.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -3189,3 +3274,17 @@ esse atrito.
   Sem harness de teste pra rotas Fastify neste repo (mesma limitação de sempre) e sem
   navegador/visual-testing neste ambiente — motivo, aliás, da decisão de menu em vez de
   drag-and-drop.
+- **bug ao vivo corrigido** (29/09/2026 — "Conta e uso" descalibrado de novo, reportado pelo Bayerl
+  com print comparando lado a lado com a extensão real; ver seção 20 para os detalhes e evidências
+  completas): causa raiz achada por systematic-debugging (só a barra "Limite Fable" batia, por
+  coincidência — pista de que as outras duas vinham de um caminho de dado diferente): o token OAuth
+  do login (`~/.claude/.credentials.json`) tinha expirado há 5h sem nada renovar, então
+  `fetchRealUsage` falhava e a tela caía num proxy por custo em dólar que reusa os MESMOS rótulos das
+  barras reais sem indicar que é estimativa. Implementado refresh automático (`getValidAccessToken`
+  em `credentialsFile.ts`, endpoint/client_id confirmados lendo `extension.js` real v2.1.283) que
+  renova e persiste o token de volta no arquivo antes de expirar. 13 testes novos TDD, suíte inteira
+  **667 testes**. Verificado ao vivo contra produção: chamada real a `/api/oauth/usage` com o token
+  renovado devolveu 200 com dados reais da conta. Incidente à parte durante a investigação, documentado
+  por transparência na seção 20: um teste contra o arquivo de credenciais real (sem backup antes) achou
+  os tokens (login E ~80 plugins MCP) vazios — provavelmente não causado por este código (que nunca
+  toca `mcpOAuth`), mas sem certeza absoluta; Bayerl refez o login manualmente, confirmado válido.

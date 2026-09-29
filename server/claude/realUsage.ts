@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 import { KEYS, getSetting } from '../settings.js';
-import { readClaudeCredentials } from './credentialsFile.js';
+import { getValidAccessToken } from './credentialsFile.js';
 
 /**
  * Busca os limites reais de uso direto na API da Anthropic (mesmo endpoint que o plugin oficial usa:
@@ -80,8 +80,11 @@ let cache: { at: number; value: RealUsageResult } | null = null;
 const CACHE_TTL_MS = 60_000;
 
 async function tokenForUsageCall(pool: Pool): Promise<string | null> {
-  const fileCreds = await readClaudeCredentials();
-  if (fileCreds?.accessToken) return fileCreds.accessToken;
+  // getValidAccessToken() já renova sozinho um token expirado (e persiste de volta no arquivo do
+  // CLI) — ver credentialsFile.ts pro porquê disso ser necessário (token parado sem renovar por
+  // falta de sessão ativa do `claude` CLI era a causa da tela de uso "descalibrar", 29/09/2026).
+  const fileToken = await getValidAccessToken();
+  if (fileToken) return fileToken;
   return getSetting(pool, KEYS.claudeToken);
 }
 
