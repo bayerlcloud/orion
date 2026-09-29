@@ -135,6 +135,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE users ADD COLUMN IF NOT EXISTS explorer_expanded_keys JSONB;
     `,
   },
+  {
+    id: '008_tools_details',
+    sql: `
+      ALTER TABLE tools ADD COLUMN IF NOT EXISTS details TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

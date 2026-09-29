@@ -5,14 +5,14 @@ import './tools.css';
 type Kind = 'tool' | 'skill' | 'mcp';
 type ToolItem = {
   id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo';
-  link: string | null; created_by_name: string | null; created_at: string; updated_at: string;
+  link: string | null; details: string; created_by_name: string | null; created_at: string; updated_at: string;
 };
 
 const KIND_LABEL: Record<Kind, string> = { tool: 'Tool', skill: 'Skill', mcp: 'MCP' };
 const KIND_ORDER: Kind[] = ['tool', 'skill', 'mcp'];
 
-function emptyForm(): { kind: Kind; name: string; description: string; icon: string; link: string } {
-  return { kind: 'tool', name: '', description: '', icon: '⚙️', link: '' };
+function emptyForm(): { kind: Kind; name: string; description: string; icon: string; link: string; details: string } {
+  return { kind: 'tool', name: '', description: '', icon: '⚙️', link: '', details: '' };
 }
 
 export default function Tools() {
@@ -23,6 +23,14 @@ export default function Tools() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
+  const [open, setOpen] = useState<ToolItem | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
 
   async function load() {
     try { const r = await api<{ tools: ToolItem[] }>('/api/tools'); setItems(r.tools); }
@@ -39,8 +47,8 @@ export default function Tools() {
 
   function startCreate() { setEditing(null); setForm(emptyForm()); setShowForm(true); }
   function startEdit(it: ToolItem) {
-    setEditing(it.id);
-    setForm({ kind: it.kind, name: it.name, description: it.description, icon: it.icon, link: it.link ?? '' });
+    setOpen(null); setEditing(it.id);
+    setForm({ kind: it.kind, name: it.name, description: it.description, icon: it.icon, link: it.link ?? '', details: it.details });
     setShowForm(true);
   }
   async function save() {
@@ -100,6 +108,9 @@ export default function Tools() {
           <label>link (opcional)
             <input value={form.link} onChange={e => setForm(f => ({ ...f, link: e.target.value }))} placeholder="repo, docs, config…" />
           </label>
+          <label>permissões e detalhes (aparece no popup do card)
+            <textarea value={form.details} onChange={e => setForm(f => ({ ...f, details: e.target.value }))} rows={6} />
+          </label>
           <div className="tls-form-actions">
             <button className="btn-primary" onClick={save} disabled={busy}>{editing ? 'Salvar' : 'Criar'}</button>
             <button onClick={() => { setShowForm(false); setEditing(null); }} disabled={busy}>Cancelar</button>
@@ -112,15 +123,15 @@ export default function Tools() {
       ) : (
         <div className="tls-grid">
           {visible.map(it => (
-            <div key={it.id} className={`tls-card is-${it.kind} ${it.status === 'inativo' ? 'is-off' : ''}`}>
+            <div key={it.id} className={`tls-card is-${it.kind} ${it.status === 'inativo' ? 'is-off' : ''}`} onClick={() => setOpen(it)}>
               <div className="tls-card-top">
                 <span className="tls-icon">{it.icon}</span>
                 <span className={`tls-badge is-${it.kind}`}>{KIND_LABEL[it.kind]}</span>
               </div>
               <div className="tls-name">{it.name}</div>
               {it.description && <p className="tls-desc">{it.description}</p>}
-              {it.link && <a className="tls-link" href={it.link} target="_blank" rel="noopener">{it.link}</a>}
-              <div className="tls-card-foot">
+              {it.link && <a className="tls-link" href={it.link} target="_blank" rel="noopener" onClick={e => e.stopPropagation()}>{it.link}</a>}
+              <div className="tls-card-foot" onClick={e => e.stopPropagation()}>
                 <span className={`tls-dot is-${it.status}`} title={it.status} />
                 <span className="tls-meta">{it.created_by_name ?? '—'}</span>
                 <span className="tls-spacer" />
@@ -130,6 +141,29 @@ export default function Tools() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="tls-modal-bg" onClick={() => setOpen(null)}>
+          <div className="tls-modal" role="dialog" aria-modal="true" aria-label={open.name} onClick={e => e.stopPropagation()}>
+            <div className="tls-card-top">
+              <span className="tls-icon">{open.icon}</span>
+              <span className={`tls-badge is-${open.kind}`}>{KIND_LABEL[open.kind]}</span>
+              <span className="tls-spacer" />
+              <button className="tls-icon-btn" onClick={() => setOpen(null)} title="Fechar" autoFocus>✕</button>
+            </div>
+            <h2 className="tls-modal-title">{open.name}</h2>
+            {open.description && <p className="tls-desc">{open.description}</p>}
+            {open.link && <a className="tls-link" href={open.link} target="_blank" rel="noopener">{open.link}</a>}
+            <div className="tls-modal-sec">Permissões e detalhes</div>
+            {open.details
+              ? <div className="tls-details">{open.details}</div>
+              : <p className="muted small">Nada descrito ainda. Clique em ✎ para preencher.</p>}
+            <div className="tls-form-actions">
+              <button onClick={() => startEdit(open)}>✎ Editar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
