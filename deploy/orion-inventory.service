@@ -6,8 +6,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=danilo
-WorkingDirectory=/srv/orion
+WorkingDirectory=/srv/orion-live
+Environment=ORION_REPO=/srv/orion
 EnvironmentFile=/etc/orion/central.env
-ExecStart=/usr/bin/node /srv/orion/dist/scripts/inventory.js
+ExecStart=/usr/bin/node /srv/orion-live/dist/scripts/inventory.js
 TimeoutStartSec=180
 Nice=10

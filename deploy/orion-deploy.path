@@ -1,0 +1,9 @@
+[Unit]
+Description=Orion: dispara o build quando o painel escreve /srv/builds/pedido.json
+
+[Path]
+PathExists=/srv/builds/pedido.json
+Unit=orion-deploy.service
+
+[Install]
+WantedBy=multi-user.target
