@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Runner, attachmentBlocks, type Attachment, type Store, type QueryFn } from '../server/claude/runner';
+import { isUnderRoot } from '../server/routes/claude';
 
 const read = async (p: string) => Buffer.from(`bytes:${p}`);
 
@@ -82,7 +83,11 @@ describe('Runner com anexos', () => {
 
     const up = m.events.find(e => e.type === 'user_prompt');
     expect(up?.payload.prompt).toBe('[D] olha isso');
-    expect(up?.payload.attachments).toEqual([{ kind: 'image', name: 'x.png', media_type: 'image/png' }]);
+    // `path` agora vai junto na nota persistida (popup de imagem de 28/09/2026, ver PARIDADE.md): é
+    // o que permite a miniatura clicável no histórico buscar a imagem de volta em
+    // GET /api/claude/attachments?path=...&type=... depois de recarregar a página — sem ele, o
+    // anexo continuaria só com nome/ícone, como já acontecia antes desta rodada.
+    expect(up?.payload.attachments).toEqual([{ kind: 'image', name: 'x.png', media_type: 'image/png', path: imgPath }]);
   });
 
   it('sem anexos, o prompt passado ao SDK continua sendo string', async () => {
@@ -100,5 +105,31 @@ describe('Runner com anexos', () => {
     expect(seen).toBe('[D] só texto');
     const up = m.events.find(e => e.type === 'user_prompt');
     expect(up?.payload.attachments).toBeUndefined();
+  });
+});
+
+/**
+ * Checagem de path traversal reaproveitada por `sanitizeAttachments` (upload) e pelo novo endpoint
+ * `GET /api/claude/attachments` (serve de volta a imagem pra miniatura clicável do histórico — ver
+ * PARIDADE.md, popup de imagem de 28/09/2026). Extraída como função pura e exportada de
+ * `server/routes/claude.ts` justamente pra poder testar essa regra de segurança isolada do Fastify
+ * (sem precisar subir um servidor de verdade) — mesma regra que já existia inline em
+ * `sanitizeAttachments` antes desta rodada, só fatorada, não mudada.
+ */
+describe('isUnderRoot', () => {
+  it('caminho dentro da raiz: true', () => {
+    expect(isUnderRoot('/srv/claude-uploads/1/x-foto.png', '/srv/claude-uploads')).toBe(true);
+  });
+
+  it('a própria raiz: true', () => {
+    expect(isUnderRoot('/srv/claude-uploads', '/srv/claude-uploads')).toBe(true);
+  });
+
+  it('fora da raiz: false', () => {
+    expect(isUnderRoot('/etc/passwd', '/srv/claude-uploads')).toBe(false);
+  });
+
+  it('prefixo de nome parecido mas fora da raiz (sem separador): false — pegaria "/srv/claude-uploads-evil" sem essa checagem', () => {
+    expect(isUnderRoot('/srv/claude-uploads-evil/x', '/srv/claude-uploads')).toBe(false);
   });
 });

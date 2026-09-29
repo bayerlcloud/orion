@@ -174,6 +174,7 @@ Account & Usage) e a função `ee` (a barra individual) no JS decompilado, e o t
 | Tokens de entrada/saída no result (`modelUsage`) | **implementado agora** | soma `modelUsage` → "N↑ / N↓ tokens" |
 | Mensagem interrompida (`interruptedMessage_07S1Yg`) | **corrigido agora (28/09/2026, rodada 3)** | **era um bug, não "já tem"** — stop manual perdia o texto parcial de vez (some ao recarregar); ver seção nova abaixo |
 | Botão copiar resposta (`assistantActions_07S1Yg`/`copyResponseButton_07S1Yg`, hover-revelado ao lado da mensagem) | **implementado agora (28/09/2026, rodada 3)** | reaproveita o `CopyButton` de Timeline.tsx (já usado em ferramentas/Task) nas mensagens de texto do assistente — ver seção nova abaixo |
+| Miniatura de anexo de imagem numa mensagem do usuário JÁ ENVIADA, clicável → popup (componente `AI0`/`yw`, classes `previewOverlay_vRjSkQ` etc.) | **implementado agora (28/09/2026, rodada 7 — pedido ao vivo do Bayerl)** | antes: só chip com ícone+nome, nenhuma miniatura no histórico (gap real, confirmado); agora: miniatura de verdade + `Lightbox` — ver seção 10 |
 
 ### Diff de caractere, Todo list e Subagent — rodada de 28/09/2026 (2)
 
@@ -277,7 +278,8 @@ testes de `taskStatusLabel` + 1 de `describeTool` (rótulo/descrição/inputText
 | Seletor de modelo (`modelPill_gGYT1w`, `modelItem_G8AMvA`) | **implementado agora (28/09/2026)**; **corrigido — troca ao vivo (28/09/2026, rodada 4)** | menu de verdade (Padrão/Sonnet/Opus/Haiku/Fable); mudar durante um turno já em andamento agora aplica na hora, não só no próximo create/send — ver seção 8 |
 | Seletor de esforço Low/Medium/High/Extra high/Max (`effortLevel`, `modelPillEffort`) | já tem; **corrigido — troca ao vivo (28/09/2026, rodada 4)** | menu; envia `effort` no create/send E agora também aplica na hora num turno já em andamento — ver seção 8 |
 | Seletor de modo de permissão (`modeOption_7kXHPg` Manual/Plan/Accept edits/Auto) | já tem; **corrigido — bug real de troca ao vivo (28/09/2026, rodada 4)** | menu visível (era só ciclo); trocar o modo durante um turno já em andamento era só cosmético até a próxima mensagem — bug real reportado pelo Bayerl, ver seção 8 |
-| Anexar arquivos/imagens (`attachedFilesContainer_cKsPxg`, `onAddFiles`) | n/a | "em breve" (pedido) |
+| Anexar arquivos/imagens (`attachedFilesContainer_cKsPxg`, `onAddFiles`) | já tem | **linha desatualizada** — anexo com upload/preview/envio já foi implementado numa sessão anterior a esta tabela ser revisada (`POST /api/claude/uploads`, `Composer.tsx` attachments); não corrigida aqui por estar fora do pedido desta rodada, só sinalizada pra não confundir |
+| Miniatura de anexo pendente clicável → popup (componente real `AI0`/`yw` — mesmo componente usado tanto no compositor quanto na mensagem já enviada, classes `previewOverlay_vRjSkQ`/`previewContainer_vRjSkQ`/`previewImage_vRjSkQ`/`previewCloseButton_vRjSkQ`) | **corrigido agora (28/09/2026, rodada 7 — pedido ao vivo do Bayerl)** | antes abria a imagem em nova aba (commit `5b445b6`, de uma sessão diferente no mesmo dia — o Bayerl pediu ao vivo pra trocar por um popup, nunca implementado até agora); agora abre o mesmo `Lightbox` usado pelo histórico — ver seção 10 |
 | Comandos de barra (`commandList_G_S7FQ`, `slashCommand`) | **implementado agora (28/09/2026)** | era uma lista fixa de 4 (`/clear /compact /context /cost`); agora vem de `Query.supportedCommands()` do SDK quando a sessão já rodou pelo menos um turno neste processo (inclui skills, comandos de projeto, etc.), com fallback pros 4 fixos antes disso — ver seção "Compositor — rodada de 28/09/2026" |
 | @-menções (`mentionChip_uq5aLg`, "Add context") | n/a | fora de escopo (pedido) |
 | Microfone/voz (`micButton_cKsPxg`) | n/a | fora de escopo (pedido) |
@@ -1016,6 +1018,222 @@ dois momentos, nenhum teste existente alterado ou quebrado + `npm run typecheck`
 tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`, sem erro) + `npm run build` (`vite
 build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta mudança).
 
+## 10. Popup de imagem (Lightbox) — miniatura clicável no compositor E no histórico — rodada de 28/09/2026 (7)
+
+**Pedido, nas palavras do Bayerl** (ao vivo, numa sessão diferente desta, mais cedo no mesmo dia): "a
+thumbnail de imagem no que fica no bloco de texto... copia a regra, UI, aqui do plugin de claude code
+para ficar 100% igual no claude v2". Contexto: uma sessão anterior (commit `5b445b6`, "feat: miniatura
+de anexo de imagem abre a imagem em nova aba", já em `main`) tinha feito a miniatura do anexo pendente
+no compositor clicável, abrindo a imagem em **nova aba do navegador** (`<a target="_blank">`). O
+Bayerl, ao vivo na mesma sessão, disse que não queria nova aba — queria um popup, do tamanho da
+imagem, com um teto de % da tela, respiro nas bordas, fundo escurecido, e — supondo de memória — uma
+tira de miniaturas com setas se houvesse mais de uma imagem. Esse pedido nunca chegou a ser
+implementado (confirmado antes de começar: `main` parado exatamente no `5b445b6`, nada commitado
+depois). Instrução explícita para esta rodada: não implementar a partir do que o Bayerl **lembrava**
+do plugin, e sim ler o bundle decompilado da extensão real e replicar o que ela **de fato** faz.
+
+### O que a extensão real faz de verdade
+
+Lido o webview decompilado v2.1.282 (`/srv/orion-reference/vscode-extension/extension/webview/index.js`
+e `index.css`) — não só os nomes de classe, o JS inteiro dos componentes envolvidos.
+
+**Existe um único componente reutilizável para anexo + popup**, usado tanto no compositor quanto na
+mensagem já enviada — confirmado pelos 4 call-sites reais de `yw(...)` (o wrapper de `AI0`) no bundle:
+```
+F(yw,{label:V,type:"image",dataUrl:q})                                   // dentro da renderização de content.type==="image" de uma MENSAGEM (histórico)
+F(yw,{label:U,type:"document",onClick:()=>wh1(q,U)})                     // idem, tipo documento
+F(yw,{label:x1.file.name,type:e5?"image":"document",dataUrl:...,onR...}) // lista de anexos PENDENTES do compositor (2x — provavelmente 2 pontos de render, mesmo componente)
+```
+O primeiro call-site está dentro do `if($.content.type==="image")` que trata o CONTEÚDO de uma
+mensagem do usuário já enviada (`G.source?.type==="base64"` → monta um `data:` URL a partir do
+`base64` que o próprio bloco de conteúdo da mensagem carrega) — ou seja, **a extensão usa exatamente
+o mesmo componente/CSS pro anexo pendente E pro anexo já enviado**, confirmando a decisão de fazer o
+mesmo aqui (um `Lightbox` só, chamado dos dois lugares).
+
+O componente real (`AI0`, renomeado aqui pros achados; nomes ofuscados no bundle):
+```js
+function AI0({label, type, dataUrl, onRemove, onClick}) {
+  let isImage = type === "image";
+  let [open, setOpen] = useState(false);
+  let [meta, setMeta] = useState(); // "1024×768" — dimensão natural da imagem, via new Image().onload
+  let closeBtnRef = useRef(null);
+  // ...preload da imagem só pra pegar naturalWidth/naturalHeight e mostrar como meta do chip...
+  let close = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    if (!open) return;
+    closeBtnRef.current?.focus();
+    let onKeyDown = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); close(); }
+    };
+    document.addEventListener("keydown", onKeyDown, true); // capture: true
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [open, close]);
+  return (
+    <>
+      <Pill kind={isImage?"image":"document"} label={label} meta={isImage?meta:undefined}
+            thumbnailUrl={isImage?dataUrl:undefined}
+            onClick={isImage&&dataUrl ? () => setOpen(true) : onClick} onRemove={onRemove} />
+      {open && dataUrl && createPortal(
+        <div className={previewOverlay} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+          <div className={previewContainer} role="dialog" aria-label={label} tabIndex={-1}>
+            <img src={dataUrl} alt={label} className={previewImage} />
+            <button ref={closeBtnRef} onClick={close} className={previewCloseButton} title="Close preview (Esc)">
+              <XIcon className={previewCloseIcon} />
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+```
+
+CSS real exato (`webview/index.css`, classes `_vRjSkQ` — **valores lidos, não aproximados**):
+```css
+.previewOverlay_vRjSkQ{position:fixed;display:flex;z-index:10000;background:#000000d9;justify-content:center;align-items:center;inset:0}
+.previewContainer_vRjSkQ{position:relative;cursor:default;max-width:90vw;max-height:90vh}
+.previewImage_vRjSkQ{object-fit:contain;border-radius:8px;max-width:90vw;max-height:90vh;box-shadow:0 4px 24px #00000080}
+.previewCloseButton_vRjSkQ{position:absolute;display:flex;background:var(--app-menu-background);border:1px solid var(--app-input-border);cursor:pointer;border-radius:50%;justify-content:center;align-items:center;width:28px;height:28px;padding:0;transition:background-color .15s;top:-12px;right:-12px}
+.previewCloseButton_vRjSkQ:hover{background:var(--app-list-hover-background)}
+.previewCloseIcon_vRjSkQ{color:var(--app-menu-foreground);width:18px;height:18px}
+```
+Achados que corrigem palpites (do pedido do Bayerl E de qualquer estimativa inicial minha, sem ler o
+código):
+- **Fundo do overlay: preto a 85% de opacidade** (`#000000d9` — `d9` hex = 217/255 ≈ **.851**), não
+  60% como o Bayerl supôs de memória.
+- **90vw/90vh de teto** (`max-width`/`max-height` tanto no container quanto na imagem) — bate com
+  "tamanho até um teto de % da tela"; como o overlay é flex centralizado em tela cheia, sempre sobra
+  ≥5vw/5vh de respiro nas quatro bordas, em qualquer proporção de imagem — é exatamente o "padding em
+  volta" pedido, só que é uma CONSEQUÊNCIA do teto de 90vw/90vh + centralização, não uma propriedade
+  `padding` explícita.
+- `box-shadow: 0 4px 24px #00000080` — preto a 50% (`80` hex = 128/255 ≈ **.502**), `border-radius: 8px`.
+- Botão de fechar: círculo de **28×28px**, `top:-12px;right:-12px` — sobreposto ao canto superior
+  direito do container, fora da área da imagem.
+- **SEM navegação entre imagens.** Procurado no bundle inteiro por qualquer classe/função ligada a
+  `Next`/`Prev`/`Arrow`/`Nav`/`Gallery`/`Carousel`/`swipe` associada a este componente ou ao
+  `previewOverlay` — nada. O componente é estritamente **por-anexo**: cada miniatura clicada
+  instancia seu PRÓPRIO `open`/overlay local (`useState(false)` dentro de `AI0`, uma instância por
+  chamada de `yw(...)`), sem nenhum estado de índice/galeria compartilhado entre anexos. Se uma
+  mensagem tem 3 imagens, são 3 componentes `AI0` independentes lado a lado — clicar na 2ª abre SÓ a
+  2ª, sem jeito de "passar" pra 1ª ou 3ª de dentro do popup. **Isto corrige a suposição do pedido**
+  (o Bayerl imaginou de memória uma tira de miniaturas + setas — não existe isso na extensão real).
+  Seguindo a instrução explícita desta rodada ("não adivinhar - achar e replicar exatamente"), o
+  `Lightbox` implementado aqui também não tem navegação — replica o que a extensão FAZ, não o que se
+  lembrava dela fazer.
+- **Fechar**: clique no botão X; clique no backdrop, mas só quando `e.target === e.currentTarget`
+  (ou seja, clicar na imagem ou em qualquer parte do container NUNCA fecha — só a área fora dele,
+  entre o container e a borda da tela); Esc, capturado em `document` com `capture:true` +
+  `stopPropagation()`/`stopImmediatePropagation()` (impede a tecla de vazar pra outro handler
+  enquanto o popup está aberto). Foco vai pro botão de fechar ao abrir; **sem restaurar foco ao
+  fechar** neste componente especificamente (existe uma variante separada e não usada aqui, `kv1` —
+  mesmo popup, só que pra screenshots da integração "Claude in Chrome" — que restaura foco pro
+  elemento que abriu; confirmado que NÃO é a mesma usada pra anexos de mensagem/compositor, então não
+  replicado aqui).
+- Renderizado via `createPortal(..., document.body)` — nunca inline na árvore da mensagem/compositor.
+- Achado extra, não replicado por escolha de escopo: o `Pill` (miniatura pequena, 24px de altura,
+  ícone/thumb de 12×12px, classes `pill_lcdCYQ`/`thumbIcon_lcdCYQ`/`meta_lcdCYQ`) também mostra a
+  **dimensão natural da imagem em pixels** (ex. "1024×768") como metadado ao lado do nome, calculada
+  via um `new Image()` de preload. Não implementado aqui — não é o que foi pedido (o pedido é sobre o
+  popup/lightbox, não sobre um metadado extra no chip) e adicionaria um preload + estado só pra um
+  detalhe cosmético; documentado aqui como achado real, não como gap.
+
+### O que foi implementado no Orion
+
+**`web/src/claude/Lightbox.tsx`** (novo): componente `Lightbox({ image: {src, alt} | null, onClose })`
+— replica pixel a pixel os valores acima (`.cc-preview-overlay` = `#000000d9`, `.cc-preview-image` =
+`max-width/height:90vw/90vh` + `border-radius:8px` + `box-shadow:0 4px 24px #00000080`,
+`.cc-preview-close` = círculo 28px em `top:-12px;right:-12px`), classes próprias (`cc-preview-*`,
+convenção do resto do arquivo — nunca os nomes ofuscados `_vRjSkQ` da extensão, que são de um CSS
+module que não existe aqui). `createPortal(..., document.body)`, igual ao real. Fecha em Esc (mesmo
+padrão `capture:true` + `stopImmediatePropagation`), clique no backdrop (mesma checagem
+`e.target === e.currentTarget`) e no botão X. Foca o botão de fechar ao abrir, sem restaurar foco ao
+fechar (replica `AI0`, o componente que a extensão de fato usa aqui — não `kv1`). SEM navegação entre
+imagens, de propósito (ver achados acima) — cada chamador (`Composer.tsx`/`Timeline.tsx`) mantém seu
+próprio `useState<LightboxImage|null>` local; clicar numa miniatura diferente troca a imagem mostrada
+(não empilha popups), o que já cobre "clicar em cada miniatura abre a sua própria imagem" sem precisar
+de uma galeria compartilhada — comportamento final equivalente ao real, implementado de forma mais
+simples que "uma instância de estado por anexo" (React) sem mudar o resultado visual.
+
+**Composer.tsx** (miniatura do anexo PENDENTE, antes do envio): trocado o `<a href={a.url}
+target="_blank">` do commit `5b445b6` por um `<button className="cc-attach-thumb-btn" onClick={() =>
+setPreview({src: a.url!, alt: a.name})}>` — abre o `Lightbox` local em vez de nova aba. `a.url` já era
+um `URL.createObjectURL(file)` local (blob), que funciona como `src` de `<img>` igual a qualquer outra
+URL — nenhuma mudança na forma como o anexo pendente é armazenado, só no que acontece ao clicar.
+
+**Timeline.tsx** (miniatura de anexo numa mensagem JÁ ENVIADA — a pergunta central do pedido, "no que
+fica no bloco de texto"): **gap real confirmado antes de mexer** — `Attachments` (o componente que
+renderiza os anexos de uma mensagem de usuário no histórico) só mostrava um chip com ícone genérico +
+nome, nenhuma miniatura, porque a nota persistida do anexo (`user_prompt.payload.attachments`) nunca
+guardou o suficiente pra buscar a imagem de volta depois de enviada (só `kind`/`name`/`media_type` —
+ver histórico do arquivo). Diferente da extensão real, que consegue montar um `data:` URL na hora
+porque o `base64` da imagem mora dentro do próprio conteúdo da mensagem no histórico do SDK
+(`content.type==="image"`, `source.type==="base64"`) — arquitetura que o Orion não replica (o Orion
+não persiste o base64 da imagem de volta no Postgres; só o usa transitoriamente pra montar o turno,
+ver `attachmentBlocks` em `runner.ts`). Adaptação necessária, documentada em vez de escondida:
+
+- **`server/claude/runner.ts`**: a nota persistida (`attachNote`) ganhou o campo `path` — o caminho
+  absoluto do arquivo no servidor, que **já** era devolvido ao navegador pelo endpoint de upload
+  (`POST /api/claude/uploads` sempre retornou `path` em cada anexo salvo) — não é uma exposição nova,
+  só passou a acompanhar o anexo até o evento persistido também.
+- **`server/routes/claude.ts`**: nova rota `GET /api/claude/attachments?path=...&type=...` — serve de
+  volta o arquivo já salvo (o upload nunca apaga o arquivo depois de usado num turno — confirmado lendo
+  o endpoint de upload; só apaga em erro de escrita/limite de tamanho). `type` restrito à lista real
+  de mídia de imagem que o SDK aceita (`IMAGE_MEDIA_TYPES`, a mesma constante que `attachmentBlocks` já
+  usava) — nunca reflete um `Content-Type` arbitrário vindo da query. `path` validado com a MESMA
+  checagem anti path-traversal que já existia em `sanitizeAttachments` (realpath + prefixo da pasta de
+  upload) — extraída pra uma função pura exportada, `isUnderRoot(real, root)`, reaproveitada nos dois
+  lugares em vez de duplicada (só fatoração; comportamento idêntico ao que já existia). Autenticação:
+  a mesma que toda rota de `/api/claude/*` já tinha (`app.addHook('preHandler', ...)`, cobre a rota
+  nova por escopo de encapsulamento do Fastify — mesmo padrão confirmado numa rodada anterior desta
+  tabela); a sessão do navegador vai por cookie (`credentials:'same-origin'`, `web/src/api.ts`), então
+  um `<img src="/api/claude/attachments?...">` comum já manda a sessão certa, sem precisar de nenhum
+  cabeçalho especial.
+- **`web/src/claude/types.ts`**: `UserAttachment` ganhou `path?: string` (opcional — ausente em
+  anexos persistidos ANTES desta rodada, que continuam caindo pro chip de ícone+nome de sempre, sem
+  quebrar nada).
+- **`web/src/claude/mapper.ts`**: `attachmentImageUrl(a)` — pura, monta a URL acima só quando
+  `kind==='image'` e há `path`+`media_type`; `undefined` em qualquer outro caso (não vira link).
+- **`Timeline.tsx`**: `Attachments` agora resolve `attachmentImageUrl(a)` por item; quando existe,
+  troca o chip de ícone por um `<button className="cc-attach-thumb-btn"><img className="cc-attach-thumb" .../></button>`
+  que abre o mesmo `Lightbox` (estado local ao componente, um popup por mensagem/lista de anexos).
+
+**`claude.css`**: `.cc-preview-overlay`/`.cc-preview-container`/`.cc-preview-image`/`.cc-preview-close`
+(valores exatos citados acima); `.cc-attach-thumb-btn` substitui a regra antiga `.cc-attach > a` (não
+existe mais `<a>` nenhum aqui). Cores do overlay em hex fixo (`#000000d9`/`#00000080`), não
+`var(--cc-*)`, de propósito — a extensão real também usa preto puro com opacidade fixa via hex de 8
+dígitos, não um token de tema (o popup escurece igual em tema claro ou escuro).
+
+### Verificação
+
+TDD nas duas peças de lógica pura extraídas (`superpowers:test-driven-development`): escrevi os testes
+de `attachmentImageUrl` (`tests/mapper.test.ts`, 5 casos: URL montada certo, `kind:'file'` nunca gera
+URL, sem `path` → undefined, sem `media_type` → undefined, caracteres especiais no caminho escapados)
+e de `isUnderRoot` (`tests/attachments.test.ts`, 4 casos: dentro da raiz, a própria raiz, fora da
+raiz, prefixo de nome parecido mas sem separador — o caso que a checagem ingênua `startsWith` sem
+`path.sep` erraria) ANTES de implementar — rodei a suíte e confirmei os 10 testes falhando por função
+inexistente (`TypeError: attachmentImageUrl is not a function` / `isUnderRoot is not a function`), só
+depois implementei `mapper.ts`/`server/routes/claude.ts`. Verde confirmado depois. Também atualizei o
+teste existente que checava a forma exata da nota persistida (`tests/attachments.test.ts`, "turno com
+anexos... persiste a nota compacta") pra incluir `path` — os outros testes que já cobriam anexos
+(`tests/attachmentsUi.test.ts`) usam `toMatchObject`, não exigem os campos novos, e continuaram verdes
+sem alteração.
+
+Sem navegador/visual-testing neste ambiente (mesma limitação de todas as rodadas anteriores desta
+tabela) — não dá pra ver o popup renderizado de verdade. Verificação: leitura cuidadosa do JS/CSS
+decompilados da extensão real (não só nomes de classe — o componente inteiro, linha por linha, pros
+achados de comportamento: fechar, foco, ausência de navegação) + `vitest` (suíte inteira: **438
+testes, 23 arquivos, todos verdes** — 429 antes desta rodada + 9 novos: 5 de `attachmentImageUrl` + 4
+de `isUnderRoot`) + `tsc --noEmit` (`tsconfig.server.json` e `tsconfig.json`, os dois sem erro) +
+`vite build` (bundle gera sem erro, mesmo aviso pré-existente de chunk grande, sem relação com esta
+mudança). Não fiz `curl` autenticado contra a rota nova (`GET /api/claude/attachments`) pelo mesmo
+motivo de rodadas anteriores: este worktree (`image-lightbox`) não é o processo `orion-central` rodando
+de verdade (esse roda o código do `main`/`/srv/orion`) — um `curl` só re-testaria o código antigo, não
+o que mudou aqui. A validação de path traversal da rota nova é coberta indiretamente: reaproveita
+`isUnderRoot`, testada isoladamente, com a MESMA lógica que `sanitizeAttachments` já usava (e que já
+era exercitada pelos testes de upload existentes) — não é um caminho novo e não testado, é o mesmo
+caminho de sempre, só compartilhado.
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -1135,3 +1353,31 @@ build` limpo, mesmo aviso pré-existente de chunk grande, sem relação com esta
   repassado, novo `ToolStatus` `'waiting'` ligado pelo id real, nunca um heurístico). 43 testes
   novos, confirmado via `git diff` (31 `mapper.test.ts`, 11 `live.test.ts`, 1 `runner.test.ts`);
   suíte inteira 403 testes, `tsc --noEmit` e `vite build` verdes.
+- **implementado nesta rodada (7)** (28/09/2026 — popup de imagem/Lightbox, pedido ao vivo do Bayerl
+  superando o "abre em nova aba" que uma sessão diferente tinha implementado mais cedo no mesmo dia
+  — commit `5b445b6`; ver seção 10 para os detalhes e evidências completas): lido o componente real
+  inteiro no webview decompilado v2.1.282 (não só nomes de classe) — `AI0`/`yw`, o MESMO componente
+  usado tanto pro anexo pendente do compositor quanto pra imagem de uma mensagem já enviada. Valores
+  exatos do CSS real (`_vRjSkQ`): fundo do popup preto a **85%** de opacidade (`#000000d9` — não 60%
+  como o pedido supunha de memória), imagem com teto de **90vw/90vh**, `border-radius:8px`,
+  `box-shadow:0 4px 24px #00000080` (preto a 50%), botão de fechar circular 28px sobreposto ao canto
+  (`top:-12px;right:-12px`). **Achado que corrige a suposição do pedido**: a extensão real NÃO tem
+  navegação entre imagens (sem setas, sem tira de miniaturas, sem swipe — confirmado vasculhando o
+  bundle inteiro por qualquer classe/função de galeria associada ao componente; cada anexo abre seu
+  próprio popup independente) — o Lightbox implementado aqui também não tem, de propósito, seguindo a
+  extensão real em vez do que o Bayerl lembrava dela fazendo. `web/src/claude/Lightbox.tsx` (novo,
+  compartilhado por `Composer.tsx` e `Timeline.tsx`): fecha em Esc (capture+stopImmediatePropagation,
+  igual ao real), clique no backdrop (só fora do container, mesma checagem `target===currentTarget`
+  do real — clicar na imagem nunca fecha), botão X; `createPortal` em `document.body`. No
+  compositor, substitui o `<a target="_blank">` do `5b445b6`. No histórico (`Timeline.tsx`), fecha um
+  gap real que já existia antes deste pedido — a mensagem enviada só mostrava um chip com ícone+nome,
+  nenhuma miniatura — porque a nota persistida do anexo nunca guardava o bastante pra buscar a imagem
+  de volta; corrigido com `path` novo na nota (`server/claude/runner.ts` — já era devolvido ao
+  navegador pelo upload, não é exposição nova) + rota nova `GET /api/claude/attachments`
+  (`server/routes/claude.ts`, `type` restrito a `IMAGE_MEDIA_TYPES`, `path` validado com
+  `isUnderRoot` — mesma checagem anti path-traversal de sempre, extraída pra função pura e reusada)
+  + `attachmentImageUrl` (mapper.ts, pura) pra montar a URL. TDD nas duas peças de lógica pura
+  (`attachmentImageUrl`/`isUnderRoot`), vermelho→verde confirmado (10 testes novos falhando por
+  função ausente, depois implementados). Suíte inteira: **438 testes** (429 antes desta rodada + 9
+  novos: 5 de `attachmentImageUrl`, 4 de `isUnderRoot`), `tsc --noEmit` (server e front) e `vite
+  build` verdes. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.

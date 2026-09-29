@@ -263,8 +263,13 @@ export class Runner {
     const promptObj = typeof p.prompt === 'string' ? { text: p.prompt, attachments: [] as Attachment[] } : p.prompt;
     const text = promptObj.text;
     const attachments = promptObj.attachments ?? [];
-    // Nota compacta persistida: só o suficiente para reexibir os nomes ao reabrir a sessão.
-    const attachNote = attachments.map(a => ({ kind: a.kind, name: a.name, media_type: a.media_type }));
+    // Nota compacta persistida: nomes + o bastante pra reexibir os anexos ao reabrir a sessão. `path`
+    // (28/09/2026, popup de imagem/Lightbox — ver PARIDADE.md) já era devolvido ao navegador pelo
+    // endpoint de upload (POST /api/claude/uploads) antes de chegar aqui, então não é uma exposição
+    // nova; é o que permite `attachmentImageUrl` (web/src/claude/mapper.ts) montar a URL de
+    // `GET /api/claude/attachments` e mostrar a miniatura clicável do anexo já enviado no histórico,
+    // mesmo depois de recarregar a página (o arquivo em si nunca é apagado depois de usado num turno).
+    const attachNote = attachments.map(a => ({ kind: a.kind, name: a.name, media_type: a.media_type, path: a.path }));
     await this.setStatus(id, 'running', { lastError: null });
     await this.deps.store.appendEvent(id, 'user_prompt', { prompt: text, ...(attachNote.length ? { attachments: attachNote } : {}) });
     this.emit(id, { type: 'message', message: { type: 'user', message: { role: 'user', content: text, ...(attachNote.length ? { attachments: attachNote } : {}) }, parent_tool_use_id: null, session_id: id } as unknown as SDKMessage });

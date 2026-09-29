@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel } from './mapper';
+import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel, attachmentImageUrl } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
+import Lightbox, { type LightboxImage } from './Lightbox';
 
 function Md({ text }: { text: string }) {
   const html = useMemo(() => marked.parse(text) as string, [text]);
@@ -331,16 +332,33 @@ export function PermissionDock({ event, onDecide }: { event?: Extract<ConvEvent,
   );
 }
 
-/** Anexos de uma mensagem do usuário: chips com nome (imagem ou arquivo). Só metadados; sem miniatura no histórico. */
+/**
+ * Anexos de uma mensagem do usuário já enviada. Antes desta rodada (28/09/2026, popup de imagem —
+ * ver PARIDADE.md) era só um chip com ícone + nome, sem miniatura nenhuma no histórico — a nota
+ * persistida (`user_prompt`) só guardava `kind`/`name`/`media_type`, sem jeito de buscar a imagem de
+ * volta. Agora, quando `attachmentImageUrl` (mapper.ts) resolve uma URL (imagem com `path`
+ * persistido — anexos enviados a partir desta rodada), o chip mostra a miniatura de verdade e abre o
+ * mesmo `Lightbox` do compositor ao clicar. Anexos antigos (sem `path`) ou não-imagem continuam com
+ * o chip de ícone + nome de sempre — nunca um `<img>` quebrado.
+ */
 function Attachments({ items }: { items: UserAttachment[] }) {
+  const [preview, setPreview] = useState<LightboxImage | null>(null);
   return (
     <div className="cc-user-attach">
-      {items.map((a, i) => (
-        <span key={i} className={`cc-attach is-chip ${a.kind === 'image' ? 'is-image' : ''}`} title={a.name}>
-          <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={13} /> : <File size={13} />}</span>
-          <span className="cc-attach-name">{a.name}</span>
-        </span>
-      ))}
+      {items.map((a, i) => {
+        const url = attachmentImageUrl(a);
+        return (
+          <span key={i} className={`cc-attach is-chip ${a.kind === 'image' ? 'is-image' : ''}`} title={a.name}>
+            {url
+              ? <button type="button" className="cc-attach-thumb-btn" onClick={() => setPreview({ src: url, alt: a.name })} title="Ampliar imagem">
+                  <img className="cc-attach-thumb" src={url} alt={a.name} />
+                </button>
+              : <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={13} /> : <File size={13} />}</span>}
+            <span className="cc-attach-name">{a.name}</span>
+          </span>
+        );
+      })}
+      <Lightbox image={preview} onClose={() => setPreview(null)} />
     </div>
   );
 }
