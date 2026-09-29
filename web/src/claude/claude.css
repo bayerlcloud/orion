@@ -510,6 +510,37 @@
 .cc-agentmap-dot.is-failure { background: var(--cc-failure); opacity: 1; }
 .cc-agentmap-dot.is-warning { background: var(--cc-warning); opacity: 1; }
 
+/* Painel de skills + lista de hooks (SkillsHooksPanel.tsx, PARIDADE.md seção 16) — reusa a moldura
+   `.cc-agentmap` (overlay, cabeçalho, corpo com scroll) e só acrescenta o essencial: as abas
+   internas e as linhas de hook/skill. */
+.cc-skillshooks-tabs { display: flex; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--cc-line); }
+.cc-skillshooks-tab { padding: 6px 12px; border-radius: 6px 6px 0 0; color: var(--cc-fg2); font-size: 12px; }
+.cc-skillshooks-tab:hover { background: var(--cc-hover); }
+.cc-skillshooks-tab.is-active { color: var(--cc-fg); background: var(--cc-bg2); font-weight: 600; }
+.cc-skillshooks-body { padding-top: 12px; }
+.cc-skillshooks-empty { color: var(--cc-fg2); font-size: 12px; padding: 8px 2px; display: grid; gap: 6px; }
+
+.cc-hook-event { margin-bottom: 14px; }
+.cc-hook-event-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.cc-hook-event-name { font-weight: 600; font-size: 13px; }
+.cc-hook-event-count { color: var(--cc-fg2); font-size: 11px; }
+.cc-hook-matcher { color: var(--cc-fg2); font-size: 11px; margin: 6px 0 3px; }
+.cc-hook-row { display: flex; align-items: flex-start; gap: 8px; background: var(--cc-bg2); border: 1px solid var(--cc-line); border-radius: 6px; padding: 7px 10px; margin-bottom: 4px; font-size: 12px; }
+.cc-hook-type { flex-shrink: 0; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; color: var(--cc-fg2); background: var(--cc-hover); border-radius: 4px; padding: 2px 6px; }
+.cc-hook-desc { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cc-hook-badge { flex-shrink: 0; font-size: 10px; color: var(--cc-fg2); background: var(--cc-hover); border-radius: 4px; padding: 2px 6px; }
+.cc-hook-badge.is-disabled { color: var(--cc-warning); }
+.cc-hook-badge.is-source { color: var(--cc-fg); }
+
+.cc-skill-row { display: flex; align-items: center; gap: 8px; background: var(--cc-bg2); border: 1px solid var(--cc-line); border-radius: 6px; padding: 8px 10px; margin-bottom: 4px; }
+.cc-skill-main { flex: 1; min-width: 0; }
+.cc-skill-name { font-weight: 600; font-size: 13px; }
+.cc-skill-desc { color: var(--cc-fg2); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-skill-toggle { flex-shrink: 0; font-size: 11px; border-radius: 5px; padding: 4px 10px; border: 1px solid var(--cc-line); }
+.cc-skill-toggle.is-on { color: var(--cc-success); border-color: color-mix(in srgb, var(--cc-success) 45%, transparent); }
+.cc-skill-toggle.is-off { color: var(--cc-fg2); }
+.cc-skill-toggle:disabled { opacity: .6; cursor: default; }
+
 /* tema claro na área do Claude */
 :root[data-theme="light"] .cc {
   --cc-bg: #ffffff; --cc-bg2: #f6f6f7; --cc-panel: #fafafa; --cc-fg: #1a1a1c; --cc-fg2: #6a6a70; --cc-line: #e2e2e6;

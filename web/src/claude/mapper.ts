@@ -1,4 +1,4 @@
-import type { AgentTask, AgentTaskUsage, ConvEvent, SdkContentBlock, SdkMessage, SessionSummary, ToolStatus } from './types';
+import type { AgentTask, AgentTaskUsage, ConvEvent, HookEntry, SdkContentBlock, SdkMessage, SessionSummary, ToolStatus } from './types';
 
 type Rec = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
@@ -1084,4 +1084,34 @@ export function composeDictationText(before: string, after: string, finalText: s
   const lead = before === '' || /\s$/.test(before) ? '' : ' ';
   const trail = after === '' || /^\s/.test(after) ? '' : ' ';
   return { value: before + lead + spoken + trail + after, cursor: (before + lead + spoken).length };
+}
+
+export type HookMatcherGroup = { matcher: string; hooks: HookEntry[] };
+export type HookEventGroup = { event: string; matchers: HookMatcherGroup[]; count: number };
+
+/**
+ * Agrupa a lista achatada de hooks (`server/claude/hooks.ts`) por evento e, dentro de cada evento,
+ * por matcher — mesma organização visual da lista de hooks real (funções `X35`/`Y35` no webview
+ * decompilado v2.1.283, ver PARIDADE.md): título do evento com contagem, "Matcher: X" (ou "(all)")
+ * como subtítulo só quando há mais de um matcher/algum matcher não-vazio. Pura: só agrupa, não decide
+ * o que a tela esconde/mostra. Ordem de primeira aparição (evento e matcher), não alfabética — seguem
+ * a ordem que os arquivos `settings.json` foram lidos/suas chaves apareceram.
+ */
+export function groupHooksByEventAndMatcher(hooks: HookEntry[]): HookEventGroup[] {
+  const events: HookEventGroup[] = [];
+  const eventIndex = new Map<string, number>();
+  for (const h of hooks) {
+    let ei = eventIndex.get(h.event);
+    if (ei === undefined) {
+      ei = events.length;
+      eventIndex.set(h.event, ei);
+      events.push({ event: h.event, matchers: [], count: 0 });
+    }
+    const eg = events[ei];
+    eg.count++;
+    let mg = eg.matchers.find(m => m.matcher === h.matcher);
+    if (!mg) { mg = { matcher: h.matcher, hooks: [] }; eg.matchers.push(mg); }
+    mg.hooks.push(h);
+  }
+  return events;
 }

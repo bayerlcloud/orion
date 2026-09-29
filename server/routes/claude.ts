@@ -17,6 +17,8 @@ import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } fr
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { safeFilename } from '../driveUtils.js';
 import { createWorktreeForProject } from '../claude/worktree.js';
+import { readProjectHooks } from '../claude/hooks.js';
+import { listProjectSkills, setSkillOverride, turnSkillsOption } from '../claude/skills.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -101,7 +103,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
   async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max') {
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, userId), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, userId), skills: await turnSkillsOption(app.pool, s.project_id ?? null, s.cwd), maxBudgetUsd: (await defaults()).budget,
       systemAppend: buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)) }),
     });
   }
@@ -195,6 +197,51 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get('/api/claude/projects', async () => {
     const { rows } = await app.pool.query('SELECT id, slug, name, path, rules FROM projects ORDER BY id');
     return { projects: rows };
+  });
+
+  /**
+   * "Aba Claude" — painel de skills + lista de hooks (PARIDADE.md, seção 13, itens 10/11).
+   *
+   * Hooks: SÓ LEITURA — decisão de segurança documentada a fundo em `server/claude/hooks.ts` (sem
+   * canal de edição seguro equivalente ao da extensão real; um hook `command` é shell arbitrário que
+   * passaria a rodar sozinho em toda sessão futura do projeto — risco real de escalação numa
+   * ferramenta multi-usuário). Lê os 3 `settings.json` (projeto/local/usuário) direto do disco a cada
+   * chamada, sem cache.
+   */
+  app.get<{ Params: { id: string } }>('/api/claude/projects/:id/hooks', async (req, reply) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [projectId]);
+    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    return await readProjectHooks(rows[0].path);
+  });
+
+  /** Skills disponíveis pro projeto — descoberta em disco (`.claude/skills/`, projeto + usuário) com o estado habilitado/desabilitado já salvo aplicado. Ver `server/claude/skills.ts`. */
+  app.get<{ Params: { id: string } }>('/api/claude/projects/:id/skills', async (req, reply) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [projectId]);
+    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    const skills = await listProjectSkills(app.pool, projectId, rows[0].path);
+    return { skills };
+  });
+
+  /**
+   * Habilita/desabilita uma skill pro projeto — bem mais seguro que editar hooks (ver
+   * `server/claude/skills.ts`): nunca escreve `settings.json`, nunca roda nada; só grava um override
+   * que vira o filtro `Options.skills` do SDK no próximo turno (nomes ficam invisíveis pro modelo,
+   * arquivos continuam no disco — `sdk.d.ts`).
+   */
+  app.post<{ Params: { id: string }; Body: { name?: string; enabled?: boolean } }>('/api/claude/projects/:id/skills', async (req, reply) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
+    const name = (req.body?.name ?? '').trim();
+    if (!name) return reply.code(400).send({ error: 'nome da skill é obrigatório' });
+    if (typeof req.body?.enabled !== 'boolean') return reply.code(400).send({ error: 'enabled deve ser booleano' });
+    const { rowCount } = await app.pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+    if (!rowCount) return reply.code(404).send({ error: 'projeto não existe' });
+    await setSkillOverride(app.pool, projectId, name, req.body.enabled, req.user!.id);
+    return { ok: true };
   });
 
   app.get('/api/claude/sessions', async () => {
@@ -316,7 +363,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
-      sessionId: id, cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), maxBudgetUsd: d.budget,
+      sessionId: id, cwd, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), skills: await turnSkillsOption(app.pool, project.id, cwd), maxBudgetUsd: d.budget,
       systemAppend: buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)) }),
     });
     return { id, title: titleFromPrompt(prompt) };

@@ -28,3 +28,5 @@ export const AgentMap = ({ size, className }: P) => <svg {...base(size)} classNa
 export const GitBranch = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="4.5" cy="3.5" r="1.5" /><circle cx="4.5" cy="12.5" r="1.5" /><circle cx="11.5" cy="7" r="1.5" /><path d="M4.5 5v6M4.5 8c0 1.7 1.8 2 5 2v-1.5" /></svg>;
 /** Microfone — botão de ditado por voz do compositor (ver PARIDADE.md, `micButton` da extensão real). */
 export const Mic = ({ size, className }: P) => <svg {...base(size)} className={className}><rect x="6" y="1.5" width="4" height="7.5" rx="2" /><path d="M4 7.5a4 4 0 0 0 8 0M8 11.5v2.5M6 14h4" /></svg>;
+/** Chave inglesa — gatilho do painel de skills + hooks (ver SkillsHooksPanel.tsx). Sem equivalente pronto neste arquivo; mesmo estilo minimalista (traço 1.5, 16x16). */
+export const Wrench = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M10.5 3a3 3 0 0 0-3.9 3.5L2.5 10.6a1.4 1.4 0 0 0 2 2l4.1-4.1A3 3 0 0 0 13 5.5l-2 2-1.5-1.5z" /></svg>;

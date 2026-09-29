@@ -153,6 +153,25 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS effort TEXT;
     `,
   },
+  {
+    // Painel de skills da "Aba Claude" (ver PARIDADE.md, server/claude/skills.ts): habilitar/
+    // desabilitar uma skill descoberta em disco, por projeto. Só guarda OVERRIDES explícitos — uma
+    // skill sem linha aqui está habilitada (comportamento de sempre); a linha só existe depois que
+    // alguém mexe no toggle pelo menos uma vez. `enabled` nunca é NULL: a ausência da linha já
+    // representa "sem override" (mesmo padrão de `claude_sessions.effort`, nullable — aqui a
+    // "ausência" é a linha inteira, não um valor nulo dentro dela).
+    id: '010_claude_skill_settings',
+    sql: `
+      CREATE TABLE IF NOT EXISTS claude_skill_settings (
+        project_id INT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        skill_name TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL,
+        updated_by INT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (project_id, skill_name)
+      );
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

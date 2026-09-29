@@ -117,3 +117,24 @@ export type SessionSummary = {
   /** Nome do worktree desta sessão (derivado do `cwd`, ver `sessionWorktreeName` em mapper.ts) — `undefined` quando a sessão roda na raiz do projeto, sem worktree. Alimenta a pill em Sidebar.tsx. */
   worktreeName?: string;
 };
+
+/**
+ * Painel de skills + lista de hooks da "Aba Claude" (PARIDADE.md, seção 13, itens 10/11;
+ * `SkillsHooksPanel.tsx`). Formas espelhando exatamente o que `server/claude/hooks.ts`/
+ * `server/claude/skills.ts` devolvem — mesma convenção de `ApiSession` (duplicado, nunca
+ * compartilhado de verdade com o servidor: não há pacote de tipos comum neste projeto).
+ */
+export type HookSourceKind = 'project' | 'local' | 'user';
+export const HOOK_SOURCE_LABEL: Record<HookSourceKind, string> = { project: 'Projeto', local: 'Local', user: 'Usuário' };
+
+export type HookEntry = {
+  event: string; matcher: string; type: string; description: string;
+  source: HookSourceKind; disabled: boolean; timeout?: number;
+};
+export type HookFileError = { source: HookSourceKind; file: string; message: string };
+export type HookListing = { hooks: HookEntry[]; errors: HookFileError[]; disableAllHooks: boolean; loadedByOrion: HookSourceKind[] };
+
+export type SkillSourceKind = 'project' | 'user' | 'synced';
+export const SKILL_SOURCE_LABEL: Record<SkillSourceKind, string> = { project: 'Projeto', user: 'Usuário', synced: 'Sincronizada' };
+
+export type SkillEntry = { name: string; description: string; source: SkillSourceKind; dir: string; enabled: boolean };

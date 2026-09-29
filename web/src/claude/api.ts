@@ -1,6 +1,7 @@
 import { api } from '../api';
 import type { Row } from './live';
 import type { RealUsage } from './mapper';
+import type { HookListing, SkillEntry } from './types';
 
 export type ApiSession = {
   id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; cost_usd: number; turns: number; model: string | null;
@@ -54,6 +55,17 @@ export const claudeApi = {
   rename: (id: string, title: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/rename`, { method: 'POST', body: JSON.stringify({ title }) }),
   archive: (id: string, archived: boolean) => api<{ ok: true; archived: boolean }>(`/api/claude/sessions/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),
   remove: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}`, { method: 'DELETE' }),
+  /**
+   * Painel de skills + lista de hooks (PARIDADE.md seção 13, itens 10/11; `SkillsHooksPanel.tsx`).
+   * `hooks`: SÓ LEITURA (ver `server/claude/hooks.ts` pro porquê — risco real de um hook virar shell
+   * arbitrário rodando sozinho pra todo mundo que usar o projeto depois, numa ferramenta
+   * multi-usuário; sem canal de edição seguro equivalente ao da extensão real). `skills`: habilitar/
+   * desabilitar é seguro (filtro de contexto do SDK, nunca escreve `settings.json`/roda comando).
+   */
+  hooks: (projectId: number) => api<HookListing>(`/api/claude/projects/${projectId}/hooks`),
+  skills: (projectId: number) => api<{ skills: SkillEntry[] }>(`/api/claude/projects/${projectId}/skills`),
+  setSkillEnabled: (projectId: number, name: string, enabled: boolean) =>
+    api<{ ok: true }>(`/api/claude/projects/${projectId}/skills`, { method: 'POST', body: JSON.stringify({ name, enabled }) }),
 };
 
 export const MODE_LABEL: Record<Mode, string> = { acceptEdits: 'Edição automática', default: 'Manual', plan: 'Plan', auto: 'Auto' };

@@ -7,7 +7,8 @@ import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
 import AgentMap from './AgentMap';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch } from './icons';
+import SkillsHooksPanel from './SkillsHooksPanel';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench } from './icons';
 import './claude.css';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
@@ -45,6 +46,8 @@ export default function ClaudePage() {
   // "Mapa de agentes" (ver AgentMap.tsx) — pedido ao vivo do Bayerl 28/09/2026, gatilho na faixa de
   // ações da aba (`.cc-tab-actions`, mesmo grupo de Sync/Power/Dots), painel em portal próprio.
   const [agentMapOpen, setAgentMapOpen] = useState(false);
+  // Painel de skills + lista de hooks (SkillsHooksPanel.tsx) — mesmo padrão de gatilho/estado do Mapa de agentes acima.
+  const [skillsHooksOpen, setSkillsHooksOpen] = useState(false);
   const [erro, setErro] = useState('');
   // true até o primeiro fetch de sessões terminar (sucesso ou falha) — enquanto isso, a lateral
   // mostra "Carregando sessões…" em vez de pular direto pra "Nenhuma sessão" (ver Sidebar.tsx;
@@ -361,6 +364,10 @@ export default function ClaudePage() {
   // fonte que `toSummary` usa pras sessões da lateral).
   const activeProjectPath = active ? projects.find(p => p.slug === active.project_slug)?.path : undefined;
   const activeWorktreeName = active ? sessionWorktreeName(active.cwd, activeProjectPath) : null;
+  // Painel de skills + lista de hooks (SkillsHooksPanel.tsx, PARIDADE.md seção 16) — projeto da
+  // sessão ativa resolvido por slug, mesmo caminho que `activeProjectPath` já usa acima (sem coluna
+  // `project_id` na resposta de `GET /api/claude/sessions`, que só devolve `project_slug`/`project_name`).
+  const activeProject = active ? projects.find(p => p.slug === active.project_slug) : undefined;
 
   return (
     <div className="cc">
@@ -383,6 +390,7 @@ export default function ClaudePage() {
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
             <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
+            <button className="cc-icon" title="Skills e hooks" disabled={!activeId} onClick={() => setSkillsHooksOpen(true)}><Wrench size={13} /></button>
             <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
             <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
             <button className="cc-icon" title="Renomear sessão" onClick={rename}><Dots size={13} /></button>
@@ -464,6 +472,14 @@ export default function ClaudePage() {
           modelLabel={modelLabel}
           sessionTokens={sessionTokens}
           tasks={agentTasks}
+        />
+      )}
+      {activeId && (
+        <SkillsHooksPanel
+          open={skillsHooksOpen}
+          onClose={() => setSkillsHooksOpen(false)}
+          projectId={activeProject?.id ?? null}
+          projectLabel={activeProject?.name}
         />
       )}
     </div>
