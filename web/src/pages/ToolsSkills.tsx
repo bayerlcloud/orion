@@ -29,6 +29,7 @@ export default function ToolsSkills({ user }: { user: User }) {
   const [origem, setOrigem] = useState<Origem | 'todas'>('todas');
   const [kind, setKind] = useState<Kind | 'todos'>('todos');
   const [ativ, setAtiv] = useState<Ativacao | 'todas'>('todas');
+  const [plugin, setPlugin] = useState<string>('todos');
   const [repetidas, setRepetidas] = useState(false);
   const [limite, setLimite] = useState(60);
   const [open, setOpen] = useState<SkillItem | null>(null);
@@ -61,8 +62,15 @@ export default function ToolsSkills({ user }: { user: User }) {
       && (origem === 'todas' || i.origem === origem)
       && (kind === 'todos' || i.kind === kind)
       && (ativ === 'todas' || i.ativacao === ativ)
+      && (plugin === 'todos' || (plugin === '(sem plugin)' ? !i.plugin : i.plugin === plugin))
       && (!q || i.invocacao.toLowerCase().includes(q) || (i.descricao_pt ?? '').toLowerCase().includes(q) || i.description.toLowerCase().includes(q) || i.fonte.toLowerCase().includes(q)));
-  }, [itens, busca, origem, kind, ativ, repetidas]);
+  }, [itens, busca, origem, kind, ativ, plugin, repetidas]);
+  // Plugins presentes (superpowers, claude-mem, caveman…) com contagem, para achar o que cada plugin traz.
+  const plugins = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const i of itens) if (repetidas || !i.duplicada_de) c.set(i.plugin ?? '(sem plugin)', (c.get(i.plugin ?? '(sem plugin)') ?? 0) + 1);
+    return [...c.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [itens, repetidas]);
   const contagem = useMemo(() => {
     const c: Record<string, number> = { todas: 0, c3: 0, 'code-server': 0, projeto: 0 };
     for (const i of itens) if (repetidas || !i.duplicada_de) { c.todas++; c[i.origem]++; }
@@ -145,6 +153,10 @@ export default function ToolsSkills({ user }: { user: User }) {
         <select className="tls-search" value={ativ} onChange={e => setAtiv(e.target.value as Ativacao | 'todas')} style={{ minWidth: 0 }}>
           <option value="todas">toda ativação</option>
           {(Object.keys(ATIV_CURTA) as Ativacao[]).map(a => <option key={a} value={a}>{ATIV_CURTA[a]}</option>)}
+        </select>
+        <select className="tls-search" value={plugin} onChange={e => setPlugin(e.target.value)} style={{ minWidth: 0 }}>
+          <option value="todos">todos os plugins</option>
+          {plugins.map(([nome, n]) => <option key={nome} value={nome}>{nome} ({n})</option>)}
         </select>
         <input className="tls-search" placeholder="buscar…" value={busca} onChange={e => setBusca(e.target.value)} />
         <label className="tls-toggle"><input type="checkbox" checked={repetidas} onChange={e => setRepetidas(e.target.checked)} /> mostrar repetidas (já ativas na c3)</label>
