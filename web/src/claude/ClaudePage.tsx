@@ -108,9 +108,13 @@ export default function ClaudePage() {
   // só `recentlyClosedSessions.length>0`, mas o array em si guarda até 10.
   const closedStack = useRef<string[]>([]);
 
+  // 502/503/504 e queda de rede sao passageiros (o orion-central reinicia a cada deploy; o Caddy segura a
+  // requisicao por ate 15 s): nao viram banner, e o banner antigo some na proxima chamada que der certo.
+  const transitorio = (m: string) => /^erro 50[234]$/.test(m) || /failed to fetch|networkerror|load failed/i.test(m);
+  const falha = useCallback((e: any) => { const m = e?.message ?? String(e); if (!transitorio(m)) setErro(m); }, []);
   const refreshSessions = useCallback(async () => {
-    try { const r = await claudeApi.sessions(); setSessions(r.sessions); } catch (e: any) { setErro(e.message); }
-  }, []);
+    try { const r = await claudeApi.sessions(); setSessions(r.sessions); setErro(prev => (transitorio(prev) ? '' : prev)); } catch (e: any) { falha(e); }
+  }, [falha]);
   const refreshUsage = useCallback(async () => {
     try {
       const r = await claudeApi.usage();
@@ -135,7 +139,7 @@ export default function ClaudePage() {
           setActiveId(uiRes.value.active_id && validIds.has(uiRes.value.active_id) ? uiRes.value.active_id : null);
         }
       } else {
-        setErro((sessRes.reason as Error).message);
+        falha(sessRes.reason);
       }
       restoredRef.current = true;
       setSessionsLoading(false);
@@ -143,7 +147,7 @@ export default function ClaudePage() {
     void refreshUsage();
     void refreshGroups();
     void refreshStyles();
-    claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(e => setErro(e.message));
+    claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(falha);
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
     claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); }).catch(() => { setEmail(null); setRole(null); });
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
@@ -214,7 +218,7 @@ export default function ClaudePage() {
         setEffort(matchEffort(s.effort));
         // Output style: mesmo padrão do esforço acima (sempre resolve, senão o da sessão anterior vaza).
         setOutputStyle(s.output_style || 'default');
-      }).catch(e => { buffer = null; setErro(e.message); });
+      }).catch(e => { buffer = null; falha(e); });
     };
     es.onerror = () => { setStreamStatus('disconnected'); };
     esRef.current = es;
