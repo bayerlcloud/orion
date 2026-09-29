@@ -268,11 +268,11 @@
    fixa via hex de 8 dígitos, não um token de tema — mesmo em tema claro. z-index bem acima de
    qualquer coisa no app (o maior já existente é 21, dos menus do compositor) — não precisa ser
    literalmente 10000 como no real (nada aqui chega perto disso), só maior que tudo. */
-.cc-preview-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,.6); }
+.cc-preview-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,.8); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .cc-preview-container { position: relative; cursor: default; max-width: 70vw; max-height: 70vh; }
 .cc-preview-image { display: block; object-fit: contain; max-width: 70vw; max-height: 70vh; border-radius: 8px; user-select: none; box-shadow: 0 4px 24px #00000080; }
-.cc-preview-close { position: absolute; top: -12px; right: -12px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--cc-bg2); border: 1px solid var(--cc-line); color: var(--cc-fg); transition: background-color .15s; }
-.cc-preview-close:hover { background: var(--cc-hover); }
+.cc-preview-close { position: absolute; top: 20px; right: 20px; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 15px; background: var(--cc-bg2); border: 1px solid var(--cc-line); color: var(--cc-fg); font-size: 12px; font-weight: 500; transition: background-color .15s, border-color .15s; }
+.cc-preview-close:hover { background: var(--cc-hover); border-color: color-mix(in srgb, var(--cc-line) 60%, var(--cc-fg)); }
 .cc-preview-nav { position: absolute; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; transition: background-color .15s; }
 .cc-preview-nav:hover { background: rgba(255,255,255,.25); }
 .cc-preview-nav.is-prev { left: 4vw; } .cc-preview-nav.is-prev svg { transform: scaleX(-1); }

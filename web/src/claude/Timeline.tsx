@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AskQuestion, ConvEvent, UserAttachment } from './types';
 import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, toolRunningLabel, attachmentImageUrl } from './mapper';
@@ -351,23 +351,25 @@ export function PermissionDock({ event, onDecide }: { event?: Extract<ConvEvent,
  * o chip de ícone + nome de sempre — nunca um `<img>` quebrado.
  */
 function Attachments({ items }: { items: UserAttachment[] }) {
-  const [preview, setPreview] = useState<LightboxImage | null>(null);
+  const [preview, setPreview] = useState<number | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
+  const images: LightboxImage[] = items.flatMap(a => { const src = attachmentImageUrl(a); return src ? [{ src, alt: a.name }] : []; });
   return (
     <div className="cc-user-attach">
       {items.map((a, i) => {
         const url = attachmentImageUrl(a);
         return (
-          <span key={i} className={`cc-attach is-chip ${a.kind === 'image' ? 'is-image' : ''}`} title={a.name}>
+          <span key={i} className="cc-attach is-chip" title={a.name} role={url ? 'button' : undefined} tabIndex={url ? 0 : undefined}
+            onClick={url ? () => setPreview(images.findIndex(m => m.src === url)) : undefined}
+            onKeyDown={url ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPreview(images.findIndex(m => m.src === url)); } } : undefined}>
             {url
-              ? <button type="button" className="cc-attach-thumb-btn" onClick={() => setPreview({ src: url, alt: a.name })} title="Ampliar imagem">
-                  <img className="cc-attach-thumb" src={url} alt={a.name} />
-                </button>
-              : <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={13} /> : <File size={13} />}</span>}
+              ? <img className="cc-attach-thumb" src={url} alt="" />
+              : <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={12} /> : <File size={12} />}</span>}
             <span className="cc-attach-name">{a.name}</span>
           </span>
         );
       })}
-      <Lightbox image={preview} onClose={() => setPreview(null)} />
+      <Lightbox images={images} index={preview} onClose={closePreview} />
     </div>
   );
 }

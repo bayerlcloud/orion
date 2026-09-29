@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { ArrowUp, Bolt, Clock, Plus, Slash, Chevron, X, Image, File, GitBranch } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, type Mode, type Effort, type ModelAlias, type Project } from './api';
 import { cycleMessageIndex, validateWorktreeName, type CycleState } from './mapper';
@@ -26,6 +26,24 @@ let uid = 0;
 function toPending(file: File): Pending {
   const isImage = (file.type || '').startsWith('image/');
   return { id: `att-${++uid}`, file, name: file.name || 'arquivo', isImage, url: isImage ? URL.createObjectURL(file) : undefined };
+}
+
+/** Pill de anexo pendente, cópia do `ip` da extensão real: bloco inteiro clicável, dimensões da imagem, "x" só no hover. */
+function AttachPill({ a, onOpen, onRemove }: { a: Pending; onOpen: () => void; onRemove: () => void }) {
+  const [dims, setDims] = useState<string>();
+  const clickable = a.isImage && !!a.url;
+  return (
+    <div className="cc-attach" title={a.name} role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? onOpen : undefined}
+      onKeyDown={clickable ? e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen(); } } : undefined}>
+      {a.url
+        ? <img className="cc-attach-thumb" src={a.url} alt="" onLoad={e => setDims(`${e.currentTarget.naturalWidth}×${e.currentTarget.naturalHeight}`)} />
+        : <span className="cc-attach-ico">{a.isImage ? <Image size={12} /> : <File size={12} />}</span>}
+      <span className="cc-attach-name">{a.name}</span>
+      {dims && <span className="cc-attach-meta">{dims}</span>}
+      <button type="button" className="cc-attach-x" onClick={e => { e.stopPropagation(); onRemove(); }} title="Remover anexo"><X size={12} /></button>
+    </div>
+  );
 }
 
 function Menu({ open, onClose, children, className = '' }: { open: boolean; onClose: () => void; children: ReactNode; className?: string }) {
@@ -62,9 +80,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  // Popup de imagem (Lightbox) do anexo pendente clicado — ver claude/Lightbox.tsx. Substitui o
-  // "abre em nova aba" (commit 5b445b6) pelo popup real da extensão, pedido ao vivo pelo Bayerl.
-  const [preview, setPreview] = useState<LightboxImage | null>(null);
+  // Popup/galeria de imagem (Lightbox) aberto no índice do anexo clicado — ver claude/Lightbox.tsx.
+  const [preview, setPreview] = useState<number | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
   // Ciclo de recall de mensagens (ArrowUp/ArrowDown com o cursor no início/fim do texto — ver `key`
   // abaixo e `cycleMessageIndex` em mapper.ts, que espelha `cycleMessage` do webview real).
   const [cycle, setCycle] = useState<CycleState>({ index: -1, saved: '' });
@@ -78,7 +96,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   useEffect(() => { if (text === '') setCycle({ index: -1, saved: '' }); }, [text]);
 
   // Libera as URLs de objeto ao desmontar (as de cada remoção são liberadas em removeAttachment).
-  useEffect(() => () => { attachments.forEach(a => a.url && URL.revokeObjectURL(a.url)); }, [attachments]);
+  // Só no desmontar: com [attachments] como dependência, a limpeza rodava a cada anexo novo e revogava as
+  // URLs dos anteriores (miniatura e preview quebravam). O ref guarda a lista atual para o desmontar.
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  useEffect(() => () => { attachmentsRef.current.forEach(a => a.url && URL.revokeObjectURL(a.url)); }, []);
 
   function addFiles(list: FileList | File[] | null | undefined) {
     const files = Array.from(list ?? []);
@@ -156,6 +178,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // extensão real (`let U=G?fF0(G):null`): campo vazio nunca mostra "obrigatório" sozinho, porque
   // aqui (diferente da extensão) vazio é um valor válido — "sem worktree, sessão normal".
   const worktreeNameError = worktreeName ? validateWorktreeName(worktreeName) : null;
+  const images: LightboxImage[] = attachments.filter(a => a.url).map(a => ({ src: a.url!, alt: a.name }));
   const canSend = !sending && (!!text.trim() || attachments.length > 0) && !worktreeNameError;
 
   return (
@@ -167,19 +190,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       {attachments.length > 0 && (
         <div className="cc-attach-row">
           {attachments.map(a => (
-            <div key={a.id} className={`cc-attach ${a.isImage ? 'is-image' : ''}`} title={a.name}>
-              {a.isImage && a.url
-                ? <button type="button" className="cc-attach-thumb-btn" onClick={() => setPreview({ src: a.url!, alt: a.name })} title="Ampliar imagem">
-                    <img className="cc-attach-thumb" src={a.url} alt={a.name} />
-                  </button>
-                : <span className="cc-attach-ico">{a.isImage ? <Image size={13} /> : <File size={13} />}</span>}
-              <span className="cc-attach-name">{a.name}</span>
-              <button className="cc-attach-x" onClick={() => removeAttachment(a.id)} title="Remover anexo"><X size={10} /></button>
-            </div>
+            <AttachPill key={a.id} a={a} onOpen={() => setPreview(images.findIndex(m => m.src === a.url))} onRemove={() => removeAttachment(a.id)} />
           ))}
         </div>
       )}
-      <Lightbox image={preview} onClose={() => setPreview(null)} />
+      <Lightbox images={images} index={preview} onClose={closePreview} />
       <textarea ref={ta} value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
         placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Claude está trabalhando… você pode enfileirar a próxima mensagem' : 'Escreva para o Claude. Enter envia, Shift+Enter quebra linha, Esc foca/desfoca'} />
       <div className="cc-composer-foot">

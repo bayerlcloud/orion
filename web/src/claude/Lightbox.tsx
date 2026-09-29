@@ -1,76 +1,74 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from './icons';
+import { Chevron, X } from './icons';
 
 /** Uma imagem aberta no popup — `alt` é usado como `title`/`aria-label` do diálogo. */
 export type LightboxImage = { src: string; alt: string };
 
 /**
- * Popup de visualização de imagem — pedido ao vivo do Bayerl em 28/09/2026 ("a thumbnail de
- * imagem... copia a regra, UI... do plugin de claude code pra ficar 100% igual"), substituindo o
- * "abre em nova aba" que uma sessão anterior no mesmo dia tinha implementado (commit `5b445b6`).
+ * Popup de visualização de imagem. Base copiada do preview real da extensão (`AI0`/`yw` no webview
+ * v2.1.282, classes `_vRjSkQ`; ver PARIDADE.md): Esc capturado em `document` com
+ * `stopImmediatePropagation` (não vaza pro Esc do compositor), clique no fundo fecha e na imagem não.
  *
- * Replica o componente real da extensão (`AI0`/`yw` no webview decompilado v2.1.282,
- * `/srv/orion-reference/vscode-extension/extension/webview/index.js`) — o mesmo componente que a
- * extensão usa tanto pro anexo pendente no compositor quanto pra imagem de uma mensagem já enviada
- * (achado confirmado lendo os 4 call-sites de `yw(...)` no bundle: um dentro da renderização de
- * `content.type==="image"` de uma mensagem — histórico — e dois dentro da lista de anexos pendentes
- * do compositor). Valores exatos, lidos do CSS real (`webview/index.css`, classes `_vRjSkQ`), não
- * aproximados — ver PARIDADE.md pra cada citação:
- * - `previewOverlay_vRjSkQ`: `position:fixed;inset:0;z-index:10000;background:#000000d9;
- *   display:flex;justify-content:center;align-items:center` — preto a 85% de opacidade (`d9` hex =
- *   217/255 ≈ .851), NÃO 60% como um primeiro palpite sugeriria.
- * - `previewContainer_vRjSkQ`/`previewImage_vRjSkQ`: `max-width:90vw;max-height:90vh` — a imagem (e
- *   o container que a envolve) nunca passa de 90% da viewport em nenhuma das duas dimensões; como o
- *   overlay é flex centralizado em tela cheia, sobra pelo menos ~5vw/5vh de respiro (a "moldura com
- *   padding" pedida) em volta, em qualquer proporção de imagem. `object-fit:contain` (nunca corta a
- *   imagem), `border-radius:8px`, `box-shadow:0 4px 24px #00000080` (preto a 50%, `80` hex = 128/255
- *   ≈ .502).
- * - `previewCloseButton_vRjSkQ`: botão circular 28×28, `position:absolute;top:-12px;right:-12px` —
- *   sobreposto ao canto superior direito do container, não dentro dele.
- *
- * SEM navegação entre imagens (setas, tira de miniaturas, swipe): confirmado lendo o bundle inteiro
- * que não existe — o componente real é por-anexo, cada miniatura clicada monta sua PRÓPRIA instância
- * deste overlay (sem nenhum estado de galeria/índice compartilhado, nenhuma classe -Next-/-Prev-/
- * -Arrow-/-Nav- associada). Corrige a suposição inicial do pedido (Bayerl imaginou uma galeria com
- * setas ao descrever de memória) — aqui replicamos o que a extensão real FAZ, não o que se imaginou
- * que ela fazia; ver PARIDADE.md.
- *
- * Fechar: clique no backdrop (fora do container — mesma checagem `e.target === e.currentTarget` do
- * código real, então clicar na própria imagem NUNCA fecha), no botão "X", ou Esc — capturado em
- * `document` com `capture:true` e `stopImmediatePropagation`, igual
- * ao real, pra não vazar pro handler de Esc do compositor (foca/desfoca — ver Composer.tsx) enquanto
- * o popup está aberto. Foco vai pro botão de fechar ao abrir (mesmo comportamento real); sem restaurar
- * foco ao fechar (o componente real usado pra anexos — `AI0` — também não restaura; só a variante
- * usada pra screenshot do Chrome, `kv1`, um componente DIFERENTE e não usado aqui, faz isso).
- * Renderizado via portal em `document.body` (`createPortal`, igual ao `Mh1.createPortal` real) pra
- * nunca herdar overflow/stacking de nenhum ancestral.
+ * Diferenças pedidas pelo Danilo em 29/09/2026 (a extensão real NÃO tem galeria; é escolha dele, não
+ * "corrija" de volta): fundo preto 80% com desfoque, badge "Fechar" no canto superior direito da tela,
+ * imagem com no máximo 70% da tela (15% de respiro de cada lado) e, com mais de uma imagem, galeria:
+ * setas na tela, ←/→ no teclado, deslize de dedo e tira de miniaturas embaixo.
+ * Portal dentro do `.cc` (não no body) pra herdar as variáveis de tema `--cc-*`.
  */
-export default function Lightbox({ image, onClose }: { image: LightboxImage | null; onClose: () => void }) {
+export default function Lightbox({ images, index, onClose }: { images: LightboxImage[]; index: number | null; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const touchX = useRef<number | null>(null);
+  const [i, setI] = useState(0);
+  const open = index !== null && images.length > 0;
+  const n = images.length;
+  const go = (d: number) => setI(v => (v + d + n) % n);
+
+  useEffect(() => { if (index !== null) setI(index); }, [index]);
 
   useEffect(() => {
-    if (!image) return;
+    if (!open) return;
     closeRef.current?.focus();
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-      onClose();
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); onClose(); }
+      else if (n > 1 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        setI(v => (v + (e.key === 'ArrowLeft' ? -1 : 1) + n) % n);
+      }
     }
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [image, onClose]);
+  }, [open, n, onClose]);
 
-  if (!image) return null;
+  if (!open) return null;
+  const image = images[Math.min(i, n - 1)];
   return createPortal(
-    <div className="cc-preview-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="cc-preview-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      onTouchStart={e => { touchX.current = e.touches[0].clientX; }}
+      onTouchEnd={e => {
+        const x0 = touchX.current; touchX.current = null;
+        if (x0 === null || n < 2) return;
+        const dx = e.changedTouches[0].clientX - x0;
+        if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
+      }}>
       <div className="cc-preview-container" role="dialog" aria-label={image.alt} tabIndex={-1}>
-        <img src={image.src} alt={image.alt} className="cc-preview-image" />
-        <button ref={closeRef} type="button" onClick={onClose} className="cc-preview-close" title="Fechar (Esc)">
-          <X size={16} />
-        </button>
+        <img src={image.src} alt={image.alt} className="cc-preview-image" draggable={false} />
       </div>
+      <button ref={closeRef} type="button" onClick={onClose} className="cc-preview-close" title="Fechar (Esc)">
+        <X size={12} /> Fechar
+      </button>
+      {n > 1 && <>
+        <button type="button" className="cc-preview-nav is-prev" onClick={() => go(-1)} title="Anterior (←)"><Chevron size={20} /></button>
+        <button type="button" className="cc-preview-nav is-next" onClick={() => go(1)} title="Próxima (→)"><Chevron size={20} /></button>
+        <div className="cc-preview-strip">
+          {images.map((m, k) => (
+            <button key={k} type="button" className={k === i ? 'is-on' : ''} onClick={() => setI(k)} title={m.alt}>
+              <img src={m.src} alt="" draggable={false} />
+            </button>
+          ))}
+        </div>
+      </>}
     </div>,
-    document.body,
+    document.querySelector('.cc') ?? document.body,
   );
 }
