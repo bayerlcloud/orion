@@ -2,14 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, realpath, stat, unlink } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { Runner, type Attachment, type TurnPrompt } from '../claude/runner.js';
+import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
@@ -27,6 +27,18 @@ export function claudeUploadDir(): string {
 }
 const UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB por arquivo
 const UPLOAD_MAX_FILES = 10;
+
+/**
+ * Um caminho real (já resolvido por `realpath`) está dentro de uma raiz (ou é a própria raiz)? Mesma
+ * checagem anti path-traversal usada tanto no upload (`sanitizeAttachments`, abaixo) quanto na rota
+ * que serve o anexo de volta pra miniatura do histórico (`GET /api/claude/attachments`, popup de
+ * imagem de 28/09/2026 — ver PARIDADE.md). Extraída como função pura de nível de módulo (fora de
+ * `claudeRoutes`) só pra poder testar essa regra isolada do Fastify — comportamento idêntico ao que
+ * já existia inline aqui antes desta rodada, só fatorado pra reuso + teste.
+ */
+export function isUnderRoot(real: string, root: string): boolean {
+  return real === root || real.startsWith(root + path.sep);
+}
 
 type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
 
@@ -57,7 +69,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       if (!p) return null;
       let rp: string;
       try { rp = await realpath(p); } catch { return null; }
-      if (rp !== rootReal && !rp.startsWith(rootReal + path.sep)) return null;
+      if (!isUnderRoot(rp, rootReal)) return null;
       out.push({ kind: media_type.startsWith('image/') ? 'image' : 'file', media_type, name, path: rp });
     }
     return out;
@@ -187,6 +199,33 @@ export async function claudeRoutes(app: FastifyInstance) {
     }
     if (!saved.length) return reply.code(400).send({ error: 'nenhum arquivo recebido' });
     return { attachments: saved };
+  });
+
+  /**
+   * Serve de volta um anexo de imagem já enviado — alimenta a miniatura clicável do histórico
+   * (`Attachments` em Timeline.tsx, via `attachmentImageUrl` em web/src/claude/mapper.ts) e o popup
+   * de imagem (`Lightbox.tsx`), 28/09/2026, pedido ao vivo do Bayerl pra copiar a UI/regra do popup
+   * de imagem da extensão real — ver PARIDADE.md. O arquivo já existe no servidor desde o upload
+   * (rota acima); nunca é apagado depois de usado num turno, então isso funciona mesmo pra sessões
+   * antigas (desde que o anexo tenha sido enviado depois desta rodada, com `path` persistido — ver
+   * runner.ts). `type` restrito à lista real de mídia de imagem que o SDK aceita
+   * (`IMAGE_MEDIA_TYPES`, mesma constante que `attachmentBlocks` usa pra montar o bloco `image` do
+   * turno) — nunca reflete um Content-Type arbitrário vindo da query. `path` validado com a MESMA
+   * checagem de `sanitizeAttachments` (`isUnderRoot`, acima) — path traversal continua impossível.
+   */
+  app.get<{ Querystring: { path?: string; type?: string } }>('/api/claude/attachments', async (req, reply) => {
+    const p = req.query?.path ?? '';
+    const type = req.query?.type ?? '';
+    if (!p || !(IMAGE_MEDIA_TYPES as readonly string[]).includes(type)) return reply.code(400).send({ error: 'parâmetros inválidos' });
+    let rootReal: string;
+    try { rootReal = await realpath(uploadRoot); } catch { rootReal = uploadRoot; }
+    let rp: string;
+    try { rp = await realpath(p); } catch { return reply.code(404).send({ error: 'não encontrado' }); }
+    if (!isUnderRoot(rp, rootReal)) return reply.code(403).send({ error: 'acesso negado' });
+    reply.header('Content-Type', type);
+    // Imutável: o nome do arquivo é um uuid novo por upload (nunca reescrito no mesmo caminho) — cache longo é seguro.
+    reply.header('Cache-Control', 'private, max-age=31536000, immutable');
+    return reply.send(createReadStream(rp));
   });
 
   app.post<{ Body: NewBody }>('/api/claude/sessions', async (req, reply) => {

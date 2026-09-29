@@ -236,21 +236,10 @@
 .cc-attach-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 8px; }
 .cc-attach { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; padding: 3px 6px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-bg); font-size: 12px; color: var(--cc-fg); }
 .cc-attach.is-image { padding-left: 3px; }
-.cc-attach-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; flex-shrink: 0; }
-.cc-attach-open { display: flex; flex-shrink: 0; padding: 0; border: 0; background: none; cursor: zoom-in; }
-.cc-lb { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.6); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 15vh 15vw; box-sizing: border-box; }
-.cc-lb-img { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); user-select: none; }
-.cc-lb-name { color: #ddd; font-size: 13px; }
-.cc-lb-close, .cc-lb-nav { position: absolute; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: rgba(255,255,255,.12); color: #fff; cursor: pointer; }
-.cc-lb-close:hover, .cc-lb-nav:hover { background: rgba(255,255,255,.25); }
-.cc-lb-close { top: 20px; right: 20px; width: 38px; height: 38px; }
-.cc-lb-nav { top: 50%; width: 46px; height: 46px; transform: translateY(-50%); }
-.cc-lb-nav.is-prev { left: 4vw; } .cc-lb-nav.is-prev svg { transform: scaleX(-1); }
-.cc-lb-nav.is-next { right: 4vw; }
-.cc-lb-strip { position: absolute; bottom: 3vh; display: flex; gap: 8px; max-width: 90vw; overflow-x: auto; padding: 4px; }
-.cc-lb-strip img { width: 54px; height: 54px; object-fit: cover; border-radius: 6px; cursor: pointer; opacity: .5; outline: 2px solid transparent; transition: opacity .15s; }
-.cc-lb-strip img:hover { opacity: .85; }
-.cc-lb-strip img.is-on { opacity: 1; outline-color: #fff; }
+.cc-attach-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 5px; flex-shrink: 0; display: block; }
+/* Botão da miniatura clicável (compositor E histórico — ver Lightbox.tsx) — antes era um <a
+   target="_blank"> (commit 5b445b6, abria em nova aba); substituído pelo popup de 28/09/2026. */
+.cc-attach-thumb-btn { display: flex; flex-shrink: 0; padding: 0; cursor: zoom-in; }
 .cc-attach-ico { display: inline-flex; color: var(--cc-fg2); flex-shrink: 0; }
 .cc-attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cc-attach-x { display: inline-flex; padding: 2px; border-radius: 4px; color: var(--cc-fg2); flex-shrink: 0; }
@@ -259,6 +248,19 @@
 .cc-user-text { white-space: pre-wrap; }
 .cc-user-attach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .cc-attach.is-chip { background: var(--cc-panel); }
+
+/* ===== popup de imagem (Lightbox) ===== */
+/* Replica o "preview overlay" real da extensão (webview/index.js v2.1.282, componente AI0/yw) —
+   ver Lightbox.tsx pro achado completo, citações exatas e o porquê de não ter navegação entre
+   imagens. Cores fixas (não var(--cc-*)) de propósito: o real também usa preto puro com opacidade
+   fixa via hex de 8 dígitos, não um token de tema — mesmo em tema claro. z-index bem acima de
+   qualquer coisa no app (o maior já existente é 21, dos menus do compositor) — não precisa ser
+   literalmente 10000 como no real (nada aqui chega perto disso), só maior que tudo. */
+.cc-preview-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: center; background: #000000d9; }
+.cc-preview-container { position: relative; cursor: default; max-width: 90vw; max-height: 90vh; }
+.cc-preview-image { display: block; object-fit: contain; max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 4px 24px #00000080; }
+.cc-preview-close { position: absolute; top: -12px; right: -12px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: var(--cc-bg2); border: 1px solid var(--cc-line); color: var(--cc-fg); transition: background-color .15s; }
+.cc-preview-close:hover { background: var(--cc-hover); }
 
 @media (max-width: 800px) {
   .cc { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; min-height: calc(100vh - 60px); }

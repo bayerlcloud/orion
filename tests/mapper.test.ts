@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary } from '../web/src/claude/types';
 
@@ -880,5 +880,36 @@ describe('applyPendingToolWaitStatus', () => {
     const out = applyPendingToolWaitStatus([toolEvent(), outra], ['toolu_01Rt1vpAf4CECJztM2s5gdqZ']);
     expect(out[0]).toMatchObject({ status: 'waiting' });
     expect(out[1]).toMatchObject({ status: 'running' });
+  });
+});
+
+/**
+ * URL da miniatura clicável de um anexo de imagem já enviado (Lightbox/Timeline.tsx, popup de
+ * 28/09/2026 — ver PARIDADE.md). Só devolve algo quando dá pra reconstruir de verdade a imagem a
+ * partir do que ficou persistido no evento `user_prompt` (kind + path + media_type); sem isso (kind
+ * 'file', ou um anexo persistido ANTES desta rodada — sem `path`/`media_type`) devolve undefined e
+ * quem chama cai pro chip só com ícone/nome de sempre, sem link nenhum — nunca um <img> quebrado.
+ */
+describe('attachmentImageUrl', () => {
+  it('imagem com path e media_type: monta a URL do endpoint de anexos com os dois como query', () => {
+    const url = attachmentImageUrl({ kind: 'image', media_type: 'image/png', path: '/srv/claude-uploads/1/x-foto.png' });
+    expect(url).toBe('/api/claude/attachments?path=%2Fsrv%2Fclaude-uploads%2F1%2Fx-foto.png&type=image%2Fpng');
+  });
+
+  it('kind "file": nunca gera URL, mesmo com path/media_type presentes', () => {
+    expect(attachmentImageUrl({ kind: 'file', media_type: 'application/pdf', path: '/u/a.pdf' })).toBeUndefined();
+  });
+
+  it('sem path (anexo persistido antes desta rodada, só metadados): undefined', () => {
+    expect(attachmentImageUrl({ kind: 'image', media_type: 'image/png' })).toBeUndefined();
+  });
+
+  it('sem media_type: undefined (o endpoint exige "type" pra restringir o Content-Type servido)', () => {
+    expect(attachmentImageUrl({ kind: 'image', path: '/u/a.png' })).toBeUndefined();
+  });
+
+  it('escapa caracteres especiais no caminho (espaço, acento)', () => {
+    const url = attachmentImageUrl({ kind: 'image', media_type: 'image/jpeg', path: '/srv/claude-uploads/2/x-foto café.jpg' });
+    expect(url).toBe('/api/claude/attachments?path=%2Fsrv%2Fclaude-uploads%2F2%2Fx-foto%20caf%C3%A9.jpg&type=image%2Fjpeg');
   });
 });

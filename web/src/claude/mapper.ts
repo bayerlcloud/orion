@@ -747,3 +747,23 @@ export function cycleMessageIndex(direction: -1 | 1, state: CycleState, history:
   if (state.index > 0) return { index: state.index - 1, saved: state.saved, text: history[state.index - 1] };
   return { index: -1, saved: state.saved, text: state.saved };
 }
+
+/**
+ * URL pra buscar de volta a imagem de um anexo já enviado — alimenta a miniatura clicável do
+ * histórico (`Attachments` em Timeline.tsx) e o popup de imagem (`Lightbox.tsx`, 28/09/2026, pedido
+ * ao vivo do Bayerl: "a thumbnail de imagem... copia a regra, UI... do plugin de claude code pra
+ * ficar 100% igual" — ver PARIDADE.md pro achado completo no webview decompilado da extensão real).
+ * Só imagens: `kind !== 'image'`, ou faltando `path`/`media_type` (anexo persistido ANTES desta
+ * rodada, quando a nota compacta só guardava kind/name/media_type — ver `UserAttachment` em
+ * types.ts), devolve `undefined` — quem chama cai pro chip de sempre (ícone + nome, sem link), nunca
+ * um `<img>` quebrado apontando pra uma URL sem sentido. O arquivo em si já existe no servidor desde
+ * o upload (`server/routes/claude.ts`, endpoint `POST /api/claude/uploads` salva em
+ * `<uploadRoot>/<user_id>/<uuid>-<nome>` e NUNCA apaga depois de usado num turno) — só faltava uma
+ * rota pra servir de volta; `GET /api/claude/attachments` (mesmo arquivo) é essa rota, `type` restrito
+ * à lista real de mídia de imagem que o SDK aceita (`IMAGE_MEDIA_TYPES`, mesma constante de
+ * `attachmentBlocks` em runner.ts) pra nunca refletir um Content-Type arbitrário vindo da query.
+ */
+export function attachmentImageUrl(a: { kind: 'image' | 'file'; media_type?: string; path?: string }): string | undefined {
+  if (a.kind !== 'image' || !a.path || !a.media_type) return undefined;
+  return `/api/claude/attachments?path=${encodeURIComponent(a.path)}&type=${encodeURIComponent(a.media_type)}`;
+}

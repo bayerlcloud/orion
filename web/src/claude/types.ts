@@ -10,8 +10,17 @@ export type ToolStatus = 'running' | 'waiting' | 'success' | 'failure' | 'warnin
 export type AskOption = { label: string; description?: string };
 export type AskQuestion = { header?: string; question: string; multiSelect?: boolean; options: AskOption[] };
 
-/** Anexo de uma mensagem do usuário, como a tela o exibe (só metadados; os bytes ficam no servidor). */
-export type UserAttachment = { kind: 'image' | 'file'; name: string; media_type?: string };
+/**
+ * Anexo de uma mensagem do usuário, como a tela o exibe. `path` (novo, 28/09/2026 — popup de
+ * imagem/Lightbox, ver PARIDADE.md): caminho absoluto no servidor do arquivo já salvo pelo endpoint
+ * de upload (nunca apagado depois de enviado) — junto com `media_type`, alimenta
+ * `attachmentImageUrl` (mapper.ts), que monta a URL de `GET /api/claude/attachments` pra buscar a
+ * imagem de volta e mostrar a miniatura clicável no histórico (Timeline.tsx). Ausente em anexos
+ * persistidos ANTES desta rodada, ou em anexos não-imagem — nesse caso a tela cai pro chip só com
+ * ícone/nome de sempre, sem link. Os bytes em si nunca trafegam por aqui; só o suficiente pra montar
+ * a URL de busca.
+ */
+export type UserAttachment = { kind: 'image' | 'file'; name: string; media_type?: string; path?: string };
 
 export type ConvEvent =
   | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[] }
