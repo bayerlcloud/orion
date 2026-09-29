@@ -151,13 +151,13 @@
    do `.message_07S1Yg.stickyHeader_07S1Yg` do plugin (Antigravity 2.1.165, /srv/orion-reference). O
    sticky vale dentro do `.cc-turn` dela, então o turno seguinte empurra e toma o lugar. */
 .cc-user-row.is-sticky { position: sticky; top: -20px; z-index: 2; margin: 0 -20px 4px; padding: 14px 20px 12px; background-image: linear-gradient(to bottom, var(--cc-bg) calc(100% - 12px), transparent 100%); }
-.cc-user-avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
+.cc-user-avatar { position: relative; width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.cc-user-name { font-size: 12px; font-weight: 600; color: var(--cc-fg); line-height: 26px; margin-top: -2px; }
+.cc-user-name { font-size: 12px; font-weight: 600; color: var(--cc-fg); line-height: 22px; }
 /* Card da mensagem do usuário: largura toda, fundo mais escuro que a tela e avatar dentro (pedido do
    Danilo em 30/09/2026). Grid: avatar numa coluna, nome e texto na outra, alinhados. */
-.cc-user { --user-bg: color-mix(in srgb, var(--cc-bg) 78%, #000); display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 10px; position: relative; width: 100%; min-width: 0; border: 1px solid color-mix(in srgb, var(--cc-line) 70%, transparent); background: var(--user-bg); border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; overflow: hidden; user-select: text; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent); }
-.cc-user.has-avatar { grid-template-columns: 26px minmax(0, 1fr); }
+.cc-user { --user-bg: color-mix(in srgb, var(--cc-bg) 78%, #000); display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 10px; position: relative; width: 100%; min-width: 0; border: 1px solid color-mix(in srgb, var(--cc-line) 70%, transparent); background: var(--user-bg); border-radius: 10px; padding: 10px 12px 14px; white-space: pre-wrap; word-break: break-word; overflow: hidden; user-select: text; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent); }
+.cc-user.has-avatar { grid-template-columns: 22px minmax(0, 1fr); }
 .cc-user-body { min-width: 0; }
 /* qH0 (maxHeight 60) + expandableContainer_xGDvVg */
 .cc-user-expandable { display: flex; flex-direction: column; gap: 4px; position: relative; }
@@ -299,7 +299,7 @@
 .cc-todo-content { word-break: break-word; overflow-wrap: break-word; display: block; flex: 1; min-width: 0; color: var(--cc-fg); }
 .cc-todo-item.is-completed .cc-todo-content { text-decoration: line-through; color: var(--cc-fg2); opacity: .7; }
 .cc-task .cc-tool-name { color: var(--cc-fg); }
-.cc-user-avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
+.cc-user-avatar { position: relative; width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 @keyframes cc-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes cc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }

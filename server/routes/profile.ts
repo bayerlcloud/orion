@@ -151,6 +151,16 @@ export async function profileRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Nome completo (nome + sobrenome) por primeiro nome, para o card de mensagem do chat, que só recebe
+  // o prefixo "[Nome]". Qualquer usuário logado lê (só nomes, nada sensível).
+  app.get('/api/profile/display-names', async (req, reply) => {
+    if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
+    const { rows } = await app.pool.query<{ name: string; surname: string | null }>('SELECT name, surname FROM users ORDER BY id');
+    const names: Record<string, string> = {};
+    for (const r of rows) { const k = r.name.toLowerCase(); if (!names[k]) names[k] = [r.name, r.surname].filter(Boolean).join(' '); }
+    return { names };
+  });
+
   // Avatar pelo nome do prefixo "[Nome]" das mensagens do chat; redireciona para a rota por id.
   app.get<{ Params: { name: string } }>('/api/profile/avatar/by-name/:name', async (req, reply) => {
     const { rows } = await app.pool.query<{ id: number }>(
