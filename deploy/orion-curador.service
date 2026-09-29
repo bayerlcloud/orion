@@ -6,8 +6,9 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=danilo
-WorkingDirectory=/srv/orion
+WorkingDirectory=/srv/orion-live
+Environment=ORION_REPO=/srv/orion
 EnvironmentFile=/etc/orion/central.env
-ExecStart=/usr/bin/node /srv/orion/dist/server/curador/run.js
+ExecStart=/usr/bin/node /srv/orion-live/dist/server/curador/run.js
 TimeoutStartSec=900
 Nice=10

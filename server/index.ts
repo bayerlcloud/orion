@@ -19,6 +19,7 @@ import { profileRoutes } from './routes/profile.js';
 import { tasksRoutes } from './routes/tasks.js';
 import { toolsRoutes } from './routes/tools.js';
 import { curadoriaRoutes } from './routes/curadoria.js';
+import { deployRoutes } from './routes/deploy.js';
 
 declare module 'fastify' {
   interface FastifyInstance { pool: Pool; repoDir: string; runner: import('./claude/runner.js').Runner }
@@ -62,6 +63,7 @@ async function main() {
   await app.register(tasksRoutes);
   await app.register(toolsRoutes);
   await app.register(curadoriaRoutes);
+  await app.register(deployRoutes);
 
   // wildcard: true = lê o disco a cada pedido. Com false, só os arquivos que existiam no boot tinham
   // rota: um `npm run build` sem restart deixava o index.html novo apontando pra assets sem rota

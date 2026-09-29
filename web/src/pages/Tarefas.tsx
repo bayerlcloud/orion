@@ -180,6 +180,12 @@ export default function Tarefas({ user }: { user: User }) {
     await patch(id, { status, position });
   }
 
+  const [publicando, setPublicando] = useState(false);
+  async function publicar() {
+    setPublicando(true);
+    try { const r = await api<{ aviso: string }>('/api/deploy', { method: 'POST', body: JSON.stringify({ ref: 'main' }) }); flash('ok', `Deploy: ${r.aviso}`); }
+    catch (e: any) { flash('bad', e.message); } finally { setPublicando(false); }
+  }
   async function integrar(id: number) {
     setIntegrating(true);
     try {
@@ -404,6 +410,11 @@ export default function Tarefas({ user }: { user: User }) {
             <button className="tk-btn" onClick={() => verDiff(selected.id)} disabled={!selected.worktree_path}>
               Ver diff
             </button>
+            {user.role === 'owner' && selected.integration_status === 'integrada' && (
+              <button className="tk-btn tk-primary" onClick={() => publicar()} disabled={publicando} title="Pede o build da main (fila, testes, troca com rollback)">
+                {publicando ? <span className="tk-spin" /> : null} Publicar
+              </button>
+            )}
             {user.role === 'owner' && (
               <button className="tk-btn tk-danger" onClick={() => excluir(selected.id)}>
                 Excluir
