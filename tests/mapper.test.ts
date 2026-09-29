@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, hookBlockReason, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, hookBlockReason, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -841,9 +841,9 @@ describe('SPINNER_WORDS', () => {
     expect(SPINNER_WORDS.every(w => !w.includes(' '))).toBe(true);
   });
   it('inclui as palavras citadas no pedido original (achadas de verdade no bundle, não inventadas)', () => {
-    expect(SPINNER_WORDS).toContain('Pondering');
-    expect(SPINNER_WORDS).toContain('Marinating');
-    expect(SPINNER_WORDS).toContain('Percolating');
+    expect(SPINNER_WORDS).toContain('Ponderando');
+    expect(SPINNER_WORDS).toContain('Marinando');
+    expect(SPINNER_WORDS).toContain('Percolando');
   });
 });
 
@@ -1333,5 +1333,32 @@ describe('prompt bloqueado por hook UserPromptSubmit (system com prevent_continu
   });
   it('hookBlockReason sem o separador tira só o prefixo', () => {
     expect(hookBlockReason('UserPromptSubmit operation blocked by hook: motivo')).toBe('motivo');
+  });
+});
+
+describe('thinking com duração + ferramenta que não terminou (sessão parada)', () => {
+  it('thinking ganha durationMs = distância pro instante (_when) da mensagem anterior', () => {
+    const ev = reduceSdkMessages([
+      { type: 'user', message: { content: 'oi' }, _when: 1000 } as any,
+      { type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'hmm' }] }, _when: 21_400 } as any,
+    ]);
+    expect(ev[1].kind === 'thinking' && ev[1].durationMs).toBe(20_400);
+  });
+  it('sem _when não inventa duração', () => {
+    const ev = reduceSdkMessages([{ type: 'assistant', message: { content: [{ type: 'thinking', thinking: 'hmm' }] } }]);
+    expect(ev[0].kind === 'thinking' && ev[0].durationMs).toBeUndefined();
+  });
+  it('thinkingLabel: Pensando… enquanto streama, Pensou por Xs depois', () => {
+    expect(thinkingLabel(true, 5000)).toBe('Pensando…');
+    expect(thinkingLabel(false, 20_000)).toBe('Pensou por 20 s');
+    expect(thinkingLabel(false)).toBe('Pensou');
+  });
+  it('markUnfinishedTools: sessão idle + ferramenta sem resposta vira aviso com explicação; rodando não mexe', () => {
+    const tool = reduceSdkMessages([{ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'sleep 9' } }] } }]);
+    const parado = markUnfinishedTools(tool, 'idle')[0];
+    expect(parado.kind === 'tool' && parado.status).toBe('warning');
+    expect(parado.kind === 'tool' && parado.output).toBe(TOOL_NAO_TERMINOU);
+    expect(markUnfinishedTools(tool, 'running')[0]).toBe(tool[0]);
+    expect(markUnfinishedTools(tool, 'waiting')[0]).toBe(tool[0]);
   });
 });

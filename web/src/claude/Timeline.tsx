@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
+import { formatCost, formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
@@ -46,8 +46,9 @@ function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
   return (
     <details className={`cc-thinking ${e.streaming ? 'is-streaming' : ''}`}>
       <summary>
-        <span>{e.streaming ? 'Pensando...' : 'Pensou'}</span>
-        {e.streaming && tokens > 0 && <span className="cc-thinking-tokens"> · {formatTokens(tokens)}</span>}
+        <span>{thinkingLabel(!!e.streaming, e.durationMs)}</span>
+        {tokens > 0 && <span className="cc-thinking-tokens"> · {formatTokens(tokens)} tokens</span>}
+        <Chevron size={10} className="cc-chev" />
       </summary>
       <div className="cc-thinking-body">{e.text}</div>
     </details>
