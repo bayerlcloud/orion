@@ -267,18 +267,10 @@ export function alertasDe(f: Omit<Ficha, 'alertas'>): Alerta[] {
   return a;
 }
 
-export function quemMexeu(
-  commit: { autor: string; quando: string; sha: string } | null,
-  sessao: { quem: string; quando: string; title: string } | null,
-): Ficha['ultimo_mexeu'] {
-  const ms = (iso: string) => new Date(iso).getTime();
-  if (sessao && (!commit || ms(sessao.quando) >= ms(commit.quando) - 2 * 3_600_000)) {
-    const commitDepois = commit && ms(commit.quando) > ms(sessao.quando);
-    return commitDepois
-      ? { quem: sessao.quem, quando: new Date(commit!.quando).toISOString(), onde: `commit ${commit!.sha} (sessão "${sessao.title}")` }
-      : { quem: sessao.quem, quando: sessao.quando, onde: `sessão "${sessao.title}"` };
-  }
-  return commit ? { quem: `${commit.autor} (via git)`, quando: new Date(commit.quando).toISOString(), onde: `commit ${commit.sha}` } : null;
+/** Último a mexer = pessoa (login do painel) da sessão do Claude mais recente. O git não entra: o autor dele
+ *  é a identidade compartilhada da c3 ("Bayerl", "Danilo Bayerl"...), não diz quem foi. */
+export function quemMexeu(sessao: { quem: string; quando: string; title: string } | null): Ficha['ultimo_mexeu'] {
+  return sessao ? { quem: sessao.quem, quando: sessao.quando, onde: `sessão "${sessao.title}"` } : null;
 }
 
 export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Ficha[]> {
@@ -288,16 +280,16 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
     readdir(path.join(os.homedir(), 'backups')).then(ns => Promise.all(ns.filter(n => /^orion.*\.dump$/.test(n)).map(n => mtime(path.join(os.homedir(), 'backups', n))))).catch(() => []),
   ]);
   const { rows: sess } = await pool.query(
-    `SELECT s.id, s.project_id, s.title, s.status, s.updated_at, u.name AS quem, (s.input_tokens + s.output_tokens)::float AS tokens
+    `SELECT s.id, s.project_id, s.title, s.status, s.updated_at, trim(u.name || ' ' || coalesce(u.surname, '')) AS quem, (s.input_tokens + s.output_tokens)::float AS tokens
        FROM claude_sessions s JOIN users u ON u.id = s.user_id WHERE s.project_id IS NOT NULL ORDER BY s.updated_at DESC`);
   // ponytail: tokens acumulados da sessão caem na janela da última atualização; tokens por turno só se precisar de precisão.
   const { rows: tok } = await pool.query(
-    `SELECT s.project_id, u.name AS quem,
+    `SELECT s.project_id, trim(u.name || ' ' || coalesce(u.surname, '')) AS quem,
             sum(s.input_tokens + s.output_tokens) FILTER (WHERE s.updated_at > now() - interval '7 days')::float AS t7,
             sum(s.input_tokens + s.output_tokens) FILTER (WHERE s.updated_at > now() - interval '30 days')::float AS t30
        FROM claude_sessions s JOIN users u ON u.id = s.user_id WHERE s.project_id IS NOT NULL GROUP BY 1, 2`);
   const { rows: tar } = await pool.query(
-    `SELECT t.id, t.project_id, t.title, t.status, t.integration_status AS integracao, u.name AS quem, t.updated_at AS quando
+    `SELECT t.id, t.project_id, t.title, t.status, t.integration_status AS integracao, trim(u.name || ' ' || coalesce(u.surname, '')) AS quem, t.updated_at AS quando
        FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
       WHERE t.status NOT IN ('feito','arquivada') OR t.integration_status IN ('pendente','conflito','testes_falharam')
       ORDER BY t.updated_at`).catch(() => ({ rows: [] as any[] }));
@@ -324,12 +316,7 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
     const sessoesP = sess.filter(s => s.project_id === p.id);
     const tarefas = tar.filter(t => t.project_id === p.id).map(t => ({ id: t.id, title: t.title, status: t.status, integracao: t.integracao, quem: t.quem, quando: new Date(t.quando).toISOString() }));
 
-    // Último a mexer. O autor do git é a identidade compartilhada da c3 ("Bayerl", "Danilo Bayerl"...), não a
-    // pessoa: commit feito pelo Orion sai com esse nome seja quem for. Por isso a pessoa vem da sessão do Claude;
-    // o autor do git só aparece (marcado "via git") quando não há sessão até 2 h antes do commit.
-    const ultimo_mexeu = quemMexeu(
-      g?.ultimo ? { autor: g.ultimo.autor, quando: g.ultimo.quando, sha: g.ultimo.sha } : null,
-      sessoesP[0] ? { quem: sessoesP[0].quem, quando: new Date(sessoesP[0].updated_at).toISOString(), title: sessoesP[0].title } : null);
+    const ultimo_mexeu = quemMexeu(sessoesP[0] ? { quem: sessoesP[0].quem, quando: new Date(sessoesP[0].updated_at).toISOString(), title: sessoesP[0].title } : null);
 
     // Deploy: Cloudflare Pages com o mesmo nome/repo, ou a fila do próprio Orion.
     // Mesmo nome pode existir em mais de uma conta (ex.: cópia velha do ralab na conta brandspace): vale o deploy mais recente.

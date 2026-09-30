@@ -30,11 +30,8 @@ describe('coletor de projetos', () => {
     expect(servidorDoIp('104.21.64.218')).toBe('Cloudflare');
   });
 
-  it('quem mexeu: pessoa da sessão, autor do git só sem sessão perto', () => {
-    const c = { autor: 'Bayerl', quando: '2026-09-30T12:00:00Z', sha: 'abc' };
-    expect(quemMexeu(c, { quem: 'Laís', quando: '2026-09-30T11:00:00Z', title: 't' })).toMatchObject({ quem: 'Laís', quando: '2026-09-30T12:00:00.000Z' });
-    expect(quemMexeu(c, { quem: 'Laís', quando: '2026-09-29T11:00:00Z', title: 't' })?.quem).toBe('Bayerl (via git)');
-    expect(quemMexeu(null, { quem: 'Gustavo', quando: '2026-09-29T11:00:00Z', title: 't' })?.quem).toBe('Gustavo');
-    expect(quemMexeu(null, null)).toBeNull();
+  it('quem mexeu: só a pessoa da sessão, nada de git', () => {
+    expect(quemMexeu({ quem: 'Laís Souza', quando: '2026-09-30T11:00:00Z', title: 't' })).toEqual({ quem: 'Laís Souza', quando: '2026-09-30T11:00:00Z', onde: 'sessão "t"' });
+    expect(quemMexeu(null)).toBeNull();
   });
 });
