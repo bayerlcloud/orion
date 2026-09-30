@@ -144,8 +144,10 @@ export default function ClaudePage() {
         setSessions(sessRes.value.sessions);
         if (uiRes.status === 'fulfilled') {
           const validIds = new Set(sessRes.value.sessions.map(s => s.id));
-          setTabs(uiRes.value.tabs.filter(id => validIds.has(id)).map(id => ({ id })));
-          setActiveId(uiRes.value.active_id && validIds.has(uiRes.value.active_id) ? uiRes.value.active_id : null);
+          const restored = uiRes.value.tabs.filter(id => validIds.has(id));
+          setTabs(restored.map(id => ({ id })));
+          // Sem aba ativa salva (ou ela sumiu): abre a última aba, nunca o chat vazio com abas abertas.
+          setActiveId(uiRes.value.active_id && validIds.has(uiRes.value.active_id) ? uiRes.value.active_id : (restored.at(-1) ?? null));
         }
       } else {
         falha(sessRes.reason);
