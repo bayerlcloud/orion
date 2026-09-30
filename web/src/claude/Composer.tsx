@@ -166,7 +166,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   commands?: SlashCommandInfo[];
   /** Id da sessão ativa — só pra saber quando trocou de aba e sair de um ciclo de recall em andamento. */
   sessionId?: string;
-  projects?: Project[]; projectId?: number; onProject?: (id: number) => void;
+  projects?: Project[]; projectId?: number | null; onProject?: (id: number | null) => void;
   /**
    * "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14, botão
    * `createWorktreeButton`/painel `worktreeInput*` da extensão real). Só faz sentido junto com
@@ -459,8 +459,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         {sending && <span className="cc-pill cc-pill-ghost cc-attach-status">enviando anexos…</span>}
         {elapsed && <span className="cc-foot-btn is-static"><Clock size={14} /><span>{elapsed}</span></span>}
         {projects && onProject && (
-          <select className="cc-pill cc-select" value={projectId ?? ''} onChange={e => onProject(Number(e.target.value))} title="Projeto da nova sessão">
+          <select className="cc-pill cc-select" value={projectId ?? ''} onChange={e => onProject(e.target.value ? Number(e.target.value) : null)} title="Projeto da nova sessão">
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value="">Neutro</option>
           </select>
         )}
         {/*
@@ -473,7 +474,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           `cc-menu-item` já usado pelos seletores de Modelo/Esforço/Modo (copiado literalmente, sem
           inventar interação nova).
         */}
-        {projects && onProject && onWorktreeName && (
+        {projects && onProject && onWorktreeName && projectId != null && (
           <div className="cc-pop">
             <button type="button" className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'worktree' ? '' : 'worktree')} title="Criar esta sessão num novo git worktree">
               <GitBranch size={12} /> {worktreeName || 'Worktree'}

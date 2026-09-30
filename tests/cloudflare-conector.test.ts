@@ -40,3 +40,10 @@ describe('contas Cloudflare (conector simples)', () => {
     expect(buildSystemAppend({ projectName: 'p', projectPath: '/p', createdBy: 'Danilo', cloudflare: [] })).not.toContain('Contas Cloudflare');
   });
 });
+
+describe('cabeçalho da sessão neutra', () => {
+  it('sessão sem projeto se apresenta como neutra; com projeto avisa que o projeto não muda', () => {
+    expect(buildSystemAppend({ projectName: null, projectPath: '/home/danilo/neutro', createdBy: 'Danilo' })).toContain('sessão neutra, sem projeto');
+    expect(buildSystemAppend({ projectName: 'Orion', projectPath: '/srv/orion', createdBy: 'Danilo' })).toContain('O projeto de uma sessão não muda');
+  });
+});

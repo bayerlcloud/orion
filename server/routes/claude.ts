@@ -80,7 +80,7 @@ export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now
   return now.getTime() - lastTs.getTime() > 10 * 60_000;
 }
 
-type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
+type NewBody = { project_id?: number | null; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
 
 export async function claudeRoutes(app: FastifyInstance) {
   const store = pgStore(app.pool);
@@ -97,6 +97,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   // Pasta de anexos e upload em streaming, escopado a este plugin (@fastify/multipart é fastify-plugin, sobe só até aqui).
   const uploadRoot = claudeUploadDir();
+  const neutroDir = process.env.ORION_NEUTRO_DIR ?? path.join(homedir(), 'neutro');
   await mkdir(uploadRoot, { recursive: true })
     .catch((e: NodeJS.ErrnoException) => app.log.warn(`CLAUDE_UPLOAD_DIR ${uploadRoot} não pôde ser criado: ${e.message}`));
   await app.register(multipart, { limits: { fileSize: UPLOAD_MAX_BYTES, files: UPLOAD_MAX_FILES, fields: 4 }, throwFileSizeLimit: false });
@@ -133,7 +134,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const eff = resolveUltracode(effort);
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget,
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
 
@@ -324,9 +325,16 @@ export async function claudeRoutes(app: FastifyInstance) {
     const b = req.body ?? {};
     const prompt = (b.prompt ?? '').trim();
     if (!prompt) return reply.code(400).send({ error: 'prompt vazio' });
-    const { rows: prow } = await app.pool.query('SELECT id, name, path, rules FROM projects WHERE id = $1', [b.project_id ?? 1]);
-    const project = prow[0];
-    if (!project) return reply.code(400).send({ error: 'projeto não existe' });
+    // Sem project_id = sessão neutra: pasta própria fora de qualquer repositório, sem memória de projeto.
+    let project: { id: number | null; name: string | null; path: string; rules: string | null };
+    if (b.project_id == null) {
+      await mkdir(neutroDir, { recursive: true });
+      project = { id: null, name: null, path: neutroDir, rules: null };
+    } else {
+      const { rows: prow } = await app.pool.query('SELECT id, name, path, rules FROM projects WHERE id = $1', [b.project_id]);
+      if (!prow[0]) return reply.code(400).send({ error: 'projeto não existe' });
+      project = prow[0];
+    }
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
     // Valor de fio (pode ser 'ultracode') — persistido como está; traduzido pro SDK logo abaixo.

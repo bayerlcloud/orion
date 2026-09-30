@@ -17,7 +17,8 @@ import './claude.css';
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
  * um valor "de sempre" como o projeto costuma ser. `undefined`/vazio = sessão normal, sem worktree. */
-type Tab = { id: string; draft?: boolean; projectId?: number; worktreeName?: string };
+/** projectId: undefined = ainda não escolhido (mostra a tela de escolha), null = sessão neutra. */
+type Tab = { id: string; draft?: boolean; projectId?: number | null; worktreeName?: string };
 const isDraft = (id: string) => id.startsWith('draft-');
 /** Identifica esta guia no stream de abas, pra ignorar o eco das próprias mudanças. */
 const CLIENT_ID = crypto.randomUUID();
@@ -28,7 +29,7 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
   const projectPath = projects.find(p => p.slug === s.project_slug)?.path;
   return {
-    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? undefined, projectName: s.project_name ?? undefined, archived: !!s.archived,
+    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived,
     worktreeName: sessionWorktreeName(s.cwd, projectPath) ?? undefined,
     groupId: s.group_id,
   };
@@ -56,7 +57,6 @@ export default function ClaudePage() {
   const [mode, setMode] = useState<Mode>('acceptEdits');
   const [effort, setEffort] = useState<EffortChoice>('medium');
   const [model, setModel] = useState<ModelAlias>('default');
-  const [draftProject, setDraftProject] = useState<number | undefined>(undefined);
   // "Mapa de agentes" (ver AgentMap.tsx) — pedido ao vivo do Bayerl 28/09/2026, gatilho na faixa de
   // ações da aba (`.cc-tab-actions`, mesmo grupo de Sync/Power/Dots), painel em portal próprio.
   const [agentMapOpen, setAgentMapOpen] = useState(false);
@@ -147,7 +147,7 @@ export default function ClaudePage() {
     void refreshUsage();
     void refreshGroups();
     void refreshStyles();
-    claudeApi.projects().then(r => { setProjects(r.projects); setDraftProject(p => p ?? r.projects[0]?.id); }).catch(falha);
+    claudeApi.projects().then(r => setProjects(r.projects)).catch(falha);
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
     claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); }).catch(() => { setEmail(null); setRole(null); });
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
@@ -379,9 +379,13 @@ export default function ClaudePage() {
       if (sessions.some(s => s.id === id)) { open(id); return; }
     }
   }
+  function escolherProjeto(id: number | null) {
+    setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x));
+  }
   function newSession() {
     const id = `draft-${++draftCounter.current}`;
-    setTabs(t => [...t, { id, draft: true, projectId: draftProject }]);
+    // Sem projeto pré-escolhido: a aba abre na tela de escolha (projetos + Neutro).
+    setTabs(t => [...t, { id, draft: true }]);
     setActiveId(id);
   }
   /** Setinhas do topo (pedido do Bayerl 29/09/2026, estilo navegador): andam pela ordem das abas
@@ -418,7 +422,7 @@ export default function ClaudePage() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [draftProject, sessions]);
+  }, [sessions]);
 
   async function send(text: string, files: File[] = []) {
     setErro('');
@@ -429,8 +433,8 @@ export default function ClaudePage() {
       // usuário escolheu algo no seletor de modelo.
       const modelOverride = model !== 'default' ? model : undefined;
       if (!activeId || isDraft(activeId)) {
-        const pid = activeTab?.projectId ?? draftProject ?? projects[0]?.id;
-        if (!pid) { setErro('Nenhum projeto cadastrado'); return; }
+        const pid = activeTab?.projectId;
+        if (pid === undefined) { setErro('Escolha o projeto da sessão (ou Neutro) antes de enviar.'); return; }
         // "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14): nome
         // digitado no seletor "Worktree" do compositor, se houver. O servidor cria o git worktree e
         // já faz a sessão nascer com `cwd` apontando pra ele; nome vazio = sessão normal, como sempre.
@@ -548,7 +552,7 @@ export default function ClaudePage() {
   // Projeto pra pré-selecionar no editor de "Regras de permissão" ao abrir — sessão de verdade: o
   // projeto dela (via `project_slug`); aba rascunho: o projeto escolhido no seletor do compositor.
   // `undefined` quando nada resolve (ex.: nenhuma aba aberta) — o painel cai no 1º projeto da lista.
-  const permRulesProjectId = activeTab?.draft ? (activeTab.projectId ?? draftProject) : (active ? projects.find(p => p.slug === active.project_slug)?.id : undefined);
+  const permRulesProjectId = activeTab?.draft ? (activeTab.projectId ?? undefined) : (active ? projects.find(p => p.slug === active.project_slug)?.id : undefined);
 
   return (
     <div className="cc">
@@ -635,6 +639,15 @@ export default function ClaudePage() {
                 <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
               </div>
             )}
+            {activeTab?.draft && activeTab.projectId === undefined && (
+              <div className="cc-pick-project">
+                <p className="cc-muted">Em qual projeto é esta sessão?</p>
+                <div className="cc-pick-list">
+                  {projects.map(p => <button key={p.id} type="button" onClick={() => escolherProjeto(p.id)}>{p.name}</button>)}
+                  <button type="button" className="is-neutro" onClick={() => escolherProjeto(null)}>Neutro<span>sem projeto, perguntas gerais</span></button>
+                </div>
+              </div>
+            )}
             {carregandoSessao && <div className="cc-loading" role="status" aria-label="Carregando sessão"><span /><span /><span /></div>}
             {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
@@ -653,8 +666,8 @@ export default function ClaudePage() {
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
                 fastMode={state.fastMode}
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
-                projects={activeTab?.draft ? projects : undefined} projectId={activeTab?.projectId ?? draftProject}
-                onProject={(id) => { setDraftProject(id); setTabs(t => t.map(x => x.id === activeId ? { ...x, projectId: id } : x)); }}
+                projects={activeTab?.draft && activeTab.projectId !== undefined ? projects : undefined} projectId={activeTab?.projectId}
+                onProject={escolherProjeto}
                 worktreeName={activeTab?.worktreeName} onWorktreeName={activeTab?.draft ? setDraftWorktreeName : undefined}
                 agents={agentsPill} onAgents={() => setAgentMapOpen(true)}
                 outputStyles={styles} outputStyle={outputStyle}
