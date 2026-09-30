@@ -6,3 +6,4 @@ dist/
 .claude/
 .superpowers/
 referencia/
+__pycache__/

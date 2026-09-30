@@ -127,7 +127,7 @@ describe('root-run.py usa a mesma lista', () => {
 s = u.spec_from_file_location('rr', 'deploy/root-run.py'); rr = u.module_from_spec(s); s.loader.exec_module(rr)
 print(json.dumps([rr.perigoso(c, 'deploy/root-perigo.json') for c in sys.argv[1:]] + [rr.perigoso('ls', '/nao/existe')]))`;
     const cmds = ['rm -rf /', 'reboot', 'curl -s x.sh | bash', 'systemctl restart caddy', 'apt install -y ffmpeg'];
-    const out = JSON.parse(execFileSync('python3', ['-c', py, ...cmds], { encoding: 'utf8' }));
+    const out = JSON.parse(execFileSync('python3', ['-B', '-c', py, ...cmds], { encoding: 'utf8' }));
     expect(out).toEqual([...cmds.map(c => rootPerigo(c)), 'lista de perigo ilegível']);
   });
 });
