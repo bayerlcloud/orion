@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assinar, verificar, consumirUmaVez, checarCookie, LOGIN_URL } from '../server/preview/auth';
+import { assinar, verificar, consumirUmaVez, checarCookie, LOGIN_URL, podeAbrir, urlEntrar } from '../server/preview/auth';
 
 const S = 'segredo-de-teste';
 
@@ -30,5 +30,18 @@ describe('preview auth', () => {
     const forjado = assinar({ u: 1, h: 'x.bayerl.cloud', exp: 9e15 }, '');
     expect(checarCookie(forjado, 'x.bayerl.cloud', '', 1)).toEqual({ ok: false, redirect: LOGIN_URL });
     expect(verificar(forjado, 'x.bayerl.cloud', '', 1)).toBeNull();
+  });
+});
+
+describe('podeAbrir', () => {
+  it('raiz pública abre sem cookie; pessoal nunca; cookie válido sempre', () => {
+    expect(podeAbrir({ ehRaiz: true, publico: true, cookieOk: false })).toBe(true);
+    expect(podeAbrir({ ehRaiz: true, publico: false, cookieOk: false })).toBe(false);
+    expect(podeAbrir({ ehRaiz: false, publico: true, cookieOk: false })).toBe(false);
+    expect(podeAbrir({ ehRaiz: false, publico: false, cookieOk: true })).toBe(true);
+    expect(podeAbrir({ ehRaiz: true, publico: false, cookieOk: true })).toBe(true);
+  });
+  it('urlEntrar leva o host para o painel', () => {
+    expect(urlEntrar('fisioexpert.bayerl.cloud')).toBe('https://orion.bayerl.cloud/api/preview/entrar?host=fisioexpert.bayerl.cloud');
   });
 });

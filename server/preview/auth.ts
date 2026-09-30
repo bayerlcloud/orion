@@ -2,13 +2,13 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Login do Orion no preview pessoal (spec 2026-09-30-preview-design, Parte 1). O cookie do painel
- * fica só em v2.bayerl.cloud; para o preview, o painel entrega um token curto e de uso único, preso
+ * fica só no painel (orion.bayerl.cloud e v2.bayerl.cloud); para o preview, o painel entrega um token curto e de uso único, preso
  * ao host, e o próprio preview troca esse token por um cookie `orion_preview` daquele host.
  * Formato: base64url(json).base64url(hmac-sha256).
  */
 
 export const COOKIE_PREVIEW = 'orion_preview';
-export const LOGIN_URL = 'https://v2.bayerl.cloud/';
+export const LOGIN_URL = 'https://orion.bayerl.cloud/';
 export const TOKEN_TTL_MS = 60_000;
 export const COOKIE_TTL_MS = 7 * 86_400_000;
 
@@ -50,4 +50,14 @@ export function consumirUmaVez(j: string, exp: number): boolean {
 export function checarCookie(cookie: string | undefined, host: string, segredo: string, agora = Date.now()): { ok: true; u: number } | { ok: false; redirect: string } {
   const v = cookie ? verificar(cookie, host, segredo, agora) : null;
   return v && !v.j ? { ok: true, u: v.u } : { ok: false, redirect: LOGIN_URL };
+}
+
+/** Quem abre um preview: com cookie válido, sempre; sem cookie, só o endereço raiz de projeto com "preview público" ligado. */
+export function podeAbrir(o: { ehRaiz: boolean; publico: boolean; cookieOk: boolean }): boolean {
+  return o.cookieOk || (o.ehRaiz && o.publico);
+}
+
+/** Sem cookie: manda para o painel, que emite o token daquele host se a pessoa estiver logada lá. */
+export function urlEntrar(host: string): string {
+  return `https://orion.bayerl.cloud/api/preview/entrar?host=${encodeURIComponent(host)}`;
 }

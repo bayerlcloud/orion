@@ -14,14 +14,14 @@ export const IP_C3 = '217.76.55.249';
  * front mora numa subpasta (o Orion, com root em web/); fora delas continua 404.
  */
 export function blocoCaddy(p: PreviewRow): string {
-  const pessoal = p.user_id !== null;
-  const auth = pessoal ? `
+  // Todo preview pergunta ao Orion; o raiz com "preview público" ligado passa sem login (decidido no check).
+  const auth = `
 		handle /__orion_auth {
 			reverse_proxy 127.0.0.1:3000
 		}
 		forward_auth 127.0.0.1:3000 {
 			uri /api/preview/check
-		}` : '';
+		}`;
   return `${p.host} {
 	@sensivel path */.env* */.git*
 	@fsFora {

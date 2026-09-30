@@ -13,10 +13,10 @@ describe('blocoCaddy', () => {
     expect(b.indexOf('forward_auth')).toBeLessThan(b.indexOf('reverse_proxy 127.0.0.1:9101'));
     expect(b).toContain('route {');
   });
-  it('raiz é público, sem auth', () => {
+  it('raiz também pergunta ao Orion (o público é decidido no /api/preview/check)', () => {
     const b = blocoCaddy(row(null, 'fisio.bayerl.cloud', 9100));
-    expect(b).not.toContain('forward_auth');
-    expect(b).not.toContain('__orion_auth');
+    expect(b).toContain('forward_auth 127.0.0.1:3000');
+    expect(b).toContain('handle /__orion_auth');
     expect(b).toContain('reverse_proxy 127.0.0.1:9100');
   });
   it('os dois bloqueiam caminhos perigosos com matchers separados', () => {

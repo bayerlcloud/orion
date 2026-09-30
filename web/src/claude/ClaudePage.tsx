@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
+import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
@@ -11,7 +12,7 @@ import SkillsHooksPanel from './SkillsHooksPanel';
 import PermissionRules from './PermissionRules';
 import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, SendArrow } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, Globe, SendArrow } from './icons';
 import './claude.css';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
@@ -577,6 +578,22 @@ export default function ClaudePage() {
   // Projeto pra pré-selecionar no editor de "Regras de permissão" ao abrir — sessão de verdade: o
   // projeto dela (via `project_slug`); aba rascunho: o projeto escolhido no seletor do compositor.
   // `undefined` quando nada resolve (ex.: nenhuma aba aberta) — o painel cai no 1º projeto da lista.
+  // Interruptor "preview público" do projeto da sessão: desligado (padrão), o endereço raiz pede login do Orion.
+  const [previewPublico, setPreviewPublico] = useState<{ publico: boolean; host: string } | null>(null);
+  useEffect(() => {
+    setPreviewPublico(null);
+    if (!activeProject) return;
+    api<{ publico: boolean; host: string }>(`/api/projects/${activeProject.id}/preview-publico`).then(setPreviewPublico).catch(() => {});
+  }, [activeProject?.id]);
+  async function alternarPreviewPublico() {
+    if (!activeProject || !previewPublico) return;
+    const liga = !previewPublico.publico;
+    if (liga && !window.confirm(`Ligar o preview público? Qualquer pessoa com o link ${previewPublico.host} abre sem login, até você desligar.`)) return;
+    try {
+      const r = await api<{ publico: boolean }>(`/api/projects/${activeProject.id}/preview-publico`, { method: 'PUT', body: JSON.stringify({ publico: liga }) });
+      setPreviewPublico({ ...previewPublico, publico: r.publico });
+    } catch (e: any) { window.alert(e.message); }
+  }
   const permRulesProjectId = activeTab?.draft ? (activeTab.projectId ?? undefined) : (active ? projects.find(p => p.slug === active.project_slug)?.id : undefined);
 
   return (
@@ -613,6 +630,9 @@ export default function ClaudePage() {
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
+            {previewPublico && <button className="cc-icon" style={previewPublico.publico ? { color: 'var(--ok, #3fb950)' } : { opacity: 0.55 }} disabled={role !== 'owner'}
+              title={previewPublico.publico ? `Preview público LIGADO: ${previewPublico.host} abre sem login. Clique para desligar.` : `Preview público desligado: ${previewPublico.host} pede login do Orion.${role === 'owner' ? ' Clique para ligar.' : ''}`}
+              onClick={alternarPreviewPublico}><Globe size={13} /></button>}
             <button className="cc-icon" title="Preview ao vivo desta sessão" disabled={!activeId || isDraft(activeId)} onClick={() => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank')}><Eye size={13} /></button>
             <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
             <button className="cc-icon" title="Skills e hooks" disabled={!activeId} onClick={() => setSkillsHooksOpen(true)}><Wrench size={13} /></button>
