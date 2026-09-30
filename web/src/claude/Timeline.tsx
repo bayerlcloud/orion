@@ -357,6 +357,29 @@ function permHeader(e: Extract<ConvEvent, { kind: 'permission' }>): React.ReactN
   }
 }
 
+/** Confirmação pedida por um MCP: a mensagem dele e, se ele pedir, um campo para digitar (ex.: nome do repositório). */
+function ElicitAnswer({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'deny' | 'answer', msg?: string) => void }) {
+  const [valor, setValor] = useState('');
+  const campo = e.inputText;
+  const confirmar = () => { if (campo) { if (valor.trim()) onDecide?.('answer', valor.trim()); } else onDecide?.('allow'); };
+  return (
+    <div className="cc-perm" tabIndex={0} onKeyDown={ev => { if (ev.key === 'Escape') { ev.preventDefault(); onDecide?.('deny'); } }}>
+      <div className="cc-perm-bg" />
+      <div className="cc-perm-content">
+        <div className="cc-perm-head"><strong>{e.label}</strong> pede confirmação</div>
+        <div className="cc-perm-desc" style={{ whiteSpace: 'pre-wrap' }}>{e.description}</div>
+      </div>
+      <div className="cc-perm-actions">
+        {campo && <input className="cc-perm-reject" autoFocus placeholder={`Digite ${campo}`} value={valor} onChange={ev => setValor(ev.target.value)}
+          onKeyDown={ev => { if (ev.key === 'Enter') { ev.preventDefault(); confirmar(); } }} />}
+        <button className="cc-perm-btn" disabled={!!campo && !valor.trim()} onClick={confirmar}><span className="cc-perm-num">1</span> Confirmar</button>
+        <button className="cc-perm-btn" onClick={() => onDecide?.('deny')}><span className="cc-perm-num">2</span> Recusar</button>
+      </div>
+      <div className="cc-hints">Esc para recusar</div>
+    </div>
+  );
+}
+
 export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   const isAsk = !!(e.questions && e.questions.length);
   const [focused, setFocused] = useState(0);
@@ -374,6 +397,7 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
     return <div className="cc-perm-done">{txt}{!isAsk && <> · <span className="cc-mono">{e.inputText}</span></>}</div>;
   }
   if (isAsk) return <AskAnswer questions={e.questions!} onDecide={onDecide} />;
+  if (e.name === 'Elicitation') return <ElicitAnswer e={e} onDecide={onDecide} />;
   const isBash = e.name === 'Bash';
   const isFile = e.name === 'Read' || e.name === 'Edit' || e.name === 'MultiEdit' || e.name === 'Write';
   // Atalhos da extensão real: 1/2/3 escolhem, Esc cancela (= Não), Enter no campo envia "Não, e faça isto".

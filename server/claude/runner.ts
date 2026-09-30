@@ -284,7 +284,8 @@ export class Runner {
     // Grava a decisão ANTES de soltar a ferramenta: o helper root (deploy/root-run.py) confere a
     // aprovação no banco assim que o pedido chega, então ela precisa já estar lá.
     await this.deps.store.decideApproval(approvalId, decision, decidedBy);
-    if (decision === 'answer') p.resolve({ behavior: 'deny', message: `O usuário respondeu à sua pergunta: "${(message ?? '').trim()}". Continue a partir dessa escolha, sem repetir a pergunta.` });
+    // Só no 'Elicitation' (nunca chega ao SDK): `answer` cru para o onElicitation preencher o campo digitado.
+    if (decision === 'answer') p.resolve({ behavior: 'deny', message: `O usuário respondeu à sua pergunta: "${(message ?? '').trim()}". Continue a partir dessa escolha, sem repetir a pergunta.`, ...(p.toolName === 'Elicitation' ? { answer: (message ?? '').trim() } : {}) } as PermissionResult);
     else if (decision === 'deny') p.resolve({ behavior: 'deny', message: message?.trim() || 'Negado pelo usuário no painel Orion' });
     else p.resolve({ behavior: 'allow', ...(decision === 'allow_always' && p.suggestions ? { updatedPermissions: p.suggestions } : {}) });
     await this.deps.store.appendEvent(sessionId, 'permission_resolved', { id: approvalId, decision, message: message ?? null });
@@ -336,10 +337,30 @@ export class Runner {
       this.emit(id, { type: 'permission_request', id: pid, toolName, input, hasSuggestions: !!opts.suggestions?.length, toolUseId: opts.toolUseID });
     });
 
+    // Pedido de confirmação de um MCP (ex.: o GitHub pede o nome do repositório antes de apagar):
+    // vira o mesmo cartão de aprovação, com toolName 'Elicitation'. Sem isto o SDK recusava sozinho.
+    const onElicitation: Options['onElicitation'] = async (req, { signal }) => {
+      if (req.mode === 'url') return null; // ponytail: login por URL de MCP não passa pelo painel
+      const props = (req.requestedSchema?.properties ?? {}) as Record<string, { type?: string; default?: unknown; enum?: unknown[] }>;
+      const campo = Object.keys(props).find(k => props[k].type === 'string' && props[k].default === undefined && !props[k].enum);
+      const r = await canUseTool!('Elicitation', { servidor: req.displayName ?? req.serverName, mensagem: req.title ? `${req.title}\n${req.message}` : req.message, ...(campo ? { campo } : {}) }, { signal, suggestions: undefined, toolUseID: randomUUID() } as Parameters<NonNullable<Options['canUseTool']>>[2]);
+      const answer = (r as { answer?: string } | null)?.answer;
+      if (!r || (r.behavior === 'deny' && answer === undefined)) return { action: 'decline' };
+      const content: Record<string, string | number | boolean> = {};
+      for (const [k, v] of Object.entries(props)) {
+        if (k === campo) content[k] = answer ?? '';
+        else if (v.default !== undefined) content[k] = v.default as string;
+        else if (v.enum?.length) content[k] = v.enum[0] as string;
+        else if (v.type === 'boolean') content[k] = true;
+      }
+      return { action: 'accept', content };
+    };
+
     const options: Options = {
       cwd: p.cwd,
       permissionMode: p.permissionMode,
       canUseTool,
+      onElicitation,
       // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
       hooks: { PreToolUse: [{ hooks: [policyHook] }] },
       abortController: abort,

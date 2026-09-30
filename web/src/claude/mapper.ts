@@ -7,6 +7,8 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
 /** Como a ferramenta aparece na linha de resumo: nome em negrito + descrição secundária. */
 export function describeTool(name: string, input: unknown): { label: string; description?: string; inputText?: string } {
   const i = (input ?? {}) as Rec;
+  // Confirmação pedida por um MCP (runner.ts, onElicitation): inputText = nome do campo a digitar ('' se só Sim/Não).
+  if (name === 'Elicitation') return { label: String(i.servidor ?? 'MCP'), description: String(i.mensagem ?? ''), inputText: String(i.campo ?? '') };
   const mcp = name.match(/^mcp__([^_]+(?:_[^_]+)*)__(.+)$/);
   if (mcp) {
     const server = mcp[1].charAt(0).toUpperCase() + mcp[1].slice(1);
