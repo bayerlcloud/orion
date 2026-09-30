@@ -189,13 +189,31 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const micSupported = useMemo(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined', []);
   const textRef = useRef(text);
   textRef.current = text;
+  // Rascunho por aba: o compositor é um só para todas as abas; ao trocar, guarda o texto e os
+  // anexos da aba que saiu e traz os da que entrou (antes o texto "vazava" para a outra aba).
+  const sessionRef = useRef(sessionId);
+  sessionRef.current = sessionId;
+  const draftsRef = useRef(new Map<string, { text: string; attachments: Pending[] }>());
+  const prevSessionRef = useRef(sessionId);
+  useEffect(() => {
+    const prev = prevSessionRef.current;
+    if (prev === sessionId) return;
+    draftsRef.current.set(prev ?? '', { text: textRef.current, attachments: attachmentsRef.current });
+    const next = draftsRef.current.get(sessionId ?? '');
+    draftsRef.current.delete(sessionId ?? '');
+    prevSessionRef.current = sessionId;
+    textRef.current = next?.text ?? '';
+    setText(next?.text ?? '');
+    setAttachments(next?.attachments ?? []);
+  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [micBusy, setMicBusy] = useState(false);
   const [micRecording, setMicRecording] = useState(false);
   const [micError, setMicError] = useState<string>();
   // Negação permanente de permissão (equivalente a `speechToTextMicDenied` real) — desabilita o botão
   // até o usuário mudar a permissão no navegador; diferente de um erro passageiro.
   const [micDenied, setMicDenied] = useState(false);
-  const micRecorderRef = useRef<{ rec: MediaRecorder; stream: MediaStream; cancelled: boolean } | null>(null);
+  const micRecorderRef = useRef<{ rec: MediaRecorder; stream: MediaStream; cancelled: boolean; session?: string; done: Promise<void> } | null>(null);
+  const micPendingRef = useRef<Promise<void> | null>(null);
   // Texto antes/depois do cursor no INÍCIO da gravação, mais o texto final já acumulado nesta
   // gravação — `composeDictationText` sempre recalcula a partir daqui, nunca do valor atual do campo
   // (ver limitação documentada em mapper.ts: digitar durante o ditado pode ser sobrescrito).
@@ -225,7 +243,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   function onPick(e: ChangeEvent<HTMLInputElement>) { addFiles(e.target.files); e.target.value = ''; }
 
   async function send() {
-    const t = text.trim();
+    // Enviar gravando (ou transcrevendo): para o microfone, espera o texto entrar e envia junto.
+    if (micRecorderRef.current || micPendingRef.current) {
+      const pending = micRecorderRef.current?.done ?? micPendingRef.current;
+      stopMic();
+      await pending;
+    }
+    const t = textRef.current.trim();
     if (sending || (!t && attachments.length === 0)) return;
     const files = attachments.map(a => new window.File([a.file], pasteFilename(a.name, a.file.type), { type: a.file.type }));
     setSending(true);
@@ -238,6 +262,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     finally { setSending(false); }
   }
   function key(e: KeyboardEvent<HTMLDivElement>) {
+    // Digitou "/" gravando: para a gravação (vai abrir o menu de comandos).
+    if (e.key === '/' && micRecorderRef.current) stopMic();
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); return; }
     // Recall de mensagens: só quando não há menu aberto (evita brigar com a navegação de um popover)
     // e o cursor está colado no início (ArrowUp) ou no fim (ArrowDown) de TODO o texto — não só da
@@ -299,16 +325,27 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported?.(t)) ?? '';
     const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
     const chunks: Blob[] = [];
-    const entry = { rec, stream, cancelled: false };
+    let finish!: () => void;
+    const entry = { rec, stream, cancelled: false, session: sessionRef.current, done: new Promise<void>(r => { finish = r; }) };
     rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
     rec.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      if (entry.cancelled) return;
+      if (entry.cancelled) { finish(); return; }
+      micPendingRef.current = entry.done;
       const type = rec.mimeType || mime || 'audio/webm';
       const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
       setMicBusy(true);
       try {
         const r = await claudeApi.transcribe(new Blob(chunks, { type }), `ditado.${ext}`);
+        // Trocou de aba enquanto gravava/transcrevia: o ditado vai para o rascunho da aba de origem.
+        if (entry.session !== sessionRef.current) {
+          if (r.text) {
+            const key = entry.session ?? '';
+            const d = draftsRef.current.get(key) ?? { text: '', attachments: [] };
+            draftsRef.current.set(key, { ...d, text: composeDictationText(d.text, '', r.text, '').value });
+          }
+          return;
+        }
         // Insere no texto ATUAL, na posição atual do cursor: se a pessoa digitou algo enquanto
         // transcrevia, nada se perde (antes o texto de quando começou a gravar sobrescrevia).
         const now = textRef.current;
@@ -320,11 +357,12 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         }
         if (r.text) {
           const composed = composeDictationText(before, after, r.text, '');
+          textRef.current = composed.value;
           setText(composed.value);
           setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
         }
       } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
-      finally { setMicBusy(false); }
+      finally { setMicBusy(false); micPendingRef.current = null; finish(); }
     };
     micRecorderRef.current = entry;
     rec.start();
@@ -335,7 +373,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     if (micRecording) stopMic(); else void startMic();
   }
   // Trocou de sessão: para qualquer ditado em andamento (a gravação era pra outra conversa).
-  useEffect(() => { if (micRecording) stopMic(true); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (micRecorderRef.current) stopMic(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Desmontagem: nunca deixa o microfone do navegador "preso" ligado.
   useEffect(() => () => { stopMic(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Atalho de teclado ⌘D/Ctrl+D — mesmo achado na extensão real (`micTooltipShortcut`, função `j11()`
@@ -382,7 +420,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // aqui (diferente da extensão) vazio é um valor válido — "sem worktree, sessão normal".
   const worktreeNameError = worktreeName ? validateWorktreeName(worktreeName) : null;
   const images: LightboxImage[] = attachments.filter(a => a.url).map(a => ({ src: a.url!, alt: a.name }));
-  const canSend = !sending && (!!text.trim() || attachments.length > 0) && !worktreeNameError;
+  const canSend = !sending && (!!text.trim() || attachments.length > 0 || micRecording || micBusy) && !worktreeNameError;
 
   return (
     <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`} data-permission-mode={mode}
@@ -434,7 +472,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       <div className="cc-composer-foot">
         <button className="cc-foot-btn" title="Anexar arquivos ou imagens" onClick={() => fileInput.current?.click()}><AddPlus /></button>
         <div className="cc-pop">
-          <button className="cc-foot-btn" title="Mostrar menu de comandos (/)" onClick={() => setMenu(m => m === 'slash' ? '' : 'slash')}><SlashCmd /></button>
+          <button className="cc-foot-btn" title="Mostrar menu de comandos (/)" onClick={() => { if (micRecorderRef.current) stopMic(); setMenu(m => m === 'slash' ? '' : 'slash'); }}><SlashCmd /></button>
           <Menu open={slashOpen && slashItems.length > 0} onClose={() => setMenu('')} className="cc-menu-up">
             <div className="cc-menu-title">Comandos</div>
             {slashItems.map(s => (
@@ -558,7 +596,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           </Menu>
         </div>
         {/* Rodando e caixa vazia: Parar. Começou a escrever (ou anexou): vira Enviar, que enfileira. */}
-        {running && onStop && !text.trim() && attachments.length === 0
+        {running && onStop && !text.trim() && attachments.length === 0 && !micRecording && !micBusy
           ? <button className="cc-send" data-permission-mode={mode} onClick={onStop} aria-label="Parar" title="Parar"><StopSquare className="cc-stop-icon" /></button>
           : <button className="cc-send" data-permission-mode={mode} onClick={() => void send()} disabled={!canSend} aria-label="Enviar mensagem" title="Enviar mensagem"><SendArrow className="cc-send-icon" /></button>}
       </div>
