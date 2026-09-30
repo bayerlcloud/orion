@@ -479,7 +479,13 @@
   .cc-send, .cc-foot-btn, .cc-mic { min-height: 36px; min-width: 36px; }
   .cc-send { width: 36px; height: 36px; }
   .cc-foot-btn > span { max-width: 110px; }
-  .cc-composer-foot { flex-wrap: wrap; }
+  /* Rodapé do compositor numa linha só: o botão de enviar nunca desce; o que sobra encolhe com "…". */
+  .cc-composer-foot { flex-wrap: nowrap; }
+  .cc-composer-foot > * { min-width: 0; }
+  .cc-send, .cc-composer-foot > button:first-child { flex-shrink: 0; }
+  .cc-attach-status { flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-foot-btn { flex-shrink: 1; overflow: hidden; }
+  .cc-foot-btn > span { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
   /* sem hover no toque: ações da sessão sempre visíveis, linha mais alta */
   .cc-item { height: 40px; }
   .cc-item-actions { display: flex; }
