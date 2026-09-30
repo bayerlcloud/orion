@@ -103,6 +103,7 @@ export type Ficha = {
   ultimo_mexeu: { quem: string; quando: string; onde: string } | null;
   backup: { itens: { oque: string; quando: string | null; detalhe: string }[] };
   deploy: null | { onde: string; quando: string | null; estado: string; detalhe: string; dominios: string[] };
+  preview_url: string | null;
   prod: null | { url: string; status: number | null; ms: number | null; ip: string | null; servidor: string | null; ssl_expira: string | null; erro: string | null };
   env: { usadas: string[]; faltando: string[]; edge: string[]; definidas: number; fonte: string[] };
   conectores: string[];
@@ -287,6 +288,8 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
       WHERE t.status NOT IN ('feito','arquivada') OR t.integration_status IN ('pendente','conflito','testes_falharam')
       ORDER BY t.updated_at`).catch(() => ({ rows: [] as any[] }));
   const { rows: gh } = await pool.query('SELECT label, login FROM github_accounts').catch(() => ({ rows: [] as any[] }));
+  // Preview raiz (público) do projeto: a linha de previews sem pessoa; só projeto com package.json tem.
+  const { rows: prev } = await pool.query('SELECT project_id, host FROM previews WHERE user_id IS NULL').catch(() => ({ rows: [] as any[] }));
 
   return Promise.all(projs.map(async (p): Promise<Ficha> => {
     const existe = await stat(p.path).then(s => s.isDirectory()).catch(() => false);
@@ -347,7 +350,8 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
       sessoes: sessoesP.slice(0, 6).map(s => ({ id: s.id, title: s.title, status: s.status, quem: s.quem, quando: new Date(s.updated_at).toISOString(), tokens: Number(s.tokens) || 0 })),
       sessoes_total: sessoesP.length,
       tokens: tok.filter(t => t.project_id === p.id && (t.t30 ?? 0) > 0).map(t => ({ quem: t.quem, t7: Number(t.t7) || 0, t30: Number(t.t30) || 0 })).sort((a, b) => b.t30 - a.t30),
-      tarefas, ultimo_mexeu, backup: { itens }, deploy, prod, conectores, coletado: new Date().toISOString(),
+      tarefas, ultimo_mexeu, backup: { itens }, deploy, prod,
+      preview_url: (h => (h ? `https://${h}` : null))(prev.find(x => x.project_id === p.id)?.host), conectores, coletado: new Date().toISOString(),
     };
     if (meta.banco) base.banco_fonte = `manual: ${meta.banco}`;
     return { ...base, alertas: alertasDe(base) };

@@ -94,7 +94,8 @@ export async function dashRoutes(app: FastifyInstance) {
       if (v) meta[k] = v;
     }
     if (meta.prod_url && !/^https?:\/\/[^\s]+$/.test(meta.prod_url)) return reply.code(400).send({ error: 'URL de produção precisa começar com http:// ou https://' });
-    const r = await app.pool.query('UPDATE projects SET meta = $2 WHERE id = $1', [id, meta]);
+    // Só mexe nas três chaves do card: o resto do meta (ex.: preview_dir do preview) fica intacto.
+    const r = await app.pool.query("UPDATE projects SET meta = (meta - 'prod_url' - 'banco' - 'notas') || $2::jsonb WHERE id = $1", [id, meta]);
     if (!r.rowCount) return reply.code(404).send({ error: 'projeto não existe' });
     fichas = null;
     return { ok: true, meta };
