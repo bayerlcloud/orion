@@ -89,4 +89,20 @@ describe('ganchosDaSessao', () => {
     expect(avisos).toHaveLength(1);
     expect(avisos[0]).toContain('A pasta raiz do projeto tem edição direta');
   });
+  it('sucesso é registrado; falha que não é conflito avisa uma vez só', async () => {
+    const notas: string[] = [];
+    const base = { ...opcoes(wtD), registrar: (t: string) => { notas.push(t); } };
+    await edit(wtD, 1, '<p>y</p>');
+    await ganchosDaSessao(base)!.depois!(true);
+    await drenar();
+    expect(notas).toEqual(['Mudança enviada para a raiz (branch d).']);
+    const falha = { ...base, integrar: async () => ({ ok: false, conflict: false, log: 'fatal: disco cheio' }) };
+    for (let i = 0; i < 2; i++) {
+      await edit(wtD, 1, `<p>z${i}</p>`);
+      await ganchosDaSessao(falha)!.depois!(true);
+      await drenar();
+    }
+    expect(avisos).toHaveLength(1);
+    expect(avisos[0]).toContain('fatal: disco cheio');
+  });
 });

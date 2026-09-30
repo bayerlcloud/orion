@@ -146,6 +146,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const ganchos = ganchosDaSessao({
       sessaoId: s.id, cwd: s.cwd, projeto: await projetoIntegracao(s.project_id ?? null), prompt: textoPrompt.replace(/^\[[^\]]+\]\s*/, ''), fila: filaIntegracao,
       avisar: (texto) => { void startFor(s, userId, prefixPrompt('Orion', texto), mode, model, effort); },
+      registrar: (texto) => { void store.appendEvent(s.id, 'integracao', { texto }); },
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
@@ -367,6 +368,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const ganchos = ganchosDaSessao({
       sessaoId: id, cwd, projeto: proj, prompt, fila: filaIntegracao,
       avisar: (texto) => { void startFor(sessaoNova, req.user!.id, prefixPrompt('Orion', texto), mode, b.model || d.model || undefined, effort); },
+      registrar: (texto) => { void store.appendEvent(id, 'integracao', { texto }); },
     });
     runner.startTurn({
       sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),

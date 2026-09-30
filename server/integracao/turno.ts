@@ -15,12 +15,17 @@ const ESPERA_MS = 60_000;
 
 // Conflitos seguidos por sessão; zera quando uma integração da sessão dá certo.
 const tentativas = new Map<string, number>();
-export function _zerarTentativas(): void { tentativas.clear(); }
+// Sessões já avisadas de uma falha que não é conflito; zera no próximo sucesso (não repete o aviso a cada turno).
+const falhaAvisada = new Set<string>();
+export function _zerarTentativas(): void { tentativas.clear(); falhaAvisada.clear(); }
 
 type Projeto = { id: number; path: string; default_branch: string };
 type Opcoes = {
   sessaoId: string; cwd: string; projeto: Projeto | null; prompt: string;
   avisar: (texto: string) => void; fila: FilaIntegracao; esperar?: (ms: number) => Promise<void>;
+  /** Nota na sessão sem abrir turno (sucesso). */
+  registrar?: (texto: string) => void;
+  integrar?: typeof integrate;
 };
 
 const esperarPadrao = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -44,9 +49,18 @@ export function ganchosDaSessao(o: Opcoes): TurnParams['ganchos'] | undefined {
       }
       await esperar(ESPERA_MS);
     }
-    const r = await integrate(projeto!.path, branch, base);
-    if (r.ok) { tentativas.delete(o.sessaoId); return; }
-    if (!r.conflict) return;
+    const r = await (o.integrar ?? integrate)(projeto!.path, branch, base);
+    if (r.ok) {
+      tentativas.delete(o.sessaoId); falhaAvisada.delete(o.sessaoId);
+      o.registrar?.(`Mudança enviada para a raiz (branch ${branch}).`);
+      return;
+    }
+    if (!r.conflict) {
+      if (falhaAvisada.has(o.sessaoId)) return;
+      falhaAvisada.add(o.sessaoId);
+      o.avisar(`Não consegui juntar sua mudança na raiz, e não foi conflito. Últimas linhas do git: ${r.log.slice(-400)}. Explique para a pessoa em poucas linhas; eu tento de novo no fim do próximo turno.`);
+      return;
+    }
     const n = (tentativas.get(o.sessaoId) ?? 0) + 1;
     tentativas.set(o.sessaoId, n);
     const arquivos = arquivosEmConflito(r.log);
