@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Pool } from 'pg';
-import { fundirMicrofatos, listarMemorias } from '../server/curador/tools.js';
+import { fundirMicrofatos, listarMemorias, precisaCuradoria } from '../server/curador/tools.js';
 import type { CurQuery } from '../server/curador/proposals.js';
 
 type Chamada = { sql: string; params?: unknown[] };
@@ -78,5 +78,16 @@ describe('listarMemorias', () => {
     expect(calls[1].sql).toMatch(/UPDATE memories SET last_analyzed_at = now\(\) WHERE level BETWEEN 2 AND 4/);
     await listarMemorias(q, { com_corpo: true });
     expect(calls[2].sql).toContain('body_md');
+  });
+});
+
+describe('precisaCuradoria', () => {
+  it('olha memória nova ou alterada desde a análise e nota 10 sem promoção pendente', async () => {
+    const { q, calls } = fakePool((sql) => (sql.includes('EXISTS') ? { rows: [{ precisa: false }], rowCount: 1 } : undefined));
+    expect(await precisaCuradoria(q)).toBe(false);
+    expect(calls[0].sql).toContain('m.updated_at > m.last_analyzed_at');
+    expect(calls[0].sql).toContain("p.tipo = 'promocao'");
+    const sim = fakePool(() => ({ rows: [{ precisa: true }], rowCount: 1 }));
+    expect(await precisaCuradoria(sim.q)).toBe(true);
   });
 });
