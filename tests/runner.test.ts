@@ -145,6 +145,25 @@ describe('Runner', () => {
     expect(resolved.message).toBe('Escopo de tarefas autônomas');
   });
 
+  it('confirmação de MCP (onElicitation) vira cartão; o texto digitado preenche o campo pedido', async () => {
+    let elicit: any;
+    const fn: QueryFn = ({ options }) => (async function* () {
+      yield { type: 'system', subtype: 'init', model: 'claude-test', session_id: options?.sessionId } as any;
+      elicit = await options!.onElicitation!({ serverName: 'github', message: 'Confirme', requestedSchema: { type: 'object', properties: { repository_name: { type: 'string' }, ok: { type: 'boolean' } } } }, { signal: options!.abortController!.signal, requestId: 'r1' });
+      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 5, usage: { input_tokens: 1, output_tokens: 1 } } as any;
+    })() as any;
+    const m = memStore(); const r = new Runner({ queryFn: fn, store: m.store });
+    const seen: LiveEvent[] = []; r.subscribe('se', e => seen.push(e));
+    r.startTurn({ ...base, sessionId: 'se', prompt: 'x', isNew: true });
+    await until(() => r.status('se') === 'waiting');
+    const req = seen.find(e => e.type === 'permission_request') as any;
+    expect(req.toolName).toBe('Elicitation');
+    expect(req.input).toMatchObject({ servidor: 'github', campo: 'repository_name' });
+    await r.decide('se', req.id, 'answer', 1, 'bayerlcloud/x');
+    await until(() => r.status('se') === 'idle');
+    expect(elicit).toEqual({ action: 'accept', content: { repository_name: 'bayerlcloud/x', ok: true } });
+  });
+
   it('negar com mensagem repassa a mensagem ao Claude', async () => {
     const m = memStore(); const q = fakeQuery({ askPermission: true });
     const r = new Runner({ queryFn: q.fn, store: m.store });
