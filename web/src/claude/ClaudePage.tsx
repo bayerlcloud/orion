@@ -433,6 +433,7 @@ export default function ClaudePage() {
   // não tem dentro do VS Code/Electron; aqui é o melhor esforço possível numa página web comum.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (document.body.dataset.page && document.body.dataset.page !== '/claude') return; // página escondida (menu trocado)
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       if (!e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newSession(); return; }

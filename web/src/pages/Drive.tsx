@@ -97,7 +97,9 @@ export default function Drive({ user }: { user: User }) {
 
   useEffect(() => {
     let profundidade = 0;
-    const temArquivo = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+    // Só age com o Drive na tela (a página continua montada escondida quando se troca de menu).
+    const naTela = () => !document.body.dataset.page || document.body.dataset.page === '/drive';
+    const temArquivo = (e: DragEvent) => naTela() && Array.from(e.dataTransfer?.types ?? []).includes('Files');
     const onEnter = (e: DragEvent) => { if (!temArquivo(e)) return; e.preventDefault(); profundidade++; setArrastando(true); };
     const onOver = (e: DragEvent) => { if (!temArquivo(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; };
     const onLeave = (e: DragEvent) => { if (!temArquivo(e)) return; profundidade = Math.max(0, profundidade - 1); if (profundidade === 0) setArrastando(false); };
@@ -120,6 +122,7 @@ export default function Drive({ user }: { user: User }) {
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      if (document.body.dataset.page && document.body.dataset.page !== '/drive') return;
       const alvo = e.target as HTMLElement | null;
       if (alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA' || alvo.isContentEditable)) return;
       const files: File[] = [];
@@ -140,7 +143,7 @@ export default function Drive({ user }: { user: User }) {
 
   useEffect(() => {
     if (!preview) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null); };
+    const onKey = (e: KeyboardEvent) => { if (document.body.dataset.page && document.body.dataset.page !== '/drive') return; if (e.key === 'Escape') setPreview(null); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [preview]);

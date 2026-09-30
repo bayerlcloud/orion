@@ -59,6 +59,14 @@ export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const nav = useNavigate();
   const loc = useLocation();
+  // Página do menu em que a pessoa está ('/claude', '/dash'…) e as que já foram abertas (ficam montadas).
+  const page = '/' + (loc.pathname.split('/')[1] ?? '');
+  const [visited, setVisited] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    // Atalhos de teclado das páginas escondidas checam isto para não agir fora da própria página.
+    document.body.dataset.page = page;
+    setVisited(v => v.has(page) ? v : new Set(v).add(page));
+  }, [page]);
 
   useEffect(() => {
     api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => setUser(null));
@@ -72,6 +80,17 @@ export default function App() {
     setUser(null);
   }
 
+  const KEEP = [
+    { path: '/claude', el: <ClaudePage /> },
+    { path: '/dash', el: <Dash /> },
+    { path: '/arquivos', el: <Arquivos user={user} /> },
+    { path: '/tarefas', el: <Tarefas user={user} /> },
+    { path: '/tools', el: <Tools user={user} /> },
+    { path: '/drive', el: <Drive user={user} /> },
+    { path: '/memoria', el: <Memoria user={user} /> },
+    { path: '/spec', el: <Spec user={user} /> },
+    { path: '/config', el: <Config user={user} /> },
+  ];
   const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos');
   const dash = loc.pathname.startsWith('/dash');
   return (

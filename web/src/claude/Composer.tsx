@@ -435,6 +435,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   useEffect(() => {
     if (!micSupported) return;
     function onKey(e: globalThis.KeyboardEvent) {
+      if (document.body.dataset.page && document.body.dataset.page !== '/claude') return; // página escondida (menu trocado)
       if (micDenied || e.repeat || e.shiftKey || e.altKey) return;
       const mod = isMacPlatform(navigator) ? e.metaKey : e.ctrlKey;
       if (!mod || e.key.toLowerCase() !== 'd') return;
@@ -448,6 +449,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Esc foca/desfoca o compositor.
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
+      if (document.body.dataset.page && document.body.dataset.page !== '/claude') return; // página escondida (menu trocado)
       if (e.key !== 'Escape') return;
       if (menu) { setMenu(''); return; }
       if (document.activeElement === ta.current?.el) ta.current?.blur();
