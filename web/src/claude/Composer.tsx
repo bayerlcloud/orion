@@ -6,6 +6,7 @@ import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 import Lightbox, { type LightboxImage } from './Lightbox';
+import PlainInput, { type PlainInputHandle } from './PlainInput';
 
 /**
  * Ditado por voz (ver PARIDADE.md, mapper.ts) — a extensão real delega a captura de áudio pro
@@ -207,7 +208,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Ciclo de recall de mensagens (ArrowUp/ArrowDown com o cursor no início/fim do texto — ver `key`
   // abaixo e `cycleMessageIndex` em mapper.ts, que espelha `cycleMessage` do webview real).
   const [cycle, setCycle] = useState<CycleState>({ index: -1, saved: '' });
-  const ta = useRef<HTMLTextAreaElement>(null);
+  const ta = useRef<PlainInputHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // Ditado por voz (ver PARIDADE.md/mapper.ts pro achado completo). `micSupported`: calculado 1x —
@@ -262,8 +263,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     } catch { /* o ClaudePage mostra o erro; mantém o rascunho e os anexos */ }
     finally { setSending(false); }
   }
-  function key(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); return; }
+  function key(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); return; }
     // Recall de mensagens: só quando não há menu aberto (evita brigar com a navegação de um popover)
     // e o cursor está colado no início (ArrowUp) ou no fim (ArrowDown) de TODO o texto — não só da
     // linha atual. É a mesma checagem de posição do cursor da extensão real (`cycleMessage`/`Cq0` no
@@ -271,8 +272,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !menu && history && history.length && ta.current) {
       const el = ta.current;
       const dir: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
-      const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
-      const atEnd = el.selectionStart === text.length && el.selectionEnd === text.length;
+      const sel = el.getSelection();
+      const atStart = sel.start === 0 && sel.end === 0;
+      const atEnd = sel.start === text.length && sel.end === text.length;
       if ((dir === -1 && atStart) || (dir === 1 && atEnd)) {
         const r = cycleMessageIndex(dir, cycle, history, text);
         if (r) {
@@ -282,12 +284,12 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           // Cursor no início quando ArrowUp mostrou um item do histórico; no fim nos outros casos
           // (espelha N75/O75 do webview real: recall mais antigo começa lido do topo, o resto do fim).
           const pos = dir === -1 && r.index !== -1 ? 0 : r.text.length;
-          setTimeout(() => el.setSelectionRange(pos, pos), 0);
+          setTimeout(() => el.setCaret(pos), 0);
         }
       }
     }
   }
-  function onPaste(e: ClipboardEvent<HTMLTextAreaElement>) {
+  function onPaste(e: ClipboardEvent<HTMLDivElement>) {
     const files = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'));
     if (files.length) { e.preventDefault(); addFiles(files); }
   }
@@ -305,9 +307,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const Ctor = getMicRecognitionCtor();
     if (!Ctor || micDenied) return;
     const el = ta.current;
-    const value = el?.value ?? text;
-    const selStart = el?.selectionStart ?? value.length;
-    const selEnd = el?.selectionEnd ?? value.length;
+    const value = text;
+    const cur = el?.getSelection() ?? { start: value.length, end: value.length };
+    const selStart = cur.start;
+    const selEnd = cur.end;
     micBaseRef.current = { before: value.slice(0, selStart), after: value.slice(selEnd), final: '' };
     setMicError(undefined);
     setMicInterim('');
@@ -331,7 +334,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       setMicInterim(interim);
       const composed = composeDictationText(base.before, base.after, final, interim);
       setText(composed.value);
-      setTimeout(() => ta.current?.setSelectionRange(composed.cursor, composed.cursor), 0);
+      setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
     };
     recognition.onerror = (e) => {
       if (isMicPermissionError(e.error)) setMicDenied(true);
@@ -380,7 +383,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     function onKey(e: globalThis.KeyboardEvent) {
       if (e.key !== 'Escape') return;
       if (menu) { setMenu(''); return; }
-      if (document.activeElement === ta.current) ta.current?.blur();
+      if (document.activeElement === ta.current?.el) ta.current?.blur();
       else ta.current?.focus();
     }
     window.addEventListener('keydown', onKey);
@@ -416,7 +419,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       )}
       <Lightbox images={images} index={preview} onClose={closePreview} />
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
-      <textarea ref={ta} name="orion-prompt" autoComplete="off" data-1p-ignore data-lpignore="true" enterKeyHint="send" value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
+      {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
+      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste}
         placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
@@ -569,7 +573,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             ))}
           </Menu>
         </div>
-        {running && onStop
+        {/* Rodando e caixa vazia: Parar. Começou a escrever (ou anexou): vira Enviar, que enfileira. */}
+        {running && onStop && !text.trim() && attachments.length === 0
           ? <button className="cc-send" data-permission-mode={mode} onClick={onStop} aria-label="Parar" title="Parar"><StopSquare className="cc-stop-icon" /></button>
           : <button className="cc-send" data-permission-mode={mode} onClick={() => void send()} disabled={!canSend} aria-label="Enviar mensagem" title="Enviar mensagem"><SendArrow className="cc-send-icon" /></button>}
       </div>
