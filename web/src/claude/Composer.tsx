@@ -187,6 +187,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // `X.speechToTextEnabled &&` da extensão real (feature-flag esconde tudo, não só desabilita).
   // Gravação própria (MediaRecorder) + transcrição no servidor: funciona em qualquer navegador com microfone.
   const micSupported = useMemo(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined', []);
+  const textRef = useRef(text);
+  textRef.current = text;
   const [micBusy, setMicBusy] = useState(false);
   const [micRecording, setMicRecording] = useState(false);
   const [micError, setMicError] = useState<string>();
@@ -304,12 +306,20 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       if (entry.cancelled) return;
       const type = rec.mimeType || mime || 'audio/webm';
       const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
-      const base = micBaseRef.current;
       setMicBusy(true);
       try {
         const r = await claudeApi.transcribe(new Blob(chunks, { type }), `ditado.${ext}`);
-        if (r.text && base) {
-          const composed = composeDictationText(base.before, base.after, r.text, '');
+        // Insere no texto ATUAL, na posição atual do cursor: se a pessoa digitou algo enquanto
+        // transcrevia, nada se perde (antes o texto de quando começou a gravar sobrescrevia).
+        const now = textRef.current;
+        const base = micBaseRef.current;
+        let before = base?.before ?? now, after = base?.after ?? '';
+        if (!base || now !== base.before + base.after) {
+          const sel = ta.current?.getSelection() ?? { start: now.length, end: now.length };
+          before = now.slice(0, sel.start); after = now.slice(sel.end);
+        }
+        if (r.text) {
+          const composed = composeDictationText(before, after, r.text, '');
           setText(composed.value);
           setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
         }
