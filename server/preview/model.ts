@@ -20,6 +20,11 @@ export function slugPessoa(nome: string): string {
   return slugify(nome, 'pessoa');
 }
 
+/** Nome do projeto no endereço: projects.meta.preview_host (ex.: orion vira orionpreview, porque orion.bayerl.cloud é produção), senão o slug. */
+export function nomeDoPreview(slug: string, override: string | null): string {
+  return override && /^[a-z0-9-]+$/.test(override) ? override : slug;
+}
+
 export function hostPreview(pessoa: string | null, slug: string): string {
   return pessoa ? `${pessoa}.${slug}.${DOMINIO}` : `${slug}.${DOMINIO}`;
 }
@@ -52,8 +57,8 @@ export function paresFaltando(projetos: number[], usuarios: number[], existentes
 
 /** Cria as linhas que faltam (idempotente) e devolve todas. */
 export async function garantirPreviews(pool: Pool): Promise<PreviewRow[]> {
-  const { rows: todos } = await pool.query<{ id: number; slug: string; path: string; sub: string | null }>(
-    "SELECT id, slug, path, meta->>'preview_dir' AS sub FROM projects ORDER BY id");
+  const { rows: todos } = await pool.query<{ id: number; slug: string; path: string; sub: string | null; nome: string | null }>(
+    "SELECT id, slug, path, meta->>'preview_dir' AS sub, meta->>'preview_host' AS nome FROM projects ORDER BY id");
   const projetos: typeof todos = [];
   for (const p of todos) if (await temPreview(p.path, p.sub)) projetos.push(p);
   // Projeto que deixou de ter preview (sem package.json) perde as linhas; o sync limpa Caddy e unit.
@@ -68,7 +73,16 @@ export async function garantirPreviews(pool: Pool): Promise<PreviewRow[]> {
     portas.push(port);
     await pool.query(
       'INSERT INTO previews (project_id, user_id, host, port, worktree_path) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING',
-      [par.project_id, par.user_id, hostPreview(pessoa, proj.slug), port, proj.path]);
+      [par.project_id, par.user_id, hostPreview(pessoa, nomeDoPreview(proj.slug, proj.nome)), port, proj.path]);
+  }
+  // Nome mudou (preview_host novo): o host acompanha, a porta fica. O sync remove o bloco antigo.
+  const { rows: usuariosNomes } = await pool.query<{ id: number; name: string }>('SELECT id, name FROM users');
+  for (const r of (await pool.query<PreviewRow>('SELECT * FROM previews')).rows) {
+    const proj = projetos.find(p => p.id === r.project_id);
+    if (!proj) continue;
+    const u = r.user_id === null ? null : usuariosNomes.find(x => x.id === r.user_id);
+    const esperado = hostPreview(u ? slugPessoa(u.name) : null, nomeDoPreview(proj.slug, proj.nome));
+    if (esperado !== r.host) await pool.query('UPDATE previews SET host = $2, updated_at = now() WHERE id = $1', [r.id, esperado]);
   }
   return (await pool.query<PreviewRow>('SELECT * FROM previews ORDER BY id')).rows;
 }

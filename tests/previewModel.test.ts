@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugPessoa, hostPreview, instancia, proximaPorta, paresFaltando, temPreview } from '../server/preview/model';
+import { slugPessoa, hostPreview, instancia, proximaPorta, paresFaltando, temPreview, nomeDoPreview } from '../server/preview/model';
 
 describe('preview model', () => {
   it('slugPessoa', () => {
@@ -36,5 +36,17 @@ describe('temPreview', () => {
     await writeFile(path.join(d, 'package.json'), '{}');
     expect(await temPreview(d, null)).toBe(true);
     expect(await temPreview(d, 'apps/x')).toBe(false);
+  });
+});
+
+describe('nomeDoPreview', () => {
+  it('usa preview_host do meta quando existe, senão o slug', () => {
+    expect(nomeDoPreview('orion', 'orionpreview')).toBe('orionpreview');
+    expect(nomeDoPreview('fisioexpert', null)).toBe('fisioexpert');
+    expect(hostPreview('danilo', nomeDoPreview('orion', 'orionpreview'))).toBe('danilo.orionpreview.bayerl.cloud');
+  });
+  it('preview_host inválido cai no slug', () => {
+    expect(nomeDoPreview('orion', 'Orion Preview!')).toBe('orion');
+    expect(nomeDoPreview('orion', 'a.b')).toBe('orion');
   });
 });
