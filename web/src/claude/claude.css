@@ -853,3 +853,10 @@
   .cc-composer-foot .cc-menu-up { left: 0; right: 0; max-width: none; min-width: 0; bottom: calc(100% + 6px); max-height: 45vh; }
   .cc-menu-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 }
+
+/* Botão "ir para o fim" (rolou pra cima): mesma distância da direita e mesmo tamanho do botão de
+   enviar, logo acima da caixa de mensagem. */
+.cc-jump { align-self: flex-end; margin-right: 6px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 5px; background: var(--cc-bg2); border: 1px solid var(--cc-line); color: var(--cc-fg); box-shadow: 0 2px 8px #0006; cursor: pointer; }
+.cc-jump:hover { background: var(--cc-hover); }
+.cc-jump-icon { transform: rotate(180deg); width: 18px; height: 18px; }
+@media (max-width: 800px) { .cc-jump { width: 36px; height: 36px; } }

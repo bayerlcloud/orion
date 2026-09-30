@@ -11,7 +11,7 @@ import SkillsHooksPanel from './SkillsHooksPanel';
 import PermissionRules from './PermissionRules';
 import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, SendArrow } from './icons';
 import './claude.css';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
@@ -343,11 +343,13 @@ export default function ClaudePage() {
   // quando events.length mudava, e o indicador descia pra trás do composer até o próximo evento.
   // Se a pessoa rolou pra cima, não mexe: o conteúdo novo passa por trás do composer.
   const atBottomRef = useRef(true);
+  // Botão "ir para o fim": aparece quando a pessoa rolou pra cima.
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const toBottom = useCallback(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, []);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => { atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
+    const onScroll = () => { atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAwayFromBottom(!atBottomRef.current); };
     el.addEventListener('scroll', onScroll, { passive: true });
     const ro = new ResizeObserver(() => { if (atBottomRef.current) toBottom(); });
     for (const c of Array.from(el.children)) ro.observe(c);
@@ -673,6 +675,12 @@ export default function ClaudePage() {
           {activeId && <div className="cc-fade" aria-hidden="true" />}
           {activeId && (
             <div className="cc-float" ref={floatRef}>
+              {awayFromBottom && (
+                <button type="button" className="cc-jump" title="Ir para o fim" aria-label="Ir para o fim"
+                  onClick={() => { const el = scrollRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); }}>
+                  <SendArrow className="cc-jump-icon" />
+                </button>
+              )}
               <PermissionDock event={dockedPermission} onDecide={decide} />
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
                 fastMode={state.fastMode}
