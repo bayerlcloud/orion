@@ -25,11 +25,10 @@ function instrucoes(sql: string): string[] {
 
 const REGRAS: [RegExp, string][] = [
   [/^drop\s+table\b/, 'apaga tabela (DROP TABLE)'],
+  [/^drop\s/, 'apaga objeto do banco (DROP)'],
   [/^truncate\b/, 'apaga todas as linhas (TRUNCATE)'],
-  [/^alter\s+table\b.*\bdrop\s+column\b/, 'apaga coluna (ALTER TABLE DROP COLUMN)'],
+  [/^alter\s+table\b.*\bdrop\b/, 'remove parte da tabela (ALTER TABLE DROP)'],
   [/^alter\s+table\b.*\brename\b/, 'renomeia tabela ou coluna (ALTER TABLE RENAME)'],
-  [/^drop\s+schema\b/, 'apaga schema (DROP SCHEMA)'],
-  [/^drop\s+function\b/, 'apaga função (DROP FUNCTION)'],
 ];
 
 /** Devolve o motivo em pt-BR se a instrução for destrutiva, ou null se for comum. */

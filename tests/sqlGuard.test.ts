@@ -14,6 +14,12 @@ describe('sqlDestrutivo', () => {
       'update p set a = 1 where id = 2', 'create table t (id int)', 'alter table p add column x int', 'create or replace function f() returns int as $$ select 1 $$ language sql'])
       expect(sqlDestrutivo(s), s).toBeNull();
   });
+  it('qualquer DROP e qualquer DROP dentro de ALTER TABLE', () => {
+    for (const s of ['alter table p drop constraint fk_x', 'ALTER TABLE p ALTER COLUMN a DROP DEFAULT',
+      'alter table p alter column a drop not null', 'drop view v', 'DROP INDEX i', 'drop policy x on p', 'drop database d'])
+      expect(sqlDestrutivo(s), s).not.toBeNull();
+    expect(sqlDestrutivo('alter table p add column dropado int')).toBeNull();
+  });
   it('tabelaAlvo', () => {
     expect(tabelaAlvo('drop table public.pacientes')).toBe('public.pacientes');
     expect(tabelaAlvo('select 1; delete from agenda')).toBe('agenda');
