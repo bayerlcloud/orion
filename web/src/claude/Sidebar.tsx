@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
@@ -75,11 +75,12 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
   );
 }
 
-function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive, folders, onMoveToGroup, isFolder, onRenameGroup, onDeleteGroup }: {
+function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive, folders, onMoveToGroup, isFolder, onRenameGroup, onDeleteGroup, drag }: {
   groupKey: string; label: string; sessions: SessionSummary[]; collapsible: boolean; collapsed: boolean; onToggle: () => void;
   activeId: string | null; onSelect: (id: string) => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
   folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void;
   /** `isFolder`: esta seção é uma pasta nomeada de verdade (não "Sem pasta"/os baldes automáticos de projeto/recência) — só então mostra os ícones de renomear/excluir. */
+  drag?: { isOpen: (id: string) => boolean; dragId: string | null; setDragId: (id: string | null) => void; onDrop: (toId: string) => void };
   isFolder?: boolean; onRenameGroup?: (name: string) => void; onDeleteGroup?: () => void;
 }) {
   const [editingName, setEditingName] = useState(false);
@@ -110,18 +111,30 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
       </div>
       {!collapsed && (
         <div className="cc-list">
-          {sessions.map(s => (
-            <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive}
-              folders={folders} onMoveToGroup={onMoveToGroup} />
-          ))}
+          {sessions.map(s => {
+            const row = <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive}
+              folders={folders} onMoveToGroup={onMoveToGroup} />;
+            // Modo "ordem das abas": as abertas podem ser arrastadas na lista para mudar a ordem das abas.
+            if (!drag || !drag.isOpen(s.id)) return row;
+            return (
+              <div key={s.id} draggable className={`cc-item-drag ${drag.dragId === s.id ? 'is-dragging' : ''}`}
+                onDragStart={e => { drag.setDragId(s.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-orion-session', s.id); }}
+                onDragOver={e => { if (drag.dragId) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                onDrop={e => { e.preventDefault(); drag.onDrop(s.id); }}
+                onDragEnd={() => drag.setDragId(null)}>
+                {row}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-export default function Sidebar({ sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
+export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
   {
+    tabOrder: string[]; onMoveTab: (fromId: string, toId: string) => void;
     sessions: SessionSummary[]; meId?: number; usage: UsageBar[];
     /** "% do uso" por modelo (7 dias) — breakdown de atribuição da extensão real (`attribution*_QET5Ow`, string "% of usage"); ver computeModelAttribution em mapper.ts e PARIDADE-seletor.md. Vazio = bloco escondido. */
     modelAttribution?: ModelAttribution[];
@@ -132,7 +145,6 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
     onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void;
     onMoveToGroup: (sessionId: string, groupId: string | null) => void;
   }) {
-  const [where, setWhere] = useState<'local' | 'web'>('local');
   // Gaveta do celular (≤800px, ver claude.css): fecha sozinha ao escolher ou criar sessão. No desktop o botão fica oculto.
   const [drawer, setDrawer] = useState(false);
   const pick = (id: string) => { setDrawer(false); onSelect(id); };
@@ -144,6 +156,10 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
   const [showArchived, setShowArchived] = useState(false);
   const [projectFilter, setProjectFilter] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  // Ordem das sessões abertas na lista: por última atividade ou igual às abas (lembrada no navegador).
+  const [openOrder, setOpenOrder] = useState<'recent' | 'tabs'>(() => localStorage.getItem('orion.openOrder') === 'tabs' ? 'tabs' : 'recent');
+  useEffect(() => { localStorage.setItem('orion.openOrder', openOrder); }, [openOrder]);
+  const [dragId, setDragId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   function toggleGroup(key: string) {
@@ -168,9 +184,18 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
   const isActive = (s: SessionSummary) => s.status === 'running' || s.status === 'waiting';
   const activeCount = sessions.filter(isActive).length;
   const filter = { term: q, project: projectFilter || undefined, activeOnly, userId: soMinhas ? meId : undefined };
-  const localList = where === 'local' ? filterSessions(sessions.filter(s => !s.archived), filter) : [];
-  const archivedList = where === 'local' ? filterSessions(sessions.filter(s => s.archived), filter) : [];
-  const groups = groupSessions(localList, groupBy, Date.now(), folders);
+  const localList = filterSessions(sessions.filter(s => !s.archived), filter);
+  const archivedList = filterSessions(sessions.filter(s => s.archived), filter);
+  // Dentro de cada grupo: as abertas em aba primeiro, depois as fechadas (por última atividade).
+  // As abertas seguem a ordem escolhida no botão: última atividade ou a mesma ordem das abas.
+  const tabIndex = new Map(tabOrder.map((id, i) => [id, i] as const));
+  const openFirst = (list: SessionSummary[]) => {
+    const abertas = list.filter(s => tabIndex.has(s.id));
+    const fechadas = list.filter(s => !tabIndex.has(s.id));
+    if (openOrder === 'tabs') abertas.sort((a, b) => tabIndex.get(a.id)! - tabIndex.get(b.id)!);
+    return [...abertas, ...fechadas];
+  };
+  const groups = groupSessions(localList, groupBy, Date.now(), folders).map(g => ({ ...g, sessions: openFirst(g.sessions) }));
 
   // Projetos presentes entre as sessões, para o filtro (slug → rótulo). Só aparece quando há mais de um.
   const projectOptions: [string, string][] = [];
@@ -239,10 +264,6 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
         {open && (
           <>
             <button className="cc-new" onClick={() => { setDrawer(false); onNew(); }}><Plus size={13} /> Nova sessão</button>
-            <div className="cc-toggle">
-              <button className={where === 'local' ? 'is-on' : ''} onClick={() => setWhere('local')}>Local</button>
-              <button className={where === 'web' ? 'is-on' : ''} onClick={() => setWhere('web')}>Web</button>
-            </div>
             {/* Linhas de controle iguais à lateral real: [funil ⌄ (agrupar/filtrar)] [⚡ Ativas · N] e [🔍] [+ Novo grupo]. */}
             <div className="cc-filter-row">
               <span className="cc-funnel" title="Agrupar sessões">
@@ -260,6 +281,10 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
               </button>
               <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
                 <Bolt size={11} /> Ativas · {activeCount}
+              </button>
+              <button className="cc-active" onClick={() => setOpenOrder(o => o === 'tabs' ? 'recent' : 'tabs')}
+                title={openOrder === 'tabs' ? 'Abertas na ordem das abas (arraste para reordenar). Clique para ordenar por última atividade.' : 'Abertas por última atividade. Clique para usar a ordem das abas.'}>
+                {openOrder === 'tabs' ? 'Ordem das abas' : 'Recentes'}
               </button>
             </div>
             <div className="cc-filter-row">
@@ -290,9 +315,7 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
                 </div>
               ) : null
             )}
-            {where === 'web' ? (
-              <div className="cc-empty">Sessões na nuvem em breve</div>
-            ) : loading ? (
+            {loading ? (
               // Estado de carregamento inicial (localSessionsLoaded=false na extensão real) — antes
               // pulava direto pra "Nenhuma sessão" enquanto o primeiro fetch ainda estava em voo.
               <div className="cc-loading"><span className="cc-spinner" /> Carregando sessões…</div>
@@ -303,6 +326,7 @@ export default function Sidebar({ sessions, meId, usage, modelAttribution, activ
                     collapsible={groupBy !== 'none'} collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
                     activeId={activeId} onSelect={pick} onRename={onRename} onArchive={onArchive}
                     folders={folders} onMoveToGroup={onMoveToGroup}
+                    drag={openOrder === 'tabs' ? { isOpen: id => tabIndex.has(id), dragId, setDragId, onDrop: (to) => { if (dragId && tabIndex.has(to)) onMoveTab(dragId, to); setDragId(null); } } : undefined}
                     isFolder={groupBy === 'folder' && g.key !== 'ungrouped'}
                     onRenameGroup={g.key.startsWith('folder:') ? (name) => onRenameGroup(g.key.slice('folder:'.length), name) : undefined}
                     onDeleteGroup={g.key.startsWith('folder:') ? () => onDeleteGroup(g.key.slice('folder:'.length)) : undefined} />

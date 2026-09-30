@@ -237,7 +237,11 @@ export default function ClaudePage() {
   function dropTab(targetId: string) {
     const from = dragTabRef.current;
     dragTabRef.current = null; setDragOverTab(null);
-    if (!from || from === targetId) return;
+    if (from) moveTab(from, targetId);
+  }
+  // Move a aba `from` para a posição de `targetId` (usado pelo arraste nas abas e na lista lateral).
+  function moveTab(from: string, targetId: string) {
+    if (from === targetId) return;
     setTabs(t => {
       const moving = t.find(x => x.id === from);
       if (!moving) return t;
@@ -577,7 +581,7 @@ export default function ClaudePage() {
 
   return (
     <div className={`cc ${sideHidden ? 'is-side-hidden' : ''}`}>
-      <Sidebar sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
+      <Sidebar tabOrder={tabs.map(t => t.id)} onMoveTab={moveTab} sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
         onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
         <div className="cc-tabs">
