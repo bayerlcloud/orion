@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugPessoa, hostPreview, instancia, proximaPorta, paresFaltando } from '../server/preview/model';
+import { slugPessoa, hostPreview, instancia, proximaPorta, paresFaltando, temPreview } from '../server/preview/model';
 
 describe('preview model', () => {
   it('slugPessoa', () => {
@@ -25,5 +25,16 @@ describe('preview model', () => {
       { project_id: 2, user_id: null }, { project_id: 2, user_id: 10 }, { project_id: 2, user_id: 20 },
     ]);
     expect(paresFaltando([1], [10], [{ project_id: 1, user_id: null }, { project_id: 1, user_id: 10 }])).toEqual([]);
+  });
+});
+
+describe('temPreview', () => {
+  it('só projeto com package.json na pasta ganha preview', async () => {
+    const { mkdtemp, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const path = await import('node:path');
+    const d = await mkdtemp(path.join(tmpdir(), 'tp-'));
+    expect(await temPreview(d, null)).toBe(false);
+    await writeFile(path.join(d, 'package.json'), '{}');
+    expect(await temPreview(d, null)).toBe(true);
+    expect(await temPreview(d, 'apps/x')).toBe(false);
   });
 });

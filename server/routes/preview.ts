@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { apontar } from '../preview/model.js';
-import { escreverEnv, liberarCache, prepararPasta } from '../preview/pasta.js';
+import { apontar, subpastaDoProjeto } from '../preview/model.js';
+import { escreverEnv, liberarCache, pastaDoApp, prepararPasta } from '../preview/pasta.js';
 import { COOKIE_PREVIEW, COOKIE_TTL_MS, TOKEN_TTL_MS, assinar, checarCookie, consumirUmaVez, verificar } from '../preview/auth.js';
 
 /**
@@ -25,14 +25,15 @@ export async function previewRoutes(app: FastifyInstance) {
     if (!s) return reply.code(404).send({ error: 'sessão sem projeto ou inexistente' });
     if (s.user_id !== req.user.id && req.user.role !== 'owner') return reply.code(403).send({ error: 'sessão de outra pessoa' });
     const row = await apontar(app.pool, req.user.id, s.project_id, s.cwd);
+    const sub = await subpastaDoProjeto(app.pool, s.project_id);
     try {
       await prepararPasta(s.cwd, s.project_path);
-      await liberarCache(s.cwd);
+      await liberarCache(pastaDoApp(s.cwd, sub), undefined, s.cwd);
     } catch (e) {
       return reply.code(500).send({ error: `não consegui preparar a pasta do preview: ${e instanceof Error ? e.message : e}` });
     }
     try {
-      const env = await escreverEnv(row);
+      const env = await escreverEnv(row, undefined, undefined, sub);
       if (env.erroParar) app.log.warn(`preview: não consegui parar o vite antigo de ${row.host}: ${env.erroParar}`);
     } catch (e) {
       return reply.code(500).send({ error: `não consegui gravar o .env do preview: ${e instanceof Error ? e.message : e}` });
