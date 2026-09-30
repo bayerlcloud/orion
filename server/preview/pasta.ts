@@ -56,3 +56,15 @@ export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: s
   await parar(inst);
   return { mudou: true };
 }
+
+/**
+ * O vite do preview roda como o usuário `preview`, só com leitura nas pastas; o cache de dependências
+ * (`node_modules/.vite`) é o único lugar onde ele escreve. Com node_modules por symlink, o cache é o
+ * da raiz, dividido com o preview raiz do projeto.
+ */
+export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000)): Promise<void> {
+  if (!(await existe(path.join(dir, 'node_modules')))) return;
+  const cache = path.join(dir, 'node_modules', '.vite');
+  await mkdir(cache, { recursive: true });
+  await setfacl(['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', cache]);
+}

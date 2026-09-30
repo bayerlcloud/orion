@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, lstat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { prepararPasta, escreverEnv } from '../server/preview/pasta';
+import { prepararPasta, escreverEnv, liberarCache } from '../server/preview/pasta';
 
 async function projeto(pkg: string) {
   const base = await mkdtemp(path.join(tmpdir(), 'pv-'));
@@ -39,5 +39,23 @@ describe('escreverEnv', () => {
     expect((await escreverEnv(p, dir, async (i) => { parados.push(i); })).mudou).toBe(false);
     await escreverEnv({ ...p, worktree_path: '/b' }, dir, async (i) => { parados.push(i); });
     expect(parados).toEqual(['danilo.fisio', 'danilo.fisio']);
+  });
+});
+
+describe('liberarCache', () => {
+  it('cria node_modules/.vite e dá rwX ao usuário preview, também como padrão', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'pv-cache-'));
+    await mkdir(path.join(dir, 'node_modules'));
+    const chamadas: string[][] = [];
+    await liberarCache(dir, async (args) => { chamadas.push(args); });
+    expect((await lstat(path.join(dir, 'node_modules', '.vite'))).isDirectory()).toBe(true);
+    expect(chamadas).toEqual([['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(dir, 'node_modules', '.vite')]]);
+  });
+  it('pasta sem node_modules não ganha nada', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'pv-cache-'));
+    const chamadas: string[][] = [];
+    await liberarCache(dir, async (args) => { chamadas.push(args); });
+    expect(await readdir(dir)).toEqual([]);
+    expect(chamadas).toEqual([]);
   });
 });

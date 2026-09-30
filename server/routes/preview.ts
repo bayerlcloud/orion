@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { apontar } from '../preview/model.js';
-import { escreverEnv, prepararPasta } from '../preview/pasta.js';
+import { escreverEnv, liberarCache, prepararPasta } from '../preview/pasta.js';
 import { COOKIE_PREVIEW, COOKIE_TTL_MS, TOKEN_TTL_MS, assinar, checarCookie, consumirUmaVez, verificar } from '../preview/auth.js';
 
 /**
@@ -27,6 +27,7 @@ export async function previewRoutes(app: FastifyInstance) {
     const row = await apontar(app.pool, req.user.id, s.project_id, s.cwd);
     try {
       await prepararPasta(s.cwd, s.project_path);
+      await liberarCache(s.cwd);
     } catch (e) {
       return reply.code(500).send({ error: `não consegui preparar a pasta do preview: ${e instanceof Error ? e.message : e}` });
     }

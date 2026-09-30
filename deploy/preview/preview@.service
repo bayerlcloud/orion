@@ -1,0 +1,12 @@
+[Unit]
+Description=Orion: proxy do preview %i (desliga após 1h sem conexão)
+Requires=preview-vite@%i.service
+After=preview-vite@%i.service
+
+[Service]
+User=preview
+Slice=preview.slice
+EnvironmentFile=/srv/previews/%i.env
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=1h 127.0.0.1:${VITE_PORT}
+NoNewPrivileges=yes
+PrivateTmp=yes
