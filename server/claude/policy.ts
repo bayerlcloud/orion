@@ -82,7 +82,8 @@ export function classify(toolName: string, input: unknown): Verdict {
     return { decision: 'allow' };
   }
   if (toolName.startsWith('mcp__')) {
-    if (toolName.startsWith('mcp__orion-root__')) return { decision: 'ask', reason: 'executar como root' };
+    // Root pede o cartão em qualquer modo: o orion-root só executa com uma aprovação humana registrada.
+    if (toolName.startsWith('mcp__orion-root__')) return { decision: 'ask', reason: 'executar como root', always: true };
     if (MCP_NOME_BANCO.test(toolName)) return { decision: 'ask', reason: BANCO };
     if (MCP_NOME_PUBLICAR.test(toolName)) return { decision: 'ask', reason: PUBLICAR };
     const acao = str(inp.action) || str(inp.method) || str(inp.operation);
@@ -114,8 +115,8 @@ export function makePolicyHook(backup?: BackupFn): HookCallback {
     if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
     const v = classify(i.tool_name, i.tool_input);
     if (v.always) {
-      const bk = await textoBackup(backup, v.sql ?? '');
-      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: ${v.reason}. ${bk}` } };
+      const bk = v.sql ? `. ${await textoBackup(backup, v.sql)}` : '';
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: ${v.reason}${bk}` } };
     }
     if (i.permission_mode === 'auto') return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
     return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: v.decision, ...(v.reason ? { permissionDecisionReason: `Ação sensível: ${v.reason}` } : {}) } };
