@@ -109,6 +109,39 @@ export async function integrate(repoPath: string, branch: string, baseBranch: st
   return { ok: true, conflict: false, log: logs.join('\n\n') };
 }
 
+/**
+ * Início do turno numa worktree (spec 2026-09-30-preview-design, Parte 2): traz o que as outras pessoas
+ * já juntaram na base. Em conflito, aborta e a worktree fica como estava.
+ */
+export async function sincronizarComBase(worktree: string, baseBranch: string): Promise<{ ok: boolean; conflito: boolean; log: string }> {
+  const m = await git(worktree, ['merge', '--no-edit', safeBase(baseBranch)]);
+  const log = `${m.stdout}${m.stderr}`.trim();
+  if (m.code === 0) return { ok: true, conflito: false, log };
+  const unmerged = await git(worktree, ['ls-files', '--unmerged']);
+  const conflito = unmerged.stdout.trim().length > 0 || /CONFLICT/i.test(log);
+  if (conflito) await git(worktree, ['merge', '--abort']);
+  return { ok: false, conflito, log };
+}
+
+/** Fim do turno: commita tudo o que mudou na worktree, com a primeira linha do pedido (até 72 letras). */
+export async function commitTurno(worktree: string, mensagem: string): Promise<{ commitou: boolean; branch: string | null; log: string }> {
+  const st = await git(worktree, ['status', '--porcelain']);
+  const br = await git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const branch = br.code === 0 ? br.stdout.trim() : null;
+  if (st.code !== 0 || !st.stdout.trim()) return { commitou: false, branch, log: `${st.stdout}${st.stderr}`.trim() };
+  const linha = (mensagem.split('\n').find(l => l.trim()) ?? 'turno').trim().slice(0, 72) || 'turno';
+  const add = await git(worktree, ['add', '-A']);
+  if (add.code !== 0) return { commitou: false, branch, log: add.stderr };
+  const c = await git(worktree, ['commit', '-q', '-m', linha]);
+  return { commitou: c.code === 0, branch, log: `${c.stdout}${c.stderr}`.trim() };
+}
+
+/** Raiz sem edição direta em arquivos rastreados (arquivo novo não rastreado não atrapalha o merge). */
+export async function raizLimpa(repo: string): Promise<boolean> {
+  const st = await git(repo, ['status', '--porcelain', '--untracked-files=no']);
+  return st.code === 0 && st.stdout.trim() === '';
+}
+
 export type TestResult = { skipped: boolean; ok: boolean; tail: string };
 
 /** Roda `npm test` no worktree se houver script "test"; senão pula. Corta a saída no fim. */
