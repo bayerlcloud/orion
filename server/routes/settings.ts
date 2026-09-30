@@ -4,6 +4,7 @@ import { KEYS, deleteSetting, ensureSettingsTable, getSetting, looksLikeClaudeTo
 import { LoginFlow } from '../claude/login.js';
 import { readClaudeCredentials, credentialsPath } from '../claude/credentialsFile.js';
 import { unlink } from 'node:fs/promises';
+import { dbUrlKey, ehDbUrl } from '../dbBackup.js';
 
 export async function settingsRoutes(app: FastifyInstance) {
   await ensureSettingsTable(app.pool);
@@ -115,5 +116,21 @@ export async function settingsRoutes(app: FastifyInstance) {
       await setSetting(app.pool, KEYS.taskBudgetTokens, String(n), req.user!.id);
     }
     return { ok: true };
+  });
+
+  // URL do banco de produção de cada projeto (segredo): usada só pelo backup antes de SQL destrutivo e pelo backup noturno.
+  app.get<{ Params: { id: string } }>('/api/projects/:id/db-url', async (req) => {
+    const url = await getSetting(app.pool, dbUrlKey(Number(req.params.id)));
+    return { configurado: !!url, mascarado: maskToken(url) };
+  });
+  app.put<{ Params: { id: string }; Body: { url?: string | null } }>('/api/projects/:id/db-url', async (req, reply) => {
+    const id = Number(req.params.id);
+    const { rows } = await app.pool.query('SELECT 1 FROM projects WHERE id = $1', [id]);
+    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    const url = req.body?.url ?? null;
+    if (url === null || url === '') { await deleteSetting(app.pool, dbUrlKey(id)); return { configurado: false, mascarado: null }; }
+    if (!ehDbUrl(url)) return reply.code(400).send({ error: 'use uma URL postgres:// ou postgresql://' });
+    await setSetting(app.pool, dbUrlKey(id), url, req.user!.id);
+    return { configurado: true, mascarado: maskToken(url) };
   });
 }

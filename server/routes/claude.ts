@@ -17,6 +17,8 @@ import { orionRootServer } from '../claude/rootTool.js';
 import { composicaoPara } from '../tools/skillPrefs.js';
 import { estiloConhecido } from '../tools/outputStyles.js';
 import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } from '../settings.js';
+import { backupAntes, dbUrlKey } from '../dbBackup.js';
+import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { cofreCdpUrl, cofreMcpServers, cofrePainelUrl, cofreParaHeader } from '../tools/cofre.js';
@@ -104,6 +106,16 @@ export async function claudeRoutes(app: FastifyInstance) {
     return out;
   }
 
+  /** Backup antes de SQL destrutivo (policy.ts): só existe quando o projeto tem db_url configurado. */
+  async function backupPara(projectId: number | null): Promise<BackupFn | undefined> {
+    if (!projectId) return undefined;
+    const dbUrl = await getSetting(app.pool, dbUrlKey(projectId));
+    const { rows } = await app.pool.query('SELECT slug FROM projects WHERE id = $1', [projectId]);
+    const slug: string | undefined = rows[0]?.slug;
+    if (!dbUrl || !slug) return undefined;
+    return (sql) => backupAntes({ dbUrl, slug, sql });
+  }
+
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
   type SessionRow = { id: string; cwd: string; project_id: number | null; user_id?: number; project_name: string | null; rules: string | null; creator: string; output_style?: string | null };
   /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
@@ -114,7 +126,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
     const eff = resolveUltracode(effort);
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
@@ -321,7 +333,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget,
+      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
