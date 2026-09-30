@@ -182,19 +182,42 @@ export default function ClaudePage() {
     return () => es.close();
   }, [refreshSessions]);
 
-  // Ao carregar, monta TODAS as abas abertas (não só a ativa): busca o histórico de cada uma em
-  // segundo plano, e trocar de aba mostra o conteúdo na hora. A aba ativa continua sendo a única
-  // com stream ao vivo; ao ativar outra, ela reconecta e atualiza por cima do que já está na tela.
-  const preloadedRef = useRef(new Set<string>());
+  // Todas as abas abertas ficam AO VIVO, não só a ativa: cada aba de fundo tem o seu próprio stream
+  // (SSE) e aplica os eventos no `live` dela. Ao trocar de aba, a conversa já está na última versão
+  // (inclusive o "pensando" ou a resposta que chegou enquanto você estava em outra aba). Na carga da
+  // página todas abrem juntas. A aba ativa usa o stream do efeito abaixo (que também cuida de modo,
+  // modelo e aviso de conexão); quando uma aba vira ativa, o stream de fundo dela fecha e o da ativa
+  // assume, recarregando o histórico por cima do que já está na tela.
+  const bgStreamsRef = useRef(new Map<string, () => void>());
   useEffect(() => {
-    for (const t of tabs) {
-      if (t.draft || preloadedRef.current.has(t.id)) continue;
-      preloadedRef.current.add(t.id);
-      claudeApi.get(t.id).then(r => {
-        setLive(l => l[t.id] ? l : { ...l, [t.id]: fromRows(r.events, r.session.status, r.pending) });
-      }).catch(() => { preloadedRef.current.delete(t.id); });
+    const want = new Set(tabs.filter(t => !t.draft && t.id !== activeId).map(t => t.id));
+    const streams = bgStreamsRef.current;
+    for (const [id, close] of streams) if (!want.has(id)) { close(); streams.delete(id); }
+    for (const id of want) {
+      if (streams.has(id)) continue;
+      let alive = true;
+      let buffer: any[] | null = [];
+      const es = new EventSource(`/api/claude/sessions/${id}/stream`);
+      es.onmessage = (m) => {
+        try {
+          const ev = JSON.parse(m.data);
+          if (buffer) { buffer.push(ev); return; }
+          setLive(l => ({ ...l, [id]: applyLive(l[id] ?? emptyLive(), ev) }));
+          if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
+        } catch { /* ignora */ }
+      };
+      es.onopen = () => {
+        buffer = buffer ?? [];
+        claudeApi.get(id).then(r => {
+          if (!alive) return;
+          const pending = buffer ?? []; buffer = null;
+          setLive(l => ({ ...l, [id]: pending.reduce((st, ev) => applyLive(st, ev), fromRows(r.events, r.session.status, r.pending)) }));
+        }).catch(() => { buffer = null; });
+      };
+      streams.set(id, () => { alive = false; es.close(); });
     }
-  }, [tabs]);
+  }, [tabs, activeId, refreshSessions]);
+  useEffect(() => () => { for (const close of bgStreamsRef.current.values()) close(); bgStreamsRef.current.clear(); }, []);
 
   // Reordenar abas arrastando (igual às abas do editor no Antigravity). A ordem nova vai pro
   // ui-state pelo efeito de salvar acima, então sincroniza entre guias e dispositivos.
