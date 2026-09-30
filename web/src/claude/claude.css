@@ -105,6 +105,7 @@
 .cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
+.cc-tab.is-drop { box-shadow: inset 2px 0 0 var(--cc-orange); } /* aba sob o arraste: marca onde a outra vai cair */
 .cc-tab-spark { color: var(--claude); }
 /* Dot de status na própria aba (destino do status da barra de título removida — ver PARIDADE-seletor.md). */
 .cc-tab-dot { width: 6px; height: 6px; }
