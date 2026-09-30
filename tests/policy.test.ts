@@ -90,3 +90,11 @@ describe('SQL destrutivo no Bash', () => {
     expect(classify('Bash', { command: 'grep -rn "drop table" server' }).always).toBeUndefined();
   });
 });
+
+describe('root pede sempre', () => {
+  it('orion-root pede o cartão até no modo auto, sem texto de backup', async () => {
+    const out: any = await makePolicyHook()({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'mcp__orion-root__exec', tool_input: { command: 'id' } } as any, undefined, { signal: new AbortController().signal });
+    expect(out.hookSpecificOutput.permissionDecision).toBe('ask');
+    expect(out.hookSpecificOutput.permissionDecisionReason).toBe('Ação sensível: executar como root');
+  });
+});
