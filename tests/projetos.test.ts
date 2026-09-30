@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chavesEnv, classificarBancos, envUsadas, resumoDoc, semCredencial, servidorDoIp } from '../server/projetos/coletar.js';
+import { quemMexeu, chavesEnv, classificarBancos, envUsadas, resumoDoc, semCredencial, servidorDoIp } from '../server/projetos/coletar.js';
 
 describe('coletor de projetos', () => {
   it('classifica bancos e marca o do config.toml como principal', () => {
@@ -28,5 +28,13 @@ describe('coletor de projetos', () => {
     expect(semCredencial('https://user:tok@github.com/a/b.git')).toBe('https://github.com/a/b.git');
     expect(servidorDoIp('212.47.70.170')).toBe('c2');
     expect(servidorDoIp('104.21.64.218')).toBe('Cloudflare');
+  });
+
+  it('quem mexeu: pessoa da sessão, autor do git só sem sessão perto', () => {
+    const c = { autor: 'Bayerl', quando: '2026-09-30T12:00:00Z', sha: 'abc' };
+    expect(quemMexeu(c, { quem: 'Laís', quando: '2026-09-30T11:00:00Z', title: 't' })).toMatchObject({ quem: 'Laís', quando: '2026-09-30T12:00:00.000Z' });
+    expect(quemMexeu(c, { quem: 'Laís', quando: '2026-09-29T11:00:00Z', title: 't' })?.quem).toBe('Bayerl (via git)');
+    expect(quemMexeu(null, { quem: 'Gustavo', quando: '2026-09-29T11:00:00Z', title: 't' })?.quem).toBe('Gustavo');
+    expect(quemMexeu(null, null)).toBeNull();
   });
 });
