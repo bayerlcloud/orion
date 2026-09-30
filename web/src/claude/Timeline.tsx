@@ -670,7 +670,16 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
     return out;
   }, [folded]);
   const renderEvent = (e: ConvEvent) => {
-        if (e.kind === 'system' || e.kind === 'result') return null;
+        if (e.kind === 'system') return null;
+        // Result com erro (SDK caiu, turno cortado sem retomada — ver NAO_RETOMADA em routes/claude.ts):
+        // antes voltava null junto com o "Concluído" (que segue escondido, igual à extensão), então erro
+        // de sessão era invisível. ponytail: casa o texto pra decidir o botão em vez de um campo novo.
+        if (e.kind === 'result') return e.ok ? null : (
+          <div key={e.id} className="cc-msg dot-failure">
+            <Result e={e} />
+            {onResend && e.error?.includes('não retomado automaticamente') ? <button type="button" className="cc-btn cc-blocked-btn" onClick={() => onResend('Continue de onde parou.')}>Continuar de onde parou</button> : null}
+          </div>
+        );
         // Permissão pendente (sem decisão) ou já decidida (allow/allow_always/deny/answer): nenhuma
         // das duas aparece mais aqui. A pendente foi pro card docado (PermissionDock, montado por
         // ClaudePage.tsx — ver currentPermission em mapper.ts); a decidida não deixa NENHUM rastro no

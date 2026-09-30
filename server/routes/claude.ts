@@ -53,6 +53,10 @@ export function isUnderRoot(real: string, root: string): boolean {
 export const RESUME_PROMPT = 'O servidor do Orion reiniciou no meio do seu turno (deploy ou queda) e ele foi cortado. Continue de onde parou. Se o reinício foi causado por você mesmo (ex.: systemctl restart orion-central), ele já aconteceu com sucesso: não reinicie de novo, só confira o resultado e siga.';
 
 /** Retoma a sessão cortada? Não, se o último prompt já era uma retomada de menos de 10 min (evita loop de restart). */
+/** Mensagem gravada como evento 'error' (e last_error) quando o boot decide NÃO retomar; a Timeline casa
+ * o trecho "não retomado automaticamente" pra oferecer o botão "Continuar de onde parou". */
+export const NAO_RETOMADA = 'Turno cortado pelo reinício do servidor e não retomado automaticamente: ele já tinha sido retomado há menos de 10 min (proteção contra loop de reinícios). Clique em "Continuar de onde parou" ou mande uma mensagem.';
+
 export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now: Date): boolean {
   if (!lastPrompt?.includes(RESUME_PROMPT) || !lastTs) return true;
   return now.getTime() - lastTs.getTime() > 10 * 60_000;
@@ -61,7 +65,8 @@ export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now
 type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] };
 
 export async function claudeRoutes(app: FastifyInstance) {
-  const runner = new Runner({ queryFn: query, store: pgStore(app.pool), log: (m) => app.log.warn(m) });
+  const store = pgStore(app.pool);
+  const runner = new Runner({ queryFn: query, store, log: (m) => app.log.warn(m) });
   app.decorate('runner', runner);
   await ensureSettingsTable(app.pool);
   // As tabelas de contas nascem aqui também: a retomada de sessões pós-restart roda antes das rotas de Tools.
@@ -520,7 +525,10 @@ export async function claudeRoutes(app: FastifyInstance) {
   await app.pool.query("UPDATE claude_sessions SET status = 'idle' WHERE status IN ('running','waiting')").catch(() => {});
   for (const s of cortadas) {
     if (!shouldResume(s.last_prompt, s.last_prompt_ts ? new Date(s.last_prompt_ts) : null, new Date())) {
-      await app.pool.query('UPDATE claude_sessions SET last_error = $2 WHERE id = $1', [s.id, 'sessão interrompida por reinício do servidor']).catch(() => {});
+      // Visível na conversa (evento 'error' + status 'error' → "Encerrou com erro" + botão Continuar):
+      // antes só ia pra last_error, que nenhuma tela mostra, e a ferramenta cortada ficava piscando.
+      await store.appendEvent(s.id, 'error', { message: NAO_RETOMADA }).catch(() => {});
+      await app.pool.query("UPDATE claude_sessions SET status = 'error', last_error = $2 WHERE id = $1", [s.id, NAO_RETOMADA]).catch(() => {});
       continue;
     }
     app.log.warn(`retomando sessão ${s.id} cortada por restart`);

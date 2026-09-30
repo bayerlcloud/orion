@@ -385,3 +385,18 @@ describe('turno cortado por restart do servidor (sessão real 517a48e1, 2026-09-
     expect(tool?.kind === 'tool' && tool.status).toBe('warning');
   });
 });
+
+describe('boot não retomou (sessão 517a48e1, 2026-09-29 22:17: segundo restart em menos de 10 min)', () => {
+  it('status error + evento error: "Encerrou com erro" visível, Bash cortado vira aviso, sem spinner', () => {
+    const rows = [
+      { type: 'user_prompt', ts: '2026-09-29T22:15:01.000Z', payload: { prompt: '[Orion] O servidor do Orion reiniciou…' } },
+      { type: 'assistant', ts: '2026-09-29T22:17:20.000Z', payload: { type: 'assistant', uuid: 'b1', message: { content: [{ type: 'tool_use', id: 't9', name: 'Bash', input: { command: 'sleep 3', description: 'Esperar publicação 1 terminar' } }] } } },
+      { type: 'error', ts: '2026-09-29T22:17:33.000Z', payload: { message: 'Turno cortado pelo reinício do servidor e não retomado automaticamente: …' } },
+    ] as any;
+    const ev = toConvEvents(fromRows(rows, 'error', []));
+    const r = ev.find(e => e.kind === 'result');
+    expect(r?.kind === 'result' && !r.ok && r.error).toContain('não retomado automaticamente');
+    expect(ev.find(e => e.kind === 'tool')).toMatchObject({ status: 'warning' });
+    expect(ev.some(e => e.kind === 'busy')).toBe(false);
+  });
+});
