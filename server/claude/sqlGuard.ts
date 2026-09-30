@@ -4,14 +4,13 @@
  * sem WHERE). Não é parser de SQL, é heurística por regex sobre a instrução normalizada.
  */
 
-/** Remove comentários e literais de string antes de normalizar, pra não confundir regex com texto dentro deles. */
+/**
+ * Remove comentários e literais numa passada só, na ordem em que aparecem: um `--` ou `/*` dentro de
+ * uma string não é comentário, e uma aspa dentro de comentário não abre string.
+ */
 function limparInstrucao(sql: string): string {
-  let s = sql;
-  s = s.replace(/--[^\n]*/g, ''); // comentário de linha
-  s = s.replace(/\/\*[\s\S]*?\*\//g, ''); // comentário de bloco
-  s = s.replace(/\$\$[\s\S]*?\$\$/g, "''"); // corpo de função ($$...$$)
-  s = s.replace(/'(?:[^'\\]|\\.)*'/g, "''"); // literal de string
-  return s;
+  const re = /--[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|\$\$[\s\S]*?(?:\$\$|$)|'(?:[^'\\]|\\.|'')*(?:'|$)/g;
+  return sql.replace(re, (m) => (m.startsWith('--') || m.startsWith('/*') ? ' ' : "''"));
 }
 
 /** Divide em instruções por `;`, normaliza espaço e caixa. */

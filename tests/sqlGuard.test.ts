@@ -25,4 +25,10 @@ describe('sqlDestrutivo', () => {
     expect(tabelaAlvo('select 1; delete from agenda')).toBe('agenda');
     expect(tabelaAlvo('drop schema s')).toBeNull();
   });
+  it('marcador de comentário dentro de string não esconde o que vem depois', () => {
+    expect(sqlDestrutivo("select '--x'; drop table users")).not.toBeNull();
+    expect(sqlDestrutivo("select '/*'; drop table users; select '*/'")).not.toBeNull();
+    expect(sqlDestrutivo("select $$ -- $$; truncate t")).not.toBeNull();
+    expect(sqlDestrutivo("select 'it''s'; delete from p")).not.toBeNull();
+  });
 });
