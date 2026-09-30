@@ -10,6 +10,8 @@ export const IP_C3 = '217.76.55.249';
 /**
  * Bloco do Caddy. Tudo dentro de `route` para valer a ordem escrita: `/__orion_auth` responde antes
  * do `forward_auth`. Matchers separados porque condições dentro de um mesmo matcher são E, não OU.
+ * `/@fs` fica liberado só dentro das pastas de projeto: o vite serve por ali as dependências quando o
+ * front mora numa subpasta (o Orion, com root em web/); fora delas continua 404.
  */
 export function blocoCaddy(p: PreviewRow): string {
   const pessoal = p.user_id !== null;
@@ -21,10 +23,15 @@ export function blocoCaddy(p: PreviewRow): string {
 			uri /api/preview/check
 		}` : '';
   return `${p.host} {
-	@bloqueado path /@fs* */.env* */.git*
+	@sensivel path */.env* */.git*
+	@fsFora {
+		path /@fs*
+		not path /@fs/srv/projects/* /@fs/srv/worktrees/* /@fs/srv/orion/* /@fs/srv/orion-worktrees/*
+	}
 	@queryRuim expression \`{query}.contains("..") || {query}.contains("%2e") || {query}.contains("%2E")\`
 	route {
-		respond @bloqueado 404
+		respond @sensivel 404
+		respond @fsFora 404
 		respond @queryRuim 404${auth}
 		reverse_proxy 127.0.0.1:${p.port} {
 			header_up Host "localhost"
