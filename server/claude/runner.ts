@@ -337,7 +337,8 @@ export class Runner {
       includePartialMessages: true,
       settingSources: ['user', 'project'],
       systemPrompt: { type: 'preset', preset: 'claude_code', append: p.systemAppend },
-      maxBudgetUsd: p.maxBudgetUsd ?? 5,
+      // Sem teto de custo por padrão (pedido do Danilo, 30/09/2026): só limita se alguém configurar.
+      ...(p.maxBudgetUsd ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
       stderr: (d) => { l.stderr.push(d); if (l.stderr.length > 40) l.stderr.shift(); },
       ...(p.isNew ? { sessionId: id } : { resume: id }),
       ...(p.model ? { model: p.model } : {}),

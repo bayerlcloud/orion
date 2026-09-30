@@ -134,7 +134,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
     'orion-root': orionRootServer(sessionId),
   });
-  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || 5 });
+  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || undefined });
 
   // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
   // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.

@@ -59,12 +59,12 @@
 .dash-rodape { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
 
 @media (max-width: 700px) {
-  .dash { gap: 22px; }
+  .dash { gap: 22px; grid-template-columns: minmax(0, 1fr); }
   .dash-grid { grid-template-columns: 1fr; }
   .dash-two { grid-template-columns: 1fr; }
   .dash-wide { grid-template-columns: 1fr; }
   .card-big { font-size: 26px; }
-  .dash-table { font-size: 12px; }
+  .dash-table { font-size: 12px; display: block; overflow-x: auto; } /* tabela larga rola dentro dela, não a página */
   .dash-table th, .dash-table td { padding: 4px 6px; }
 }
 
@@ -78,7 +78,7 @@
 .dash-avatar-ini { font-weight: 600; font-size: 18px; }
 .dash-hero-nome { font-weight: 600; font-size: 15px; }
 .dash-hero-sub { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--fg2); }
-.dash-sessoes { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.dash-sessoes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
 .dash-sessoes li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .dash-sessao-nome { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dash-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg2); opacity: .5; flex-shrink: 0; }
@@ -99,4 +99,4 @@
 .nota-ruim .dash-nota-num b { color: var(--bad); }
 .dash-nota-tag { font-weight: 600; text-transform: capitalize; margin-bottom: 8px; }
 .dash-nota-motivos { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--fg2); display: grid; gap: 3px; }
-@media (max-width: 760px) { .dash-hero { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .dash-hero { grid-template-columns: minmax(0, 1fr); } }

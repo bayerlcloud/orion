@@ -456,10 +456,37 @@
 .cc-preview-strip button.is-on { opacity: 1; border-color: #fff; }
 .cc-preview-strip img { display: block; width: 52px; height: 52px; object-fit: cover; border-radius: 6px; }
 
+/* Celular: o chat ocupa a área toda (altura da célula da casca, não 100vh, pra o composer nunca cair
+   abaixo da dobra); a lateral de sessões vira gaveta aberta pelo botão .cc-side-toggle (Sidebar.tsx). */
+.cc-side-toggle, .cc-side-backdrop { display: none; }
 @media (max-width: 800px) {
-  .cc { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; min-height: calc(100vh - 60px); }
-  .cc-main { height: auto; }
-  .cc-side { display: none; }
+  .cc { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: 100%; position: relative; }
+  .cc-main { height: 100%; }
+  .cc-side { position: fixed; z-index: 60; top: 0; bottom: 0; left: 0; width: min(300px, 86vw); transform: translateX(-100%); transition: transform .18s; box-shadow: 0 0 24px #0008; }
+  .cc-side.is-open { transform: none; }
+  .cc-side-backdrop.is-open { display: block; position: fixed; inset: 0; z-index: 59; background: #0007; }
+  .cc-side-toggle { display: inline-flex; align-items: center; justify-content: center; position: absolute; z-index: 5; top: 0; left: 0; width: 40px; height: 40px; color: var(--cc-fg2); border-right: 1px solid var(--cc-line) !important; background: var(--cc-panel) !important; }
+  /* Abas numa linha (com espaço pro botão da gaveta), ações na linha de baixo com alvos de 36px. */
+  .cc-tabs { flex-wrap: wrap; }
+  .cc-tabs-scroll { flex-basis: 100%; padding-left: 40px; }
+  .cc-tab { height: 40px; max-width: 70vw; }
+  .cc-tab-x { opacity: 1; padding: 6px; }
+  .cc-tab-actions { flex: 1 1 100%; justify-content: space-between; gap: 0; padding: 0 4px; border-top: 1px solid var(--cc-line); }
+  .cc-tab-actions .cc-icon { padding: 9px; }
+  .cc-scroll { padding: 12px 12px 40px; }
+  .cc-float { left: 8px; right: 8px; bottom: 8px; }
+  .cc-send, .cc-foot-btn, .cc-mic { min-height: 36px; min-width: 36px; }
+  .cc-send { width: 36px; height: 36px; }
+  .cc-foot-btn > span { max-width: 110px; }
+  .cc-composer-foot { flex-wrap: wrap; }
+  /* sem hover no toque: ações da sessão sempre visíveis, linha mais alta */
+  .cc-item { height: 40px; }
+  .cc-item-actions { display: flex; }
+  .cc-item-time { display: none; }
+  .cc-item-act { padding: 8px; }
+  .cc-preview-container, .cc-preview-image { max-width: 94vw; }
+  .cc-status { white-space: nowrap; overflow: hidden; }
+  .cc-status > span:nth-last-child(2) { display: none; } /* versão do Claude Code: não cabe e não faz falta no celular */
 }
 
 /* ===== adições: modo real ===== */
