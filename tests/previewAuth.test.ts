@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assinar, verificar, consumirUmaVez, checarCookie, LOGIN_URL, podeAbrir, urlEntrar } from '../server/preview/auth';
+import { assinar, verificar, consumirUmaVez, checarCookie, LOGIN_URL, podeAbrir, urlEntrar, publicoAtivo, proximoPainel } from '../server/preview/auth';
 
 const S = 'segredo-de-teste';
 
@@ -43,5 +43,22 @@ describe('podeAbrir', () => {
   });
   it('urlEntrar leva o host para o painel', () => {
     expect(urlEntrar('fisioexpert.bayerl.cloud')).toBe('https://orion.bayerl.cloud/api/preview/entrar?host=fisioexpert.bayerl.cloud');
+  });
+  it('entrar tenta o outro endereço do painel antes do login', () => {
+    expect(proximoPainel('orion.bayerl.cloud', '')).toBe('v2.bayerl.cloud');
+    expect(proximoPainel('v2.bayerl.cloud', '')).toBe('orion.bayerl.cloud');
+    expect(proximoPainel('v2.bayerl.cloud', 'orion.bayerl.cloud')).toBeNull();
+    expect(urlEntrar('x.bayerl.cloud', 'v2.bayerl.cloud', 'orion.bayerl.cloud'))
+      .toBe('https://v2.bayerl.cloud/api/preview/entrar?host=x.bayerl.cloud&tentados=orion.bayerl.cloud');
+  });
+});
+
+describe('publicoAtivo', () => {
+  it('só vale antes do prazo; sem prazo é desligado', () => {
+    const agora = Date.parse('2026-10-01T12:00:00Z');
+    expect(publicoAtivo('2026-10-03T12:00:00Z', agora)).toBe(true);
+    expect(publicoAtivo('2026-10-01T11:59:59Z', agora)).toBe(false);
+    expect(publicoAtivo(null, agora)).toBe(false);
+    expect(publicoAtivo('lixo', agora)).toBe(false);
   });
 });

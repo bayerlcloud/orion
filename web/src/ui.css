@@ -147,3 +147,14 @@ strong { color: var(--fg); }
 @media (max-width: 800px) {
   input, textarea, select, .cc-input, .cc-input-placeholder { font-size: 16px !important; }
 }
+
+/* Interruptor do preview público (PreviewPublico.tsx) */
+.pv-pub { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; white-space: nowrap; min-width: 0; }
+.pv-switch { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 3px; border: 1px solid var(--line, #444); border-radius: 999px; background: transparent; color: var(--muted, #999); font-size: 11px; cursor: pointer; }
+.pv-switch .pv-knob { width: 10px; height: 10px; border-radius: 50%; background: currentColor; opacity: .6; }
+.pv-switch.on { color: var(--ok, #3fb950); border-color: var(--ok, #3fb950); }
+.pv-switch.on .pv-knob { opacity: 1; }
+.pv-pub:not(.is-compacto) .pv-info { max-width: 280px; }
+.pv-info { color: var(--muted, #999); overflow: hidden; text-overflow: ellipsis; }
+.pv-info a { color: inherit; }
+.pv-pub.is-compacto { padding: 5px 10px; border-top: 1px solid var(--line); width: 100%; box-sizing: border-box; }
