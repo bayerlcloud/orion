@@ -182,6 +182,39 @@ export default function ClaudePage() {
     return () => es.close();
   }, [refreshSessions]);
 
+  // Ao carregar, monta TODAS as abas abertas (não só a ativa): busca o histórico de cada uma em
+  // segundo plano, e trocar de aba mostra o conteúdo na hora. A aba ativa continua sendo a única
+  // com stream ao vivo; ao ativar outra, ela reconecta e atualiza por cima do que já está na tela.
+  const preloadedRef = useRef(new Set<string>());
+  useEffect(() => {
+    for (const t of tabs) {
+      if (t.draft || preloadedRef.current.has(t.id)) continue;
+      preloadedRef.current.add(t.id);
+      claudeApi.get(t.id).then(r => {
+        setLive(l => l[t.id] ? l : { ...l, [t.id]: fromRows(r.events, r.session.status, r.pending) });
+      }).catch(() => { preloadedRef.current.delete(t.id); });
+    }
+  }, [tabs]);
+
+  // Reordenar abas arrastando (igual às abas do editor no Antigravity). A ordem nova vai pro
+  // ui-state pelo efeito de salvar acima, então sincroniza entre guias e dispositivos.
+  const dragTabRef = useRef<string | null>(null);
+  const [dragOverTab, setDragOverTab] = useState<string | null>(null);
+  function dropTab(targetId: string) {
+    const from = dragTabRef.current;
+    dragTabRef.current = null; setDragOverTab(null);
+    if (!from || from === targetId) return;
+    setTabs(t => {
+      const moving = t.find(x => x.id === from);
+      if (!moving) return t;
+      const rest = t.filter(x => x.id !== from);
+      const at = rest.findIndex(x => x.id === targetId);
+      const fromIdx = t.findIndex(x => x.id === from), toIdx = t.findIndex(x => x.id === targetId);
+      rest.splice(fromIdx < toIdx ? at + 1 : at, 0, moving);
+      return rest;
+    });
+  }
+
   // Abre a sessão ativa: liga o stream PRIMEIRO e só então carrega o histórico, a cada (re)conexão.
   // Antes era o contrário (histórico, depois stream): o que o Claude emitia nesse intervalo, ou
   // enquanto a conexão estava caída, se perdia, e a tela ficava parada até alguém "cutucar" a
@@ -479,7 +512,13 @@ export default function ClaudePage() {
             // mostrava (ver PARIDADE-seletor.md; a extensão real não tem barra entre as abas e o chat).
             const tip = s ? [s.title, s.project_name, s.user_name].filter(Boolean).join(' · ') : label;
             return (
-              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''}`} onClick={() => setActiveId(t.id)} title={tip}>
+              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''} ${dragOverTab === t.id ? 'is-drop' : ''}`} onClick={() => setActiveId(t.id)} title={tip}
+                draggable
+                onDragStart={e => { dragTabRef.current = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-orion-tab', t.id); }}
+                onDragOver={e => { if (!dragTabRef.current) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTab !== t.id) setDragOverTab(t.id); }}
+                onDragLeave={() => setDragOverTab(d => d === t.id ? null : d)}
+                onDrop={e => { e.preventDefault(); dropTab(t.id); }}
+                onDragEnd={() => { dragTabRef.current = null; setDragOverTab(null); }}>
                 <span className="cc-tab-spark">✳</span>
                 {/* Dot de status na própria aba — outro destino da barra removida (o texto de status ficava lá). */}
                 {s && <span className={`cc-dot cc-tab-dot is-${toSummary(s, projects).status}`} />}
