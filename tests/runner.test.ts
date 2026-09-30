@@ -445,4 +445,32 @@ describe('resultTokens', () => {
     expect(resultTokens({ usage: { input_tokens: 7, output_tokens: 3 } })).toEqual({ input: 7, output: 3 });
     expect(resultTokens({})).toEqual({ input: 0, output: 0 });
   });
+
+  it('ganchos: antes roda antes do SDK e depois roda no fim com ok', async () => {
+    const m = memStore(); const ordem: string[] = [];
+    const q = fakeQuery();
+    const fn: QueryFn = (a) => { ordem.push('sdk'); return q.fn(a); };
+    const r = new Runner({ queryFn: fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 'g1', prompt: 'x', isNew: true, ganchos: { antes: async () => { ordem.push('antes'); }, depois: async (ok) => { ordem.push(`depois:${ok}`); } } });
+    await until(() => ordem.length === 3);
+    expect(ordem).toEqual(['antes', 'sdk', 'depois:true']);
+  });
+  it('ganchos: depois roda também quando o turno é interrompido', async () => {
+    const m = memStore(); const q = fakeQuery({ slow: 200 }); const ordem: string[] = [];
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 'g2', prompt: 'x', isNew: true, ganchos: { depois: async (ok) => { ordem.push(`depois:${ok}`); } } });
+    await until(() => m.sessions.get('g2')?.status === 'running');
+    await r.stop('g2');
+    await until(() => ordem.length === 1);
+    expect(ordem).toEqual(['depois:false']);
+  });
+  it('ganchos: erro no antes não impede o turno', async () => {
+    const m = memStore(); const q = fakeQuery(); const logs: string[] = [];
+    const r = new Runner({ queryFn: q.fn, store: m.store, log: (x) => logs.push(x) });
+    r.startTurn({ ...base, sessionId: 'g3', prompt: 'x', isNew: true, ganchos: { antes: async () => { throw new Error('merge quebrou'); } } });
+    await until(() => m.sessions.get('g3')?.status === 'idle');
+    expect(m.sessions.get('g3').tokens).toEqual({ input: 120, output: 30 });
+    expect(logs.some(l => l.includes('merge quebrou'))).toBe(true);
+  });
 });
+
