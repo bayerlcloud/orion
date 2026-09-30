@@ -255,6 +255,11 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // Anexos do rascunho (já enviados ao servidor na hora de anexar): voltam junto com o texto.
+    id: '017_claude_drafts_attachments',
+    sql: `ALTER TABLE claude_drafts ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;`,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
