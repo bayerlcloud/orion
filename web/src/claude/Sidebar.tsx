@@ -22,7 +22,9 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
   function commit() { const t = draft.trim(); setEditing(false); if (t && t !== s.title) onRename(s.id, t); }
   return (
     <div className={`cc-item ${active ? 'is-active' : ''}`}>
-      <span className={`cc-dot is-${s.status}`} />
+      {/* Bolinha só em sessão aberta numa aba, rodando ou esperando você: igual ao plugin (`GF0` no
+          webview 2.1.283: fechada e parada = sem indicador). */}
+      {(s.open || s.status === 'running' || s.status === 'waiting') && <span className={`cc-dot is-${s.status}`} />}
       {editing ? (
         <input className="cc-item-edit" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }} />

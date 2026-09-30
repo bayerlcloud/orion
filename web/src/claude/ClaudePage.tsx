@@ -527,7 +527,8 @@ export default function ClaudePage() {
     setTabs(t => t.map(x => x.id === activeId ? { ...x, worktreeName: name } : x));
   }
 
-  const summaries = useMemo(() => sessions.map(s => toSummary(s, projects)), [sessions, projects]);
+  const openIds = useMemo(() => new Set(tabs.map(t => t.id)), [tabs]);
+  const summaries = useMemo(() => sessions.map(s => ({ ...toSummary(s, projects), open: openIds.has(s.id) })), [sessions, projects, openIds]);
   const title = activeTab?.draft ? 'Nova sessão' : (active?.title ?? (activeId ? 'Sessão' : 'Claude'));
   // Mostra o que vale pra PRÓXIMA mensagem: o override escolhido no seletor, se houver; senão o
   // modelo resolvido da sessão (gravado no system/init do SDK), como antes.
