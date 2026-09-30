@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
+import { transcribe } from '../claude/transcribe.js';
 import { validateGroupName, sanitizeGroupName } from '../claude/groups.js';
 import { access, mkdir, realpath, stat, unlink } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -350,6 +351,22 @@ export async function claudeRoutes(app: FastifyInstance) {
         WHERE updated_at > now() - interval '7 days'
         GROUP BY model`);
     return { usage: rows, real, by_model: byModel };
+  });
+
+  /** Ditado: recebe o áudio gravado na tela e devolve o texto (Groq, com o Whisper local de reserva). */
+  app.post('/api/claude/transcribe', async (req, reply) => {
+    if (!req.isMultipart()) return reply.code(400).send({ error: 'envie como multipart/form-data' });
+    const part = await req.file();
+    if (!part) return reply.code(400).send({ error: 'sem áudio' });
+    const buf = await part.toBuffer();
+    if (part.file.truncated) return reply.code(413).send({ error: 'áudio grande demais' });
+    if (buf.length < 800) return { text: '', engine: 'none' };
+    try {
+      return await transcribe(app.pool, new Blob([new Uint8Array(buf)], { type: part.mimetype || 'audio/webm' }), part.filename || 'audio.webm');
+    } catch (e) {
+      req.log.error({ err: (e as Error).message }, 'transcrição falhou nos dois motores');
+      return reply.code(502).send({ error: 'não consegui transcrever agora' });
+    }
   });
 
   /** Upload de anexos (multipart). Salva em <uploadRoot>/<user_id>/<uuid>-<nome seguro> e devolve os metadados. */
