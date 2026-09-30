@@ -120,7 +120,7 @@ export function renderCapacidades(versaoClaude: string | null, custom: Customiza
 - Anexos no chat: imagens viram blocos base64; outros arquivos chegam como caminho em /srv/claude-uploads (ler com ferramentas).
 
 ## Referência da extensão oficial (para "fazer igual")
-- /srv/orion-reference/ guarda cópias descompactadas da extensão Claude Code do VS Code: antigravity-2.1.165/ (a que o Danilo usa no Mac) e 2.1.283/ (marketplace). README.md lá explica o layout; UI do chat em webview/index.js e index.css, lado host em extension.js, ícones em resources/.
+- /srv/orion/referencia/ (aba Arquivos, projeto Orion; atalho antigo /srv/orion-reference) guarda cópias descompactadas da extensão Claude Code do VS Code: antigravity-2.1.165/ (a que o Danilo usa no Mac) e 2.1.283/ (marketplace). README.md lá explica o layout; UI do chat em webview/index.js e index.css, lado host em extension.js, ícones em resources/.
 - Pedido do tipo "copie X da extensão" ou "faça igual ao plugin": ler direto dessas pastas, sem pedir para o Danilo mandar nada.
 
 ## Skills, plugins e comandos
