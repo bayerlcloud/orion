@@ -1369,3 +1369,11 @@ describe('thinking com duração + ferramenta que não terminou (sessão parada)
     expect(queda.kind === 'tool' && queda.output).toBe(TOOL_NAO_TERMINOU);
   });
 });
+
+describe('filterSessions: só minhas', () => {
+  it('com userId filtra pelo criador; sem ele, mostra todas', () => {
+    const ss = [{ id: 'a', title: 'x', status: 'idle', updatedAt: 0, userId: 1 }, { id: 'b', title: 'y', status: 'idle', updatedAt: 0, userId: 2 }] as any;
+    expect(filterSessions(ss, { userId: 1 }).map((s: any) => s.id)).toEqual(['a']);
+    expect(filterSessions(ss, {}).length).toBe(2);
+  });
+});

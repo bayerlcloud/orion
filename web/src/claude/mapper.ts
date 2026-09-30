@@ -741,12 +741,13 @@ export function relativeTime(ts: number, now = Date.now()): string {
 }
 
 /** Filtro combinado da lista de sessões: termo (título ou projeto), projeto exato e só-ativas. Pura. */
-export type SessionFilter = { term?: string; project?: string; activeOnly?: boolean };
+export type SessionFilter = { term?: string; project?: string; activeOnly?: boolean; userId?: number };
 export function filterSessions(sessions: SessionSummary[], f: SessionFilter): SessionSummary[] {
   const term = (f.term ?? '').trim().toLowerCase();
   return sessions.filter(s => {
     if (f.project && s.project !== f.project) return false;
     if (f.activeOnly && s.status !== 'running' && s.status !== 'waiting') return false;
+    if (f.userId !== undefined && s.userId !== f.userId) return false;
     if (term) {
       const hit = s.title.toLowerCase().includes(term)
         || (s.project ?? '').toLowerCase().includes(term)

@@ -29,7 +29,7 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
   const projectPath = projects.find(p => p.slug === s.project_slug)?.path;
   return {
-    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived,
+    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived, userId: s.user_id, userName: s.user_name,
     worktreeName: sessionWorktreeName(s.cwd, projectPath) ?? undefined,
     groupId: s.group_id,
   };
@@ -38,6 +38,7 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
 export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [meId, setMeId] = useState<number | undefined>(undefined);
   // Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — compartilhadas entre usuários,
   // mesmo modelo de `sessions` (sem filtro por dono).
   const [groups, setGroups] = useState<SessionGroupInfo[]>([]);
@@ -149,7 +150,7 @@ export default function ClaudePage() {
     void refreshStyles();
     claudeApi.projects().then(r => setProjects(r.projects)).catch(falha);
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
-    claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); }).catch(() => { setEmail(null); setRole(null); });
+    claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); setMeId(r.user.id); }).catch(() => { setEmail(null); setRole(null); });
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
     return () => { alive = false; clearInterval(t); };
   }, [refreshSessions, refreshUsage, refreshGroups, refreshStyles]);
@@ -556,14 +557,15 @@ export default function ClaudePage() {
 
   return (
     <div className="cc">
-      <Sidebar sessions={summaries} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
+      <Sidebar sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
         onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
         <div className="cc-tabs">
           <div className="cc-tabs-scroll">
           {tabs.map(t => {
             const s = sessions.find(x => x.id === t.id);
-            const label = t.draft ? 'Nova sessão' : (s?.title ?? '…');
+            // Projeto só na exibição da aba ("[Orion] Título"): não faz parte do título salvo, então renomear não mexe nele.
+            const label = t.draft ? 'Nova sessão' : (s ? `[${s.project_name ?? 'Neutro'}] ${s.title}` : '…');
             // Tooltip da aba: título · projeto · criador — destino do que a barra de título removida
             // mostrava (ver PARIDADE-seletor.md; a extensão real não tem barra entre as abas e o chat).
             const tip = s ? [s.title, s.project_name, s.user_name].filter(Boolean).join(' · ') : label;

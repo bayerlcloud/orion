@@ -6,7 +6,7 @@ import type { HookListing, SkillEntry } from './types';
 export type ApiSession = {
   id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; input_tokens: number | string; output_tokens: number | string; turns: number; model: string | null;
   permission_mode: string; effort: string | null; cwd: string; last_error: string | null; archived?: boolean; created_at: string; updated_at: string;
-  user_name: string; project_slug: string | null; project_name: string | null; pending: number;
+  user_id: number; user_name: string; project_slug: string | null; project_name: string | null; pending: number;
   /** Pasta nomeada manual desta sessão (`claude_sessions.group_id`) — `null` quando está solta ("Sem pasta"). Ver PARIDADE.md item 12 da seção 13. */
   group_id: string | null;
   /** Output style da sessão (`claude_sessions.output_style`, nullable = sem estilo) — só vem no GET
