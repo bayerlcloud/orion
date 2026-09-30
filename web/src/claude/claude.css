@@ -630,7 +630,9 @@
 .cc-menu-item-name { font-size: 13px; }
 .cc-menu-item-desc { font-size: 11px; color: var(--cc-fg2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* Menu de comandos (/): nunca passa da tela; rola por dentro. */
-.cc-menu-up { max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; align-content: start; }
+.cc-menu-up { max-height: min(50vh, 420px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; align-content: start; }
+.cc-menu-up .cc-menu-item { min-width: 0; }
+.cc-menu-up .cc-menu-item > span { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 /* Campo de nome no menu "Worktree" do compositor (ver Composer.tsx, PARIDADE.md seção 14) — mesmo
    `cc-pop`/`cc-menu` dos seletores de Modelo/Esforço/Modo, só com um <input> em vez de uma lista. */
 .cc-worktree-field { padding: 4px 8px 6px; }
