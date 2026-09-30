@@ -290,6 +290,8 @@ export default function ClaudePage() {
   }, [activeId, refreshSessions, refreshUsage]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
+  // Sessão real ainda sem histórico carregado (o live só nasce depois do GET): mostra o loading em vez da tela vazia.
+  const carregandoSessao = !!activeId && !isDraft(activeId) && !live[activeId];
   const events = useMemo(() => toConvEvents(state), [state]);
   // Recall ArrowUp/ArrowDown do compositor: mensagens já enviadas nesta sessão, mais recente primeiro.
   const history = useMemo(() => messageHistory(events), [events]);
@@ -633,7 +635,8 @@ export default function ClaudePage() {
                 <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
               </div>
             )}
-            {activeId && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} />}
+            {carregandoSessao && <div className="cc-loading" role="status" aria-label="Carregando sessão"><span /><span /><span /></div>}
+            {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
                 `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
                 `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer
