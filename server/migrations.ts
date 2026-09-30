@@ -241,6 +241,20 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS previews_par ON previews (project_id, COALESCE(user_id, 0));
     `,
   },
+  {
+    // Rascunho da caixa de mensagem salvo no servidor, por pessoa e por sessão (sobrevive a F5,
+    // fechar o navegador e trocar de aparelho). Apagado ao enviar.
+    id: '016_claude_drafts',
+    sql: `
+      CREATE TABLE IF NOT EXISTS claude_drafts (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        session_id TEXT NOT NULL REFERENCES claude_sessions(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, session_id)
+      );
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

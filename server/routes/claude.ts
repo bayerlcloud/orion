@@ -353,6 +353,25 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { usage: rows, real, by_model: byModel };
   });
 
+  /** Rascunhos da caixa de mensagem da pessoa logada, por sessão (autosave). */
+  app.get('/api/claude/drafts', async (req) => {
+    const { rows } = await app.pool.query<{ session_id: string; text: string }>('SELECT session_id, text FROM claude_drafts WHERE user_id = $1', [req.user!.id]);
+    return { drafts: Object.fromEntries(rows.map(r => [r.session_id, r.text])) };
+  });
+  app.put<{ Params: { id: string }; Body: { text?: string } }>('/api/claude/drafts/:id', async (req, reply) => {
+    const text = String(req.body?.text ?? '').slice(0, 200_000);
+    if (!text.trim()) {
+      await app.pool.query('DELETE FROM claude_drafts WHERE user_id = $1 AND session_id = $2', [req.user!.id, req.params.id]);
+      return { ok: true };
+    }
+    const { rowCount } = await app.pool.query('SELECT 1 FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    await app.pool.query(
+      `INSERT INTO claude_drafts (user_id, session_id, text) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, session_id) DO UPDATE SET text = EXCLUDED.text, updated_at = now()`, [req.user!.id, req.params.id, text]);
+    return { ok: true };
+  });
+
   /** Ditado: recebe o áudio gravado na tela e devolve o texto (Groq, com o Whisper local de reserva). */
   app.post('/api/claude/transcribe', async (req, reply) => {
     if (!req.isMultipart()) return reply.code(400).send({ error: 'envie como multipart/form-data' });
