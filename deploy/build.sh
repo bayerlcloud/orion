@@ -107,6 +107,8 @@ for f in root-run.py build.sh deploy-run.sh; do
   install -m 0755 -o root -g root "$DIR/deploy/$f" "/usr/local/lib/orion/.$f.novo"
   mv -f "/usr/local/lib/orion/.$f.novo" "/usr/local/lib/orion/$f"
 done
+install -m 0644 -o root -g root "$DIR/deploy/root-perigo.json" /usr/local/lib/orion/.root-perigo.json.novo
+mv -f /usr/local/lib/orion/.root-perigo.json.novo /usr/local/lib/orion/root-perigo.json
 install -d -m 0770 -o danilo -g orion /srv/root /srv/root/pedidos /srv/root/respostas
 MUDOU=
 for u in orion-root.service orion-root.path orion-deploy.service; do

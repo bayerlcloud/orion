@@ -7,6 +7,7 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "resolveJsonModule": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["web/src/**/*.ts", "web/src/**/*.tsx", "vite.config.ts"]

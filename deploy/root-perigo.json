@@ -1,0 +1,21 @@
+{
+  "_leia": "Comandos root que pedem o cartão mesmo com root liberado na sessão. Lido pelo policy.ts, pelo card (Timeline.tsx) e pelo helper root (root-run.py, cópia root instalada pelo build.sh). Regex compatível com JS e Python, testada sem diferenciar maiúsculas.",
+  "padroes": [
+    ["\\brm\\s+(-[a-z]*\\s+)*-[a-z]*r[a-z]*\\s+(-[a-z]+\\s+)*[\"']?/(\\*|bin|boot|dev|etc|home|lib\\w*|opt|proc|root|sbin|srv|sys|usr|var)?[\"']?/?(\\s|$|;|&|\\|)", "apagar pasta de sistema"],
+    ["--no-preserve-root", "apagar a raiz"],
+    ["\\b(mkfs(\\.\\w+)?|wipefs|fdisk|sfdisk|parted|sgdisk|mkswap)\\b", "mexer em disco"],
+    ["\\bdd\\b[^;&|]*\\bof=/dev/", "escrever direto no disco"],
+    ["\\b(shutdown|reboot|poweroff|halt)\\b|\\binit\\s+[06]\\b|systemctl\\s+(reboot|poweroff|halt|kexec)", "desligar ou reiniciar a máquina"],
+    ["systemctl\\s+(stop|disable|mask|kill)\\s+[^;&|]*\\b(orion-central|orion-postgres|caddy|docker|containerd|ssh|sshd|orion-root)\\b", "parar serviço vital"],
+    ["\\b(userdel|usermod|passwd|chpasswd|groupdel|visudo)\\b", "mexer em usuários ou senhas"],
+    ["/etc/(sudoers|shadow|passwd|group|ssh/)|authorized_keys", "mexer em acesso à máquina"],
+    ["\\b(chmod|chown)\\s+(-[a-z]*\\s+)*-[a-z]*r[a-z]*\\s+[^;&|]*\\s/(bin|boot|etc|home|lib\\w*|root|sbin|srv|usr|var)?/?(\\s|$)", "trocar permissão em pasta de sistema"],
+    ["\\b(iptables|ip6tables|nft)\\s+[^;&|]*(-F|--flush|flush)\\b|\\bufw\\s+(disable|reset)\\b", "derrubar firewall"],
+    ["\\bdocker\\s+(system\\s+prune|volume\\s+(rm|prune)|rm\\s+[^;&|]*orion-postgres)", "apagar dados do docker"],
+    ["/srv/postgres", "mexer no volume do banco"],
+    ["\\b(apt|apt-get|dpkg)\\s+[^;&|]*\\b(remove|purge|autoremove|-r|-p)\\b", "desinstalar pacote"],
+    ["\\b(DROP\\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE|DELETE\\s+FROM)\\b", "SQL destrutivo"],
+    ["\\b(curl|wget)\\b[^;&]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b", "rodar script baixado da internet"],
+    [">\\s*/dev/(sd|nvme|vd)", "escrever direto no disco"]
+  ]
+}

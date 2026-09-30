@@ -7,6 +7,14 @@ import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
 import Ouvir from './Ouvir';
 import { api } from '../api';
+import perigoJson from '../../../deploy/root-perigo.json';
+
+/** Mesma lista do policy.ts/root-run.py: comando root que pergunta mesmo com root liberado. */
+function rootPerigo(inputText: string): boolean {
+  let cmd = inputText;
+  try { cmd = String(JSON.parse(inputText).command ?? inputText); } catch { /* texto cru */ }
+  return perigoJson.padroes.some(([re]) => new RegExp(re, 'i').test(cmd));
+}
 
 /**
  * Markdown do assistente — espelho do `root_-a7MRw` real: `p` em pre-wrap com margens .1em/.2em,
@@ -402,8 +410,9 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
   if (e.name === 'Elicitation') return <ElicitAnswer e={e} onDecide={onDecide} />;
   const isBash = e.name === 'Bash';
   const isFile = e.name === 'Read' || e.name === 'Edit' || e.name === 'MultiEdit' || e.name === 'Write';
-  // Root aprova comando a comando (policy.ts): "não perguntar de novo" seria ignorado, então nem aparece.
-  const semSempre = e.name.startsWith('mcp__orion-root__');
+  // Root: o botão 2 libera root na sessão por 8 h (policy.ts); comando perigoso não oferece o botão.
+  const isRoot = e.name === 'mcp__orion-root__exec';
+  const semSempre = isRoot && !!rootPerigo(e.inputText);
   // Atalhos da extensão real: 1/2/3 escolhem, Esc cancela (= Não), Enter no campo envia "Não, e faça isto".
   function onKey(ev: React.KeyboardEvent) {
     const inInput = (ev.target as HTMLElement).tagName === 'INPUT';
@@ -428,7 +437,7 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
       </div>
       <div className="cc-perm-actions">
         <button className="cc-perm-btn" onFocus={() => setFocused(0)} onClick={() => onDecide?.('allow')}><span className="cc-perm-num">1</span> Sim</button>
-        {!semSempre && <button className="cc-perm-btn" onFocus={() => setFocused(1)} onClick={() => onDecide?.('allow_always')}><span className="cc-perm-num">2</span> Sim, e não perguntar de novo</button>}
+        {!semSempre && <button className="cc-perm-btn" onFocus={() => setFocused(1)} onClick={() => onDecide?.('allow_always')}><span className="cc-perm-num">2</span> {isRoot ? 'Sim, e liberar root nesta sessão por 8 h (o perigoso ainda pergunta)' : 'Sim, e não perguntar de novo'}</button>}
         <button className="cc-perm-btn" onFocus={() => setFocused(2)} onClick={() => onDecide?.('deny')}><span className="cc-perm-num">3</span> Não</button>
         <input className="cc-perm-reject" placeholder="Diga ao Claude o que fazer em vez disso" value={reject} onChange={ev => setReject(ev.target.value)} onFocus={() => setFocused(3)}
           onKeyDown={ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); onDecide?.('deny', reject.trim() || undefined); } }} />

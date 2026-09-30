@@ -3,7 +3,9 @@
 # Roda da cópia root /usr/local/lib/orion/root-run.py (instalada por build.sh), nunca de uma pasta do
 # danilo, e só usa stdlib + docker/psql: nada que uma sessão consiga editar roda como root aqui.
 # Para cada /srv/root/pedidos/*.json: consome UMA aprovação humana ('allow'/'allow_always', decided_by
-# não nulo, < 30 min, used_at nulo) desta sessão para este comando exato; sem ela, recusa.
+# não nulo, < 30 min, used_at nulo) desta sessão para este comando exato. Sem ela, ainda passa se a
+# sessão tem root liberado (um 'allow_always' humano de root < 8 h) e o comando não bate em
+# root-perigo.json (cópia root ao lado deste script; sem o arquivo, tudo conta como perigoso).
 import glob, json, os, re, subprocess, sys
 from urllib.parse import urlparse
 
@@ -20,6 +22,25 @@ SQL = """UPDATE claude_approvals SET used_at = now() WHERE id = (
 """
 
 
+LIBERADO = """SELECT 1 FROM claude_approvals
+  WHERE session_id = :'sid' AND tool_name = 'mcp__orion-root__exec' AND decision = 'allow_always'
+    AND decided_by IS NOT NULL AND decided_at > now() - interval '8 hours'
+  LIMIT 1;
+"""
+
+
+def perigoso(cmd, arq=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'root-perigo.json')):
+    try:
+        with open(arq) as f:
+            padroes = json.load(f)['padroes']
+    except Exception:
+        return 'lista de perigo ilegível'
+    for re_, motivo in padroes:
+        if re.search(re_, cmd, re.I):
+            return motivo
+    return None
+
+
 def psql_base():
     env = {}
     for linha in open('/etc/orion/central.env'):
@@ -30,12 +51,18 @@ def psql_base():
     return ['docker', 'exec', '-i', 'orion-postgres', 'psql', '-U', u.username, '-d', u.path.lstrip('/'), '-qAt', '-v', 'ON_ERROR_STOP=1']
 
 
-def aprovado(base, sid, cmd):
-    r = subprocess.run(base + ['-v', f'sid={sid}', '-v', f'cmd={cmd}'], input=SQL, capture_output=True, text=True, timeout=30)
+def consulta(base, sql, **vars_):
+    r = subprocess.run(base + [a for k, v in vars_.items() for a in ('-v', f'{k}={v}')], input=sql, capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
         print('psql falhou:', r.stderr.strip(), file=sys.stderr)
-        return False
-    return bool(UUID.search(r.stdout))
+        return ''
+    return r.stdout
+
+
+def aprovado(base, sid, cmd):
+    if UUID.search(consulta(base, SQL, sid=sid, cmd=cmd)):
+        return True
+    return perigoso(cmd) is None and consulta(base, LIBERADO, sid=sid).strip() == '1'
 
 
 def executar(cmd):
