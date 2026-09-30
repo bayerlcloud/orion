@@ -109,18 +109,18 @@ export default function App() {
         <Avatar user={user} onLogout={sair} onProfile={() => nav('/perfil')} />
       </aside>
       <main className={`content ${wide ? 'is-wide' : ''} ${dash ? 'is-dash' : ''}`}>
+        {/* Páginas "vivas": cada página, depois de aberta uma vez, continua montada e só é escondida
+            ao trocar de menu. Voltar é instantâneo (sem recarregar nem remontar) e ela segue se
+            atualizando em segundo plano, igual às abas do Claude. */}
+        {KEEP.filter(p => visited.has(p.path) || p.path === page).map(p => (
+          <div key={p.path} className="page-keep" style={{ display: page === p.path ? 'contents' : 'none' }}>
+            {p.el}
+          </div>
+        ))}
         <Routes>
           <Route path="/" element={<Navigate to="/claude" replace />} />
-          <Route path="/spec" element={<Spec user={user} />} />
-          <Route path="/dash" element={<Dash />} />
-          <Route path="/claude" element={<ClaudePage />} />
-          <Route path="/memoria" element={<Memoria user={user} />} />
-          <Route path="/arquivos" element={<Arquivos user={user} />} />
-          <Route path="/drive" element={<Drive user={user} />} />
-          <Route path="/config" element={<Config user={user} />} />
+          {KEEP.map(p => <Route key={p.path} path={p.path} element={null} />)}
           <Route path="/perfil" element={<Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} />} />
-          <Route path="/tarefas" element={<Tarefas user={user} />} />
-          <Route path="/tools" element={<Tools user={user} />} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
