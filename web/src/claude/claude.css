@@ -860,3 +860,6 @@
 .cc-jump:hover { background: var(--cc-hover); }
 .cc-jump-icon { transform: rotate(180deg); width: 18px; height: 18px; }
 @media (max-width: 800px) { .cc-jump { width: 36px; height: 36px; } }
+
+/* Ditado: transcrevendo no servidor (entre parar a gravação e o texto chegar). */
+.cc-mic.is-busy .cc-mic-icon { animation: cc-pulse 1s ease-in-out infinite; }

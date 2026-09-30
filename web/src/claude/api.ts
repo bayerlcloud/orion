@@ -55,6 +55,14 @@ export const claudeApi = {
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
   send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
   // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
+  transcribe: async (audio: Blob, filename: string): Promise<{ text: string; engine: string }> => {
+    const fd = new FormData();
+    fd.append('file', audio, filename);
+    const res = await fetch('/api/claude/transcribe', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
+    return data as { text: string; engine: string };
+  },
   uploads: async (files: File[]): Promise<{ attachments: Attachment[] }> => {
     const fd = new FormData();
     for (const f of files) fd.append('file', f, f.name);

@@ -1,42 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { Bolt, Clock, Plus, Chevron, X, Image, File, GitBranch, Mic, AgentsPill, AddPlus, SendArrow, SlashCmd, StopSquare, ModeManual, ModeAcceptEdits, ModePlan, ModeAuto } from './icons';
-import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project } from './api';
-import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState } from './mapper';
+import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, claudeApi } from './api';
+import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState } from './mapper';
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 import Lightbox, { type LightboxImage } from './Lightbox';
 import PlainInput, { type PlainInputHandle } from './PlainInput';
-
-/**
- * Ditado por voz (ver PARIDADE.md, mapper.ts) — a extensão real delega a captura de áudio pro
- * processo da extensão (fora do sandbox do webview); o Orion não tem esse processo, então usa a Web
- * Speech API do próprio navegador (`SpeechRecognition`/`webkitSpeechRecognition`, client-side, sem
- * servidor novo). Tipos mínimos e locais — de propósito NÃO usa os nomes globais `SpeechRecognition`/
- * `SpeechRecognitionEvent` (alguns `lib.dom.d.ts` já os declaram; nomes próprios aqui evitam depender
- * de uma versão específica do TypeScript/lib os ter ou não, e evitam qualquer choque de declaração).
- */
-type MicResult = { readonly isFinal: boolean; readonly length: number; readonly [index: number]: { readonly transcript: string } };
-type MicResultList = { readonly length: number; readonly [index: number]: MicResult };
-type MicEvent = { readonly resultIndex: number; readonly results: MicResultList };
-type MicErrorEvent = { readonly error: string };
-interface MicRecognition {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: ((e: MicEvent) => void) | null;
-  onerror: ((e: MicErrorEvent) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-  abort?(): void;
-}
-type MicRecognitionCtor = new () => MicRecognition;
-function getMicRecognitionCtor(): MicRecognitionCtor | undefined {
-  if (typeof window === 'undefined') return undefined;
-  const w = window as unknown as { SpeechRecognition?: MicRecognitionCtor; webkitSpeechRecognition?: MicRecognitionCtor };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition;
-}
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -215,14 +185,15 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Ditado por voz (ver PARIDADE.md/mapper.ts pro achado completo). `micSupported`: calculado 1x —
   // navegador sem Web Speech API (ex. Firefox) esconde o botão inteiro, mesmo padrão de
   // `X.speechToTextEnabled &&` da extensão real (feature-flag esconde tudo, não só desabilita).
-  const micSupported = useMemo(() => !!getMicRecognitionCtor(), []);
+  // Gravação própria (MediaRecorder) + transcrição no servidor: funciona em qualquer navegador com microfone.
+  const micSupported = useMemo(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined', []);
+  const [micBusy, setMicBusy] = useState(false);
   const [micRecording, setMicRecording] = useState(false);
-  const [micInterim, setMicInterim] = useState('');
   const [micError, setMicError] = useState<string>();
   // Negação permanente de permissão (equivalente a `speechToTextMicDenied` real) — desabilita o botão
   // até o usuário mudar a permissão no navegador; diferente de um erro passageiro.
   const [micDenied, setMicDenied] = useState(false);
-  const micRecognitionRef = useRef<MicRecognition | null>(null);
+  const micRecorderRef = useRef<{ rec: MediaRecorder; stream: MediaStream; cancelled: boolean } | null>(null);
   // Texto antes/depois do cursor no INÍCIO da gravação, mais o texto final já acumulado nesta
   // gravação — `composeDictationText` sempre recalcula a partir daqui, nunca do valor atual do campo
   // (ver limitação documentada em mapper.ts: digitar durante o ditado pode ser sobrescrito).
@@ -298,77 +269,65 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   function pickSlash(cmd: string) { setText(cmd + ' '); setMenu(''); ta.current?.focus(); }
 
   /** Para o reconhecimento em andamento (se houver) e limpa o estado de gravação — usado tanto pelo alternar manual quanto pelos efeitos de troca de sessão/desmontagem abaixo. */
-  function stopMic() {
-    // abort() em vez de stop(): para na hora (o stop() do Safari continua ouvindo até fechar a frase).
-    // O que já foi ditado fica no campo (o texto parcial já está escrito lá).
-    const r = micRecognitionRef.current;
-    micRecognitionRef.current = null;
-    try { r?.abort ? r.abort() : r?.stop(); } catch { /* já parado */ }
+  // Ditado: grava o áudio no navegador e manda pro servidor transcrever (Groq, com Whisper local de
+  // reserva, ver server/claude/transcribe.ts). O texto entra onde estava o cursor ao começar.
+  function stopMic(cancel = false) {
+    const cur = micRecorderRef.current;
+    if (!cur) return;
+    cur.cancelled = cancel;
+    micRecorderRef.current = null;
     setMicRecording(false);
-    setMicInterim('');
+    try { if (cur.rec.state !== 'inactive') cur.rec.stop(); } catch { /* já parado */ }
   }
-  function startMic() {
-    const Ctor = getMicRecognitionCtor();
-    if (!Ctor || micDenied) return;
+  async function startMic() {
+    if (!micSupported || micDenied || micBusy) return;
     const el = ta.current;
     const value = text;
     const cur = el?.getSelection() ?? { start: value.length, end: value.length };
-    const selStart = cur.start;
-    const selEnd = cur.end;
-    micBaseRef.current = { before: value.slice(0, selStart), after: value.slice(selEnd), final: '' };
+    micBaseRef.current = { before: value.slice(0, cur.start), after: value.slice(cur.end), final: '' };
     setMicError(undefined);
-    setMicInterim('');
-    let recognition: MicRecognition;
-    try { recognition = new Ctor(); } catch { setMicError('Não foi possível iniciar o reconhecimento de voz'); return; }
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
-    recognition.onresult = (e) => {
-      // Parou (toque no microfone): resultados atrasados dessa gravação não mexem mais no texto.
-      if (micRecognitionRef.current !== recognition) return;
+    let stream: MediaStream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    catch (e) {
+      const name = (e as { name?: string }).name;
+      if (name === 'NotAllowedError' || name === 'SecurityError') setMicDenied(true);
+      else setMicError('Não foi possível abrir o microfone');
+      return;
+    }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported?.(t)) ?? '';
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    const chunks: Blob[] = [];
+    const entry = { rec, stream, cancelled: false };
+    rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
+    rec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      if (entry.cancelled) return;
+      const type = rec.mimeType || mime || 'audio/webm';
+      const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
       const base = micBaseRef.current;
-      if (!base) return;
-      let interim = '';
-      let final = base.final;
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        const chunk = r[0]?.transcript ?? '';
-        if (r.isFinal) final = accumulateFinalTranscript(final, chunk);
-        else interim += chunk;
-      }
-      micBaseRef.current = { ...base, final };
-      setMicInterim(interim);
-      const composed = composeDictationText(base.before, base.after, final, interim);
-      setText(composed.value);
-      setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
+      setMicBusy(true);
+      try {
+        const r = await claudeApi.transcribe(new Blob(chunks, { type }), `ditado.${ext}`);
+        if (r.text && base) {
+          const composed = composeDictationText(base.before, base.after, r.text, '');
+          setText(composed.value);
+          setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
+        }
+      } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
+      finally { setMicBusy(false); }
     };
-    recognition.onerror = (e) => {
-      if (micRecognitionRef.current !== recognition && !isMicPermissionError(e.error)) return;
-      if (isMicPermissionError(e.error)) setMicDenied(true);
-      else setMicError(micErrorMessage(e.error));
-      micRecognitionRef.current = null;
-      setMicRecording(false);
-      setMicInterim('');
-    };
-    recognition.onend = () => {
-      // Instância antiga (já trocada por um novo start ou por um stop manual) — ignora, não pisa no estado atual.
-      if (micRecognitionRef.current !== recognition) return;
-      micRecognitionRef.current = null;
-      setMicRecording(false);
-      setMicInterim('');
-    };
-    micRecognitionRef.current = recognition;
-    try { recognition.start(); setMicRecording(true); }
-    catch { setMicError('Não foi possível iniciar o reconhecimento de voz'); micRecognitionRef.current = null; }
+    micRecorderRef.current = entry;
+    rec.start();
+    setMicRecording(true);
   }
   function toggleMic() {
     if (!micSupported || micDenied) return;
-    if (micRecording) stopMic(); else startMic();
+    if (micRecording) stopMic(); else void startMic();
   }
   // Trocou de sessão: para qualquer ditado em andamento (a gravação era pra outra conversa).
-  useEffect(() => { if (micRecording) stopMic(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (micRecording) stopMic(true); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Desmontagem: nunca deixa o microfone do navegador "preso" ligado.
-  useEffect(() => () => { micRecognitionRef.current?.stop(); }, []);
+  useEffect(() => () => { stopMic(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Atalho de teclado ⌘D/Ctrl+D — mesmo achado na extensão real (`micTooltipShortcut`, função `j11()`
   // decide qual mostrar). Alterna gravação (liga/desliga); ver mapper.ts pra simplificação deliberada
   // em relação ao gesto de segurar-e-soltar (push-to-talk) real, não replicado aqui.
@@ -443,7 +402,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       */}
       {micSupported && (
         <div className="cc-mic-wrap">
-          <button type="button" className={`cc-mic ${micRecording ? 'is-recording' : ''}`} disabled={micDenied} onClick={toggleMic}
+          <button type="button" className={`cc-mic ${micRecording ? 'is-recording' : ''} ${micBusy ? 'is-busy' : ''}`} disabled={micDenied || micBusy} onClick={toggleMic}
             aria-label={micError ? `Erro de ditado: ${micError}` : micDenied ? 'Acesso ao microfone negado' : micRecording ? 'Parar gravação' : 'Ditado por voz'}>
             <Mic size={14} className="cc-mic-icon" />
           </button>
@@ -454,6 +413,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
                 ? 'Acesso ao microfone negado — permita no navegador'
                 : micRecording
                   ? 'Toque para parar'
+                  : micBusy
+                  ? 'Transcrevendo…'
                   : <>Toque para ditar<span className="cc-mic-tooltip-shortcut">{micShortcutLabel(isMacPlatform(navigator))}</span></>}
           </span>
         </div>
