@@ -677,7 +677,7 @@ export default function ClaudePage() {
             <div className="cc-float" ref={floatRef}>
               {awayFromBottom && (
                 <button type="button" className="cc-jump" title="Ir para o fim" aria-label="Ir para o fim"
-                  onClick={() => { const el = scrollRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); }}>
+                  onClick={() => { atBottomRef.current = true; setAwayFromBottom(false); toBottom(); }}>
                   <SendArrow className="cc-jump-icon" />
                 </button>
               )}
