@@ -3,6 +3,7 @@ Description=Orion: build e publicação (checkout limpo, testes, troca do symlin
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash /srv/orion-live/deploy/deploy-run.sh
+# Cópia root (instalada por build.sh), não /srv/orion-live: lá o danilo edita, e isto roda como root.
+ExecStart=/bin/bash /usr/local/lib/orion/deploy-run.sh
 TimeoutStartSec=1800
 Nice=5
