@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
+import { tituloCurto } from '../claude/titulo.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { orionRootServer } from '../claude/rootTool.js';
@@ -497,6 +498,9 @@ export async function claudeRoutes(app: FastifyInstance) {
     await app.pool.query(
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || null, mode, effort ?? null]);
+    // Troca o título provisório (1ª linha do prompt) por um curto do Haiku; só se ninguém renomeou antes.
+    void getSetting(app.pool, KEYS.claudeToken).then(tk => tituloCurto(prompt, tk)).then(async t => { if (t)
+      await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1 AND title = $3', [id, t, titleFromPrompt(prompt)]); }).catch(() => {});
     const sessaoNova = { id, cwd, project_id: project.id, user_id: req.user!.id, project_name: project.name, rules: project.rules, creator: req.user!.name };
     const ganchos = ganchosDaSessao({
       sessaoId: id, cwd, projeto: proj, prompt, fila: filaIntegracao,
