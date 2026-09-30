@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, hookBlockReason, relativeTime, formatCost, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -189,7 +189,7 @@ describe('reduceSdkMessages', () => {
     { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'getent hosts x' } }] } },
     { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: [{ type: 'text', text: '1.2.3.4 x' }] }] } },
     { type: 'assistant', message: { content: [{ type: 'text', text: 'Feito.' }] } },
-    { type: 'result', subtype: 'success', total_cost_usd: 0.04, duration_ms: 18400, num_turns: 4 },
+    { type: 'result', subtype: 'success', duration_ms: 18400, num_turns: 4 },
   ];
   const ev = reduceSdkMessages(msgs);
 
@@ -206,9 +206,10 @@ describe('reduceSdkMessages', () => {
     const e = reduceSdkMessages([{ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a', name: 'Read', input: { file_path: '/x' } }] } }]);
     expect(e[0].kind === 'tool' && e[0].status).toBe('running');
   });
-  it('resultado carrega custo e duração', () => {
+  it('resultado carrega duração e turnos', () => {
     const r = ev[ev.length - 1];
-    expect(r.kind === 'result' && r.ok && r.costUsd).toBe(0.04);
+    expect(r.kind === 'result' && r.ok && r.durationMs).toBe(18400);
+    expect(r.kind === 'result' && r.turns).toBe(4);
   });
   it('resultado com erro marca ok=false e mensagem', () => {
     const r = reduceSdkMessages([{ type: 'result', subtype: 'error_max_turns', is_error: true }])[0];
@@ -250,9 +251,7 @@ describe('formatação', () => {
     expect(relativeTime(now - 7 * 3_600_000, now)).toBe('7h');
     expect(relativeTime(now - 3 * 86_400_000, now)).toBe('3d');
   });
-  it('custo e duração', () => {
-    expect(formatCost(0.0412)).toBe('US$ 0.0412');
-    expect(formatCost(1.5)).toBe('US$ 1.50');
+  it('duração', () => {
     expect(formatDuration(18400)).toBe('18 s');
     expect(formatDuration(125000)).toBe('2 min 5 s');
   });
@@ -277,7 +276,7 @@ describe('estimativa de tokens', () => {
     expect(formatTokens(2_000_000)).toBe('2.0M');
   });
   it('result carrega tokens de modelUsage', () => {
-    const r = reduceSdkMessages([{ type: 'result', subtype: 'success', total_cost_usd: 0.1, modelUsage: { m: { inputTokens: 100, outputTokens: 40 } } }])[0];
+    const r = reduceSdkMessages([{ type: 'result', subtype: 'success', modelUsage: { m: { inputTokens: 100, outputTokens: 40 } } }])[0];
     expect(r.kind === 'result' && r.inputTokens).toBe(100);
     expect(r.kind === 'result' && r.outputTokens).toBe(40);
   });
@@ -377,29 +376,29 @@ describe('annotateCharDiffs', () => {
 });
 
 describe('computeUsageBars', () => {
-  it('soma janelas e converte custo em % contra referência, com clamp', () => {
-    const bars = computeUsageBars([{ cost_5h: '2.5', cost_7d: '50', cost_total: '10' }]);
+  it('soma janelas e converte tokens em % contra referência, com clamp', () => {
+    const bars = computeUsageBars([{ tokens_5h: '1000000', tokens_7d: '50000000', tokens_total: '10000000' }]);
     expect(bars.map(b => b.label)).toEqual(['Sessão (5h)', 'Semanal (7 dias)', 'Limite Fable']);
-    expect(bars[0].pct).toBe(50); // 2.5 / 5
-    expect(bars[1].pct).toBe(100); // 50 / 25 → clamp
-    expect(bars[2].pct).toBe(10); // 10 / 100
+    expect(bars[0].pct).toBe(50); // 1M / 2M
+    expect(bars[1].pct).toBe(100); // 50M / 20M → clamp
+    expect(bars[2].pct).toBe(10); // 10M / 100M
     expect(bars[0].sub).toBeUndefined();
   });
   it('agrega várias linhas de usuário', () => {
-    const bars = computeUsageBars([{ cost_5h: 1, cost_7d: 0, cost_total: 0 }, { cost_5h: 1.5, cost_7d: 0, cost_total: 0 }]);
-    expect(bars[0].pct).toBe(50); // (1 + 1.5) / 5
+    const bars = computeUsageBars([{ tokens_5h: 400000, tokens_7d: 0, tokens_total: 0 }, { tokens_5h: 600000, tokens_7d: 0, tokens_total: 0 }]);
+    expect(bars[0].pct).toBe(50); // (0,4M + 0,6M) / 2M
   });
-  it('com dados reais (rate_limits do SDK), usa os reais em vez do proxy por custo', () => {
+  it('com dados reais (rate_limits do SDK), usa os reais em vez do proxy por tokens', () => {
     const now = Date.parse('2026-09-28T12:00:00Z');
     const real = { subscription_type: 'max' as string | null, rate_limits: { five_hour: { utilization: 79, resets_at: '2026-09-28T15:00:00Z' }, seven_day: { utilization: 12, resets_at: '2026-10-05T00:00:00Z' } } };
-    const bars = computeUsageBars([{ cost_5h: '999', cost_7d: '999', cost_total: '999' }], real, now);
+    const bars = computeUsageBars([{ tokens_5h: '999', tokens_7d: '999', tokens_total: '999' }], real, now);
     expect(bars.map(b => b.label)).toEqual(['Sessão (5h)', 'Semanal (7 dias)']);
     expect(bars[0].pct).toBe(79);
     expect(bars[0].sub).toBeUndefined();
     expect(bars[0].resetText).toBe('em 3h');
   });
-  it('sem dados reais, cai para o proxy por custo (comportamento de hoje)', () => {
-    const bars = computeUsageBars([{ cost_5h: '2.5', cost_7d: '0', cost_total: '0' }], null);
+  it('sem dados reais, cai para o proxy por tokens (comportamento de hoje)', () => {
+    const bars = computeUsageBars([{ tokens_5h: '1000000', tokens_7d: '0', tokens_total: '0' }], null);
     expect(bars[0].sub).toBeUndefined();
     expect(bars[0].resetText).toBeUndefined();
   });

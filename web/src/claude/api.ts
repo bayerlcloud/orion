@@ -4,7 +4,7 @@ import type { RealUsage } from './mapper';
 import type { HookListing, SkillEntry } from './types';
 
 export type ApiSession = {
-  id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; cost_usd: number; turns: number; model: string | null;
+  id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; input_tokens: number | string; output_tokens: number | string; turns: number; model: string | null;
   permission_mode: string; effort: string | null; cwd: string; last_error: string | null; archived?: boolean; created_at: string; updated_at: string;
   user_name: string; project_slug: string | null; project_name: string | null; pending: number;
   /** Pasta nomeada manual desta sessão (`claude_sessions.group_id`) — `null` quando está solta ("Sem pasta"). Ver PARIDADE.md item 12 da seção 13. */
@@ -49,7 +49,7 @@ export const claudeApi = {
   sessions: () => api<{ sessions: ApiSession[] }>('/api/claude/sessions'),
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null; client?: string }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),
-  usage: () => api<{ usage: { id: number; name: string; cost_5h: string; cost_7d: string; cost_total: string; sessions: string }[]; real: RealUsage; by_model?: { model: string | null; cost: string }[] }>('/api/claude/usage'),
+  usage: () => api<{ usage: { id: number; name: string; tokens_5h: string; tokens_7d: string; tokens_total: string; sessions: string }[]; real: RealUsage; by_model?: { model: string | null; tokens: string }[] }>('/api/claude/usage'),
   /** `worktree_name`: cria um git worktree novo (branch `feature/<nome>`) e a sessão já nasce com `cwd` apontando pra ele — ver PARIDADE.md seção 14. Ausente/vazio = sessão normal na raiz do projeto, como sempre foi. */
   create: (b: { project_id: number; prompt: string; permission_mode: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[]; worktree_name?: string }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
   get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),

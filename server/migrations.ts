@@ -211,6 +211,15 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE tools ADD COLUMN IF NOT EXISTS tag TEXT;
     `,
   },
+  {
+    // Tokens no lugar de US$ (pedido do Danilo, 30/09/2026): total acumulado por sessão, somado a
+    // cada result do SDK. cost_usd fica no banco (dado histórico), mas ninguém mais lê nem escreve.
+    id: '013_claude_sessions_tokens',
+    sql: `
+      ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS input_tokens BIGINT NOT NULL DEFAULT 0;
+      ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS output_tokens BIGINT NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

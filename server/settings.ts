@@ -19,7 +19,7 @@ export const KEYS = {
   claudeToken: 'claude_oauth_token',
   defaultMode: 'claude_default_mode',
   defaultModel: 'claude_default_model',
-  maxBudgetUsd: 'claude_max_budget_usd',
+  taskBudgetTokens: 'claude_task_budget_tokens',
   hostingerToken: 'hostinger_api_token',
 } as const;
 

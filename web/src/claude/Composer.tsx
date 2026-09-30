@@ -46,7 +46,7 @@ const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
   { cmd: '/clear', desc: 'Limpa o contexto da conversa' },
   { cmd: '/compact', desc: 'Resume o histórico para liberar contexto' },
   { cmd: '/context', desc: 'Mostra o uso da janela de contexto' },
-  { cmd: '/cost', desc: 'Mostra custo e tokens da sessão' },
+  { cmd: '/cost', desc: 'Mostra o uso de tokens da sessão' },
 ];
 
 /** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */

@@ -105,7 +105,7 @@ export async function toolsRoutes(app: FastifyInstance) {
     const pendentes = new Map<string, SkillItem>();
     for (const it of itens) if (!it.descricao_pt && it.kind !== 'hook' && !pendentes.has(chaveDe(it.kind, it.invocacao))) pendentes.set(chaveDe(it.kind, it.invocacao), it);
     const lote = [...pendentes.entries()].slice(0, 30);
-    if (!lote.length) return { explicadas: 0, faltam: 0, cost_usd: 0 };
+    if (!lote.length) return { explicadas: 0, faltam: 0 };
     const entrada = await Promise.all(lote.map(async ([chave, it]) => ({
       id: chave, tipo: it.kind, nome: it.invocacao, description: it.description.slice(0, 600),
       inicio: (await readFile(it.path, 'utf8').catch(() => '')).replace(/^---[\s\S]*?---\n?/, '').split('\n').slice(0, 25).join('\n').slice(0, 1200),
@@ -116,7 +116,7 @@ export async function toolsRoutes(app: FastifyInstance) {
     const token = await getSetting(app.pool, KEYS.claudeToken);
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 120_000);
-    let texto = '', cost = 0, erro = '';
+    let texto = '', erro = '';
     try {
       const q = query({ prompt, options: {
         cwd: '/tmp', maxTurns: 1, tools: [], permissionMode: 'default', settingSources: [], abortController: abort, env: sdkEnv(token),
@@ -124,7 +124,7 @@ export async function toolsRoutes(app: FastifyInstance) {
       } });
       for await (const m of q) {
         if (m.type === 'assistant') for (const b of m.message.content) if (b.type === 'text') texto += b.text;
-        if (m.type === 'result') { cost = m.total_cost_usd ?? 0; if (m.is_error) erro = (m as any).result ?? m.subtype; }
+        if (m.type === 'result') { if (m.is_error) erro = (m as any).result ?? m.subtype; }
       }
     } catch (e: any) { erro = String(e?.message ?? e); } finally { clearTimeout(timer); }
     if (erro) return reply.code(502).send({ error: `Claude falhou: ${erro}` });
@@ -139,7 +139,7 @@ export async function toolsRoutes(app: FastifyInstance) {
       n++;
     }
     cache = null;
-    return { explicadas: n, faltam: pendentes.size - n, cost_usd: cost };
+    return { explicadas: n, faltam: pendentes.size - n };
   });
 
   // ---------- contas GitHub (cada uma vira um MCP em toda sessão; token nunca sai daqui) ----------

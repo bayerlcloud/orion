@@ -38,15 +38,23 @@ export type LiveEvent =
    * AbortController, não um bloco de texto do SDK), então usamos o sinal equivalente que já temos.
    */
   | { type: 'interrupted'; message: string; duringTool: boolean; partialText: string; partialThinking: string }
-  | { type: 'turn_end'; costUsd: number; turns: number; ok: boolean }
+  | { type: 'turn_end'; turns: number; ok: boolean }
   | { type: 'commands'; commands: SlashCommand[] };
+
+/** Tokens de entrada/saída do result: soma do modelUsage (todos os modelos do turno), senão o usage
+ * agregado. Mesma conta do front (sumModelUsage em web/src/claude/mapper.ts). */
+export function resultTokens(m: { modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number | null; output_tokens?: number | null } }): { input: number; output: number } {
+  const mu = Object.values(m.modelUsage ?? {});
+  if (mu.length) return { input: mu.reduce((a, e) => a + (e.inputTokens ?? 0), 0), output: mu.reduce((a, e) => a + (e.outputTokens ?? 0), 0) };
+  return { input: m.usage?.input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
+}
 
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'error';
 export type Decision = 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout';
 
 export interface Store {
   appendEvent(sessionId: string, type: string, payload: unknown): Promise<void>;
-  updateSession(sessionId: string, patch: { status?: SessionStatus; costUsd?: number; turns?: number; lastError?: string | null; model?: string | null }): Promise<void>;
+  updateSession(sessionId: string, patch: { status?: SessionStatus; tokens?: { input: number; output: number }; turns?: number; lastError?: string | null; model?: string | null }): Promise<void>;
   createApproval(a: { id: string; sessionId: string; toolName: string; input: unknown }): Promise<void>;
   decideApproval(id: string, decision: Decision, decidedBy: number | null): Promise<void>;
 }
@@ -96,7 +104,8 @@ export type TurnParams = {
   model?: string;
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   systemAppend: string;
-  maxBudgetUsd?: number;
+  /** Orçamento de tokens do turno (setting claude_task_budget_tokens); ausente = sem limite. */
+  taskBudgetTokens?: number;
   env?: Record<string, string>;
   mcpServers?: Record<string, McpServerConfig>;
   /** Composição por pessoa (server/tools/skillPrefs.ts): plugins do catálogo ligados e skills bloqueadas. */
@@ -337,8 +346,8 @@ export class Runner {
       includePartialMessages: true,
       settingSources: ['user', 'project'],
       systemPrompt: { type: 'preset', preset: 'claude_code', append: p.systemAppend },
-      // Sem teto de custo por padrão (pedido do Danilo, 30/09/2026): só limita se alguém configurar.
-      ...(p.maxBudgetUsd ? { maxBudgetUsd: p.maxBudgetUsd } : {}),
+      // Sem orçamento por padrão; quando configurado é em tokens, nunca em US$ (pedido do Danilo, 30/09/2026).
+      ...(p.taskBudgetTokens ? { taskBudget: { total: p.taskBudgetTokens } } : {}),
       stderr: (d) => { l.stderr.push(d); if (l.stderr.length > 40) l.stderr.shift(); },
       ...(p.isNew ? { sessionId: id } : { resume: id }),
       ...(p.model ? { model: p.model } : {}),
@@ -350,7 +359,7 @@ export class Runner {
       ...(p.outputStyle ? { settings: { outputStyle: p.outputStyle } } : {}),
     };
 
-    let ok = false, cost = 0, turns = 0;
+    let ok = false, turns = 0, tokens: { input: number; output: number } | undefined;
     // Acumula o texto/thinking parcial do streaming (deltas de 'stream_event') pra poder persistir
     // no evento 'interrupted' se o turno for abortado no meio de uma resposta ainda incompleta — sem
     // isso, esse texto se perde pra sempre ao recarregar a página: mensagens parciais nunca são
@@ -413,10 +422,10 @@ export class Runner {
         // 'result' — o que estava acumulado em partialText/partialThinking já virou (ou vai virar)
         // conteúdo definitivo dessa mensagem, não sobra parcial órfão pro próximo bloco.
         if (m.type === 'assistant' || m.type === 'result') { partialText = ''; partialThinking = ''; }
-        if (m.type === 'result') { ok = !m.is_error; cost = m.total_cost_usd ?? 0; turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }
+        if (m.type === 'result') { ok = !m.is_error; tokens = resultTokens(m); turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }
       }
-      await this.setStatus(id, ok ? 'idle' : 'error', { costUsd: cost, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
-      this.emit(id, { type: 'turn_end', costUsd: cost, turns, ok });
+      await this.setStatus(id, ok ? 'idle' : 'error', { tokens, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
+      this.emit(id, { type: 'turn_end', turns, ok });
     } catch (e: any) {
       const interrupted = abort.signal.aborted;
       const msg = interrupted ? 'Interrompido pelo usuário' : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
@@ -433,7 +442,7 @@ export class Runner {
         this.emit(id, { type: 'error', message: msg });
       }
       await this.setStatus(id, interrupted ? 'idle' : 'error', { lastError: msg });
-      this.emit(id, { type: 'turn_end', costUsd: cost, turns, ok: false });
+      this.emit(id, { type: 'turn_end', turns, ok: false });
     } finally {
       l.abort = null;
       l.query = null;

@@ -107,7 +107,7 @@ export function renderCapacidades(versaoClaude: string | null, custom: Customiza
 
 ## Motor
 - Claude Code ${versao}, invocado pelo painel via Agent SDK (query() in-process, sessões retomáveis, aprovação de ferramentas pela tela, timeout de permissão 30 min).
-- Conta Claude Max conectada no home do danilo (login pelo navegador na aba Configurações). Orçamento padrão: US$ 5 por sessão.
+- Conta Claude Max conectada no home do danilo (login pelo navegador na aba Configurações). Sem orçamento por padrão; quando configurado (aba Configurações), é em tokens por mensagem, nunca em dinheiro.
 - Modos: default / acceptEdits / plan / auto. Modelo e esforço selecionáveis por sessão.
 
 ## Publicar o Orion (deploy com fila)

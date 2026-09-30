@@ -553,7 +553,7 @@ export default function ClaudePage() {
           Barra de título REMOVIDA (pedido do Bayerl 29/09/2026): a extensão real não tem nenhuma
           faixa entre as abas e o chat. Nada do que ela mostrava se perdeu (ver PARIDADE-seletor.md):
           título/projeto/criador viraram tooltip da aba; status virou dot na aba (e já existia na
-          lateral); custo/turnos já aparecem na linha "Concluído · US$ … · N turnos" de cada result
+          lateral); turnos e tokens já aparecem na linha "Concluído · … · N turnos · tokens" de cada result
           na timeline e agregados na seção Conta e Uso; projeto/cwd seguem na barra de status embaixo.
         */}
         {erro && <div className="cc-error-bar">{erro}</div>}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Runner, type Store, type LiveEvent, type QueryFn } from '../server/claude/runner';
+import { resultTokens, Runner, type Store, type LiveEvent, type QueryFn } from '../server/claude/runner';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, FRASE_TOOL, REGRA_LINHAS_MAX, type MemoriaDecisao, type MemoriaRegra } from '../server/claude/header';
 
 function memStore() {
@@ -49,7 +49,7 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
       }
       if (opts.fail) throw new Error('falhou de propósito');
       yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${prompt}` }] } } as any;
-      yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.01, num_turns: 1, duration_ms: 5 } as any;
+      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 5, usage: { input_tokens: 120, output_tokens: 30 } } as any;
     }
     const g = gen();
     if (opts.commands) (g as any).supportedCommands = async () => opts.commands;
@@ -66,13 +66,13 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
 const base = { cwd: '/tmp/x', permissionMode: 'acceptEdits' as const, systemAppend: 'h' };
 
 describe('Runner', () => {
-  it('roda um turno, persiste eventos e termina em idle com custo', async () => {
+  it('roda um turno, persiste eventos e termina em idle com tokens', async () => {
     const m = memStore(); const q = fakeQuery();
     const r = new Runner({ queryFn: q.fn, store: m.store });
     const seen: LiveEvent[] = []; r.subscribe('s1', e => seen.push(e));
     r.startTurn({ ...base, sessionId: 's1', prompt: '[Danilo] olá', isNew: true });
     await until(() => m.sessions.get('s1')?.status === 'idle');
-    expect(m.sessions.get('s1').costUsd).toBe(0.01);
+    expect(m.sessions.get('s1').tokens).toEqual({ input: 120, output: 30 });
     expect(m.events.map(e => e.type)).toEqual(['user_prompt', 'system', 'assistant', 'result']);
     expect(seen.some(e => e.type === 'partial')).toBe(true);
     expect(seen.filter(e => e.type === 'message').length).toBe(4);
@@ -228,7 +228,7 @@ describe('Runner', () => {
         await options!.canUseTool!('Bash', { command: 'ls' }, { signal: options!.abortController!.signal, suggestions: [] } as any);
         if (options!.abortController!.signal.aborted) throw new Error('aborted');
         yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'não deveria chegar aqui' }] } } as any;
-        yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, num_turns: 1, duration_ms: 1 } as any;
+        yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 1 } as any;
       }
       return gen() as any;
     };
@@ -417,5 +417,13 @@ describe('header com memórias por nível (injeção das decisões de 28/09/2026
     expect(s).not.toContain('nível 0');
     expect(s).not.toContain('nível 1');
     expect(s).not.toContain('Micro-fatos');
+  });
+});
+
+describe('resultTokens', () => {
+  it('soma o modelUsage de todos os modelos; sem ele, usa o usage agregado', () => {
+    expect(resultTokens({ modelUsage: { a: { inputTokens: 10, outputTokens: 2 }, b: { inputTokens: 5 } }, usage: { input_tokens: 999 } })).toEqual({ input: 15, output: 2 });
+    expect(resultTokens({ usage: { input_tokens: 7, output_tokens: 3 } })).toEqual({ input: 7, output: 3 });
+    expect(resultTokens({})).toEqual({ input: 0, output: 0 });
   });
 });

@@ -43,7 +43,7 @@ export type ConvEvent =
       /** Quando >1: este bubble representa N pedidos expirados consecutivos, colapsados num só (ver foldExpiredPermissions). */
       expiredGroupCount?: number;
     }
-  | { id: string; kind: 'result'; ok: boolean; costUsd?: number; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
+  | { id: string; kind: 'result'; ok: boolean; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string }
   /**
    * Prompt REJEITADO por um hook UserPromptSubmit (exit 2): o SDK manda `system` com
@@ -92,7 +92,7 @@ export type SdkMessage =
    * tools dinâmicas têm forma própria) — lido de forma defensiva, nunca assumido.
    */
   | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] }; tool_use_result?: unknown; parent_tool_use_id?: string | null }
-  | { type: 'result'; subtype: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
+  | { type: 'result'; subtype: string; is_error?: boolean; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
 
 /**
