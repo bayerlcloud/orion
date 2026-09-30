@@ -199,7 +199,7 @@ describe('salvar', () => {
     expect(insert.params?.[8]).toBe(1); // scope_user_id = criador (ctx.userId)
   });
 
-  it('sessão sem projeto e sem flags: nasce universal (não tem o que herdar)', async () => {
+  it('sessão neutra (sem projeto) e sem flags: nasce na pessoa, nunca universal por acaso', async () => {
     const { q, calls } = fakeQuery((sql) => {
       if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
       return undefined;
@@ -207,7 +207,10 @@ describe('salvar', () => {
     await salvarMemoria(q, { ...ctx, projectId: null }, { titulo: 'x', corpo: 'y' });
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
     expect(insert.params?.[7]).toBeNull();
-    expect(insert.params?.[8]).toBeNull();
+    expect(insert.params?.[8]).toBe(ctx.userId);
+    await salvarMemoria(q, { ...ctx, projectId: null }, { titulo: 'x', corpo: 'y', universal: true });
+    const universal = calls.filter((c) => c.sql.includes('INSERT INTO memories'))[1];
+    expect(universal.params?.[8]).toBeNull();
   });
 
   it('escopo explícito continua valendo mais que o padrão da sessão', async () => {

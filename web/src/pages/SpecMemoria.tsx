@@ -282,6 +282,7 @@ export default function SpecMemoria() {
         <li>Teste headless confirmou a injeção de ponta a ponta.</li>
         <li><strong>Migração do esquema e tool orion-memory (29/09/2026)</strong>: esquema da tabela <code>memories</code> migrado para <code>level</code>/<code>nota</code> (níveis 0 a 4), tool MCP <code>orion-memory</code> (<code>buscar</code>/<code>salvar</code>) em toda sessão, decaimento diário e UI por nível. Commits <code>2bd5af7</code> e <code>fb61ec8</code>.</li>
         <li><strong>Curador e perfis nível 2 por pessoa (29/09/2026)</strong>: <code>orion-curador.timer</code> diário (03:10 UTC), tools só do MCP <code>curadoria</code> (<code>listar</code>, <code>fundir</code>, <code>propor</code>), tabela <code>curadoria_propostas</code> e aprovação na aba Memória. Commit <code>7df91c0</code>.</li>
+        <li><strong>Projeto escolhido na criação (30/09/2026)</strong>: sessão nova abre numa tela de escolha (projetos + <strong>Neutro</strong>). O projeto fica fixo na sessão; a Neutra roda em <code>~/neutro</code>, recebe só memórias universais e da pessoa, e o que ela salva vai para a pessoa. Antes, toda sessão caía no Orion.</li>
         <li><strong>mem21 (29/09/2026)</strong>: a tool salva no escopo da sessão (projeto por padrão; <code>universal</code> e <code>sobre_pessoa</code> são opt-in), busca híbrida com pgvector (container <code>orion-postgres</code> em <code>pgvector/pgvector:pg16-trixie</code>), proposta de reescopo na curadoria e erros visíveis na UI. Commit <code>5cfb02e</code>.</li>
       </ul>
 
