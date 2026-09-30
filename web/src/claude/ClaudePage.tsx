@@ -303,7 +303,29 @@ export default function ClaudePage() {
   // `events` — sem isso, o `scrollTo` deste efeito rodaria com o `scrollHeight` de ANTES do spacer
   // crescer (o ResizeObserver acima dispara um frame depois), deixando a última mensagem visível por
   // baixo do card recém-aparecido por um instante.
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [events.length, state.partialText.length, state.partialThinking.length, activeId, floatHeight]);
+  // Colado no fim (igual ao plugin): se a tela está rolada até o final, ela continua no final a cada
+  // mudança de altura do conteúdo, inclusive as que não mudam a contagem de eventos (resultado de
+  // ferramenta chegando, indicador "pensando" entrando/saindo, imagem carregando). Antes só rolava
+  // quando events.length mudava, e o indicador descia pra trás do composer até o próximo evento.
+  // Se a pessoa rolou pra cima, não mexe: o conteúdo novo passa por trás do composer.
+  const atBottomRef = useRef(true);
+  const toBottom = useCallback(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => { atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(() => { if (atBottomRef.current) toBottom(); });
+    for (const c of Array.from(el.children)) ro.observe(c);
+    const mo = new MutationObserver(() => { ro.disconnect(); for (const c of Array.from(el.children)) ro.observe(c); if (atBottomRef.current) toBottom(); });
+    mo.observe(el, { childList: true });
+    return () => { el.removeEventListener('scroll', onScroll); ro.disconnect(); mo.disconnect(); };
+  }, [activeId, toBottom]);
+  // Trocou de aba: sempre começa no fim.
+  useEffect(() => { atBottomRef.current = true; toBottom(); }, [activeId, toBottom]);
+  // Mensagem nova do usuário (a pessoa acabou de enviar) sempre leva pro fim, mesmo rolado pra cima.
+  const lastIsUser = events[events.length - 1]?.kind === 'user';
+  useEffect(() => { if (lastIsUser) atBottomRef.current = true; if (atBottomRef.current) toBottom(); }, [events.length, lastIsUser, state.partialText.length, state.partialThinking.length, floatHeight, toBottom]);
 
   const active = sessions.find(s => s.id === activeId);
   const activeTab = tabs.find(t => t.id === activeId);
