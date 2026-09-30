@@ -35,8 +35,10 @@ describe('política padrão de permissão', () => {
     const sig = { signal: new AbortController().signal };
     expect(await policyHook({ ...base, permission_mode: 'plan', tool_name: 'Bash', tool_input: { command: 'ls' } }, 't', sig)).toEqual({});
     expect(await policyHook({ ...base, permission_mode: 'default', tool_name: 'AskUserQuestion', tool_input: {} }, 't', sig)).toEqual({});
-    const r: any = await policyHook({ ...base, permission_mode: 'auto', tool_name: 'Bash', tool_input: { command: 'rm x' } }, 't', sig);
+    const r: any = await policyHook({ ...base, permission_mode: 'default', tool_name: 'Bash', tool_input: { command: 'rm x' } }, 't', sig);
     expect(r.hookSpecificOutput.permissionDecision).toBe('ask');
+    const auto: any = await policyHook({ ...base, permission_mode: 'auto', tool_name: 'Bash', tool_input: { command: 'rm x' } }, 't', sig);
+    expect(auto.hookSpecificOutput.permissionDecision).toBe('allow');
     const ok: any = await policyHook({ ...base, permission_mode: 'default', tool_name: 'Bash', tool_input: { command: 'npm test' } }, 't', sig);
     expect(ok.hookSpecificOutput.permissionDecision).toBe('allow');
   });

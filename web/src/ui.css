@@ -2,9 +2,9 @@
    Valores tirados de theme-tokyo-night/themes/*.json; `--claude` é o laranja fixo da extensão. */
 :root {
   color-scheme: dark;
-  --bg: #16161e; --bg2: #1a1b26; --panel: #16161e; --fg: #787c99; --fg2: #515670; --line: #101014;
+  --bg: #16161e; --bg2: #1a1b26; --panel: #16161e; --fg: #a9b1d6; --fg2: #7a80a3; --line: #101014;
   --hover: #13131a; --active: #202330; --accent: #3d59a1; --accent-2: #3d59a1aa; --ok: #74c991; --bad: #c74e39; --warn: #e1c08d; --info: #3b82f6;
-  --link: #6183bb; --claude: #d97757; --code-fg: #9699a8; --code-block: #16161e; --diff-add: #449dab; --diff-del: #914c54;
+  --link: #6183bb; --claude: #d97757; --code-fg: #b4b8cc; --code-block: #16161e; --diff-add: #449dab; --diff-del: #914c54;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
   /* compatibilidade com nomes antigos */

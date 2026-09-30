@@ -226,6 +226,10 @@ export default function ClaudePage() {
     let alive = true;
     let buffer: any[] | null = [];
     let first = true; // modo/modelo só vêm do servidor na primeira carga (reconexão não desfaz o seletor)
+    // Troca de aba: o seletor já assume o modo da sessão da lista, sem esperar o fetch; senão uma
+    // mensagem enviada nesse intervalo gravava o modo da aba anterior nesta sessão.
+    const known = sessions.find(x => x.id === activeId)?.permission_mode;
+    if (known && ['acceptEdits', 'default', 'plan', 'auto'].includes(known)) setMode(known as Mode);
     setStreamStatus('connecting');
     const apply = (ev: any) => {
       setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) }));
