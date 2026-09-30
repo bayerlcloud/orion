@@ -42,7 +42,7 @@ export async function prepararPasta(dir: string, raiz: string, npm = 'npm'): Pro
 
 /** Para o vite da instância; o próximo acesso religa com a pasta nova (socket activation). */
 async function pararVite(inst: string): Promise<void> {
-  await rodar('sudo', ['-n', '/usr/bin/systemctl', 'stop', `preview-vite@${inst}.service`], '/', 30_000);
+  await rodar('sudo', ['-n', '/usr/local/sbin/orion-preview-stop', inst], '/', 30_000);
 }
 
 /**

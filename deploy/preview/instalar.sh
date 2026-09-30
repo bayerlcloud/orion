@@ -27,7 +27,8 @@ if ! swapon --show | grep -q /swapfile; then
 fi
 
 # O orion-central (danilo) só pode parar o vite de um preview para trocar a pasta servida.
-printf 'danilo ALL=(root) NOPASSWD: /usr/bin/systemctl stop preview-vite@*\n' > /etc/sudoers.d/orion-preview
+install -m 755 "$AQUI/orion-preview-stop" /usr/local/sbin/orion-preview-stop
+printf 'danilo ALL=(root) NOPASSWD: /usr/local/sbin/orion-preview-stop\n' > /etc/sudoers.d/orion-preview
 chmod 440 /etc/sudoers.d/orion-preview
 visudo -c -f /etc/sudoers.d/orion-preview
 
