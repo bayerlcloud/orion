@@ -25,6 +25,17 @@ function carimbo(d: Date): string {
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}`;
 }
 
+function separarSenha(dbUrl: string): { semSenha: string; senha: string | null } {
+  try {
+    const u = new URL(dbUrl);
+    const senha = u.password ? decodeURIComponent(u.password) : null;
+    u.password = '';
+    return { semSenha: u.toString(), senha };
+  } catch {
+    return { semSenha: dbUrl, senha: null };
+  }
+}
+
 type Dump = { dbUrl: string; slug: string; dir?: string; pgDump?: string; now?: Date };
 
 async function rodarDump(o: Dump, tabela: string | null, timeout: number): Promise<{ ok: boolean; arquivo?: string; erro?: string }> {
@@ -36,11 +47,15 @@ async function rodarDump(o: Dump, tabela: string | null, timeout: number): Promi
   } catch (e) {
     return { ok: false, erro: e instanceof Error ? e.message : String(e) };
   }
-  const args = ['-Fc', '-f', arquivo, ...(tabela ? ['-t', tabela] : []), '--dbname', o.dbUrl];
+  // A senha vai por PGPASSWORD, não no argv: /proc/<pid>/cmdline é legível por qualquer usuário da máquina.
+  const { semSenha, senha } = separarSenha(o.dbUrl);
+  const args = ['-Fc', '-f', arquivo, ...(tabela ? ['-t', tabela] : []), '--dbname', semSenha];
+  const env = { ...process.env, ...(senha ? { PGPASSWORD: senha } : {}) };
   return new Promise((resolve) => {
-    execFile(o.pgDump ?? PG_DUMP_PADRAO, args, { timeout, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' }, (err, _out, stderr) => {
+    execFile(o.pgDump ?? PG_DUMP_PADRAO, args, { timeout, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env }, (err, _out, stderr) => {
       if (!err) return resolve({ ok: true, arquivo });
-      const bruto = `${String(stderr ?? '')} ${err.message}`.split(o.dbUrl).join('<db_url>');
+      let bruto = `${String(stderr ?? '')} ${err.message}`.split(o.dbUrl).join('<db_url>');
+      if (senha) bruto = bruto.split(senha).join('<senha>');
       resolve({ ok: false, erro: bruto.trim().slice(-300) || 'pg_dump falhou' });
     });
   });

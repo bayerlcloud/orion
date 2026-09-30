@@ -52,3 +52,16 @@ describe('ehDbUrl', () => {
     expect(ehDbUrl(' postgres://u@h/db\n')).toBe(false);
   });
 });
+
+describe('senha fora do argv', () => {
+  it('pg_dump recebe a senha por PGPASSWORD, não na linha de comando', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'bk-'));
+    const fake = path.join(dir, 'pg_dump');
+    await writeFile(fake, '#!/bin/sh\necho "ARGS $@" > "$(dirname "$0")/saida"\necho "PW $PGPASSWORD" >> "$(dirname "$0")/saida"\n', { mode: 0o755 });
+    await backupAntes({ dbUrl: 'postgres://u:s%40gredo@h:5432/db', slug: 's', sql: 'truncate a', dir, pgDump: fake });
+    const saida = await (await import('node:fs/promises')).readFile(path.join(dir, 'saida'), 'utf8');
+    expect(saida).not.toMatch(/ARGS .*gredo/);
+    expect(saida).toContain('PW s@gredo');
+    expect(saida).toMatch(/ARGS .*postgres:\/\/u@h:5432\/db/);
+  });
+});
