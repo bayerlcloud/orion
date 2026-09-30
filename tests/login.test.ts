@@ -43,7 +43,9 @@ describe('LoginFlow com um comando falso', { timeout: 30000 }, () => {
     expect(f.snapshot().output_tail).not.toContain('\x1b');
   });
   it('sem token na saída vira erro, e cancelar funciona', async () => {
-    const f = new LoginFlow({ onToken: async () => {}, command: `printf 'https://claude.com/cai/oauth/authorize?x=1\\nPaste code here if prompted > '; read c; echo 'Invalid code'`, timeoutMs: 15000 });
+    // readCredentialsFallback isolado: sem ele o teste lê o ~/.claude/.credentials.json real da máquina
+    // (no build da fila existe) e o fluxo termina em 'done' em vez de 'error'.
+    const f = new LoginFlow({ onToken: async () => {}, readCredentialsFallback: async () => null, command: `printf 'https://claude.com/cai/oauth/authorize?x=1\\nPaste code here if prompted > '; read c; echo 'Invalid code'`, timeoutMs: 15000 });
     f.start();
     await enquanto(() => !f.url);
     f.submitCode('errado');
