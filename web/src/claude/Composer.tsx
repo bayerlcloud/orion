@@ -195,6 +195,37 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   sessionRef.current = sessionId;
   const draftsRef = useRef(new Map<string, { text: string; attachments: Pending[] }>());
   const prevSessionRef = useRef(sessionId);
+  // Autosave no servidor (por pessoa e sessão): o rascunho volta depois de F5, fechar o navegador ou
+  // abrir em outro aparelho. Rascunhos de aba nova ainda sem sessão ("draft-…") ficam só na memória.
+  const savedDraftsRef = useRef<Record<string, string> | null>(null);
+  const lastSavedRef = useRef<{ id?: string; text: string }>({ text: '' });
+  const persistable = (id?: string) => !!id && !id.startsWith('draft-');
+  useEffect(() => {
+    let alive = true;
+    claudeApi.drafts().then(r => {
+      if (!alive) return;
+      savedDraftsRef.current = r.drafts;
+      const id = sessionRef.current;
+      // Abriu a página já numa aba: se a caixa ainda está vazia, traz o rascunho salvo dela.
+      if (persistable(id) && !textRef.current && r.drafts[id!]) {
+        textRef.current = r.drafts[id!];
+        lastSavedRef.current = { id, text: r.drafts[id!] };
+        setText(r.drafts[id!]);
+      }
+    }).catch(() => { savedDraftsRef.current = {}; });
+    return () => { alive = false; };
+  }, []);
+  useEffect(() => {
+    const id = sessionId;
+    if (!persistable(id) || savedDraftsRef.current === null) return;
+    if (lastSavedRef.current.id === id && lastSavedRef.current.text === text) return;
+    const t = setTimeout(() => {
+      lastSavedRef.current = { id, text };
+      savedDraftsRef.current![id!] = text;
+      void claudeApi.saveDraft(id!, text).catch(() => { /* tenta de novo na próxima digitação */ });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [text, sessionId]);
   useEffect(() => {
     const prev = prevSessionRef.current;
     if (prev === sessionId) return;
@@ -202,8 +233,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const next = draftsRef.current.get(sessionId ?? '');
     draftsRef.current.delete(sessionId ?? '');
     prevSessionRef.current = sessionId;
-    textRef.current = next?.text ?? '';
-    setText(next?.text ?? '');
+    // Sem rascunho nesta guia: usa o salvo no servidor (vindo de outro aparelho/navegador).
+    const nextText = next?.text ?? (persistable(sessionId) ? savedDraftsRef.current?.[sessionId!] ?? '' : '');
+    textRef.current = nextText;
+    lastSavedRef.current = { id: sessionId, text: nextText };
+    setText(nextText);
     setAttachments(next?.attachments ?? []);
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [micBusy, setMicBusy] = useState(false);
