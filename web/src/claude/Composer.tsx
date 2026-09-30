@@ -29,6 +29,7 @@ interface MicRecognition {
   onend: (() => void) | null;
   start(): void;
   stop(): void;
+  abort?(): void;
 }
 type MicRecognitionCtor = new () => MicRecognition;
 function getMicRecognitionCtor(): MicRecognitionCtor | undefined {
@@ -298,8 +299,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
 
   /** Para o reconhecimento em andamento (se houver) e limpa o estado de gravação — usado tanto pelo alternar manual quanto pelos efeitos de troca de sessão/desmontagem abaixo. */
   function stopMic() {
-    micRecognitionRef.current?.stop();
+    // abort() em vez de stop(): para na hora (o stop() do Safari continua ouvindo até fechar a frase).
+    // O que já foi ditado fica no campo (o texto parcial já está escrito lá).
+    const r = micRecognitionRef.current;
     micRecognitionRef.current = null;
+    try { r?.abort ? r.abort() : r?.stop(); } catch { /* já parado */ }
     setMicRecording(false);
     setMicInterim('');
   }
@@ -320,6 +324,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     recognition.interimResults = true;
     recognition.lang = (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
     recognition.onresult = (e) => {
+      // Parou (toque no microfone): resultados atrasados dessa gravação não mexem mais no texto.
+      if (micRecognitionRef.current !== recognition) return;
       const base = micBaseRef.current;
       if (!base) return;
       let interim = '';
@@ -337,6 +343,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
     };
     recognition.onerror = (e) => {
+      if (micRecognitionRef.current !== recognition && !isMicPermissionError(e.error)) return;
       if (isMicPermissionError(e.error)) setMicDenied(true);
       else setMicError(micErrorMessage(e.error));
       micRecognitionRef.current = null;
@@ -452,7 +459,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         </div>
       )}
       {/* Transcrição parcial ("interim") — itálico/cinza, some assim que o trecho é confirmado e vira texto normal no campo (ver composeDictationText em mapper.ts). */}
-      {micRecording && micInterim && <span className="cc-mic-interim">{micInterim}</span>}
+      {/* Sem a cópia pequena do texto parcial embaixo do microfone: o ditado já aparece no próprio campo. */}
       <div className="cc-composer-foot">
         <button className="cc-foot-btn" title="Anexar arquivos ou imagens" onClick={() => fileInput.current?.click()}><AddPlus /></button>
         <div className="cc-pop">
