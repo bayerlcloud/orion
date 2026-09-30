@@ -199,6 +199,11 @@
 .cc-copy-response { width: 20px; height: 20px; opacity: 0; transition: none; }
 .cc-copy-response:hover { color: var(--cc-fg); background: var(--cc-bg2); }
 .cc-msg:hover .cc-copy-response, .cc-copy-response:focus { opacity: 1; }
+.cc-ouvir { position: absolute; top: var(--pt); right: 0; display: flex; align-items: center; gap: 2px; z-index: 2; }
+.cc-ouvir button { display: flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 4px; color: var(--cc-fg2); background: var(--cc-bg); border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; font-variant-numeric: tabular-nums; }
+.cc-ouvir button:hover { color: var(--cc-fg); background: var(--cc-bg2); }
+.cc-ouvir.is-on button { color: var(--cc-fg); }
+@media (hover: hover) { .cc-ouvir:not(.is-on) { opacity: 0; } .cc-msg:hover .cc-ouvir { opacity: 1; } }
 .cc-interrupted { color: var(--cc-fg2); width: 100%; font-style: italic; }
 
 /* thinking — thinkingV2_aHyQPQ */

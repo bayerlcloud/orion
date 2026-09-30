@@ -5,6 +5,7 @@ import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDif
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
+import Ouvir from './Ouvir';
 import { api } from '../api';
 
 /**
@@ -63,6 +64,7 @@ function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
 function AssistantText({ e }: { e: Extract<ConvEvent, { kind: 'text' }> }) {
   return (
     <>
+      {!e.streaming && e.text && <Ouvir id={e.id} text={e.text} />}
       <Md text={e.text} />
       {!e.streaming && e.text && <div className="cc-actions"><CopyButton text={e.text} title="Copiar resposta" className="cc-copy-response" /></div>}
       {e.interrupted && <div className="cc-interrupted">{e.interrupted}</div>}
