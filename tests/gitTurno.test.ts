@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { commitTurno, integrate, raizLimpa, sincronizarComBase } from '../server/tasks/git';
+import { commitTurno, commitsAFrente, integrate, raizLimpa, sincronizarComBase } from '../server/tasks/git';
 
 const g = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8' });
 async function edit(dir: string, linha: number, texto: string) {
@@ -58,5 +58,15 @@ describe('git do turno', () => {
     expect(await raizLimpa(repo)).toBe(true);
     await edit(repo, 1, '<p>y</p>');
     expect(await raizLimpa(repo)).toBe(false);
+  });
+});
+
+describe('commitsAFrente', () => {
+  it('conta commits da branch que a base ainda não tem', async () => {
+    expect(await commitsAFrente(wtD, 'main')).toBe(0);
+    await edit(wtD, 1, '<p>y</p>'); await commitTurno(wtD, 'y');
+    expect(await commitsAFrente(wtD, 'main')).toBe(1);
+    await integrate(repo, 'd', 'main');
+    expect(await commitsAFrente(wtD, 'main')).toBe(0);
   });
 });

@@ -136,6 +136,12 @@ export async function commitTurno(worktree: string, mensagem: string): Promise<{
   return { commitou: c.code === 0, branch, log: `${c.stdout}${c.stderr}`.trim() };
 }
 
+/** Quantos commits a branch atual da worktree tem que a base ainda não tem (0 se der erro). */
+export async function commitsAFrente(worktree: string, baseBranch: string): Promise<number> {
+  const r = await git(worktree, ['rev-list', '--count', `${safeBase(baseBranch)}..HEAD`]);
+  return r.code === 0 ? Number(r.stdout.trim()) || 0 : 0;
+}
+
 /** Raiz sem edição direta em arquivos rastreados (arquivo novo não rastreado não atrapalha o merge). */
 export async function raizLimpa(repo: string): Promise<boolean> {
   const st = await git(repo, ['status', '--porcelain', '--untracked-files=no']);
