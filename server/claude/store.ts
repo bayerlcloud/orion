@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { Store, SessionStatus, Decision } from './runner.js';
+import { ROOT_LIBERADO_HORAS } from './policy.js';
 
 /** Persistência do runner no Postgres. Sequência por sessão calculada no INSERT. */
 export function pgStore(pool: Pool): Store {
@@ -43,6 +44,13 @@ export function pgStore(pool: Pool): Store {
     },
     async decideApproval(id, decision: Decision, decidedBy) {
       await pool.query('UPDATE claude_approvals SET decision = $2, decided_by = $3, decided_at = now() WHERE id = $1', [id, decision, decidedBy]);
+    },
+    async rootLiberado(sessionId) {
+      // Mesma consulta do deploy/root-run.py (que decide de verdade; isto só evita o cartão).
+      const { rowCount } = await pool.query(
+        `SELECT 1 FROM claude_approvals WHERE session_id = $1 AND tool_name = 'mcp__orion-root__exec' AND decision = 'allow_always'
+           AND decided_by IS NOT NULL AND decided_at > now() - make_interval(hours => $2) LIMIT 1`, [sessionId, ROOT_LIBERADO_HORAS]);
+      return !!rowCount;
     },
   };
 }

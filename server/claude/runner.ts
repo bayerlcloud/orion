@@ -60,6 +60,8 @@ export interface Store {
   updateSession(sessionId: string, patch: { status?: SessionStatus; tokens?: { input: number; output: number }; turns?: number; lastError?: string | null; model?: string | null }): Promise<void>;
   createApproval(a: { id: string; sessionId: string; toolName: string; input: unknown }): Promise<void>;
   decideApproval(id: string, decision: Decision, decidedBy: number | null): Promise<void>;
+  /** Há "liberar root" humano nesta sessão dentro do prazo (policy.ts ROOT_LIBERADO_HORAS)? Opcional: sem ele, root sempre pergunta. */
+  rootLiberado?(sessionId: string): Promise<boolean>;
 }
 
 export type QueryFn = (params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }) => Query | AsyncIterable<SDKMessage>;
@@ -369,7 +371,7 @@ export class Runner {
       canUseTool,
       onElicitation,
       // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
-      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql)] }] },
+      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql, this.deps.store.rootLiberado ? () => this.deps.store.rootLiberado!(id) : undefined)] }] },
       abortController: abort,
       includePartialMessages: true,
       settingSources: ['user', 'project'],

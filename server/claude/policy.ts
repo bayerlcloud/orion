@@ -1,5 +1,6 @@
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { sqlDestrutivo } from './sqlGuard.js';
+import perigoJson from '../../deploy/root-perigo.json' with { type: 'json' };
 
 /**
  * Política padrão de permissão de TODA sessão do Orion (decisão do Danilo, 29/09/2026):
@@ -52,6 +53,15 @@ const MCP_NOME_BANCO = /^mcp__supabase__(reset_branch|merge_branch|delete_branch
 const MCP_SQL = /^mcp__supabase__(execute_sql|apply_migration)$/;
 const MCP_NOME_PUBLICAR = /^mcp__coolify__(deploy|redeploy_project|restart_project_apps|stop_all_apps|bulk_env_update|control)$/;
 const DESTRUTIVO = /delete|remove|drop|destroy|trash|purge|prune|stop|restart|deploy/i;
+
+/** Root liberado na sessão ("Sim, e liberar root nesta sessão") vale por isto; o helper root confere o mesmo prazo. */
+export const ROOT_LIBERADO_HORAS = 8;
+const ROOT_PERIGO = perigoJson.padroes.map(([re, motivo]) => [new RegExp(re, 'i'), motivo] as const);
+/** Motivo se o comando root é perigoso demais para passar sem cartão mesmo com root liberado; senão null. */
+export function rootPerigo(cmd: string): string | null {
+  for (const [re, motivo] of ROOT_PERIGO) if (re.test(cmd)) return motivo;
+  return null;
+}
 
 function str(v: unknown): string { return typeof v === 'string' ? v : ''; }
 
@@ -109,10 +119,16 @@ async function textoBackup(backup: BackupFn | undefined, sql: string): Promise<s
   } finally { clearTimeout(timer); }
 }
 
-export function makePolicyHook(backup?: BackupFn): HookCallback {
+/** `rootLiberado`: a sessão tem um "liberar root" humano dentro do prazo (store.rootLiberado). */
+export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<boolean>): HookCallback {
   return async (input) => {
     const i = input as PreToolUseHookInput;
     if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
+    if (i.tool_name === 'mcp__orion-root__exec') {
+      const perigo = rootPerigo(str((i.tool_input as Record<string, unknown> | undefined)?.command));
+      if (!perigo && rootLiberado && await rootLiberado()) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: executar como root${perigo ? ` (${perigo})` : ''}` } };
+    }
     const v = classify(i.tool_name, i.tool_input);
     if (v.always) {
       const bk = v.sql ? `. ${await textoBackup(backup, v.sql)}` : '';
