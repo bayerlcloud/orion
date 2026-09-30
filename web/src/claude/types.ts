@@ -159,7 +159,7 @@ export type SessionStatus = 'running' | 'waiting' | 'idle' | 'unread' | 'failed'
 export type SessionGroupInfo = { id: string; name: string; createdAt: number };
 
 export type SessionSummary = {
-  id: string; title: string; status: SessionStatus; updatedAt: number; group?: string; project?: string; projectName?: string; archived?: boolean;
+  id: string; title: string; status: SessionStatus; updatedAt: number; open?: boolean; group?: string; project?: string; projectName?: string; archived?: boolean;
   /** Nome do worktree desta sessão (derivado do `cwd`, ver `sessionWorktreeName` em mapper.ts) — `undefined` quando a sessão roda na raiz do projeto, sem worktree. Alimenta a pill em Sidebar.tsx. */
   worktreeName?: string;
   /**
