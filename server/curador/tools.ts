@@ -58,6 +58,25 @@ export async function listarMemorias(q: CurQuery, args: { com_corpo?: boolean })
   return rows as MemoriaListada[];
 }
 
+/**
+ * Há o que curar? Só se alguma memória dos níveis 2 a 4 nasceu ou mudou depois da última análise,
+ * ou se há micro-fato com nota 10 sem proposta de promoção pendente. Sem nada disso, o curador
+ * nem abre a query() e não gasta tokens da conta compartilhada.
+ */
+export async function precisaCuradoria(q: CurQuery): Promise<boolean> {
+  const { rows } = await q(
+    `SELECT EXISTS (
+       SELECT 1 FROM memories m
+        WHERE m.level BETWEEN 2 AND 4
+          AND (m.last_analyzed_at IS NULL OR m.updated_at > m.last_analyzed_at
+               OR (m.level = 4 AND m.nota >= 10 AND NOT EXISTS (
+                     SELECT 1 FROM curadoria_propostas p
+                      WHERE p.status = 'pendente' AND p.tipo = 'promocao' AND p.payload->'memoria_ids' @> to_jsonb(m.id))))
+     ) AS precisa`,
+  );
+  return rows[0]?.precisa === true;
+}
+
 export type FundirResult = { mantida: string; removida: string; nota: number };
 
 /**
@@ -168,11 +187,12 @@ export function curadoriaServer(pool: Pool, stats: CuradorStats, log: (msg: stri
       ),
       tool(
         'propor',
-        'Grava uma proposta de curadoria que AGUARDA aprovação do Danilo no painel. Tipos: promocao (nível 4 nota 10 vira decisão nível 3), reescrita (memória rewritable desatualizada; envie o texto novo completo em texto), delecao (memória nível 2 ou 3 obviamente morta), conflito (duas memórias que se contradizem), reescopo (memória universal que claramente pertence a um projeto específico; envie escopo_novo com um id vindo de listar). Sempre explique na justificativa.',
+        'Grava uma proposta de curadoria que AGUARDA aprovação do Danilo no painel. Tipos: promocao (nível 4 nota 10 vira decisão nível 3), reescrita (memória rewritable desatualizada; envie o texto novo completo em texto e o resumo novo em resumo), delecao (memória nível 2 ou 3 obviamente morta), conflito (duas memórias que se contradizem), reescopo (memória universal que claramente pertence a um projeto específico; envie escopo_novo com um id vindo de listar). Sempre explique na justificativa.',
         {
           tipo: z.enum(['promocao', 'reescrita', 'delecao', 'conflito', 'reescopo']).describe('tipo da proposta'),
           memoria_ids: z.array(z.number().int()).describe('ids das memórias envolvidas'),
           texto: z.string().optional().describe('texto proposto (obrigatório na reescrita)'),
+          resumo: z.string().optional().describe('na reescrita: resumo novo de até 144 caracteres, coerente com o texto'),
           escopo_novo: z
             .object({
               scope_project_id: z.number().int().positive().optional().describe('id do projeto dono da memória'),
@@ -185,7 +205,7 @@ export function curadoriaServer(pool: Pool, stats: CuradorStats, log: (msg: stri
         },
         async (a) => {
           try {
-            const r = await criarProposta(q, a as { tipo: TipoProposta; memoria_ids: number[]; texto?: string; escopo_novo?: unknown; justificativa: string });
+            const r = await criarProposta(q, a as { tipo: TipoProposta; memoria_ids: number[]; texto?: string; resumo?: string; escopo_novo?: unknown; justificativa: string });
             stats.propostas += 1;
             log(`curador: propôs ${r.tipo} para ${r.payload.memorias.map((m) => m.code).join(', ')}`);
             return texto({ proposta: r.id, tipo: r.tipo, status: 'pendente' });

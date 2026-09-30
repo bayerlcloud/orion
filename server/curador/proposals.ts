@@ -7,7 +7,7 @@
  * (tests/curadoria.test.ts), mesmo padrão de memoryTool.ts.
  */
 import type { Pool } from 'pg';
-import { ValidationError, normalizeScopeId } from '../memories/util.js';
+import { ValidationError, normalizeScopeId, truncateSummary } from '../memories/util.js';
 
 export type CurQuery = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount: number | null }>;
 
@@ -27,6 +27,7 @@ export type PropostaPayload = {
   memoria_ids: number[];
   memorias: MemoriaSnapshot[];
   texto?: string;
+  resumo?: string;
   escopo_novo?: EscopoNovo;
   justificativa?: string;
 };
@@ -112,7 +113,7 @@ export async function snapshotMemorias(q: CurQuery, ids: number[]): Promise<Memo
  */
 export async function criarProposta(
   q: CurQuery,
-  args: { tipo: unknown; memoria_ids: unknown; texto?: unknown; escopo_novo?: unknown; justificativa?: unknown },
+  args: { tipo: unknown; memoria_ids: unknown; texto?: unknown; resumo?: unknown; escopo_novo?: unknown; justificativa?: unknown },
 ): Promise<{ id: number; tipo: TipoProposta; payload: PropostaPayload }> {
   const tipo = String(args.tipo ?? '') as TipoProposta;
   if (!TIPOS_PROPOSTA.includes(tipo)) {
@@ -121,6 +122,7 @@ export async function criarProposta(
   const justificativa = typeof args.justificativa === 'string' ? args.justificativa.trim() : '';
   if (!justificativa) throw new ValidationError('justificativa é obrigatória');
   const texto = typeof args.texto === 'string' ? args.texto : undefined;
+  const resumo = tipo === 'reescrita' && typeof args.resumo === 'string' && args.resumo.trim() ? args.resumo.trim() : undefined;
   const ids = idsValidos(args.memoria_ids);
   const memorias = await snapshotMemorias(q, ids);
 
@@ -159,6 +161,7 @@ export async function criarProposta(
     memoria_ids: ids,
     memorias: memorias.map(({ id, code, title, level, nota }) => ({ id, code, title, level, nota })),
     ...(texto !== undefined ? { texto } : {}),
+    ...(resumo !== undefined ? { resumo } : {}),
     ...(escopo !== undefined ? { escopo_novo: escopo } : {}),
     justificativa,
   };
@@ -194,10 +197,12 @@ export async function aplicarProposta(
   if (tipo === 'reescrita') {
     const texto = typeof payload.texto === 'string' ? payload.texto : '';
     if (!texto.trim()) throw new ValidationError('proposta de reescrita sem texto');
+    // Resumo novo é opcional: sem ele, o resumo antigo fica (e pode contradizer o corpo novo).
+    const resumo = typeof payload.resumo === 'string' && payload.resumo.trim() ? truncateSummary(payload.resumo.trim()) : null;
     const { rows } = await q(
-      `UPDATE memories SET body_md = $2, last_rewritten_at = now(), updated_at = now()
+      `UPDATE memories SET body_md = $2, summary = COALESCE($3, summary), last_rewritten_at = now(), updated_at = now()
         WHERE id = $1 AND level >= 2 AND rewritable RETURNING code`,
-      [ids[0], texto],
+      [ids[0], texto, resumo],
     );
     if (!rows.length) throw new ValidationError('a memória não existe mais ou deixou de ser reescrevível');
     return `memória ${rows[0].code} reescrita`;

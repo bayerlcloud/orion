@@ -100,6 +100,17 @@ describe('aplicarProposta', () => {
     await expect(aplicarProposta(q, { tipo: 'reescrita', payload: payload({ texto: '  ' }) })).rejects.toThrow(/sem texto/);
   });
 
+  it('reescrita: resumo novo vai junto quando vem no payload; sem ele o resumo antigo fica', async () => {
+    const { q, calls } = fakeQuery((sql) =>
+      sql.includes('UPDATE memories') ? { rows: [{ code: 'fato-a' }], rowCount: 1 } : undefined);
+    await aplicarProposta(q, { tipo: 'reescrita', payload: payload({ texto: 'corpo', resumo: 'resumo novo' }) });
+    await aplicarProposta(q, { tipo: 'reescrita', payload: payload({ texto: 'corpo' }) });
+    const [com, sem] = calls.filter((c) => c.sql.includes('UPDATE memories'));
+    expect(com.sql).toContain('summary = COALESCE($3, summary)');
+    expect(com.params?.[2]).toBe('resumo novo');
+    expect(sem.params?.[2]).toBeNull();
+  });
+
   it('delecao: DELETE que nunca encosta em nível < 2, mesmo com payload errado', async () => {
     const { q, calls } = fakeQuery((sql) =>
       sql.includes('DELETE FROM memories') ? { rows: [{ code: 'fato-a' }], rowCount: 1 } : undefined);
