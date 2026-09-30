@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { apontar, subpastaDoProjeto } from '../preview/model.js';
+import { apontar, hostPreview, subpastaDoProjeto } from '../preview/model.js';
 import { escreverEnv, liberarCache, pastaDoApp, prepararPasta } from '../preview/pasta.js';
-import { COOKIE_PREVIEW, COOKIE_TTL_MS, TOKEN_TTL_MS, assinar, checarCookie, consumirUmaVez, verificar } from '../preview/auth.js';
+import { COOKIE_PREVIEW, COOKIE_TTL_MS, LOGIN_URL, TOKEN_TTL_MS, assinar, checarCookie, consumirUmaVez, podeAbrir, urlEntrar, verificar } from '../preview/auth.js';
 
 /**
  * Preview ao vivo (spec 2026-09-30-preview-design, Parte 1):
@@ -51,9 +51,54 @@ export async function previewRoutes(app: FastifyInstance) {
     return reply.redirect('/');
   });
 
+  // Estado do host (raiz? projeto com preview público?), com cache curto: o check roda a cada arquivo carregado.
+  const cacheHost = new Map<string, { ehRaiz: boolean; publico: boolean; ate: number }>();
+  async function estadoDoHost(host: string): Promise<{ ehRaiz: boolean; publico: boolean } | null> {
+    const c = cacheHost.get(host);
+    if (c && c.ate > Date.now()) return c;
+    const { rows } = await app.pool.query(
+      `SELECT pv.user_id IS NULL AS eh_raiz, COALESCE((p.meta->>'preview_publico')::boolean, false) AS publico
+         FROM previews pv JOIN projects p ON p.id = pv.project_id WHERE pv.host = $1`, [host]);
+    if (!rows[0]) return null;
+    const e = { ehRaiz: rows[0].eh_raiz, publico: rows[0].publico, ate: Date.now() + 10_000 };
+    cacheHost.set(host, e);
+    return e;
+  }
+
   app.get('/api/preview/check', async (req, reply) => {
     const host = hostDe(req.headers['x-forwarded-host'], req.hostname);
-    const r = checarCookie(req.cookies[COOKIE_PREVIEW], host, segredo());
-    return r.ok ? reply.code(200).send('ok') : reply.redirect(r.redirect);
+    const cookieOk = checarCookie(req.cookies[COOKIE_PREVIEW], host, segredo()).ok;
+    const e = cookieOk ? null : await estadoDoHost(host);
+    if (podeAbrir({ ehRaiz: e?.ehRaiz ?? false, publico: e?.publico ?? false, cookieOk })) return reply.code(200).send('ok');
+    return reply.redirect(urlEntrar(host));
+  });
+
+  // Chega aqui vindo de um preview sem cookie: logado no painel, recebe o token daquele host; senão, vai para o login.
+  app.get<{ Querystring: { host?: string } }>('/api/preview/entrar', async (req, reply) => {
+    if (!req.user) return reply.redirect(LOGIN_URL);
+    const host = req.query.host ?? '';
+    const { rows } = await app.pool.query('SELECT 1 FROM previews WHERE host = $1', [host]);
+    if (!rows[0] || !segredo()) return reply.code(404).send({ error: 'preview não existe' });
+    const t = assinar({ u: req.user.id, h: host, exp: Date.now() + TOKEN_TTL_MS, j: randomUUID() }, segredo());
+    return reply.redirect(`https://${host}/__orion_auth?t=${encodeURIComponent(t)}`);
+  });
+
+  // Interruptor "preview público" do projeto (só o endereço raiz; os pessoais sempre pedem login).
+  app.get<{ Params: { id: string } }>('/api/projects/:id/preview-publico', async (req, reply) => {
+    if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
+    const { rows } = await app.pool.query(
+      `SELECT COALESCE((meta->>'preview_publico')::boolean, false) AS publico, COALESCE(meta->>'preview_host', slug) AS nome FROM projects WHERE id = $1`, [Number(req.params.id)]);
+    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    return { publico: rows[0].publico, host: hostPreview(null, rows[0].nome) };
+  });
+  app.put<{ Params: { id: string }; Body: { publico?: boolean } }>('/api/projects/:id/preview-publico', async (req, reply) => {
+    if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
+    if (req.user.role !== 'owner') return reply.code(403).send({ error: 'só o admin liga ou desliga o preview público' });
+    const publico = req.body?.publico === true;
+    const { rowCount } = await app.pool.query(
+      `UPDATE projects SET meta = meta || jsonb_build_object('preview_publico', $2::boolean) WHERE id = $1`, [Number(req.params.id), publico]);
+    if (!rowCount) return reply.code(404).send({ error: 'projeto não existe' });
+    cacheHost.clear();
+    return { publico };
   });
 }
