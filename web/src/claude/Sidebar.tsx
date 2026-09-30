@@ -12,6 +12,16 @@ import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch, Folder, Fil
  */
 const UNGROUPED = '__sem_pasta__';
 
+/** Fotinho de quem criou a sessão; sem foto, a inicial do nome. */
+function Avatar({ id, name }: { id: number; name: string }) {
+  const [falhou, setFalhou] = useState(false);
+  return (
+    <span className="cc-item-avatar" title={`Criada por ${name}`}>
+      {falhou ? (name.trim()[0] ?? '?').toUpperCase() : <img src={`/api/profile/avatar/${id}`} alt="" loading="lazy" onError={() => setFalhou(true)} />}
+    </span>
+  );
+}
+
 function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveToGroup }: {
   s: SessionSummary; active: boolean; onSelect: () => void;
   onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
@@ -25,6 +35,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
       {/* Bolinha só em sessão aberta numa aba, rodando ou esperando você: igual ao plugin (`GF0` no
           webview 2.1.283: fechada e parada = sem indicador). */}
       {(s.open || s.status === 'running' || s.status === 'waiting') && <span className={`cc-dot is-${s.status}`} />}
+      {s.userId !== undefined && <Avatar id={s.userId} name={s.userName ?? ''} />}
       {editing ? (
         <input className="cc-item-edit" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }} />
@@ -34,6 +45,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
       {/* Pill de worktree (`worktreePill_OOQiHg` na extensão real) — ver PARIDADE.md seção 14. Sem
           ação de clique (lá abre "em nova janela"; aqui não há equivalente numa página web só de
           chat) — só informa em qual worktree a sessão roda, título completo no hover. */}
+      <span className="cc-item-project" title={`Projeto: ${s.projectName ?? 'Neutro'}`}>{s.projectName ?? 'Neutro'}</span>
       {s.worktreeName && <span className="cc-item-worktree" title={`Worktree: ${s.worktreeName}`}><GitBranch size={10} /> {s.worktreeName}</span>}
       <span className="cc-item-time">{relativeTime(s.updatedAt)}</span>
       <span className="cc-item-actions">
@@ -106,9 +118,9 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   );
 }
 
-export default function Sidebar({ sessions, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
+export default function Sidebar({ sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
   {
-    sessions: SessionSummary[]; usage: UsageBar[];
+    sessions: SessionSummary[]; meId?: number; usage: UsageBar[];
     /** "% do uso" por modelo (7 dias) — breakdown de atribuição da extensão real (`attribution*_QET5Ow`, string "% of usage"); ver computeModelAttribution em mapper.ts e PARIDADE-seletor.md. Vazio = bloco escondido. */
     modelAttribution?: ModelAttribution[];
     activeId: string | null; loading?: boolean;
@@ -126,6 +138,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
   const [acctOpen, setAcctOpen] = useState(true);
   const [q, setQ] = useState('');
   const [activeOnly, setActiveOnly] = useState(false);
+  const [soMinhas, setSoMinhas] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [projectFilter, setProjectFilter] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('none');
@@ -152,7 +165,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
 
   const isActive = (s: SessionSummary) => s.status === 'running' || s.status === 'waiting';
   const activeCount = sessions.filter(isActive).length;
-  const filter = { term: q, project: projectFilter || undefined, activeOnly };
+  const filter = { term: q, project: projectFilter || undefined, activeOnly, userId: soMinhas ? meId : undefined };
   const localList = where === 'local' ? filterSessions(sessions.filter(s => !s.archived), filter) : [];
   const archivedList = where === 'local' ? filterSessions(sessions.filter(s => s.archived), filter) : [];
   const groups = groupSessions(localList, groupBy, Date.now(), folders);
@@ -240,6 +253,9 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
                 </select>
                 <Chevron size={10} className="cc-chev-down" />
               </span>
+              <button className={`cc-active ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Mostrar só as sessões que eu criei" disabled={meId === undefined}>
+                Minhas
+              </button>
               <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
                 <Bolt size={11} /> Ativas · {activeCount}
               </button>
