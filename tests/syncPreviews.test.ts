@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { blocoCaddy, registrosFaltando } from '../server/preview/sync';
+import { blocoCaddy, hostsComBloco, registrosFaltando } from '../server/preview/sync';
 
 const row = (user_id: number | null, host: string, port: number) => ({ id: 1, project_id: 1, user_id, host, port, worktree_path: '/srv/projects/fisio' });
 
@@ -37,5 +37,11 @@ describe('registrosFaltando', () => {
       { name: 'lais.fisio', type: 'CNAME', records: [{ content: 'x' }] },
     ];
     expect(registrosFaltando(['fisio.bayerl.cloud', 'danilo.fisio.bayerl.cloud', 'lais.fisio.bayerl.cloud'], zona)).toEqual({ faltam: ['lais.fisio'], conflitos: ['danilo.fisio'] });
+  });
+});
+
+describe('hostsComBloco', () => {
+  it('tira os hosts cujo DNS aponta para outra máquina', () => {
+    expect(hostsComBloco(['a.bayerl.cloud', 'b.bayerl.cloud', 'c.bayerl.cloud'], ['b'])).toEqual(['a.bayerl.cloud', 'c.bayerl.cloud']);
   });
 });
