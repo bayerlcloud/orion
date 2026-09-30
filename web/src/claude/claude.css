@@ -868,3 +868,7 @@
 
 /* Ditado: transcrevendo no servidor (entre parar a gravação e o texto chegar). */
 .cc-mic.is-busy .cc-mic-icon { animation: cc-pulse 1s ease-in-out infinite; }
+
+/* Lista lateral no modo "ordem das abas": sessões abertas arrastáveis para reordenar as abas. */
+.cc-item-drag { cursor: grab; }
+.cc-item-drag.is-dragging { opacity: .45; }
