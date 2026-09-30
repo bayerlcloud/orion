@@ -21,6 +21,7 @@ type Ficha = {
   ultimo_mexeu: { quem: string; quando: string; onde: string } | null;
   backup: { itens: { oque: string; quando: string | null; detalhe: string }[] };
   deploy: null | { onde: string; quando: string | null; estado: string; detalhe: string; dominios: string[] };
+  preview_url: string | null;
   prod: null | { url: string; status: number | null; ms: number | null; ip: string | null; servidor: string | null; ssl_expira: string | null; erro: string | null };
   env: { usadas: string[]; faltando: string[]; edge: string[]; definidas: number; fonte: string[] };
   conectores: string[]; alertas: Alerta[]; coletado: string;
@@ -44,10 +45,17 @@ function Bloco({ titulo, quando, children }: { titulo: string; quando?: ReactNod
   );
 }
 
+function Link({ url, rotulo, vazio }: { url: string | null; rotulo: string; vazio: string }) {
+  return url
+    ? <a className="pj-link" href={url} target="_blank" rel="noreferrer" title={url}>{rotulo} ↗</a>
+    : <span className="pj-link off" title={vazio}>{rotulo}</span>;
+}
+
 function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => void }) {
   const g = f.git, b = f.bancos.find(x => x.principal), bk = f.backup.itens.find(i => i.oque.startsWith('banco'));
   return (
-    <button className={`pj-card pj-${grau(f)}`} onClick={onOpen}>
+    <div className={`pj-card-wrap pj-${grau(f)}`}>
+    <button className="pj-card" onClick={onOpen}>
       <div className="pj-card-top">
         <b>{f.name}</b>
         {f.prod && <span className={`pj-dot ${f.prod.erro || (f.prod.status ?? 0) >= 400 ? 'ruim' : 'ok'}`} title={f.prod.erro ?? `HTTP ${f.prod.status} em ${f.prod.ms} ms`} />}
@@ -63,6 +71,11 @@ function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => voi
       </dl>
       {f.alertas.length > 0 && <ul className="pj-alertas">{f.alertas.slice(0, 3).map(a => <li key={a.texto} className={a.nivel}>{a.texto}</li>)}{f.alertas.length > 3 && <li className="muted">+{f.alertas.length - 3}</li>}</ul>}
     </button>
+    <div className="pj-links">
+      <Link url={f.preview_url} rotulo="URL preview" vazio="projeto sem preview" />
+      <Link url={f.prod?.url ?? null} rotulo="URL de produção" vazio="sem produção conhecida (defina em Editar)" />
+    </div>
+    </div>
   );
 }
 

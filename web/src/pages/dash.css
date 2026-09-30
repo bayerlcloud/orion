@@ -103,12 +103,18 @@
 
 /* ---- Projetos (DashProjetos.tsx) ---- */
 .pj-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
-.pj-card { all: unset; box-sizing: border-box; cursor: pointer; border: 1px solid var(--line); border-left-width: 4px; padding: 10px 12px; display: grid; gap: 6px; align-content: start; min-width: 0; font-size: 13px; }
-.pj-card:hover { border-color: var(--fg2); }
-.pj-card:focus-visible { outline: 2px solid var(--fg); }
-.pj-card.pj-ok { border-left-color: var(--ok); }
-.pj-card.pj-atencao { border-left-color: var(--warn); }
-.pj-card.pj-ruim { border-left-color: var(--bad); }
+.pj-card-wrap { border: 1px solid var(--line); border-left-width: 4px; display: flex; flex-direction: column; min-width: 0; }
+.pj-card-wrap:hover { border-color: var(--fg2); }
+.pj-card-wrap.pj-ok { border-left-color: var(--ok); }
+.pj-card-wrap.pj-atencao { border-left-color: var(--warn); }
+.pj-card-wrap.pj-ruim { border-left-color: var(--bad); }
+.pj-card { all: unset; box-sizing: border-box; cursor: pointer; padding: 10px 12px; display: grid; gap: 6px; align-content: start; min-width: 0; font-size: 13px; flex: 1; }
+.pj-card:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
+.pj-links { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }
+.pj-link { padding: 7px 10px; font-size: 12px; text-align: center; text-decoration: none; color: var(--fg); }
+.pj-link + .pj-link { border-left: 1px solid var(--line); }
+a.pj-link:hover { background: var(--hover); }
+.pj-link.off { color: var(--muted); cursor: default; }
 .pj-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 15px; }
 .pj-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--ok); }
 .pj-dot.ruim { background: var(--bad); }
