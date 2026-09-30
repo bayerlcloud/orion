@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { coletarProjetos, type Ficha } from '../projetos/coletar.js';
 import { HOST_IP, HOST_LABEL, RING_SIZE, Sampler, TICK_MS } from '../dash/sampler.js';
 
 const STAT_KEYS = ['cpu', 'iowait', 'load1', 'mem_used_pct', 'disk_util'] as const;
@@ -68,6 +69,35 @@ export async function dashRoutes(app: FastifyInstance) {
          FROM users u
         ORDER BY u.id`);
     return { users: rows.map(r => ({ id: r.id, name: r.name, last_login: r.last_login, commands_7d: Number(r.commands_7d) })) };
+  });
+
+  // Seção Projetos: a coleta demora alguns segundos (git, Cloudflare, SSH na c2, checagem da produção),
+  // então fica em cache por 5 min; ?refresh=1 força. Pedidos simultâneos dividem a mesma coleta.
+  let fichas: { em: number; dados: Ficha[] } | null = null;
+  let coletando: Promise<Ficha[]> | null = null;
+  const coletar = () => (coletando ??= coletarProjetos(app.pool, app.repoDir)
+    .then(d => { fichas = { em: Date.now(), dados: d }; return d; })
+    .finally(() => { coletando = null; }));
+
+  app.get<{ Querystring: { refresh?: string } }>('/api/dash/projects', async (req) => {
+    if (req.query.refresh || !fichas || Date.now() - fichas.em > 5 * 60_000) await coletar();
+    return { coletado: new Date(fichas!.em).toISOString(), projetos: fichas!.dados };
+  });
+
+  app.patch<{ Params: { id: string }; Body: { prod_url?: unknown; banco?: unknown; notas?: unknown } }>('/api/dash/projects/:id', async (req, reply) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'id inválido' });
+    const b = req.body ?? {};
+    const meta: Record<string, string> = {};
+    for (const k of ['prod_url', 'banco', 'notas'] as const) {
+      const v = typeof b[k] === 'string' ? (b[k] as string).trim().slice(0, 2000) : '';
+      if (v) meta[k] = v;
+    }
+    if (meta.prod_url && !/^https?:\/\/[^\s]+$/.test(meta.prod_url)) return reply.code(400).send({ error: 'URL de produção precisa começar com http:// ou https://' });
+    const r = await app.pool.query('UPDATE projects SET meta = $2 WHERE id = $1', [id, meta]);
+    if (!r.rowCount) return reply.code(404).send({ error: 'projeto não existe' });
+    fichas = null;
+    return { ok: true, meta };
   });
 
   app.get('/api/dash/stream', async (req, reply) => {
