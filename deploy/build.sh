@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build e publicação do Orion v2. Rodar como root: bash /srv/orion-live/deploy/build.sh [main|sha]
+# Build e publicação do Orion v2. Rodar como root: bash /usr/local/lib/orion/build.sh [main|sha]
 # Chamado pela unit orion-deploy.service (botão Publicar, via deploy-run.sh) ou na mão por um agente.
 # Um build por vez (flock, o mesmo cadeado dos builds manuais). Checkout limpo em /srv/builds/<sha>-<data>,
 # node_modules por hardlink do build anterior quando o package-lock não mudou, typecheck + testes + build
@@ -101,10 +101,15 @@ etapa 'helper root'
 # Ponte de root do chat (server/claude/rootTool.ts): cópia root do helper fora do alcance do danilo,
 # pastas de pedido/resposta do danilo, units instaladas/atualizadas só quando mudam.
 install -d -m 0755 /usr/local/lib/orion
-install -m 0755 -o root -g root "$DIR/deploy/root-run.py" /usr/local/lib/orion/root-run.py
+# Scripts que rodam como root saem de cópias root, nunca de uma pasta que o danilo edita. cp+mv
+# (inode novo) porque o bash deste build ainda está lendo o build.sh antigo.
+for f in root-run.py build.sh deploy-run.sh; do
+  install -m 0755 -o root -g root "$DIR/deploy/$f" "/usr/local/lib/orion/.$f.novo"
+  mv -f "/usr/local/lib/orion/.$f.novo" "/usr/local/lib/orion/$f"
+done
 install -d -m 0770 -o danilo -g orion /srv/root /srv/root/pedidos /srv/root/respostas
 MUDOU=
-for u in orion-root.service orion-root.path; do
+for u in orion-root.service orion-root.path orion-deploy.service; do
   cmp -s "$DIR/deploy/$u" "/etc/systemd/system/$u" || { install -m 0644 "$DIR/deploy/$u" "/etc/systemd/system/$u"; MUDOU=1; }
 done
 [ -n "$MUDOU" ] && systemctl daemon-reload
