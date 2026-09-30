@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { confirmar } from '../dialogo';
 
 type Status = { estado: 'fila' | 'rodando' | 'ok' | 'falhou'; etapa: string; sha: string; msg: string; nome: string; por: string; inicio: string; fim: string | null };
 type Resp = {
@@ -31,7 +32,7 @@ export default function DeployCard() {
   }, [d?.ativo, verLog]);
 
   async function publicar() {
-    if (!window.confirm('Publicar a main agora? Entra na fila, roda os testes e troca a versão no ar; se falhar, volta sozinho.')) return;
+    if (!(await confirmar('Publicar a main agora? Entra na fila, roda os testes e troca a versão no ar; se falhar, volta sozinho.'))) return;
     setBusy(true); setMsg('');
     try { const r = await api<{ aviso: string }>('/api/deploy', { method: 'POST', body: JSON.stringify({ ref: 'main' }) }); setMsg(r.aviso); setVerLog(true); await load(); await loadLog(); }
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }

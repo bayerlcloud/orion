@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type User } from '../api';
 import { formatBytes, pasteFilename } from './driveUtils';
 import './drive.css';
+import { confirmar, perguntar } from '../dialogo';
 
 type DriveFile = { id: number; user_id: number; user_name: string; name: string; size: number; mime: string; path: string; created_at: string };
 type Usage = { user_id: number; name: string; files: number; total: number };
@@ -160,7 +161,7 @@ export default function Drive({ user }: { user: User }) {
   }
 
   async function renomear(f: DriveFile) {
-    const novo = prompt('Novo nome do arquivo', f.name);
+    const novo = await perguntar('Novo nome do arquivo', f.name);
     if (novo == null) return;
     const nome = novo.trim();
     if (!nome || nome === f.name) return;
@@ -169,7 +170,7 @@ export default function Drive({ user }: { user: User }) {
   }
 
   async function excluir(f: DriveFile) {
-    if (!confirm(`Excluir "${f.name}"?`)) return;
+    if (!(await confirmar(`Excluir "${f.name}"?`, { perigo: true }))) return;
     try { await api(`/api/drive/files/${f.id}`, { method: 'DELETE' }); await refresh(); }
     catch (e) { setErro((e as Error).message); }
   }

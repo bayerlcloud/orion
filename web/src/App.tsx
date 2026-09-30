@@ -13,6 +13,7 @@ import Memoria from './pages/Memoria';
 import Perfil from './pages/Perfil';
 import Tarefas from './pages/Tarefas';
 import Tools from './pages/Tools';
+import { Dialogos } from './dialogo';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools } from './icons';
 
 const MENU = [
@@ -124,6 +125,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
+      <Dialogos />
     </div>
   );
 }

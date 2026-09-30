@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
 import { api, type User } from '../api';
+import { avisar, confirmar } from '../dialogo';
 
 type Kind = 'skill' | 'command' | 'agent' | 'hook';
 type Ativacao = 'auto' | 'manual' | 'modelo' | 'sempre';
@@ -113,11 +114,11 @@ export default function ToolsSkills({ user }: { user: User }) {
     );
   }
   async function ativar(it: SkillItem) {
-    if (!window.confirm(`Copiar "${it.invocacao}" para o catálogo do sistema? Passa a valer (ligada por padrão) em toda sessão nova.`)) return;
+    if (!(await confirmar(`Copiar "${it.invocacao}" para o catálogo do sistema? Passa a valer (ligada por padrão) em toda sessão nova.`))) return;
     setBusy('ativando'); setErro('');
     try {
       const r = await api<{ destino: string; aviso: string | null }>(`/api/tools/skills/${it.id}/ativar`, { method: 'POST' });
-      window.alert(`Copiada para ${r.destino}${r.aviso ? `\n\nAtenção: ${r.aviso}` : ''}`);
+      void avisar(`Copiada para ${r.destino}${r.aviso ? `\n\nAtenção: ${r.aviso}` : ''}`);
       setOpen(null); await load();
     } catch (e: any) { setErro(e.message); } finally { setBusy(''); }
   }

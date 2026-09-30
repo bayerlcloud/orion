@@ -15,6 +15,7 @@ import BuildStyleDialog from './OutputStyles';
 import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, SendArrow } from './icons';
 import PreviewPublico from '../PreviewPublico';
 import './claude.css';
+import { perguntar } from '../dialogo';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
@@ -523,7 +524,7 @@ export default function ClaudePage() {
   }
   async function rename() {
     if (!active) return;
-    const t = window.prompt('Novo título da sessão', active.title);
+    const t = await perguntar('Novo título da sessão', active.title);
     if (t && t.trim()) { await claudeApi.rename(active.id, t.trim()); void refreshSessions(); }
   }
   async function renameSession(id: string, title: string) {

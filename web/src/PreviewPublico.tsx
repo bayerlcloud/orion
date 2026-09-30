@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
+import { avisar, confirmar } from './dialogo';
 
 type Estado = { publico: boolean; ate: string | null; host: string };
 
@@ -20,10 +21,10 @@ export default function PreviewPublico({ projectId, compacto = false }: { projec
   async function alternar() {
     if (!e || ocupado) return;
     const liga = !e.publico;
-    if (liga && !window.confirm(`Ligar o preview público por 48 h? Qualquer pessoa com o link ${e.host} abre sem login.`)) return;
+    if (liga && !(await confirmar(`Ligar o preview público por 48 h? Qualquer pessoa com o link ${e.host} abre sem login.`))) return;
     setOcupado(true);
     try { setE(await api<Estado>(`/api/projects/${projectId}/preview-publico`, { method: 'PUT', body: JSON.stringify({ publico: liga }) })); }
-    catch (err) { window.alert((err as Error).message); }
+    catch (err) { void avisar((err as Error).message); }
     finally { setOcupado(false); }
   }
   const dica = e.publico ? `${e.host} abre sem login até ${quando(e.ate!)}. Clique para desligar.` : `${e.host} pede login do Orion. Clique para ligar por 48 h.`;

@@ -17,6 +17,7 @@ import {
   truncate,
 } from './memoriaUtils';
 import './memoria.css';
+import { confirmar } from '../dialogo';
 
 type ListItem = {
   id: number;
@@ -284,7 +285,7 @@ export default function Memoria({ user }: { user: User }) {
 
   async function excluir() {
     if (!draft) return;
-    if (!window.confirm(`Excluir a memória "${draft.title}"? Isso não tem volta.`)) return;
+    if (!(await confirmar(`Excluir a memória "${draft.title}"? Isso não tem volta.`, { perigo: true }))) return;
     setBusy(true);
     setToast(null);
     try {

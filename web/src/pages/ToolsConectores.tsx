@@ -3,6 +3,7 @@ import { api, type User } from '../api';
 import { IcoCloudflare, IcoGithub } from '../icons';
 import ToolsNotas, { copiar } from './ToolsNotas';
 import ToolsContaModal from './ToolsContaModal';
+import { confirmar } from '../dialogo';
 
 type Github = { id: number; label: string; login: string; email: string; notes: string; mcp: string; token_hint: string };
 type Cloudflare = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; nome: string; url: string; token_hint: string };
@@ -146,7 +147,7 @@ export default function ToolsConectores({ user }: { user: User }) {
   }
   async function remover(c: Card) {
     const msg = ehConta(c.tipo) ? `Remover a conta ${TIPO[c.tipo].titulo} "${c.label}"? As sessões novas deixam de enxergar essa conta.` : `Apagar "${c.label}"?`;
-    if (!window.confirm(msg)) return;
+    if (!(await confirmar(msg, { perigo: true }))) return;
     try { await api(ehConta(c.tipo) ? `${API[c.tipo]}/${c.id}` : `/api/tools/${c.id}`, { method: 'DELETE' }); setOpen(null); await load(); }
     catch (e: any) { setErro(e.message); }
   }
