@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { activityFor, ago, agoIso, fmtBytes, fmtKBs, fmtNum, fmtPct, fmtUptime, sparkPath, unitStatus, type UserActivity } from './dashUtils';
+import { formatTokens } from '../claude/mapper';
 import { healthScore } from './dashHealth';
 import { IcoDash } from '../icons';
 import './dash.css';
@@ -27,7 +28,7 @@ type Point = { t: number } & Record<string, number | null>;
 type Now = { host?: { label?: string; ip?: string }; tick_ms?: number; sample?: Sample | null; series?: Point[] };
 type Stat = { max_24h: number | null; avg_7d: number | null };
 type History = { hours?: number; rows?: (Record<string, number | null> & { ts: string })[]; stats?: Record<string, Stat>; minutes_7d?: number };
-type Session = { id: string; user_id?: number; title?: string; status?: string; cost_usd?: number | string | null; turns?: number | null; user_name?: string; project_name?: string | null; updated_at?: string; pending?: number };
+type Session = { id: string; user_id?: number; title?: string; status?: string; input_tokens?: number | string | null; output_tokens?: number | string | null; turns?: number | null; user_name?: string; project_name?: string | null; updated_at?: string; pending?: number };
 
 const RING = 360;
 const LABEL = 'c3', IP = '217.76.55.249';
@@ -354,7 +355,7 @@ export default function Dash() {
         <div className="dash-bloco">
           {sessions === null ? <div className="vazio">carregando…</div> : recent.length === 0 ? <div className="vazio">nenhuma sessão ainda</div> : (
             <table className="dash-table">
-              <thead><tr><th>título</th><th>estado</th><th>quem</th><th>último login</th><th className="num">comandos 7d</th><th>projeto</th><th className="num">turnos</th><th className="num">custo</th><th className="num">atualizada</th></tr></thead>
+              <thead><tr><th>título</th><th>estado</th><th>quem</th><th>último login</th><th className="num">comandos 7d</th><th>projeto</th><th className="num">turnos</th><th className="num">tokens</th><th className="num">atualizada</th></tr></thead>
               <tbody>
                 {recent.map(x => {
                   const a = activityFor(activity, x.user_id, x.user_name);
@@ -367,7 +368,7 @@ export default function Dash() {
                       <td className="num">{a ? a.commands_7d : '—'}</td>
                       <td>{x.project_name ?? '—'}</td>
                       <td className="num">{x.turns ?? '—'}</td>
-                      <td className="num">{num(x.cost_usd) === null ? '—' : `US$ ${fmtNum(num(x.cost_usd), 2)}`}</td>
+                      <td className="num">{num(x.input_tokens) === null ? '—' : formatTokens((num(x.input_tokens) ?? 0) + (num(x.output_tokens) ?? 0))}</td>
                       <td className="num">{agoIso(x.updated_at, clock)}</td>
                     </tr>
                   );

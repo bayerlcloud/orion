@@ -114,7 +114,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
     const eff = resolveUltracode(effort);
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), maxBudgetUsd: (await defaults()).budget,
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget,
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
@@ -134,7 +134,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
     'orion-root': orionRootServer(sessionId),
   });
-  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.maxBudgetUsd)) || undefined });
+  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.taskBudgetTokens)) || undefined });
 
   // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
   // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.
@@ -205,7 +205,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.cost_usd, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
@@ -216,9 +216,9 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get('/api/claude/usage', async () => {
     const { rows } = await app.pool.query(
       `SELECT u.id, u.name,
-              COALESCE(SUM(s.cost_usd) FILTER (WHERE s.updated_at > now() - interval '5 hours'), 0) AS cost_5h,
-              COALESCE(SUM(s.cost_usd) FILTER (WHERE s.updated_at > now() - interval '7 days'), 0) AS cost_7d,
-              COALESCE(SUM(s.cost_usd), 0) AS cost_total, COUNT(s.id) AS sessions
+              COALESCE(SUM(s.input_tokens + s.output_tokens) FILTER (WHERE s.updated_at > now() - interval '5 hours'), 0) AS tokens_5h,
+              COALESCE(SUM(s.input_tokens + s.output_tokens) FILTER (WHERE s.updated_at > now() - interval '7 days'), 0) AS tokens_7d,
+              COALESCE(SUM(s.input_tokens + s.output_tokens), 0) AS tokens_total, COUNT(s.id) AS sessions
          FROM users u LEFT JOIN claude_sessions s ON s.user_id = u.id GROUP BY u.id ORDER BY u.id`);
     // Limites reais da conta: chamada direta em /api/oauth/usage (mesmo endpoint que o plugin oficial
     // e o Orion antigo usam), preferindo o arquivo de credenciais do `claude auth login` (tem o escopo
@@ -235,12 +235,12 @@ export async function claudeRoutes(app: FastifyInstance) {
       real = rlRows[0] ? { subscription_type: rlRows[0].subscription_type ?? null, rate_limits: rlRows[0].rate_limits } : null;
     }
     // "% do uso" por modelo (breakdown de atribuição da tela Conta e Uso — string real "% of usage",
-    // classes attribution*_QET5Ow; ver PARIDADE-seletor.md): custo por modelo dos últimos 7 dias, da
+    // classes attribution*_QET5Ow; ver PARIDADE-seletor.md): tokens por modelo dos últimos 7 dias, da
     // coluna `claude_sessions.model` que o Orion já tem. O % é calculado no cliente
     // (computeModelAttribution em web/src/claude/mapper.ts), que também agrupa ids de modelo
     // diferentes sob o mesmo rótulo (ex.: claude-sonnet-* → "Sonnet").
     const { rows: byModel } = await app.pool.query(
-      `SELECT model, COALESCE(SUM(cost_usd), 0) AS cost
+      `SELECT model, COALESCE(SUM(input_tokens + output_tokens), 0) AS tokens
          FROM claude_sessions
         WHERE updated_at > now() - interval '7 days'
         GROUP BY model`);
@@ -321,7 +321,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
       [id, req.user!.id, project.id, titleFromPrompt(prompt), project.path, b.model || d.model || null, mode, effort ?? null]);
     runner.startTurn({
-      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), maxBudgetUsd: d.budget,
+      sessionId: id, cwd: project.path, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget,
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: project.path, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };

@@ -66,7 +66,7 @@ describe('Runner com anexos', () => {
     const fn: QueryFn = ({ prompt }) => {
       async function* gen() {
         if (typeof prompt !== 'string') { promptWasIterable = true; for await (const msg of prompt) captured = msg; }
-        yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, num_turns: 1, duration_ms: 1 } as any;
+        yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 1 } as any;
       }
       return gen() as any;
     };
@@ -94,7 +94,7 @@ describe('Runner com anexos', () => {
     let seen: any;
     const fn: QueryFn = ({ prompt }) => {
       seen = prompt;
-      async function* gen() { yield { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0, num_turns: 1 } as any; }
+      async function* gen() { yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1 } as any; }
       return gen() as any;
     };
     const m = memStore();

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatCost, formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
+import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
@@ -547,7 +547,7 @@ function Result({ e }: { e: Extract<ConvEvent, { kind: 'result' }> }) {
   if (!e.ok) return <div className="cc-result is-error">Encerrou com erro: {e.error}</div>;
   const tokens = (e.inputTokens !== undefined || e.outputTokens !== undefined)
     ? ` · ${formatTokens(e.inputTokens)}↑ / ${formatTokens(e.outputTokens)}↓ tokens` : '';
-  return <div className="cc-result">Concluído · {formatCost(e.costUsd)} · {formatDuration(e.durationMs)} · {e.turns ?? '—'} turnos{tokens}</div>;
+  return <div className="cc-result">Concluído · {formatDuration(e.durationMs)} · {e.turns ?? '—'} turnos{tokens}</div>;
 }
 
 function dotClass(e: ConvEvent): string {

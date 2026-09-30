@@ -126,7 +126,7 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
     }
     if (m.type === 'result') {
       const tok = sumModelUsage(m.modelUsage) ?? (m.usage ? { input: m.usage.input_tokens ?? 0, output: m.usage.output_tokens ?? 0 } : undefined);
-      out.push({ id: nid(), kind: 'result', ok: !m.is_error && m.subtype === 'success', costUsd: m.total_cost_usd, durationMs: m.duration_ms, turns: m.num_turns, inputTokens: tok?.input, outputTokens: tok?.output, error: m.is_error ? (m.result ?? m.subtype) : undefined });
+      out.push({ id: nid(), kind: 'result', ok: !m.is_error && m.subtype === 'success', durationMs: m.duration_ms, turns: m.num_turns, inputTokens: tok?.input, outputTokens: tok?.output, error: m.is_error ? (m.result ?? m.subtype) : undefined });
       continue;
     }
     // stream_event: parciais; a tela ao vivo trata separadamente
@@ -462,11 +462,6 @@ export function pickSpinnerWord(words: readonly string[] = SPINNER_WORDS, rand: 
   return words[Math.floor(rand() * words.length)] ?? words[0];
 }
 
-export function formatCost(usd?: number): string {
-  if (usd === undefined) return '—';
-  return `US$ ${usd.toFixed(usd < 0.1 ? 4 : 2)}`;
-}
-
 export function formatDuration(ms?: number): string {
   if (ms === undefined) return '—';
   if (ms < 1000) return `${ms} ms`;
@@ -476,7 +471,7 @@ export function formatDuration(ms?: number): string {
   return `${m} min ${s % 60} s`;
 }
 
-export type UsageRow = { cost_5h: string | number; cost_7d: string | number; cost_total: string | number };
+export type UsageRow = { tokens_5h: string | number; tokens_7d: string | number; tokens_total: string | number };
 export type UsageBar = { key: string; label: string; pct: number; sub?: string; resetText?: string };
 
 /** Uma janela de limite real (rate_limits.* do result do SDK): % de uso 0-100 e reset ISO 8601; qualquer um pode vir null. */
@@ -545,7 +540,7 @@ export function computeRealUsageBars(real: RealRateLimits, subscriptionType: str
 }
 
 /**
- * Barras de uso a partir do custo real por janela (proxy), usado quando a API não devolveu limites
+ * Barras de uso a partir dos tokens por janela (proxy), usado quando a API não devolveu limites
  * reais — hoje é sempre o caso (ver `computeUsageBars`/PARIDADE.md). O plano não expõe o % real nem
  * o horário de reset nesse caso; a extensão real também nunca mostra valor em dólar aqui (só
  * "Resets in Xh" quando tem o dado, ou nada), então deixamos sem legenda em vez de mostrar um número
@@ -553,13 +548,14 @@ export function computeRealUsageBars(real: RealRateLimits, subscriptionType: str
  */
 function computeProxyUsageBars(rows: UsageRow[]): UsageBar[] {
   const sum = (k: keyof UsageRow) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  const c5 = sum('cost_5h'), c7 = sum('cost_7d'), ct = sum('cost_total');
-  const bar = (key: string, label: string, cost: number, ref: number): UsageBar =>
-    ({ key, label, pct: Math.round(Math.min(100, Math.max(0, ref > 0 ? (cost / ref) * 100 : 0))) });
+  const t5 = sum('tokens_5h'), t7 = sum('tokens_7d'), tt = sum('tokens_total');
+  const bar = (key: string, label: string, tokens: number, ref: number): UsageBar =>
+    ({ key, label, pct: Math.round(Math.min(100, Math.max(0, ref > 0 ? (tokens / ref) * 100 : 0))) });
+  // ponytail: referências chutadas (o plano não expõe o teto em tokens); só valem sem limite real da API.
   return [
-    bar('5h', 'Sessão (5h)', c5, 5),
-    bar('7d', 'Semanal (7 dias)', c7, 25),
-    bar('total', 'Limite Fable', ct, 100),
+    bar('5h', 'Sessão (5h)', t5, 2_000_000),
+    bar('7d', 'Semanal (7 dias)', t7, 20_000_000),
+    bar('total', 'Limite Fable', tt, 100_000_000),
   ];
 }
 
@@ -690,19 +686,19 @@ export function computeUsageBars(rows: UsageRow[], real?: RealUsage, now = Date.
   return computeProxyUsageBars(rows);
 }
 
-/** Linha de `by_model` de GET /api/claude/usage: custo somado (7 dias) por id de modelo da coluna `claude_sessions.model`. */
-export type ModelCostRow = { model: string | null; cost: string | number };
+/** Linha de `by_model` de GET /api/claude/usage: tokens somados (7 dias) por id de modelo da coluna `claude_sessions.model`. */
+export type ModelCostRow = { model: string | null; tokens: string | number };
 export type ModelAttribution = { name: string; pct: number };
 /**
  * Breakdown "% do uso" por modelo da tela Conta e Uso — paridade com o bloco de atribuição da
  * extensão real (string "% of usage", classes `attribution*_QET5Ow`, componente `J11` no webview
  * v2.1.283; ver PARIDADE-seletor.md). Lá a fonte é telemetria de atribuição do servidor deles; aqui
- * o proxy é o custo por modelo que o Orion já tem (`claude_sessions.model` + `cost_usd`, janela de
+ * o proxy são os tokens por modelo que o Orion já tem (`claude_sessions.model` + `input_tokens`/`output_tokens`, janela de
  * 7 dias agregada no servidor). Ids de modelo diferentes com o mesmo alias conhecido são somados sob
  * o rótulo do seletor (ex.: claude-sonnet-* → "Sonnet", via `matchModelAlias`/`MODEL_LABEL`); id sem
  * alias conhecido fica com o id cru; sessão sem modelo resolvido (null) é pulada — sem rótulo não há
  * o que atribuir. Ordena por % desc (mesma `iW0` real) e arredonda como a real (`Math.round`).
- * Lista vazia quando não há custo nenhum — o bloco não aparece (sem % inventado de divisão por zero).
+ * Lista vazia quando não há token nenhum — o bloco não aparece (sem % inventado de divisão por zero).
  */
 export function computeModelAttribution(rows: ModelCostRow[] | null | undefined): ModelAttribution[] {
   const byName = new Map<string, number>();
@@ -710,13 +706,13 @@ export function computeModelAttribution(rows: ModelCostRow[] | null | undefined)
     if (!r.model) continue;
     const alias = matchModelAlias(r.model);
     const name = alias !== 'default' ? MODEL_LABEL[alias] : r.model;
-    byName.set(name, (byName.get(name) ?? 0) + (Number(r.cost) || 0));
+    byName.set(name, (byName.get(name) ?? 0) + (Number(r.tokens) || 0));
   }
   let total = 0;
   for (const v of byName.values()) total += v;
   if (total <= 0) return [];
   return [...byName.entries()]
-    .map(([name, cost]) => ({ name, pct: Math.round((cost / total) * 100) }))
+    .map(([name, tokens]) => ({ name, pct: Math.round((tokens / total) * 100) }))
     .sort((a, b) => b.pct - a.pct);
 }
 

@@ -53,9 +53,9 @@ describe('matchEffort/effortPillLabel com o degrau Ultracode', () => {
 describe('computeModelAttribution (% do uso por modelo)', () => {
   it('agrupa ids diferentes do mesmo alias, calcula %, ordena desc', () => {
     const out = computeModelAttribution([
-      { model: 'claude-sonnet-5', cost: '3' },
-      { model: 'claude-sonnet-4-5', cost: 1 },
-      { model: 'claude-fable-5', cost: '6' },
+      { model: 'claude-sonnet-5', tokens: '3' },
+      { model: 'claude-sonnet-4-5', tokens: 1 },
+      { model: 'claude-fable-5', tokens: '6' },
     ]);
     expect(out).toEqual([
       { name: 'Fable', pct: 60 },
@@ -64,9 +64,9 @@ describe('computeModelAttribution (% do uso por modelo)', () => {
   });
   it('modelo null é pulado; id sem alias conhecido fica com o id cru', () => {
     const out = computeModelAttribution([
-      { model: null, cost: 100 },
-      { model: 'gpt-x', cost: 1 },
-      { model: 'claude-opus-4-1', cost: 3 },
+      { model: null, tokens: 100 },
+      { model: 'gpt-x', tokens: 1 },
+      { model: 'claude-opus-4-1', tokens: 3 },
     ]);
     expect(out).toEqual([
       { name: 'Opus', pct: 75 },
@@ -76,12 +76,12 @@ describe('computeModelAttribution (% do uso por modelo)', () => {
   it('sem custo nenhum (ou lista vazia/ausente) devolve lista vazia, nunca % de divisão por zero', () => {
     expect(computeModelAttribution([])).toEqual([]);
     expect(computeModelAttribution(undefined)).toEqual([]);
-    expect(computeModelAttribution([{ model: 'claude-sonnet-5', cost: 0 }])).toEqual([]);
+    expect(computeModelAttribution([{ model: 'claude-sonnet-5', tokens: 0 }])).toEqual([]);
   });
   it('custo não numérico conta como zero, sem NaN', () => {
     const out = computeModelAttribution([
-      { model: 'claude-sonnet-5', cost: 'abc' as unknown as string },
-      { model: 'claude-haiku-4', cost: 2 },
+      { model: 'claude-sonnet-5', tokens: 'abc' as unknown as string },
+      { model: 'claude-haiku-4', tokens: 2 },
     ]);
     expect(out).toEqual([{ name: 'Haiku', pct: 100 }, { name: 'Sonnet', pct: 0 }]);
   });

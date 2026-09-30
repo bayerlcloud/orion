@@ -7,6 +7,8 @@ import { unlink } from 'node:fs/promises';
 
 export async function settingsRoutes(app: FastifyInstance) {
   await ensureSettingsTable(app.pool);
+  // Teto antigo em US$ (claude_max_budget_usd) saiu do sistema: o orçamento agora é em tokens.
+  await deleteSetting(app.pool, 'claude_max_budget_usd');
   let flow: LoginFlow | null = null;
   const currentUser = { id: null as number | null };
 
@@ -17,7 +19,7 @@ export async function settingsRoutes(app: FastifyInstance) {
 
   app.get('/api/settings', async () => {
     const [token, mode, model, budget] = await Promise.all([
-      getSetting(app.pool, KEYS.claudeToken), getSetting(app.pool, KEYS.defaultMode), getSetting(app.pool, KEYS.defaultModel), getSetting(app.pool, KEYS.maxBudgetUsd)]);
+      getSetting(app.pool, KEYS.claudeToken), getSetting(app.pool, KEYS.defaultMode), getSetting(app.pool, KEYS.defaultModel), getSetting(app.pool, KEYS.taskBudgetTokens)]);
     // Duas formas de estar conectado: token estático (`claude setup-token`, salvo aqui no Postgres)
     // ou sessão do login normal (`claude auth login`, vive em ~/.claude/.credentials.json e se renova
     // sozinha — nunca copiada pra cá, ver claude/login.ts). Ambas fazem sdkEnv/turnEnv funcionarem.
@@ -30,7 +32,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         via: token ? 'token' : (fileCreds ? 'login' : null),
         linux_user: process.env.USER ?? null,
       },
-      defaults: { permission_mode: mode ?? 'acceptEdits', model: model ?? '', max_budget_usd: budget ? Number(budget) : null },
+      defaults: { permission_mode: mode ?? 'acceptEdits', model: model ?? '', task_budget_tokens: budget ? Number(budget) : null },
       meta: rows,
     };
   });
@@ -57,7 +59,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     const t0 = Date.now();
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), 90_000);
-    let model = '', text = '', cost = 0, error = '';
+    let model = '', text = '', error = '';
     try {
       const q = query({ prompt: 'Responda apenas com a palavra: ok', options: {
         cwd: '/tmp', maxTurns: 1, tools: [], permissionMode: 'default', settingSources: [], abortController: abort, env: sdkEnv(token),
@@ -66,12 +68,12 @@ export async function settingsRoutes(app: FastifyInstance) {
       for await (const m of q) {
         if (m.type === 'system' && m.subtype === 'init') model = m.model;
         if (m.type === 'assistant') for (const b of m.message.content) if (b.type === 'text') text += b.text;
-        if (m.type === 'result') { cost = m.total_cost_usd ?? 0; if (m.is_error) error = (m as any).result ?? m.subtype; }
+        if (m.type === 'result') { if (m.is_error) error = (m as any).result ?? m.subtype; }
       }
     } catch (e: any) {
       error = String(e?.message ?? e);
     } finally { clearTimeout(timer); }
-    return { ok: !error, model, reply: text.trim().slice(0, 200), cost_usd: cost, ms: Date.now() - t0, error: error || null, via: token ? 'token' : 'login do usuário linux' };
+    return { ok: !error, model, reply: text.trim().slice(0, 200), ms: Date.now() - t0, error: error || null, via: token ? 'token' : 'login do usuário linux' };
   });
 
   /** Login pelo navegador, igual ao plugin: a Central roda `claude auth login --claudeai` na c3 e faz
@@ -98,19 +100,19 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
   app.post('/api/settings/claude-login/cancel', async () => { flow?.cancel(); return flow ? flow.snapshot() : { state: 'idle' }; });
 
-  app.put<{ Body: { permission_mode?: string; model?: string; max_budget_usd?: number | null } }>('/api/settings/defaults', async (req, reply) => {
+  app.put<{ Body: { permission_mode?: string; model?: string; task_budget_tokens?: number | null } }>('/api/settings/defaults', async (req, reply) => {
     const b = req.body ?? {};
     if (b.permission_mode !== undefined) {
       if (!['acceptEdits', 'default', 'plan', 'auto'].includes(b.permission_mode)) return reply.code(400).send({ error: 'modo inválido' });
       await setSetting(app.pool, KEYS.defaultMode, b.permission_mode, req.user!.id);
     }
     if (b.model !== undefined) await setSetting(app.pool, KEYS.defaultModel, String(b.model).trim(), req.user!.id);
-    // Vazio/null/0 = sem teto (apaga a configuração).
-    if (b.max_budget_usd === null || b.max_budget_usd === 0) await deleteSetting(app.pool, KEYS.maxBudgetUsd);
-    else if (b.max_budget_usd !== undefined) {
-      const n = Number(b.max_budget_usd);
-      if (!(n > 0 && n <= 500)) return reply.code(400).send({ error: 'orçamento entre 0 e 500' });
-      await setSetting(app.pool, KEYS.maxBudgetUsd, String(n), req.user!.id);
+    // Orçamento em tokens por mensagem (taskBudget do SDK). Vazio/null/0 = sem limite (apaga a configuração).
+    if (b.task_budget_tokens === null || b.task_budget_tokens === 0) await deleteSetting(app.pool, KEYS.taskBudgetTokens);
+    else if (b.task_budget_tokens !== undefined) {
+      const n = Number(b.task_budget_tokens);
+      if (!(Number.isInteger(n) && n >= 1000)) return reply.code(400).send({ error: 'orçamento de tokens: número inteiro a partir de 1000' });
+      await setSetting(app.pool, KEYS.taskBudgetTokens, String(n), req.user!.id);
     }
     return { ok: true };
   });

@@ -14,8 +14,9 @@ export function pgStore(pool: Pool): Store {
       const sets: string[] = ['updated_at = now()']; const vals: unknown[] = [sessionId]; let i = 2;
       const add = (col: string, v: unknown) => { sets.push(`${col} = $${i++}`); vals.push(v); };
       if (patch.status !== undefined) add('status', patch.status satisfies SessionStatus);
-      if (patch.costUsd !== undefined) add('cost_usd', patch.costUsd);
       if (patch.turns !== undefined) add('turns', patch.turns);
+      // Tokens somam (cada turno é um query() novo com resume; o result traz só o uso daquele turno).
+      if (patch.tokens) { sets.push(`input_tokens = input_tokens + $${i++}`, `output_tokens = output_tokens + $${i++}`); vals.push(patch.tokens.input, patch.tokens.output); }
       if (patch.lastError !== undefined) add('last_error', patch.lastError);
       if (patch.model !== undefined) add('model', patch.model);
       await pool.query(`UPDATE claude_sessions SET ${sets.join(', ')} WHERE id = $1`, vals);

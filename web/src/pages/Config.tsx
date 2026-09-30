@@ -4,11 +4,11 @@ import DeployCard from './DeployCard';
 
 type Settings = {
   claude: { token_set: boolean; token_hint: string | null; via: 'token' | 'login' | null; linux_user: string | null };
-  defaults: { permission_mode: string; model: string; max_budget_usd: number | null };
+  defaults: { permission_mode: string; model: string; task_budget_tokens: number | null };
   meta: { key: string; updated_at: string; updated_by: string | null }[];
 };
 type LoginSnap = { state: 'idle' | 'starting' | 'awaiting_code' | 'exchanging' | 'done' | 'error'; url: string | null; error: string | null; output_tail: string };
-type TestResult = { ok: boolean; model: string; reply: string; cost_usd: number; ms: number; error: string | null; via: string };
+type TestResult = { ok: boolean; model: string; reply: string; ms: number; error: string | null; via: string };
 
 export default function Config({ user }: { user: User }) {
   const [s, setS] = useState<Settings | null>(null);
@@ -25,7 +25,7 @@ export default function Config({ user }: { user: User }) {
   async function load() {
     try {
       const r = await api<Settings>('/api/settings');
-      setS(r); setMode(r.defaults.permission_mode); setModel(r.defaults.model); setBudget(r.defaults.max_budget_usd);
+      setS(r); setMode(r.defaults.permission_mode); setModel(r.defaults.model); setBudget(r.defaults.task_budget_tokens);
     } catch (e: any) { setMsg(e.message); }
   }
   async function loadLoginFlow() {
@@ -68,7 +68,7 @@ export default function Config({ user }: { user: User }) {
   async function cancelLogin() { try { setLogin(await api<LoginSnap>('/api/settings/claude-login/cancel', { method: 'POST' })); } catch { /* ignora */ } }
   async function saveDefaults() {
     setBusy(true); setMsg('');
-    try { await api('/api/settings/defaults', { method: 'PUT', body: JSON.stringify({ permission_mode: mode, model, max_budget_usd: budget }) }); setMsg('Padrões salvos.'); await load(); }
+    try { await api('/api/settings/defaults', { method: 'PUT', body: JSON.stringify({ permission_mode: mode, model, task_budget_tokens: budget }) }); setMsg('Padrões salvos.'); await load(); }
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
 
@@ -139,8 +139,8 @@ export default function Config({ user }: { user: User }) {
           <label>modelo (vazio = padrão da conta)
             <input value={model} onChange={e => setModel(e.target.value)} placeholder="ex.: claude-fable-5-1" />
           </label>
-          <label>teto de custo estimado por mensagem (US$, vazio = sem limite)
-            <input type="number" min={1} max={500} step={1} value={budget ?? ''} placeholder="sem limite" onChange={e => setBudget(e.target.value ? Number(e.target.value) : null)} />
+          <label>orçamento de tokens por mensagem (vazio = sem limite)
+            <input type="number" min={1000} step={10000} value={budget ?? ''} placeholder="sem limite" onChange={e => setBudget(e.target.value ? Number(e.target.value) : null)} />
           </label>
         </div>
         <div className="cfg-actions"><button className="btn-primary" onClick={saveDefaults} disabled={busy}>Salvar padrões</button></div>

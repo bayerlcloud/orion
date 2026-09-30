@@ -34,7 +34,7 @@ const v2: SdkMessage[] = [
   ] } },
   { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't3', content: '217.76.55.249   v2.bayerl.cloud' }] } },
   { type: 'assistant', message: { content: [{ type: 'text', text: 'Feito. Registro A criado e já resolvendo.\n\n| Nome | Tipo | Valor | TTL |\n|---|---|---|---|\n| v2.bayerl.cloud | A | 217.76.55.249 | 300 |\n\nConfirmei a resolução daqui do container e já aponta pro IP certo. O TTL está em 300 (temporário). Se esse IP virar produção estável, subo pra 14400.\n\nEsse IP não é nenhuma das 3 VPSs conhecidas (Contabo 86.48.28.10, Contabo 2 212.47.70.170, Hostinger 72.61.135.82). Se for uma máquina nova que vai entrar na stack, me diz o que ela é que eu registro no CLAUDE.md.' }] } },
-  { type: 'result', subtype: 'success', total_cost_usd: 0.0412, duration_ms: 18_400, num_turns: 4 },
+  { type: 'result', subtype: 'success', duration_ms: 18_400, num_turns: 4 },
 ];
 
 const deploy: SdkMessage[] = [
