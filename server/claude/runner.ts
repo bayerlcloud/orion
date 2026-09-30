@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { policyHook } from './policy.js';
+import { makePolicyHook, type BackupFn } from './policy.js';
 import { readFile } from 'node:fs/promises';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
@@ -118,6 +118,8 @@ export type TurnParams = {
    * systemAppend. Ausente = sem estilo (o "default" do CLI).
    */
   outputStyle?: string;
+  /** Backup antes de SQL destrutivo aprovado (server/dbBackup.ts); ausente = projeto sem db_url. */
+  backupSql?: BackupFn;
 };
 
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string; toolUseId?: string };
@@ -362,7 +364,7 @@ export class Runner {
       canUseTool,
       onElicitation,
       // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
-      hooks: { PreToolUse: [{ hooks: [policyHook] }] },
+      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql)] }] },
       abortController: abort,
       includePartialMessages: true,
       settingSources: ['user', 'project'],

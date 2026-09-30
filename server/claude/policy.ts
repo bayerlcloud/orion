@@ -1,10 +1,12 @@
 import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import { sqlDestrutivo } from './sqlGuard.js';
 
 /**
  * Política padrão de permissão de TODA sessão do Orion (decisão do Danilo, 29/09/2026):
  * ação comum roda sem perguntar; ação sensível vira o cartão Aprovar/Recusar no chat (o mesmo do
  * `canUseTool` do runner), nunca um bloqueio. Exceção: modo `auto` libera tudo, sem cartão
- * (Danilo, 30/09/2026: "se é Auto é Auto").
+ * (Danilo, 30/09/2026: "se é Auto é Auto"), menos SQL destrutivo, que pede o cartão em qualquer modo e
+ * faz backup antes (Danilo, 30/09/2026, docs/superpowers/specs/2026-09-30-preview-design.md, Parte 3).
  *
  * Entra como hook PreToolUse in-process (runner.ts), que o CLI consulta ANTES do modo e do
  * classificador do modo `auto`: 'allow' pula tudo, 'ask' cai no canUseTool (o botão).
@@ -15,7 +17,13 @@ import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-age
  * comando ofuscado de propósito passa (risco aceito em DECISOES.md, "sem isolamento").
  */
 
-export type Verdict = { decision: 'allow' | 'ask'; reason?: string };
+/** `always`: pergunta até no modo auto (SQL destrutivo, decisão do Danilo em 30/09/2026). `sql`: o SQL, para o backup. */
+export type Verdict = { decision: 'allow' | 'ask'; reason?: string; always?: boolean; sql?: string };
+
+/** Backup antes de SQL destrutivo; devolve o texto que vai para o cartão ("backup salvo em ...", "backup falhou: ..."). */
+export type BackupFn = (sql: string) => Promise<string>;
+
+const BACKUP_TIMEOUT_MS = 5 * 60_000;
 
 const PUBLICAR = 'publicar em produção';
 const BANCO = 'ler ou alterar banco/segredo de produção';
@@ -40,14 +48,29 @@ const ARQUIVO_SENSIVEL: [RegExp, string][] = [
 ];
 
 /** MCPs: nome ou `action`/`method` destrutivo, e os que mexem em banco/produção por definição. */
-const MCP_NOME_BANCO = /^mcp__supabase__(execute_sql|apply_migration|reset_branch|merge_branch|delete_branch|rebase_branch)$/;
+const MCP_NOME_BANCO = /^mcp__supabase__(reset_branch|merge_branch|delete_branch|rebase_branch)$/;
+const MCP_SQL = /^mcp__supabase__(execute_sql|apply_migration)$/;
 const MCP_NOME_PUBLICAR = /^mcp__coolify__(deploy|redeploy_project|restart_project_apps|stop_all_apps|bulk_env_update|control)$/;
 const DESTRUTIVO = /delete|remove|drop|destroy|trash|purge|prune|stop|restart|deploy/i;
 
 function str(v: unknown): string { return typeof v === 'string' ? v : ''; }
 
+/**
+ * SQL que um comando Bash manda para um banco: só olha comandos com psql, supabase ou pg_restore, e
+ * devolve o primeiro trecho destrutivo entre os textos entre aspas e as linhas (cobre `-c "..."` e heredoc).
+ */
+function sqlDoBash(cmd: string): string {
+  if (!/\b(psql|supabase|pg_restore)\b/.test(cmd)) return '';
+  const trechos = [...cmd.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map(m => m[1] ?? m[2] ?? '');
+  for (const t of [...trechos, ...cmd.split('\n')]) if (sqlDestrutivo(t)) return t;
+  return '';
+}
+
 export function classify(toolName: string, input: unknown): Verdict {
   const inp = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const sql = toolName === 'Bash' ? sqlDoBash(str(inp.command)) : MCP_SQL.test(toolName) ? str(inp.query) : '';
+  const destrutivo = sql ? sqlDestrutivo(sql) : null;
+  if (destrutivo) return { decision: 'ask', always: true, reason: `SQL destrutivo: ${destrutivo}`, sql };
   if (toolName === 'Bash') {
     const cmd = str(inp.command);
     for (const [re, reason] of BASH_SENSIVEL) if (re.test(cmd)) return { decision: 'ask', reason };
@@ -74,10 +97,29 @@ export function classify(toolName: string, input: unknown): Verdict {
 /** Ferramentas cuja "permissão" é na verdade uma interação com a pessoa (pergunta, sair do plano): o hook nunca decide por elas. */
 const INTERATIVAS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
-export const policyHook: HookCallback = async (input) => {
-  const i = input as PreToolUseHookInput;
-  if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
-  if (i.permission_mode === 'auto') return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
-  const v = classify(i.tool_name, i.tool_input);
-  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: v.decision, ...(v.reason ? { permissionDecisionReason: `Ação sensível: ${v.reason}` } : {}) } };
-};
+async function textoBackup(backup: BackupFn | undefined, sql: string): Promise<string> {
+  if (!backup) return 'sem backup automático (projeto sem db_url)';
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const limite = new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error('passou de 5 minutos')), BACKUP_TIMEOUT_MS); });
+    return await Promise.race([backup(sql), limite]);
+  } catch (e) {
+    return `backup falhou: ${e instanceof Error ? e.message : String(e)}`;
+  } finally { clearTimeout(timer); }
+}
+
+export function makePolicyHook(backup?: BackupFn): HookCallback {
+  return async (input) => {
+    const i = input as PreToolUseHookInput;
+    if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
+    const v = classify(i.tool_name, i.tool_input);
+    if (v.always) {
+      const bk = await textoBackup(backup, v.sql ?? '');
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: ${v.reason}. ${bk}` } };
+    }
+    if (i.permission_mode === 'auto') return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
+    return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: v.decision, ...(v.reason ? { permissionDecisionReason: `Ação sensível: ${v.reason}` } : {}) } };
+  };
+}
+
+export const policyHook: HookCallback = makePolicyHook();
