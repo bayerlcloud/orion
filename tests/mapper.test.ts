@@ -1189,6 +1189,8 @@ describe('sessionWorktreeName — deriva do cwd, sem coluna nova', () => {
   });
   it('sem cwd ou sem path do projeto: null (nada pra comparar)', () => {
     expect(sessionWorktreeName(null, '/srv/orion')).toBeNull();
+    // sessão movida de projeto (cwd de outro repositório) não é worktree
+    expect(sessionWorktreeName('/srv/orion', '/srv/projects/fisioexpert')).toBeNull();
     expect(sessionWorktreeName('/srv/orion-worktrees/x', undefined)).toBeNull();
     expect(sessionWorktreeName(undefined, undefined)).toBeNull();
   });
