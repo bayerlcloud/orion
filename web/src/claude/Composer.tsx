@@ -394,7 +394,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const slashFilter = text.trimStart();
   // Lista real da sessão (Query.supportedCommands(), via ClaudePage) quando já existe; senão os 4 fixos.
   const slashSource = commands && commands.length ? commands.map(c => ({ cmd: '/' + c.name, desc: c.description })) : SLASH_FALLBACK;
-  const slashItems = slashSource.filter(s => menu === 'slash' || s.cmd.startsWith(slashFilter));
+  // Filtra enquanto digita (inclusive com o menu aberto pelo botão): "/cool" acha "/coolify:…" e
+  // também nomes que só contêm o trecho, com os que começam pelo trecho primeiro.
+  const slashQuery = slashFilter.startsWith('/') ? slashFilter.slice(1).toLowerCase() : '';
+  const slashItems = !slashQuery ? slashSource : [
+    ...slashSource.filter(s => s.cmd.slice(1).toLowerCase().startsWith(slashQuery)),
+    ...slashSource.filter(s => !s.cmd.slice(1).toLowerCase().startsWith(slashQuery) && s.cmd.toLowerCase().includes(slashQuery)),
+  ];
   // Validação ao vivo do nome de worktree (ver mapper.ts) — só roda com algo digitado, igual à
   // extensão real (`let U=G?fF0(G):null`): campo vazio nunca mostra "obrigatório" sozinho, porque
   // aqui (diferente da extensão) vazio é um valor válido — "sem worktree, sessão normal".
