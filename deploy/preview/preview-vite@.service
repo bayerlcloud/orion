@@ -8,7 +8,7 @@ Slice=preview.slice
 MemoryMax=600M
 EnvironmentFile=/srv/previews/%i.env
 Environment=NODE_ENV=development
-ExecStart=/bin/sh -c 'cd "$PREVIEW_DIR" && exec node_modules/.bin/vite --host 127.0.0.1 --port "$VITE_PORT" --strictPort'
+ExecStart=/bin/sh -c 'cd "$PREVIEW_DIR" && exec "$VITE_BIN" --host 127.0.0.1 --port "$VITE_PORT" --strictPort'
 ExecStartPost=/bin/sh -c 'for i in $(seq 240); do nc -z 127.0.0.1 "$VITE_PORT" && exit 0; kill -0 "$MAINPID" 2>/dev/null || exit 1; sleep 0.5; done; exit 1'
 TimeoutStartSec=150
 NoNewPrivileges=yes

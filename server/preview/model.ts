@@ -1,4 +1,6 @@
 import type { Pool } from 'pg';
+import { access } from 'node:fs/promises';
+import path from 'node:path';
 import { slugify } from '../tasks/util.js';
 
 /**
@@ -27,6 +29,11 @@ export function instancia(host: string): string {
   return host.endsWith(`.${DOMINIO}`) ? host.slice(0, -(DOMINIO.length + 1)) : host;
 }
 
+/** Só projeto com package.json na pasta do app ganha preview (tira pastas de referência, tipo antigravity). */
+export async function temPreview(dir: string, subpasta: string | null): Promise<boolean> {
+  return access(path.join(dir, subpasta ?? '', 'package.json')).then(() => true, () => false);
+}
+
 export function proximaPorta(usadas: number[]): number {
   const ocupadas = new Set(usadas);
   for (let p = PORTA_MIN; p <= PORTA_MAX; p++) if (!ocupadas.has(p)) return p;
@@ -45,7 +52,12 @@ export function paresFaltando(projetos: number[], usuarios: number[], existentes
 
 /** Cria as linhas que faltam (idempotente) e devolve todas. */
 export async function garantirPreviews(pool: Pool): Promise<PreviewRow[]> {
-  const { rows: projetos } = await pool.query<{ id: number; slug: string; path: string }>('SELECT id, slug, path FROM projects ORDER BY id');
+  const { rows: todos } = await pool.query<{ id: number; slug: string; path: string; sub: string | null }>(
+    "SELECT id, slug, path, meta->>'preview_dir' AS sub FROM projects ORDER BY id");
+  const projetos: typeof todos = [];
+  for (const p of todos) if (await temPreview(p.path, p.sub)) projetos.push(p);
+  // Projeto que deixou de ter preview (sem package.json) perde as linhas; o sync limpa Caddy e unit.
+  await pool.query('DELETE FROM previews WHERE NOT (project_id = ANY($1::int[]))', [projetos.map(p => p.id)]);
   const { rows: usuarios } = await pool.query<{ id: number; name: string }>('SELECT id, name FROM users ORDER BY id');
   const { rows: atuais } = await pool.query<PreviewRow>('SELECT * FROM previews');
   const portas = atuais.map(r => r.port);
@@ -62,6 +74,12 @@ export async function garantirPreviews(pool: Pool): Promise<PreviewRow[]> {
 }
 
 /** Aponta o preview pessoal para a pasta servida agora (worktree da sessão ou a raiz). */
+/** Subpasta do app do projeto (projects.meta.preview_dir), para monorepo. */
+export async function subpastaDoProjeto(pool: Pool, projectId: number): Promise<string | null> {
+  const { rows } = await pool.query("SELECT meta->>'preview_dir' AS sub FROM projects WHERE id = $1", [projectId]);
+  return rows[0]?.sub ?? null;
+}
+
 export async function apontar(pool: Pool, userId: number, projectId: number, dir: string): Promise<PreviewRow> {
   await garantirPreviews(pool);
   const { rows } = await pool.query<PreviewRow>(

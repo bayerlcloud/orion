@@ -4,11 +4,11 @@
 // Uso: node dist/scripts/sync-previews.js [--sem-dns]
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createPool } from '../server/db.js';
 import { KEYS, getSetting } from '../server/settings.js';
-import { DOMINIO, garantirPreviews, instancia } from '../server/preview/model.js';
-import { escreverEnv, liberarCache } from '../server/preview/pasta.js';
+import { DOMINIO, garantirPreviews, instancia, subpastaDoProjeto } from '../server/preview/model.js';
+import { escreverEnv, liberarCache, pastaDoApp } from '../server/preview/pasta.js';
 import { IP_C3, blocoCaddy, hostsComBloco, registrosFaltando } from '../server/preview/sync.js';
 
 const CADDY_DIR = '/etc/caddy/previews.d';
@@ -64,9 +64,11 @@ async function main(): Promise<number> {
       }
       try {
         // Roda como root: o .env e o cache voltam para o danilo, que é quem os reescreve depois (orion-central).
-        await liberarCache(p.worktree_path);
-        await sh('/usr/bin/chown', ['-R', 'danilo:danilo', path.join(p.worktree_path, 'node_modules', '.vite')]).catch(() => {});
-        const env = await escreverEnv(p, '/srv/previews', async (i) => { await sh('/usr/bin/systemctl', ['stop', `preview-vite@${i}.service`]); });
+        const sub = await subpastaDoProjeto(pool, p.project_id);
+        const app = pastaDoApp(p.worktree_path, sub);
+        await liberarCache(app, undefined, p.worktree_path);
+        await sh('/usr/bin/chown', ['-R', 'danilo:danilo', path.join(app, 'node_modules')]).catch(() => {});
+        const env = await escreverEnv(p, '/srv/previews', async (i) => { await sh('/usr/bin/systemctl', ['stop', `preview-vite@${i}.service`]); }, sub);
         if (env.erroParar) console.log(`aviso ${p.host}: ${env.erroParar}`);
         await sh('/usr/bin/chown', ['danilo:danilo', `/srv/previews/${inst}.env`]);
         const dropin = `${UNIT_DIR}/preview@${inst}.socket.d`;
@@ -77,6 +79,14 @@ async function main(): Promise<number> {
         falhas++;
         console.log(`falhou ${p.host}: ${e instanceof Error ? e.message : e}`);
       }
+    }
+    // Blocos de previews que não existem mais (projeto sem package.json, pessoa removida): tira bloco e socket.
+    const vivos = new Set(rows.filter(r => servidos.has(r.host)).map(r => `${instancia(r.host)}.caddy`));
+    for (const f of await readdir(CADDY_DIR)) {
+      if (!f.endsWith('.caddy') || vivos.has(f)) continue;
+      await rm(`${CADDY_DIR}/${f}`, { force: true });
+      await sh('/usr/bin/systemctl', ['disable', '--now', `preview@${f.slice(0, -6)}.socket`]).catch(() => {});
+      console.log(`removido preview sem uso: ${f.slice(0, -6)}`);
     }
     if (unitsMudaram) await sh('/usr/bin/systemctl', ['daemon-reload']);
     for (const p of rows.filter(r => servidos.has(r.host))) {

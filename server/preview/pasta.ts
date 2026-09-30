@@ -36,8 +36,17 @@ export async function prepararPasta(dir: string, raiz: string, npm = 'npm'): Pro
     await symlink(path.join(raiz, 'node_modules'), nm, 'dir');
     return 'symlink';
   }
-  await rodar(npm, ['ci'], dir, NPM_TIMEOUT);
+  // --include=dev: o serviço roda com NODE_ENV=production, e sem isso o npm pula o vite (devDependency).
+  await rodar(npm, ['ci', '--include=dev'], dir, NPM_TIMEOUT);
   return 'npm-ci';
+}
+
+/** Pasta do app dentro do repositório (monorepo: `apps/portal`); nunca sai da base. */
+export function pastaDoApp(base: string, subpasta: string | null): string {
+  if (!subpasta) return base;
+  const dir = path.resolve(base, subpasta);
+  if (dir !== base && !dir.startsWith(base.replace(/\/+$/, '') + path.sep)) throw new Error(`pasta do app fora do projeto: ${subpasta}`);
+  return dir;
 }
 
 /** Para o vite da instância; o próximo acesso religa com a pasta nova (socket activation). */
@@ -49,10 +58,10 @@ async function pararVite(inst: string): Promise<void> {
  * Grava `<base>/<instancia>.env`; se a pasta mudou, para o vite daquele preview. Falha ao gravar lança;
  * falha ao parar volta em `erroParar` (o .env já está certo, o vite antigo cai sozinho no ocioso).
  */
-export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: string) => Promise<void> = pararVite): Promise<{ mudou: boolean; erroParar?: string }> {
+export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: string) => Promise<void> = pararVite, subpasta: string | null = null): Promise<{ mudou: boolean; erroParar?: string }> {
   const inst = instancia(p.host);
   const arq = path.join(base, `${inst}.env`);
-  const conteudo = `PREVIEW_DIR=${p.worktree_path}\nPREVIEW_PORT=${p.port}\nVITE_PORT=${p.port + 10000}\n`;
+  const conteudo = `PREVIEW_DIR=${pastaDoApp(p.worktree_path, subpasta)}\nPREVIEW_PORT=${p.port}\nVITE_PORT=${p.port + 10000}\nVITE_BIN=${path.join(p.worktree_path, 'node_modules', '.bin', 'vite')}\n`;
   if ((await readFile(arq, 'utf8').catch(() => null)) === conteudo) return { mudou: false };
   await mkdir(base, { recursive: true });
   await writeFile(arq, conteudo, { mode: 0o644 });
@@ -69,8 +78,8 @@ export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: s
  * (`node_modules/.vite`) e o topo da pasta (config compilado do vite) são os lugares onde ele escreve. Com node_modules por symlink, o cache é o
  * da raiz, dividido com o preview raiz do projeto.
  */
-export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000)): Promise<void> {
-  if (!(await existe(path.join(dir, 'node_modules')))) return;
+export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000), base: string = dir): Promise<void> {
+  if (!(await existe(path.join(base, 'node_modules')))) return;
   const cache = path.join(dir, 'node_modules', '.vite');
   await mkdir(cache, { recursive: true });
   await setfacl(['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', cache]);
