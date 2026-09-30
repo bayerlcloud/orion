@@ -349,7 +349,12 @@ export default function ClaudePage() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => { atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setAwayFromBottom(!atBottomRef.current); };
+    const onScroll = () => {
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      atBottomRef.current = dist < 40;
+      // O botão só aparece depois de rolar mais de uma tela pra cima (perto do fim ele atrapalha).
+      setAwayFromBottom(dist > el.clientHeight);
+    };
     el.addEventListener('scroll', onScroll, { passive: true });
     const ro = new ResizeObserver(() => { if (atBottomRef.current) toBottom(); });
     for (const c of Array.from(el.children)) ro.observe(c);
@@ -677,7 +682,13 @@ export default function ClaudePage() {
             <div className="cc-float" ref={floatRef}>
               {awayFromBottom && (
                 <button type="button" className="cc-jump" title="Ir para o fim" aria-label="Ir para o fim"
-                  onClick={() => { atBottomRef.current = true; setAwayFromBottom(false); toBottom(); }}>
+                  onClick={() => {
+                    atBottomRef.current = true; setAwayFromBottom(false); toBottom();
+                    // Repete nos quadros seguintes: o composer encolhe quando o botão some e o conteúdo
+                    // pode crescer depois do primeiro pulo, que antes parava em ~99%.
+                    requestAnimationFrame(() => { toBottom(); requestAnimationFrame(toBottom); });
+                    setTimeout(toBottom, 200);
+                  }}>
                   <SendArrow className="cc-jump-icon" />
                 </button>
               )}
