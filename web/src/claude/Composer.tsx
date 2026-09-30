@@ -415,7 +415,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         </div>
       )}
       <Lightbox images={images} index={preview} onClose={closePreview} />
-      <textarea ref={ta} value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
+      {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
+      <textarea ref={ta} name="orion-prompt" autoComplete="off" data-1p-ignore data-lpignore="true" enterKeyHint="send" value={text} onChange={e => setText(e.target.value)} onKeyDown={key} onPaste={onPaste} rows={2}
         placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
