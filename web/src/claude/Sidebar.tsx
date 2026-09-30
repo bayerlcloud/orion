@@ -34,8 +34,11 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
     <div className={`cc-item ${active ? 'is-active' : ''}`}>
       {/* Bolinha só em sessão aberta numa aba, rodando ou esperando você: igual ao plugin (`GF0` no
           webview 2.1.283: fechada e parada = sem indicador). */}
-      {(s.open || s.status === 'running' || s.status === 'waiting') && <span className={`cc-dot is-${s.status}`} />}
+      {/* Ordem: bolinha > avatar > selo do projeto > nome. Sem bolinha fica um espaço do mesmo
+          tamanho, pra avatares e selos alinharem em coluna. */}
+      {(s.open || s.status === 'running' || s.status === 'waiting') ? <span className={`cc-dot is-${s.status}`} /> : <span className="cc-dot is-none" aria-hidden="true" />}
       {s.userId !== undefined && <Avatar id={s.userId} name={s.userName ?? ''} />}
+      <span className="cc-item-project" title={`Projeto: ${s.projectName ?? 'Neutro'}`}>{s.projectName ?? 'Neutro'}</span>
       {editing ? (
         <input className="cc-item-edit" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }} />
@@ -45,7 +48,6 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
       {/* Pill de worktree (`worktreePill_OOQiHg` na extensão real) — ver PARIDADE.md seção 14. Sem
           ação de clique (lá abre "em nova janela"; aqui não há equivalente numa página web só de
           chat) — só informa em qual worktree a sessão roda, título completo no hover. */}
-      <span className="cc-item-project" title={`Projeto: ${s.projectName ?? 'Neutro'}`}>{s.projectName ?? 'Neutro'}</span>
       {s.worktreeName && <span className="cc-item-worktree" title={`Worktree: ${s.worktreeName}`}><GitBranch size={10} /> {s.worktreeName}</span>}
       <span className="cc-item-time">{relativeTime(s.updatedAt)}</span>
       <span className="cc-item-actions">
