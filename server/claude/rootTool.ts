@@ -38,7 +38,9 @@ export function orionRootServer(sessionId: string): McpSdkServerConfigWithInstan
   return createSdkMcpServer({
     name: 'orion-root',
     version: '1.0.0',
-    instructions: 'Para qualquer coisa que precise de root na c3 (o que usaria sudo: systemctl restart, apt install, editar /etc), use exec. Nunca peça para a pessoa entrar por SSH: exec mostra o botão Aprovar/Recusar no chat e roda como root depois de aprovado.',
+    instructions: 'Para qualquer coisa que precise de root na c3 (o que usaria sudo: systemctl restart, apt install, editar /etc), use exec. Nunca peça para a pessoa entrar por SSH: exec mostra o botão Aprovar/Recusar no chat e roda como root depois de aprovado. '
+      + 'Cada exec é uma aprovação manual, mesmo no modo auto: use só quando root for indispensável e junte os passos root num comando só. '
+      + 'Não precisa de root: Postgres do Orion (docker exec orion-postgres psql -U orion orion, o danilo está no grupo docker), docker em geral, arquivos do danilo, systemctl --user.',
     tools: [
       tool(
         'exec',
