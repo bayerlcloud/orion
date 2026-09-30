@@ -3,6 +3,7 @@
 // rodar de novo só cria o que falta. Erro num host é registrado e o resto segue.
 // Uso: node dist/scripts/sync-previews.js [--sem-dns]
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createPool } from '../server/db.js';
 import { KEYS, getSetting } from '../server/settings.js';
@@ -49,8 +50,12 @@ async function main(): Promise<number> {
     for (const p of rows) {
       const inst = instancia(p.host);
       try {
+        // Roda como root: o .env e o cache voltam para o danilo, que é quem os reescreve depois (orion-central).
         await liberarCache(p.worktree_path);
-        await escreverEnv(p, '/srv/previews', async (i) => { await sh('/usr/bin/systemctl', ['stop', `preview-vite@${i}.service`]); });
+        await sh('/usr/bin/chown', ['-R', 'danilo:danilo', path.join(p.worktree_path, 'node_modules', '.vite')]).catch(() => {});
+        const env = await escreverEnv(p, '/srv/previews', async (i) => { await sh('/usr/bin/systemctl', ['stop', `preview-vite@${i}.service`]); });
+        if (env.erroParar) console.log(`aviso ${p.host}: ${env.erroParar}`);
+        await sh('/usr/bin/chown', ['danilo:danilo', `/srv/previews/${inst}.env`]);
         const dropin = `${UNIT_DIR}/preview@${inst}.socket.d`;
         await mkdir(dropin, { recursive: true });
         unitsMudaram = (await escreverSeMudou(`${dropin}/porta.conf`, `[Socket]\nListenStream=127.0.0.1:${p.port}\n`)) || unitsMudaram;

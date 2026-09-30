@@ -70,3 +70,16 @@ describe('commitsAFrente', () => {
     expect(await commitsAFrente(wtD, 'main')).toBe(0);
   });
 });
+
+describe('commitTurno nunca leva node_modules', () => {
+  it('symlink node_modules na worktree não entra no commit', async () => {
+    const { symlink, mkdir } = await import('node:fs/promises');
+    await writeFile(path.join(repo, '.gitignore'), 'node_modules/\n'); g(repo, 'add', '-A'); g(repo, 'commit', '-q', '-m', 'gi');
+    await sincronizarComBase(wtD, 'main');
+    await mkdir(path.join(repo, 'node_modules'));
+    await symlink(path.join(repo, 'node_modules'), path.join(wtD, 'node_modules'));
+    await edit(wtD, 1, '<p>y</p>');
+    expect((await commitTurno(wtD, 'x')).commitou).toBe(true);
+    expect(g(wtD, 'ls-tree', '-r', '--name-only', 'HEAD')).not.toContain('node_modules');
+  });
+});

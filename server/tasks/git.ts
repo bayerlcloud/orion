@@ -130,7 +130,8 @@ export async function commitTurno(worktree: string, mensagem: string): Promise<{
   const branch = br.code === 0 ? br.stdout.trim() : null;
   if (st.code !== 0 || !st.stdout.trim()) return { commitou: false, branch, log: `${st.stdout}${st.stderr}`.trim() };
   const linha = (mensagem.split('\n').find(l => l.trim()) ?? 'turno').trim().slice(0, 72) || 'turno';
-  const add = await git(worktree, ['add', '-A']);
+  // node_modules nunca entra: na worktree ele é um symlink para o da raiz, e `node_modules/` no .gitignore não casa symlink.
+  const add = await git(worktree, ['add', '-A', '--', '.', ':(exclude)node_modules']);
   if (add.code !== 0) return { commitou: false, branch, log: add.stderr };
   const c = await git(worktree, ['commit', '-q', '-m', linha]);
   return { commitou: c.code === 0, branch, log: `${c.stdout}${c.stderr}`.trim() };

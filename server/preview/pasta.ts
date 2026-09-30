@@ -45,15 +45,22 @@ async function pararVite(inst: string): Promise<void> {
   await rodar('sudo', ['-n', '/usr/bin/systemctl', 'stop', `preview-vite@${inst}.service`], '/', 30_000);
 }
 
-/** Grava `<base>/<instancia>.env`; se a pasta mudou, para o vite daquele preview. */
-export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: string) => Promise<void> = pararVite): Promise<{ mudou: boolean }> {
+/**
+ * Grava `<base>/<instancia>.env`; se a pasta mudou, para o vite daquele preview. Falha ao gravar lança;
+ * falha ao parar volta em `erroParar` (o .env já está certo, o vite antigo cai sozinho no ocioso).
+ */
+export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: string) => Promise<void> = pararVite): Promise<{ mudou: boolean; erroParar?: string }> {
   const inst = instancia(p.host);
   const arq = path.join(base, `${inst}.env`);
   const conteudo = `PREVIEW_DIR=${p.worktree_path}\nPREVIEW_PORT=${p.port}\nVITE_PORT=${p.port + 10000}\n`;
   if ((await readFile(arq, 'utf8').catch(() => null)) === conteudo) return { mudou: false };
   await mkdir(base, { recursive: true });
   await writeFile(arq, conteudo, { mode: 0o644 });
-  await parar(inst);
+  try {
+    await parar(inst);
+  } catch (e) {
+    return { mudou: true, erroParar: e instanceof Error ? e.message : String(e) };
+  }
   return { mudou: true };
 }
 

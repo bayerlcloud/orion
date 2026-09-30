@@ -59,3 +59,19 @@ describe('liberarCache', () => {
     expect(chamadas).toEqual([]);
   });
 });
+
+describe('escreverEnv com falha ao parar', () => {
+  it('grava o .env e devolve o erro de parar, sem lançar', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'pv-env-'));
+    const p = { id: 1, project_id: 1, user_id: 1, host: 'x.y.bayerl.cloud', port: 9105, worktree_path: '/w' };
+    const r = await escreverEnv(p, dir, async () => { throw new Error('sudo: senha necessária'); });
+    expect(r).toEqual({ mudou: true, erroParar: 'sudo: senha necessária' });
+    expect(await readFile(path.join(dir, 'x.y.env'), 'utf8')).toContain('PREVIEW_DIR=/w');
+  });
+  it('falha ao gravar lança', async () => {
+    const p = { id: 1, project_id: 1, user_id: 1, host: 'x.y.bayerl.cloud', port: 9105, worktree_path: '/w' };
+    const dir = await mkdtemp(path.join(tmpdir(), 'pv-env-'));
+    await writeFile(path.join(dir, 'arquivo'), '');
+    await expect(escreverEnv(p, path.join(dir, 'arquivo', 'sub'), async () => {})).rejects.toThrow();
+  });
+});

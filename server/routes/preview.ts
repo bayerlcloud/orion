@@ -31,7 +31,12 @@ export async function previewRoutes(app: FastifyInstance) {
     } catch (e) {
       return reply.code(500).send({ error: `não consegui preparar a pasta do preview: ${e instanceof Error ? e.message : e}` });
     }
-    await escreverEnv(row).catch((e) => app.log.warn(`preview: não consegui parar o vite antigo de ${row.host}: ${e instanceof Error ? e.message : e}`));
+    try {
+      const env = await escreverEnv(row);
+      if (env.erroParar) app.log.warn(`preview: não consegui parar o vite antigo de ${row.host}: ${env.erroParar}`);
+    } catch (e) {
+      return reply.code(500).send({ error: `não consegui gravar o .env do preview: ${e instanceof Error ? e.message : e}` });
+    }
     const t = assinar({ u: req.user.id, h: row.host, exp: Date.now() + TOKEN_TTL_MS, j: randomUUID() }, segredo());
     return reply.redirect(`https://${row.host}/__orion_auth?t=${encodeURIComponent(t)}`);
   });
