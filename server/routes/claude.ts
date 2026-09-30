@@ -408,7 +408,19 @@ export async function claudeRoutes(app: FastifyInstance) {
       `SELECT s.*, u.name AS user_name, p.name AS project_name, p.slug AS project_slug FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id WHERE s.id = $1`, [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
-    const { rows: events } = await app.pool.query('SELECT seq, ts, type, payload FROM claude_events WHERE session_id = $1 ORDER BY seq', [s.id]);
+    // Histórico enxuto: o SDK repete a lista inteira de comandos (`commands_changed`, ~350 KB) e o
+    // `init` a cada turno, e isso era ~95% do peso (sessões de 80 a 120 MB, carga lenta no F5). A tela
+    // só usa o PRIMEIRO init (linha "Sessão iniciada") e a lista de comandos mais recente.
+    const { rows: events } = await app.pool.query(
+      `WITH lim AS (
+         SELECT max(seq) FILTER (WHERE payload->>'subtype' = 'commands_changed') AS last_cmd,
+                min(seq) FILTER (WHERE payload->>'subtype' = 'init') AS first_init
+           FROM claude_events WHERE session_id = $1 AND type = 'system')
+       SELECT e.seq, e.ts, e.type, e.payload FROM claude_events e, lim
+        WHERE e.session_id = $1
+          AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
+          AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init)
+        ORDER BY e.seq`, [s.id]);
     return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id) };
   });
 
