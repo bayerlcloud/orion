@@ -21,7 +21,7 @@ export function blocoCaddy(p: PreviewRow): string {
 			uri /api/preview/check
 		}` : '';
   return `${p.host} {
-	@bloqueado path /@fs* /.env* /.git*
+	@bloqueado path /@fs* */.env* */.git*
 	@queryRuim expression \`{query}.contains("..") || {query}.contains("%2e") || {query}.contains("%2E")\`
 	route {
 		respond @bloqueado 404

@@ -15,6 +15,8 @@ for d in /srv/projects /srv/worktrees; do
   setfacl -R -m u:preview:rX,d:u:preview:rX "$d"
 done
 setfacl -m u:preview:x /srv
+# O vite não precisa do git: tira o usuário preview de toda pasta .git (remotes podem ter token na URL).
+find /srv/projects /srv/worktrees -name .git -prune -exec setfacl -R -x u:preview,d:u:preview {} + 2>/dev/null || true
 
 # .env dos previews: escritos pelo orion-central (danilo), lidos pelas units.
 install -d -o danilo -g danilo -m 755 /srv/previews

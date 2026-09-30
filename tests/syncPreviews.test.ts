@@ -21,7 +21,7 @@ describe('blocoCaddy', () => {
   });
   it('os dois bloqueiam caminhos perigosos com matchers separados', () => {
     for (const b of [blocoCaddy(row(1, 'a.b.bayerl.cloud', 9101)), blocoCaddy(row(null, 'b.bayerl.cloud', 9100))]) {
-      expect(b).toContain('@bloqueado path /@fs* /.env* /.git*');
+      expect(b).toContain('@bloqueado path /@fs* */.env* */.git*');
       expect(b).toContain('respond @bloqueado 404');
       expect(b).toContain('respond @queryRuim 404');
       expect(b).toContain('header_up Host "localhost"');
