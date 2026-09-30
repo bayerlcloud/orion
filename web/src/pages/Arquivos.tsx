@@ -137,6 +137,7 @@ export default function Arquivos(_props: { user: User }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (document.body.dataset.page && document.body.dataset.page !== '/arquivos') return; // página escondida (menu trocado)
       if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 's' || e.key === 'S')) {
         e.preventDefault();
         const key = activeRef.current;
