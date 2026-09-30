@@ -803,3 +803,19 @@
 .cc-blocked { color: var(--cc-failure); font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
 .cc-blocked-reason { color: var(--cc-fg2); white-space: pre-wrap; }
 .cc-blocked-btn { width: auto; align-self: flex-start; }
+
+/* Loading ao abrir uma sessão ainda não carregada: três pontos que acendem em sequência, no centro do chat. */
+.cc-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 7px; pointer-events: none; }
+.cc-loading span { width: 6px; height: 6px; border-radius: 50%; background: var(--cc-fg2); opacity: .25; animation: cc-loading-pulse 1.2s ease-in-out infinite; }
+.cc-loading span:nth-child(2) { animation-delay: .15s; }
+.cc-loading span:nth-child(3) { animation-delay: .3s; }
+@keyframes cc-loading-pulse { 0%, 80%, 100% { opacity: .25; transform: scale(.85); } 40% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .cc-loading span { animation: none; opacity: .6; } }
+
+/* Tela de escolha do projeto numa sessão nova: lista simples no centro do chat, Neutro por último. */
+.cc-pick-project { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 12vh auto 0; max-width: 360px; }
+.cc-pick-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.cc-pick-list button { text-align: left; padding: 9px 12px; border-radius: 6px; border: 1px solid var(--cc-line); background: var(--cc-bg2); color: var(--cc-fg); font: inherit; cursor: pointer; }
+.cc-pick-list button:hover { background: var(--cc-hover); }
+.cc-pick-list .is-neutro { margin-top: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+.cc-pick-list .is-neutro span { color: var(--cc-fg2); font-size: 12px; }

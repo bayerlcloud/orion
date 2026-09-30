@@ -28,6 +28,7 @@ import { cofreCdpUrl, cofreMcpServers, cofrePainelUrl, cofreParaHeader } from '.
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { ULTRACODE, resolveUltracode, withUltracodeAppend } from '../claude/ultracode.js';
 import { safeFilename } from '../driveUtils.js';
+import { lerStatus, tailDoLog, type Status } from '../deploy/estado.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -57,6 +58,23 @@ export function isUnderRoot(real: string, root: string): boolean {
 
 export const RESUME_PROMPT = 'O servidor do Orion reiniciou no meio do seu turno (deploy ou queda) e ele foi cortado. Continue de onde parou. Se o reinício foi causado por você mesmo (ex.: systemctl restart orion-central), ele já aconteceu com sucesso: não reinicie de novo, só confira o resultado e siga.';
 
+/** Início do aviso de publicação que deu certo. A Timeline procura este trecho (web/src/claude/mapper.ts,
+ * DEPLOY_OK_MARCA) pra mostrar a ferramenta cortada como "interrompida pela publicação", não como erro. */
+export const DEPLOY_OK_MARCA = 'Publicação do Orion: deu certo';
+
+/**
+ * O que a retomada conta sobre a publicação que causou o reinício. Só fala de build terminado há menos
+ * de 10 min (ou ainda rodando); reinício por queda, sem deploy recente, não ganha nota nenhuma.
+ */
+export function notaDeploy(st: Status | null, now: Date, fimDoLog = ''): string {
+  if (!st) return '';
+  if (st.estado === 'fila' || st.estado === 'rodando') return `\n\nPublicação do Orion ainda em andamento (${st.etapa}). Confira /srv/builds/status.json antes de seguir.`;
+  const fim = st.fim ? Date.parse(st.fim) : NaN;
+  if (!Number.isFinite(fim) || now.getTime() - fim > 10 * 60_000) return '';
+  if (st.estado === 'ok') return `\n\n${DEPLOY_OK_MARCA} (build ${st.nome}, commit ${st.sha} "${st.msg}"). Já está no ar: não espere nem publique de novo.`;
+  return `\n\nPublicação do Orion FALHOU (${st.etapa}); a versão anterior (${st.anterior}) segue no ar. Log: ${st.log}${fimDoLog ? `\nFim do log:\n\`\`\`\n${fimDoLog}\n\`\`\`` : ''}`;
+}
+
 /** Retoma a sessão cortada? Não, se o último prompt já era uma retomada de menos de 10 min (evita loop de restart). */
 /** Mensagem gravada como evento 'error' (e last_error) quando o boot decide NÃO retomar; a Timeline casa
  * o trecho "não retomado automaticamente" pra oferecer o botão "Continuar de onde parou". */
@@ -67,7 +85,7 @@ export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now
   return now.getTime() - lastTs.getTime() > 10 * 60_000;
 }
 
-type NewBody = { project_id?: number; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[]; worktree_name?: string };
+type NewBody = { project_id?: number | null; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[]; worktree_name?: string };
 
 export async function claudeRoutes(app: FastifyInstance) {
   const store = pgStore(app.pool);
@@ -85,6 +103,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   // Pasta de anexos e upload em streaming, escopado a este plugin (@fastify/multipart é fastify-plugin, sobe só até aqui).
   const uploadRoot = claudeUploadDir();
+  const neutroDir = process.env.ORION_NEUTRO_DIR ?? path.join(homedir(), 'neutro');
   await mkdir(uploadRoot, { recursive: true })
     .catch((e: NodeJS.ErrnoException) => app.log.warn(`CLAUDE_UPLOAD_DIR ${uploadRoot} não pôde ser criado: ${e.message}`));
   await app.register(multipart, { limits: { fileSize: UPLOAD_MAX_BYTES, files: UPLOAD_MAX_FILES, fields: 4 }, throwFileSizeLimit: false });
@@ -150,7 +169,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? 'projeto', projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
 
@@ -341,9 +360,16 @@ export async function claudeRoutes(app: FastifyInstance) {
     const b = req.body ?? {};
     const prompt = (b.prompt ?? '').trim();
     if (!prompt) return reply.code(400).send({ error: 'prompt vazio' });
-    const { rows: prow } = await app.pool.query('SELECT id, name, path, rules FROM projects WHERE id = $1', [b.project_id ?? 1]);
-    const project = prow[0];
-    if (!project) return reply.code(400).send({ error: 'projeto não existe' });
+    // Sem project_id = sessão neutra: pasta própria fora de qualquer repositório, sem memória de projeto.
+    let project: { id: number | null; name: string | null; path: string; rules: string | null };
+    if (b.project_id == null) {
+      await mkdir(neutroDir, { recursive: true });
+      project = { id: null, name: null, path: neutroDir, rules: null };
+    } else {
+      const { rows: prow } = await app.pool.query('SELECT id, name, path, rules FROM projects WHERE id = $1', [b.project_id]);
+      if (!prow[0]) return reply.code(400).send({ error: 'projeto não existe' });
+      project = prow[0];
+    }
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
     // Valor de fio (pode ser 'ultracode') — persistido como está; traduzido pro SDK logo abaixo.
@@ -355,7 +381,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // sobe para a raiz pela integração automática (spec 2026-09-30-preview-design, Parte 2).
     const proj = await projetoIntegracao(project.id);
     let cwd: string = project.path;
-    if (b.worktree_name) {
+    if (b.worktree_name && project.id != null) {
       const wt = await createWorktreeForProject(project.path, b.worktree_name, proj?.default_branch ?? 'main');
       if (!wt.ok) return reply.code(400).send({ error: wt.error });
       cwd = wt.path;
@@ -573,18 +599,31 @@ export async function claudeRoutes(app: FastifyInstance) {
        FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id
       WHERE s.status IN ('running','waiting')`).catch(() => ({ rows: [] as any[] }));
   await app.pool.query("UPDATE claude_sessions SET status = 'idle' WHERE status IN ('running','waiting')").catch(() => {});
-  for (const s of cortadas) {
-    if (!shouldResume(s.last_prompt, s.last_prompt_ts ? new Date(s.last_prompt_ts) : null, new Date())) {
-      // Visível na conversa (evento 'error' + status 'error' → "Encerrou com erro" + botão Continuar):
-      // antes só ia pra last_error, que nenhuma tela mostra, e a ferramenta cortada ficava piscando.
-      await store.appendEvent(s.id, 'error', { message: NAO_RETOMADA }).catch(() => {});
-      await app.pool.query("UPDATE claude_sessions SET status = 'error', last_error = $2 WHERE id = $1", [s.id, NAO_RETOMADA]).catch(() => {});
-      continue;
+  // Fora do await do plugin: o boot não pode travar (o build.sh espera o /api/health responder). Se o
+  // reinício veio de um deploy, o status.json ainda diz 'rodando' (o build só fecha 'ok' depois do health):
+  // espera até 3 min o resultado final pra retomada já contar se deu certo. Se este processo morrer antes
+  // (health falhou, rollback), quem retoma é o próximo boot, que verá o 'falhou'.
+  if (cortadas.length) void (async () => {
+    let st = await lerStatus().catch(() => null);
+    for (let i = 0; i < 90 && (st?.estado === 'fila' || st?.estado === 'rodando'); i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      st = await lerStatus().catch(() => null);
     }
-    app.log.warn(`retomando sessão ${s.id} cortada por restart`);
-    const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
-    void startFor(s, s.user_id, prefixPrompt('Orion', RESUME_PROMPT), mode, s.model ?? undefined, s.effort ?? undefined)
-      .catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
-  }
+    const nota = notaDeploy(st, new Date(), st?.estado === 'falhou' && st.log ? await tailDoLog(st.log, 30) : '');
+    for (const s of cortadas) {
+      if (runner.status(s.id) !== 'idle') continue; // alguém mandou mensagem enquanto esperávamos o deploy
+      if (!shouldResume(s.last_prompt, s.last_prompt_ts ? new Date(s.last_prompt_ts) : null, new Date())) {
+        // Visível na conversa (evento 'error' + status 'error' → "Encerrou com erro" + botão Continuar):
+        // antes só ia pra last_error, que nenhuma tela mostra, e a ferramenta cortada ficava piscando.
+        await store.appendEvent(s.id, 'error', { message: NAO_RETOMADA + nota }).catch(() => {});
+        await app.pool.query("UPDATE claude_sessions SET status = 'error', last_error = $2 WHERE id = $1", [s.id, NAO_RETOMADA]).catch(() => {});
+        continue;
+      }
+      app.log.warn(`retomando sessão ${s.id} cortada por restart`);
+      const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
+      void startFor(s, s.user_id, prefixPrompt('Orion', RESUME_PROMPT + nota), mode, s.model ?? undefined, s.effort ?? undefined)
+        .catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
+    }
+  })();
 
 }

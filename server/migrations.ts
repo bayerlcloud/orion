@@ -221,8 +221,13 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     `,
   },
   {
+    // Seção Projetos do Dash: o que não dá para descobrir sozinho (URL de produção, banco, notas), editado no card.
+    id: '014_projects_meta',
+    sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+  },
+  {
     // Previews ao vivo (spec 2026-09-30-preview-design): user_id nulo = preview raiz do projeto.
-    id: '014_previews',
+    id: '015_previews',
     sql: `
       CREATE TABLE IF NOT EXISTS previews (
         id SERIAL PRIMARY KEY,

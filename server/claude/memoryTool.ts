@@ -167,13 +167,14 @@ export async function salvarMemoria(
   const keywords = [...new Set((args.keywords ?? []).map((k) => String(k).trim()).filter(Boolean))].slice(0, MAX_KEYWORDS);
   // Escopo herda a sessão: por padrão a memória nasce no projeto da sessão; universal: true é a
   // exceção consciente (sem escopo nenhum); sobre_pessoa: true aponta pro criador da sessão (e
-  // sai do projeto, porque é sobre a pessoa). Os ids explícitos continuam valendo mais que tudo.
+  // sai do projeto, porque é sobre a pessoa). Sessão neutra (sem projeto) grava na pessoa, nunca
+  // universal por acaso. Os ids explícitos continuam valendo mais que tudo.
   const escopoProjeto = args.escopo_projeto_id != null
     ? Number(args.escopo_projeto_id)
     : (args.universal || args.sobre_pessoa ? null : ctx.projectId);
   const escopoUsuario = args.escopo_usuario_id != null
     ? Number(args.escopo_usuario_id)
-    : (args.sobre_pessoa ? ctx.userId : null);
+    : (args.sobre_pessoa || (ctx.projectId === null && !args.universal && args.escopo_projeto_id == null) ? ctx.userId : null);
 
   const code = await uniqueCode((sql, params) => query(sql, params), titulo);
 

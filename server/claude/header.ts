@@ -18,7 +18,8 @@ export const FRASE_TOOL =
   'Para ler o corpo de uma decisão nível 3 ou buscar micro-fatos (nível 4), use a tool orion-memory.';
 
 export type SessionHeader = {
-  projectName: string;
+  /** null = sessão neutra (sem projeto). */
+  projectName: string | null;
   projectPath: string;
   createdBy: string;
   rules?: string | null;
@@ -43,7 +44,9 @@ function corpoRegra(body: string): string[] {
 
 export function buildSystemAppend(h: SessionHeader): string {
   const lines = [
-    `Esta sessão pertence ao projeto "${h.projectName}", na pasta ${h.projectPath}.`,
+    h.projectName === null
+      ? `Esta é uma sessão neutra, sem projeto (pasta ${h.projectPath}), para perguntas gerais. Se o pedido for trabalho num projeto do painel, sugira abrir uma sessão nova nesse projeto.`
+      : `Esta sessão pertence ao projeto "${h.projectName}", na pasta ${h.projectPath}. O projeto de uma sessão não muda: se o pedido for trabalho em outro projeto, sugira abrir uma sessão nova nele.`,
     `Foi criada pela pessoa "${h.createdBy}" pelo painel Orion.`,
     'Várias pessoas podem escrever nesta mesma sessão. Cada mensagem chega prefixada com o nome de quem escreveu, entre colchetes. Trate cada uma como vinda dessa pessoa.',
     'Responda em português do Brasil.',

@@ -157,18 +157,30 @@ export function thinkingLabel(streaming: boolean, durationMs?: number): string {
 }
 
 export const TOOL_NAO_TERMINOU = 'Não terminou: a sessão parou antes de a ferramenta responder (parada manual ou reinício do servidor).';
+export const TOOL_CORTADA_DEPLOY = 'Interrompida pela publicação do Orion, que deu certo (o reinício derruba a sessão; ela foi retomada logo abaixo).';
+/** Mesmo texto de DEPLOY_OK_MARCA em server/routes/claude.ts (tests/resume.test.ts garante que batem). */
+export const DEPLOY_OK_MARCA = 'Publicação do Orion: deu certo';
 
 /**
- * Sessão parada (`status` idle/error) com ferramenta ainda "executando…": ela NUNCA vai responder — o
- * processo do SDK morreu (deploy reinicia o orion-central: 25 vezes em 2026-09-29) ou foi parado. Antes
- * ficava piscando pra sempre, sem spinner, e não dava pra saber se era pra esperar. Vira aviso com a
- * explicação na saída. Com a sessão rodando/esperando permissão não mexe em nada.
+ * Ferramenta ainda "executando…" que NUNCA vai responder: o processo do SDK morreu (deploy reinicia o
+ * orion-central: 25 vezes em 2026-09-29) ou foi parado. Antes ficava piscando pra sempre. Vira aviso
+ * quando a sessão parou, ou quando já existe uma mensagem depois dela (a retomada pós-restart roda com a
+ * sessão 'running', e a ferramenta velha continuaria piscando). Se essa mensagem é a retomada contando
+ * que a publicação deu certo, fica neutra: foi o próprio deploy que cortou, não um erro.
  */
 export function markUnfinishedTools(events: ConvEvent[], status: string): ConvEvent[] {
-  if (status === 'running' || status === 'waiting') return events;
-  return events.map(e => e.kind === 'tool' && (e.status === 'running' || e.status === 'waiting')
-    ? { ...e, status: 'warning' as ToolStatus, isError: true, output: e.output ?? TOOL_NAO_TERMINOU }
-    : e);
+  const parada = status !== 'running' && status !== 'waiting';
+  let depois: string | null = parada ? '' : null; // texto da próxima mensagem do usuário (null = nenhuma e sessão rodando)
+  const out = [...events];
+  for (let k = out.length - 1; k >= 0; k--) {
+    const e = out[k];
+    if (e.kind === 'user') { depois = e.text; continue; }
+    if (depois === null || e.kind !== 'tool' || (e.status !== 'running' && e.status !== 'waiting')) continue;
+    out[k] = depois.includes(DEPLOY_OK_MARCA)
+      ? { ...e, status: 'success' as ToolStatus, isError: false, output: e.output ?? TOOL_CORTADA_DEPLOY }
+      : { ...e, status: 'warning' as ToolStatus, isError: true, output: e.output ?? TOOL_NAO_TERMINOU };
+  }
+  return out.every((e, k) => e === events[k]) ? events : out;
 }
 
 export function estimateTokens(text: string): number {
