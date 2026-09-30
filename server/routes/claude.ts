@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
+import { validateGroupName, sanitizeGroupName } from '../claude/groups.js';
 import { access, mkdir, realpath, stat, unlink } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
@@ -257,15 +258,65 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { projects: rows };
   });
 
+  // Pastas de sessão: rotas restauradas em 30/09/2026 (tinham sumido sem querer no commit 690b817).
+  /**
+   * Pastas nomeadas de sessões ("Aba Claude" — ver PARIDADE.md, item 12 da seção 13). Compartilhadas
+   * entre todos os usuários, mesmo modelo de "caixa compartilhada" que `GET /api/claude/sessions` já
+   * tem (nenhuma das duas rotas filtra por dono) — `created_by` só serve de auditoria, nunca de
+   * escopo de visibilidade. Ordenadas por `created_at` (ordem de criação; sem reordenação manual
+   * nesta rodada, ver PARIDADE.md) — o cliente (`groupSessions(..., 'folder', now, folders)` em
+   * web/src/claude/mapper.ts) espera exatamente essa ordem.
+   */
+  app.get('/api/claude/session-groups', async () => {
+    const { rows } = await app.pool.query('SELECT id, name, created_at FROM claude_session_groups ORDER BY created_at ASC, id ASC');
+    return { groups: rows };
+  });
+
+  app.post<{ Body: { name?: string } }>('/api/claude/session-groups', async (req, reply) => {
+    const err = validateGroupName(req.body?.name ?? '');
+    if (err) return reply.code(400).send({ error: err });
+    const id = randomUUID();
+    const name = sanitizeGroupName(req.body!.name!);
+    await app.pool.query('INSERT INTO claude_session_groups (id, name, created_by) VALUES ($1, $2, $3)', [id, name, req.user!.id]);
+    return { id, name };
+  });
+
+  app.post<{ Params: { id: string }; Body: { name?: string } }>('/api/claude/session-groups/:id/rename', async (req, reply) => {
+    const err = validateGroupName(req.body?.name ?? '');
+    if (err) return reply.code(400).send({ error: err });
+    const name = sanitizeGroupName(req.body!.name!);
+    const { rowCount } = await app.pool.query('UPDATE claude_session_groups SET name = $2, updated_at = now() WHERE id = $1', [req.params.id, name]);
+    if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
+    return { ok: true };
+  });
+  app.delete<{ Params: { id: string } }>('/api/claude/session-groups/:id', async (req, reply) => {
+    const { rowCount } = await app.pool.query('DELETE FROM claude_session_groups WHERE id = $1', [req.params.id]);
+    if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string }; Body: { group_id?: string | null } }>('/api/claude/sessions/:id/group', async (req, reply) => {
+    const groupId = req.body?.group_id;
+    if (groupId) {
+      const { rowCount } = await app.pool.query('SELECT 1 FROM claude_session_groups WHERE id = $1', [groupId]);
+      if (!rowCount) return reply.code(404).send({ error: 'pasta não existe' });
+    }
+    const { rowCount } = await app.pool.query('UPDATE claude_sessions SET group_id = $2 WHERE id = $1', [req.params.id, groupId || null]);
+    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    return { ok: true };
+  });
+
   app.get('/api/claude/sessions', async () => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.group_id, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
     const sessions = rows.map(r => ({ ...r, status: runner.status(r.id) === 'idle' && r.status === 'error' ? 'error' : runner.status(r.id), pending: runner.pendingPermissions(r.id).length }));
     return { sessions };
   });
+
+  // Já busca o uso real ao subir, pra primeira tela depois de um deploy não esperar ~1s.
+  void fetchRealUsage(app.pool).catch(() => {});
 
   app.get('/api/claude/usage', async () => {
     const { rows } = await app.pool.query(
