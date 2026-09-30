@@ -402,13 +402,15 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
   if (e.name === 'Elicitation') return <ElicitAnswer e={e} onDecide={onDecide} />;
   const isBash = e.name === 'Bash';
   const isFile = e.name === 'Read' || e.name === 'Edit' || e.name === 'MultiEdit' || e.name === 'Write';
+  // Root aprova comando a comando (policy.ts): "não perguntar de novo" seria ignorado, então nem aparece.
+  const semSempre = e.name.startsWith('mcp__orion-root__');
   // Atalhos da extensão real: 1/2/3 escolhem, Esc cancela (= Não), Enter no campo envia "Não, e faça isto".
   function onKey(ev: React.KeyboardEvent) {
     const inInput = (ev.target as HTMLElement).tagName === 'INPUT';
     if (ev.key === 'Escape') { ev.preventDefault(); onDecide?.('deny', reject.trim() || undefined); return; }
     if (inInput) return;
     if (ev.key === '1') onDecide?.('allow');
-    else if (ev.key === '2') onDecide?.('allow_always');
+    else if (ev.key === '2' && !semSempre) onDecide?.('allow_always');
     else if (ev.key === '3') onDecide?.('deny');
   }
   return (
@@ -426,7 +428,7 @@ export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'per
       </div>
       <div className="cc-perm-actions">
         <button className="cc-perm-btn" onFocus={() => setFocused(0)} onClick={() => onDecide?.('allow')}><span className="cc-perm-num">1</span> Sim</button>
-        <button className="cc-perm-btn" onFocus={() => setFocused(1)} onClick={() => onDecide?.('allow_always')}><span className="cc-perm-num">2</span> Sim, e não perguntar de novo</button>
+        {!semSempre && <button className="cc-perm-btn" onFocus={() => setFocused(1)} onClick={() => onDecide?.('allow_always')}><span className="cc-perm-num">2</span> Sim, e não perguntar de novo</button>}
         <button className="cc-perm-btn" onFocus={() => setFocused(2)} onClick={() => onDecide?.('deny')}><span className="cc-perm-num">3</span> Não</button>
         <input className="cc-perm-reject" placeholder="Diga ao Claude o que fazer em vez disso" value={reject} onChange={ev => setReject(ev.target.value)} onFocus={() => setFocused(3)}
           onKeyDown={ev => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); onDecide?.('deny', reject.trim() || undefined); } }} />
