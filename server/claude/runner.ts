@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { policyHook } from './policy.js';
+import { makePolicyHook, type BackupFn } from './policy.js';
 import { readFile } from 'node:fs/promises';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
@@ -118,6 +118,10 @@ export type TurnParams = {
    * systemAppend. Ausente = sem estilo (o "default" do CLI).
    */
   outputStyle?: string;
+  /** Backup antes de SQL destrutivo aprovado (server/dbBackup.ts); ausente = projeto sem db_url. */
+  backupSql?: BackupFn;
+  /** Integração por turno (server/integracao/turno.ts): antes do SDK e no fim do turno (ok = terminou sem erro). */
+  ganchos?: { antes?: () => Promise<void>; depois?: (ok: boolean) => Promise<void> };
 };
 
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string; toolUseId?: string };
@@ -362,7 +366,7 @@ export class Runner {
       canUseTool,
       onElicitation,
       // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
-      hooks: { PreToolUse: [{ hooks: [policyHook] }] },
+      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql)] }] },
       abortController: abort,
       includePartialMessages: true,
       settingSources: ['user', 'project'],
@@ -389,7 +393,10 @@ export class Runner {
     // web/src/claude/live.ts), reimplementada aqui porque o servidor não vê os eventos que ele mesmo
     // emite.
     let partialText = '', partialThinking = '';
+    let sucesso = false;
     try {
+      // Gancho de início (integração por turno: traz a base para a worktree). Erro só vira log.
+      if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
       // Sem anexos: mantém o prompt string (não muda o comportamento antigo).
       // Com anexos: monta UMA SDKUserMessage com [texto, ...imagens] e o texto ganha as notas dos arquivos.
       let promptArg: string | AsyncIterable<SDKUserMessage> = text;
@@ -447,6 +454,7 @@ export class Runner {
       }
       await this.setStatus(id, ok ? 'idle' : 'error', { tokens, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
       this.emit(id, { type: 'turn_end', turns, ok });
+      sucesso = ok;
     } catch (e: any) {
       const interrupted = abort.signal.aborted;
       const msg = interrupted ? 'Interrompido pelo usuário' : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
@@ -468,6 +476,9 @@ export class Runner {
       l.abort = null;
       l.query = null;
       for (const [pid, pend] of l.pending) { clearTimeout(pend.timer); l.pending.delete(pid); }
+      // Gancho de fim (commit e fila de integração): roda também em turno interrompido ou com erro,
+      // e antes do próximo turno da fila, para não disputar o git da mesma worktree.
+      if (p.ganchos?.depois) await p.ganchos.depois(sucesso).catch((e) => this.deps.log?.(`sessão ${id}: gancho depois falhou: ${e instanceof Error ? e.message : e}`));
       const next = l.queue.shift();
       if (next) void this.run({ ...next, isNew: false });
     }

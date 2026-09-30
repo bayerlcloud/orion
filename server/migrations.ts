@@ -225,6 +225,22 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: '014_projects_meta',
     sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;`,
   },
+  {
+    // Previews ao vivo (spec 2026-09-30-preview-design): user_id nulo = preview raiz do projeto.
+    id: '015_previews',
+    sql: `
+      CREATE TABLE IF NOT EXISTS previews (
+        id SERIAL PRIMARY KEY,
+        project_id INT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
+        host TEXT NOT NULL UNIQUE,
+        port INT NOT NULL UNIQUE,
+        worktree_path TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS previews_par ON previews (project_id, COALESCE(user_id, 0));
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

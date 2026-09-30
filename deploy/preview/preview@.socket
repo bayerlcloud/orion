@@ -1,0 +1,8 @@
+[Unit]
+Description=Orion: porta do preview %i (liga o vite no primeiro acesso)
+
+# A porta vem do drop-in preview@%i.socket.d/porta.conf, escrito pelo sync-previews.
+[Socket]
+
+[Install]
+WantedBy=sockets.target

@@ -11,7 +11,7 @@ import SkillsHooksPanel from './SkillsHooksPanel';
 import PermissionRules from './PermissionRules';
 import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye } from './icons';
 import './claude.css';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
@@ -589,6 +589,7 @@ export default function ClaudePage() {
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
+            <button className="cc-icon" title="Preview ao vivo desta sessão" disabled={!activeId || isDraft(activeId)} onClick={() => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank')}><Eye size={13} /></button>
             <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
             <button className="cc-icon" title="Skills e hooks" disabled={!activeId} onClick={() => setSkillsHooksOpen(true)}><Wrench size={13} /></button>
             <button className="cc-icon" title="Regras de permissão" onClick={() => setPermRulesOpen(true)}><Shield size={13} /></button>

@@ -1,0 +1,13 @@
+[Unit]
+Description=Orion: backup noturno dos bancos de produção dos projetos
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=danilo
+WorkingDirectory=/srv/orion-live
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion-live/dist/scripts/db-backup-nightly.js
+TimeoutStartSec=4h
+Nice=10

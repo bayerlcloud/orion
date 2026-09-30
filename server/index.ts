@@ -20,6 +20,7 @@ import { tasksRoutes } from './routes/tasks.js';
 import { toolsRoutes } from './routes/tools.js';
 import { curadoriaRoutes } from './routes/curadoria.js';
 import { deployRoutes } from './routes/deploy.js';
+import { previewRoutes } from './routes/preview.js';
 import { marketplaceRoutes } from './routes/marketplace.js';
 import { outputStylesRoutes } from './routes/outputStyles.js';
 import { conectorRoutes } from './routes/conector.js';
@@ -67,6 +68,7 @@ async function main() {
   await app.register(toolsRoutes);
   await app.register(curadoriaRoutes);
   await app.register(deployRoutes);
+  await app.register(previewRoutes);
   await app.register(marketplaceRoutes);
   await app.register(outputStylesRoutes);
   await app.register(conectorRoutes);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classify, policyHook } from '../server/claude/policy';
+import { classify, policyHook, makePolicyHook } from '../server/claude/policy';
 
 const bash = (command: string) => classify('Bash', { command }).decision;
 
@@ -23,7 +23,7 @@ describe('política padrão de permissão', () => {
       expect(bash(c), c).toBe('ask');
     expect(classify('Write', { file_path: '/srv/builds/pedido.json' }).decision).toBe('ask');
     expect(classify('Read', { file_path: '/etc/orion/central.env' }).decision).toBe('ask');
-    expect(classify('mcp__supabase__execute_sql', { query: 'select 1' }).decision).toBe('ask');
+    expect(classify('mcp__supabase__execute_sql', { query: 'drop table x' }).decision).toBe('ask');
     expect(classify('mcp__github-bayerlcloud__delete_file', {}).decision).toBe('ask');
     expect(classify('mcp__coolify__application', { action: 'delete' }).decision).toBe('ask');
     expect(classify('mcp__coolify__deploy', {}).decision).toBe('ask');
@@ -41,5 +41,52 @@ describe('política padrão de permissão', () => {
     expect(auto.hookSpecificOutput.permissionDecision).toBe('allow');
     const ok: any = await policyHook({ ...base, permission_mode: 'default', tool_name: 'Bash', tool_input: { command: 'npm test' } }, 't', sig);
     expect(ok.hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('trava de SQL destrutivo', () => {
+  const sig = { signal: new AbortController().signal };
+  it('SQL comum pelo MCP do Supabase passa direto', () => {
+    expect(classify('mcp__supabase__execute_sql', { query: 'select 1' }).decision).toBe('allow');
+    expect(classify('mcp__supabase__apply_migration', { name: 'x', query: 'alter table p add column y int' }).decision).toBe('allow');
+  });
+  it('SQL destrutivo pergunta sempre', () => {
+    const v = classify('mcp__supabase__execute_sql', { query: 'drop table pacientes' });
+    expect(v).toMatchObject({ decision: 'ask', always: true, sql: 'drop table pacientes' });
+    expect(classify('Bash', { command: 'psql "$URL" -c "truncate agenda"' })).toMatchObject({ decision: 'ask', always: true });
+  });
+  it('no modo auto, destrutivo ainda pergunta e chama o backup', async () => {
+    const chamadas: string[] = [];
+    const hook = makePolicyHook(async (sql) => { chamadas.push(sql); return 'backup salvo em /srv/backups/db/x/a.dump'; });
+    const out: any = await hook({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'mcp__supabase__execute_sql', tool_input: { query: 'drop table p' } } as any, undefined, sig);
+    expect(out.hookSpecificOutput).toMatchObject({ permissionDecision: 'ask' });
+    expect(out.hookSpecificOutput.permissionDecisionReason).toContain('backup salvo em');
+    expect(chamadas).toEqual(['drop table p']);
+  });
+  it('sem função de backup, o motivo avisa', async () => {
+    const out: any = await makePolicyHook()({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'mcp__supabase__execute_sql', tool_input: { query: 'truncate p' } } as any, undefined, sig);
+    expect(out.hookSpecificOutput.permissionDecisionReason).toContain('sem backup automático');
+  });
+  it('backup que lança vira texto de falha, e o cartão aparece', async () => {
+    const out: any = await makePolicyHook(async () => { throw new Error('conexão recusada'); })({ hook_event_name: 'PreToolUse', permission_mode: 'default', tool_name: 'mcp__supabase__execute_sql', tool_input: { query: 'drop table p' } } as any, undefined, sig);
+    expect(out.hookSpecificOutput.permissionDecision).toBe('ask');
+    expect(out.hookSpecificOutput.permissionDecisionReason).toContain('backup falhou: conexão recusada');
+  });
+  it('no modo auto, comum continua liberado e plan continua fora', async () => {
+    const hook = makePolicyHook();
+    const auto: any = await hook({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'Bash', tool_input: { command: 'rm -rf dist' } } as any, undefined, sig);
+    expect(auto.hookSpecificOutput).toMatchObject({ permissionDecision: 'allow' });
+    const plan = await hook({ hook_event_name: 'PreToolUse', permission_mode: 'plan', tool_name: 'mcp__supabase__execute_sql', tool_input: { query: 'drop table p' } } as any, undefined, sig);
+    expect(plan).toEqual({});
+  });
+});
+
+describe('SQL destrutivo no Bash', () => {
+  it('pega em -c, heredoc e aspas simples; ignora comando sem banco', () => {
+    expect(classify('Bash', { command: 'psql "$URL" -c "truncate agenda"' })).toMatchObject({ always: true, sql: 'truncate agenda' });
+    expect(classify('Bash', { command: "psql $URL -c 'delete from p'" })).toMatchObject({ always: true });
+    expect(classify('Bash', { command: 'psql "$URL" <<SQL\nDROP TABLE x;\nSQL' })).toMatchObject({ always: true });
+    expect(classify('Bash', { command: 'psql "$URL" -c "select 1"' }).always).toBeUndefined();
+    expect(classify('Bash', { command: 'grep -rn "drop table" server' }).always).toBeUndefined();
   });
 });

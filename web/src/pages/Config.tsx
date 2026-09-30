@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 import DeployCard from './DeployCard';
+import DbBackupCard from './DbBackupCard';
 
 type Settings = {
   claude: { token_set: boolean; token_hint: string | null; via: 'token' | 'login' | null; linux_user: string | null };
@@ -124,6 +125,7 @@ export default function Config({ user }: { user: User }) {
       </section>
 
       <DeployCard />
+      <DbBackupCard />
 
       <section className="cfg-box">
         <h2>Padrões das sessões</h2>

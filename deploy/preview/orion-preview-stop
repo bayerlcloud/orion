@@ -1,0 +1,13 @@
+#!/bin/sh
+# Único comando que o danilo pode rodar como root via sudo (/etc/sudoers.d/orion-preview): para o
+# vite de UM preview. Valida o nome da instância, porque o `*` do sudoers casaria qualquer coisa,
+# inclusive mais de uma unit.
+set -eu
+[ "$#" -eq 1 ] || { echo "uso: orion-preview-stop <instancia>" >&2; exit 2; }
+case "$1" in
+  ''|-*|*[!a-z0-9.-]*) echo "instancia invalida: $1" >&2; exit 2 ;;
+esac
+cmd="/usr/bin/systemctl stop preview-vite@$1.service"
+# ORION_PREVIEW_STOP_DRY só existe nos testes; o sudo limpa o ambiente, então não chega aqui por ele.
+if [ "${ORION_PREVIEW_STOP_DRY:-}" = 1 ]; then echo "$cmd"; exit 0; fi
+exec $cmd
