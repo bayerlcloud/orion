@@ -4,12 +4,12 @@
 // Uso: node dist/scripts/sync-previews.js [--sem-dns]
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createPool } from '../server/db.js';
 import { KEYS, getSetting } from '../server/settings.js';
 import { DOMINIO, garantirPreviews, instancia } from '../server/preview/model.js';
 import { escreverEnv, liberarCache } from '../server/preview/pasta.js';
-import { IP_C3, blocoCaddy, registrosFaltando } from '../server/preview/sync.js';
+import { IP_C3, blocoCaddy, hostsComBloco, registrosFaltando } from '../server/preview/sync.js';
 
 const CADDY_DIR = '/etc/caddy/previews.d';
 const UNIT_DIR = '/etc/systemd/system';
@@ -26,17 +26,18 @@ async function escreverSeMudou(arq: string, conteudo: string): Promise<boolean> 
   return true;
 }
 
-async function dns(hosts: string[], token: string): Promise<void> {
+async function dns(hosts: string[], token: string): Promise<string[]> {
   const auth = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const r = await fetch(DNS_API, { headers: auth, signal: AbortSignal.timeout(20_000) });
   if (!r.ok) throw new Error(`DNS: leitura da zona devolveu ${r.status}`);
   const { faltam, conflitos } = registrosFaltando(hosts, await r.json());
-  for (const c of conflitos) console.log(`dns conflito: ${c}.${DOMINIO} já tem registro A para outro IP; não mexi`);
-  if (!faltam.length) return;
+  for (const c of conflitos) console.log(`dns conflito: ${c}.${DOMINIO} já tem registro A para outro IP; não mexi nem criei bloco no Caddy`);
+  if (!faltam.length) return conflitos;
   const zone = faltam.map(name => ({ name, type: 'A', ttl: 14400, records: [{ content: IP_C3 }] }));
   const w = await fetch(DNS_API, { method: 'PUT', headers: auth, body: JSON.stringify({ overwrite: false, zone }), signal: AbortSignal.timeout(20_000) });
   if (!w.ok) throw new Error(`DNS: criação devolveu ${w.status} ${await w.text()}`);
   console.log(`dns criado: ${faltam.join(', ')}`);
+  return conflitos;
 }
 
 async function main(): Promise<number> {
@@ -45,10 +46,22 @@ async function main(): Promise<number> {
   let falhas = 0;
   try {
     const rows = await garantirPreviews(pool);
+    let conflitos: string[] = [];
+    if (!semDns) {
+      const token = await getSetting(pool, KEYS.hostingerToken);
+      if (!token) { falhas++; console.log('dns: sem token da Hostinger na tabela settings'); }
+      else conflitos = await dns(rows.map(r => r.host), token).catch((e) => { falhas++; console.log(e instanceof Error ? e.message : e); return []; });
+    }
+    const servidos = new Set(hostsComBloco(rows.map(r => r.host), conflitos));
     await mkdir(CADDY_DIR, { recursive: true });
     let unitsMudaram = false;
     for (const p of rows) {
       const inst = instancia(p.host);
+      if (!servidos.has(p.host)) {
+        await rm(`${CADDY_DIR}/${inst}.caddy`, { force: true });
+        await sh('/usr/bin/systemctl', ['disable', '--now', `preview@${inst}.socket`]).catch(() => {});
+        continue;
+      }
       try {
         // Roda como root: o .env e o cache voltam para o danilo, que é quem os reescreve depois (orion-central).
         await liberarCache(p.worktree_path);
@@ -65,13 +78,8 @@ async function main(): Promise<number> {
         console.log(`falhou ${p.host}: ${e instanceof Error ? e.message : e}`);
       }
     }
-    if (!semDns) {
-      const token = await getSetting(pool, KEYS.hostingerToken);
-      if (!token) { falhas++; console.log('dns: sem token da Hostinger na tabela settings'); }
-      else await dns(rows.map(r => r.host), token).catch((e) => { falhas++; console.log(e instanceof Error ? e.message : e); });
-    }
     if (unitsMudaram) await sh('/usr/bin/systemctl', ['daemon-reload']);
-    for (const p of rows) {
+    for (const p of rows.filter(r => servidos.has(r.host))) {
       await sh('/usr/bin/systemctl', ['enable', '--now', `preview@${instancia(p.host)}.socket`]).catch((e) => { falhas++; console.log(e.message); });
     }
     await sh('/usr/bin/caddy', ['validate', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile']);

@@ -49,7 +49,10 @@ describe('liberarCache', () => {
     const chamadas: string[][] = [];
     await liberarCache(dir, async (args) => { chamadas.push(args); });
     expect((await lstat(path.join(dir, 'node_modules', '.vite'))).isDirectory()).toBe(true);
-    expect(chamadas).toEqual([['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(dir, 'node_modules', '.vite')]]);
+    expect(chamadas).toEqual([
+      ['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(dir, 'node_modules', '.vite')],
+      ['-m', 'u:preview:rwx', dir],
+    ]);
   });
   it('pasta sem node_modules não ganha nada', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'pv-cache-'));

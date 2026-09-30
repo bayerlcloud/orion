@@ -66,7 +66,7 @@ export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: s
 
 /**
  * O vite do preview roda como o usuário `preview`, só com leitura nas pastas; o cache de dependências
- * (`node_modules/.vite`) é o único lugar onde ele escreve. Com node_modules por symlink, o cache é o
+ * (`node_modules/.vite`) e o topo da pasta (config compilado do vite) são os lugares onde ele escreve. Com node_modules por symlink, o cache é o
  * da raiz, dividido com o preview raiz do projeto.
  */
 export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000)): Promise<void> {
@@ -74,4 +74,7 @@ export async function liberarCache(dir: string, setfacl: (args: string[]) => Pro
   const cache = path.join(dir, 'node_modules', '.vite');
   await mkdir(cache, { recursive: true });
   await setfacl(['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', cache]);
+  // ponytail: vite 5 grava o vite.config.ts compilado ao lado dele (<pasta>/vite.config.ts.timestamp-*.mjs);
+  // escrita só no topo da pasta, sem -R. Vite 6.1+ com --configLoader runner dispensaria isso.
+  await setfacl(['-m', 'u:preview:rwx', dir]);
 }

@@ -53,3 +53,9 @@ export function registrosFaltando(hosts: string[], zona: RegistroZona[]): { falt
   }
   return { faltam, conflitos };
 }
+
+/** Hosts que ganham bloco no Caddy: os que têm DNS em conflito (apontam para outra máquina) ficam de fora. */
+export function hostsComBloco(hosts: string[], conflitos: string[]): string[] {
+  const fora = new Set(conflitos.map(c => `${c}.${DOMINIO}`));
+  return hosts.filter(h => !fora.has(h));
+}
