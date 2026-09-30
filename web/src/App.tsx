@@ -16,8 +16,9 @@ import Tools from './pages/Tools';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools } from './icons';
 
 const MENU = [
-  { to: '/dash', label: 'Dash', Icon: IcoDash },
+  // Claude primeiro: é a página que abre por padrão e onde a equipe passa o dia.
   { to: '/claude', label: 'Claude', Icon: IcoClaude },
+  { to: '/dash', label: 'Dash', Icon: IcoDash },
   { to: '/arquivos', label: 'Arquivos', Icon: IcoArquivos },
   { to: '/tarefas', label: 'Tarefas', Icon: IcoTarefas },
   { to: '/tools', label: 'Tools', Icon: IcoTools },
