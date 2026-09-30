@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resultTokens, Runner, type Store, type LiveEvent, type QueryFn } from '../server/claude/runner';
+import { resultTokens, Runner, CUTUCAO, type Store, type LiveEvent, type QueryFn } from '../server/claude/runner';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, FRASE_TOOL, REGRA_LINHAS_MAX, type MemoriaDecisao, type MemoriaRegra } from '../server/claude/header';
 
 function memStore() {
@@ -29,7 +29,7 @@ async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); whil
  * `liveCalls` (devolvido junto de `fn`/`calls`) pra os testes de `setPermissionModeLive`/
  * `setModelLive`/`setEffortLive` conferirem o que foi chamado, com quais argumentos.
  */
-function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
+function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean; result?: string } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
   const calls: any[] = [];
   const liveCalls: any[] = [];
   const fn: QueryFn = ({ prompt, options }) => {
@@ -49,7 +49,7 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
       }
       if (opts.fail) throw new Error('falhou de propósito');
       yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${prompt}` }] } } as any;
-      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 5, usage: { input_tokens: 120, output_tokens: 30 } } as any;
+      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 5, usage: { input_tokens: 120, output_tokens: 30 }, ...(opts.result !== undefined ? { result: opts.result } : {}) } as any;
     }
     const g = gen();
     if (opts.commands) (g as any).supportedCommands = async () => opts.commands;
@@ -66,6 +66,26 @@ function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: numbe
 const base = { cwd: '/tmp/x', permissionMode: 'acceptEdits' as const, systemAppend: 'h' };
 
 describe('Runner', () => {
+  it('turno que termina sem texto ganha UM cutucão pedindo o fechamento por escrito', async () => {
+    const m = memStore(); const q = fakeQuery({ result: '' });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 'sc', prompt: '[Danilo] faz', isNew: true });
+    await until(() => q.calls.length === 2 && m.events.filter(e => e.type === 'result').length === 2);
+    await wait(50);
+    expect(q.calls.length).toBe(2); // o cutucão também terminou sem texto, mas não cutuca de novo
+    expect(q.calls[1].prompt).toBe(`[Orion] ${CUTUCAO}`);
+    expect(q.calls[1].options.resume).toBe('sc');
+  });
+
+  it('turno que termina com texto não é cutucado', async () => {
+    const m = memStore(); const q = fakeQuery({ result: 'feito' });
+    const r = new Runner({ queryFn: q.fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 'sd', prompt: '[Danilo] faz', isNew: true });
+    await until(() => m.sessions.get('sd')?.status === 'idle');
+    await wait(50);
+    expect(q.calls.length).toBe(1);
+  });
+
   it('roda um turno, persiste eventos e termina em idle com tokens', async () => {
     const m = memStore(); const q = fakeQuery();
     const r = new Runner({ queryFn: q.fn, store: m.store });

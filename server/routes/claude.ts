@@ -77,14 +77,28 @@ export function notaDeploy(st: Status | null, now: Date, fimDoLog = ''): string 
   return `\n\nPublicação do Orion FALHOU (${st.etapa}); a versão anterior (${st.anterior}) segue no ar. Log: ${st.log}${fimDoLog ? `\nFim do log:\n\`\`\`\n${fimDoLog}\n\`\`\`` : ''}`;
 }
 
-/** Retoma a sessão cortada? Não, se o último prompt já era uma retomada de menos de 10 min (evita loop de restart). */
-/** Mensagem gravada como evento 'error' (e last_error) quando o boot decide NÃO retomar; a Timeline casa
- * o trecho "não retomado automaticamente" pra oferecer o botão "Continuar de onde parou". */
-export const NAO_RETOMADA = 'Turno cortado pelo reinício do servidor e não retomado automaticamente: ele já tinha sido retomado há menos de 10 min (proteção contra loop de reinícios). Clique em "Continuar de onde parou" ou mande uma mensagem.';
+/** Mensagem gravada como evento 'error' (e last_error) quando o Orion desiste de retomar sozinho; a Timeline
+ * casa o trecho "não retomado automaticamente" pra oferecer o botão "Continuar de onde parou". */
+export const NAO_RETOMADA = `Turno cortado e não retomado automaticamente: já foram 3 retomadas seguidas sem uma mensagem de gente no meio (proteção contra loop). Clique em "Continuar de onde parou" ou mande uma mensagem.`;
 
-export function shouldResume(lastPrompt: string | null, lastTs: Date | null, now: Date): boolean {
-  if (!lastPrompt?.includes(RESUME_PROMPT) || !lastTs) return true;
-  return now.getTime() - lastTs.getTime() > 10 * 60_000;
+/** Prompt do vigia quando o turno caiu com erro (SDK/API), sem reinício do servidor. */
+export const VIGIA_PROMPT = (erro: string) => `O seu turno anterior caiu com erro: "${erro.slice(0, 300)}". Continue de onde parou. Se o erro se repetir igual, pare e explique o que está travando.`;
+
+/** Retomada automática = prompt do Orion com "Continue de onde parou" (retomada pós-restart ou vigia). */
+const ehRetomadaAuto = (prompt: string) => prompt.startsWith('[Orion] ') && prompt.includes('Continue de onde parou');
+
+/**
+ * Retoma sozinho? Sim, até 3 retomadas automáticas seguidas (nos últimos 30 min, sem mensagem de gente
+ * no meio). Antes era "não retoma se a última retomada tem menos de 10 min", o que travava a sessão que
+ * publica duas vezes em seguida (deploy ok não é loop). `recentes`: últimos user_prompt, mais novo primeiro.
+ */
+export function shouldResume(recentes: { prompt: string; ts: Date }[], now: Date): boolean {
+  let seguidas = 0;
+  for (const r of recentes) {
+    if (!ehRetomadaAuto(r.prompt) || now.getTime() - r.ts.getTime() > 30 * 60_000) break;
+    seguidas++;
+  }
+  return seguidas < 3;
 }
 
 type NewBody = { project_id?: number | null; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[]; worktree_name?: string };
@@ -694,15 +708,28 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Colunas que startFor precisa + os últimos prompts (pra contar retomadas automáticas seguidas).
+  const SESSAO_RETOMAVEL = `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.output_style, s.project_id, s.user_id, s.last_error,
+            p.name AS project_name, p.rules, u.name AS creator,
+            (SELECT coalesce(json_agg(json_build_object('prompt', x.prompt, 'ts', x.ts)), '[]') FROM
+               (SELECT e.payload->>'prompt' AS prompt, e.ts FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 5) x) AS recentes
+       FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id`;
+
+  /** Retoma a sessão com um prompt do Orion, ou desiste (evento 'error' visível + botão Continuar) depois de 3 seguidas. */
+  async function retomar(s: any, prompt: string): Promise<void> {
+    if (!shouldResume((s.recentes ?? []).map((r: any) => ({ prompt: r.prompt ?? '', ts: new Date(r.ts) })), new Date())) {
+      await store.appendEvent(s.id, 'error', { message: NAO_RETOMADA }).catch(() => {});
+      await app.pool.query("UPDATE claude_sessions SET status = 'error', last_error = $2 WHERE id = $1", [s.id, NAO_RETOMADA]).catch(() => {});
+      return;
+    }
+    const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
+    await startFor(s, s.user_id, prefixPrompt('Orion', prompt), mode, s.model ?? undefined, s.effort ?? undefined);
+  }
+
   // Turnos cortados por restart do servidor (deploy, crash): nada roda em memória depois do boot,
   // então retoma cada sessão que estava 'running'/'waiting' com um "continue" em nome do Orion, pra
   // ninguém precisar voltar lá e cutucar. O SDK retoma a conversa pelo id (resume).
-  const { rows: cortadas } = await app.pool.query(
-    `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.output_style, s.project_id, s.user_id, p.name AS project_name, p.rules, u.name AS creator,
-            (SELECT e.payload->>'prompt' FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 1) AS last_prompt,
-            (SELECT e.ts FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 1) AS last_prompt_ts
-       FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id
-      WHERE s.status IN ('running','waiting')`).catch(() => ({ rows: [] as any[] }));
+  const { rows: cortadas } = await app.pool.query(`${SESSAO_RETOMAVEL} WHERE s.status IN ('running','waiting')`).catch(() => ({ rows: [] as any[] }));
   await app.pool.query("UPDATE claude_sessions SET status = 'idle' WHERE status IN ('running','waiting')").catch(() => {});
   // Fora do await do plugin: o boot não pode travar (o build.sh espera o /api/health responder). Se o
   // reinício veio de um deploy, o status.json ainda diz 'rodando' (o build só fecha 'ok' depois do health):
@@ -717,18 +744,26 @@ export async function claudeRoutes(app: FastifyInstance) {
     const nota = notaDeploy(st, new Date(), st?.estado === 'falhou' && st.log ? await tailDoLog(st.log, 30) : '');
     for (const s of cortadas) {
       if (runner.status(s.id) !== 'idle') continue; // alguém mandou mensagem enquanto esperávamos o deploy
-      if (!shouldResume(s.last_prompt, s.last_prompt_ts ? new Date(s.last_prompt_ts) : null, new Date())) {
-        // Visível na conversa (evento 'error' + status 'error' → "Encerrou com erro" + botão Continuar):
-        // antes só ia pra last_error, que nenhuma tela mostra, e a ferramenta cortada ficava piscando.
-        await store.appendEvent(s.id, 'error', { message: NAO_RETOMADA + nota }).catch(() => {});
-        await app.pool.query("UPDATE claude_sessions SET status = 'error', last_error = $2 WHERE id = $1", [s.id, NAO_RETOMADA]).catch(() => {});
-        continue;
-      }
       app.log.warn(`retomando sessão ${s.id} cortada por restart`);
-      const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
-      void startFor(s, s.user_id, prefixPrompt('Orion', RESUME_PROMPT + nota), mode, s.model ?? undefined, s.effort ?? undefined)
-        .catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
+      void retomar(s, RESUME_PROMPT + nota).catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
     }
   })();
+
+  // Vigia: turno que caiu com erro do SDK/API (sem reinício) fica parado em 'error' até alguém cutucar.
+  // A cada 2 min, retoma quem caiu há 1-30 min com evento 'error' (nunca 'interrupted' = Parar manual,
+  // nem result com erro = orçamento/limite de turnos, que param de propósito). Mesmo limite de 3 seguidas.
+  // ponytail: varredura por intervalo; vira evento do runner quando o motor sair pro processo próprio.
+  const vigia = setInterval(() => void (async () => {
+    const { rows } = await app.pool.query(`${SESSAO_RETOMAVEL}
+      WHERE s.status = 'error' AND s.archived IS NOT TRUE AND s.last_error IS DISTINCT FROM $1
+        AND s.updated_at BETWEEN now() - interval '30 minutes' AND now() - interval '1 minute'
+        AND (SELECT e.type FROM claude_events e WHERE e.session_id = s.id AND e.type IN ('error','interrupted','result','user_prompt') ORDER BY e.seq DESC LIMIT 1) = 'error'`, [NAO_RETOMADA]);
+    for (const s of rows) {
+      if (runner.status(s.id) === 'running' || runner.status(s.id) === 'waiting') continue;
+      app.log.warn(`vigia: retomando sessão ${s.id} que caiu com erro`);
+      await retomar(s, VIGIA_PROMPT(s.last_error ?? 'erro'));
+    }
+  })().catch(e => app.log.warn(`vigia falhou: ${(e as Error).message}`)), 2 * 60_000);
+  app.addHook('onClose', async () => clearInterval(vigia));
 
 }

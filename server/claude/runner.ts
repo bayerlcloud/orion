@@ -49,6 +49,9 @@ export function resultTokens(m: { modelUsage?: Record<string, { inputTokens?: nu
   return { input: m.usage?.input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
 }
 
+/** Turno que acabou sem nenhum texto final (só ferramentas): o Orion pede uma vez o fechamento por escrito. */
+export const CUTUCAO = 'Seu turno terminou sem nenhuma mensagem escrita. Resuma em poucas linhas o que foi feito e o que falta (ou a pergunta que você precisa que a gente responda).';
+
 export type SessionStatus = 'running' | 'waiting' | 'idle' | 'error';
 export type Decision = 'allow' | 'allow_always' | 'deny' | 'answer' | 'timeout';
 
@@ -393,7 +396,7 @@ export class Runner {
     // web/src/claude/live.ts), reimplementada aqui porque o servidor não vê os eventos que ele mesmo
     // emite.
     let partialText = '', partialThinking = '';
-    let sucesso = false;
+    let sucesso = false, semTexto = false;
     try {
       // Gancho de início (integração por turno: traz a base para a worktree). Erro só vira log.
       if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
@@ -450,7 +453,7 @@ export class Runner {
         // 'result' — o que estava acumulado em partialText/partialThinking já virou (ou vai virar)
         // conteúdo definitivo dessa mensagem, não sobra parcial órfão pro próximo bloco.
         if (m.type === 'assistant' || m.type === 'result') { partialText = ''; partialThinking = ''; }
-        if (m.type === 'result') { ok = !m.is_error; tokens = resultTokens(m); turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }
+        if (m.type === 'result') { ok = !m.is_error; semTexto = ok && typeof (m as { result?: unknown }).result === 'string' && !(m as { result: string }).result.trim(); tokens = resultTokens(m); turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }
       }
       await this.setStatus(id, ok ? 'idle' : 'error', { tokens, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
       this.emit(id, { type: 'turn_end', turns, ok });
@@ -481,6 +484,7 @@ export class Runner {
       if (p.ganchos?.depois) await p.ganchos.depois(sucesso).catch((e) => this.deps.log?.(`sessão ${id}: gancho depois falhou: ${e instanceof Error ? e.message : e}`));
       const next = l.queue.shift();
       if (next) void this.run({ ...next, isNew: false });
+      else if (sucesso && semTexto && !text.includes(CUTUCAO)) void this.run({ ...p, isNew: false, prompt: `[Orion] ${CUTUCAO}` });
     }
   }
 }
