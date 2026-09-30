@@ -112,6 +112,7 @@ export function renderCapacidades(versaoClaude: string | null, custom: Customiza
 
 ## Publicar o Orion (deploy com fila)
 - Qualquer pessoa publica: pelo botão "Publicar main" em Configurações, pelo botão "Publicar" da tarefa integrada, ou pedindo no chat (o Claude escreve /srv/builds/pedido.json com {"ref":"main","por":"<seu nome>"}). O systemd constrói num checkout limpo, roda typecheck e testes, troca /srv/orion-live e reinicia; falhou, volta sozinho. Um por vez; estado em /srv/builds/status.json.
+- Publicar reinicia o Orion e derruba a sua sessão no meio; é esperado. Pode esperar o /srv/builds/status.json: se falhar antes do reinício (typecheck, testes, build), você vê o erro na hora; se chegar ao reinício, a espera é cortada e você é retomado sozinho já com o resultado (deu certo, ou falhou com o fim do log). Não publique de novo por causa do corte.
 - Nunca rodar npm run build na pasta /srv/orion nem reiniciar o serviço na mão.
 
 ## MCPs e integrações

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -1359,5 +1359,13 @@ describe('thinking com duração + ferramenta que não terminou (sessão parada)
     expect(parado.kind === 'tool' && parado.output).toBe(TOOL_NAO_TERMINOU);
     expect(markUnfinishedTools(tool, 'running')[0]).toBe(tool[0]);
     expect(markUnfinishedTools(tool, 'waiting')[0]).toBe(tool[0]);
+  });
+  it('markUnfinishedTools: ferramenta cortada seguida de retomada fecha mesmo com a sessão rodando; deploy ok fica neutro', () => {
+    const tool = reduceSdkMessages([{ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a', name: 'Bash', input: { command: 'until grep ok status.json' } }] } }]);
+    const retomada = (t: string) => [...tool, { id: 'u', kind: 'user' as const, text: t }];
+    const ok = markUnfinishedTools(retomada('[Orion] reiniciou. Publicação do Orion: deu certo (build x).'), 'running')[0];
+    expect(ok.kind === 'tool' && [ok.status, ok.isError, ok.output]).toEqual(['success', false, TOOL_CORTADA_DEPLOY]);
+    const queda = markUnfinishedTools(retomada('[Orion] reiniciou.'), 'running')[0];
+    expect(queda.kind === 'tool' && queda.output).toBe(TOOL_NAO_TERMINOU);
   });
 });
