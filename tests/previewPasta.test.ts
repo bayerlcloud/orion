@@ -51,6 +51,7 @@ describe('liberarCache', () => {
     expect((await lstat(path.join(dir, 'node_modules', '.vite'))).isDirectory()).toBe(true);
     expect(chamadas).toEqual([
       ['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(dir, 'node_modules', '.vite')],
+      ['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(dir, 'node_modules', '.vite-temp')],
       ['-m', 'u:preview:rwx', dir],
     ]);
   });
@@ -97,6 +98,7 @@ describe('app em subpasta (monorepo)', () => {
     await liberarCache(path.join(base, 'apps', 'portal'), async (a) => { chamadas.push(a); }, base);
     expect(chamadas).toEqual([
       ['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(base, 'apps', 'portal', 'node_modules', '.vite')],
+      ['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(base, 'apps', 'portal', 'node_modules', '.vite-temp')],
       ['-m', 'u:preview:rwx', path.join(base, 'apps', 'portal')],
     ]);
   });

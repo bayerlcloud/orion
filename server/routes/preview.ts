@@ -108,8 +108,11 @@ export async function previewRoutes(app: FastifyInstance) {
     const { rows } = await app.pool.query(
       `UPDATE projects SET meta = (meta - 'preview_publico' - 'preview_publico_ate')
          || CASE WHEN $2::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('preview_publico_ate', $2::text) END
-       WHERE id = $1 RETURNING COALESCE(meta->>'preview_host', slug) AS nome`, [Number(req.params.id), ate]);
+       WHERE id = $1 RETURNING COALESCE(meta->>'preview_host', slug) AS nome, path, meta->>'preview_dir' AS sub`, [Number(req.params.id), ate]);
     if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    // O preview raiz só ganhava as permissões de escrita do vite pelo botão da sessão; ligar o público garante.
+    if (ate) await liberarCache(pastaDoApp(rows[0].path, rows[0].sub), undefined, rows[0].path)
+      .catch(e => app.log.warn(`preview público: liberarCache falhou em ${rows[0].path}: ${e instanceof Error ? e.message : e}`));
     cacheHost.clear();
     app.log.info(`preview público do projeto ${req.params.id} ${ate ? `ligado até ${ate}` : 'desligado'} por ${req.user.name ?? req.user.id}`);
     return estadoPublico(ate, rows[0].nome);

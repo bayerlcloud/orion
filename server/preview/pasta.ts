@@ -80,9 +80,12 @@ export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: s
  */
 export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000), base: string = dir): Promise<void> {
   if (!(await existe(path.join(base, 'node_modules')))) return;
-  const cache = path.join(dir, 'node_modules', '.vite');
-  await mkdir(cache, { recursive: true });
-  await setfacl(['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', cache]);
+  // .vite-temp: onde o vite 6 grava o vite.config compilado.
+  for (const nome of ['.vite', '.vite-temp']) {
+    const cache = path.join(dir, 'node_modules', nome);
+    await mkdir(cache, { recursive: true });
+    await setfacl(['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', cache]);
+  }
   // ponytail: vite 5 grava o vite.config.ts compilado ao lado dele (<pasta>/vite.config.ts.timestamp-*.mjs);
   // escrita só no topo da pasta, sem -R. Vite 6.1+ com --configLoader runner dispensaria isso.
   await setfacl(['-m', 'u:preview:rwx', dir]);
