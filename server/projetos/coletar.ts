@@ -267,6 +267,20 @@ export function alertasDe(f: Omit<Ficha, 'alertas'>): Alerta[] {
   return a;
 }
 
+export function quemMexeu(
+  commit: { autor: string; quando: string; sha: string } | null,
+  sessao: { quem: string; quando: string; title: string } | null,
+): Ficha['ultimo_mexeu'] {
+  const ms = (iso: string) => new Date(iso).getTime();
+  if (sessao && (!commit || ms(sessao.quando) >= ms(commit.quando) - 2 * 3_600_000)) {
+    const commitDepois = commit && ms(commit.quando) > ms(sessao.quando);
+    return commitDepois
+      ? { quem: sessao.quem, quando: new Date(commit!.quando).toISOString(), onde: `commit ${commit!.sha} (sessão "${sessao.title}")` }
+      : { quem: sessao.quem, quando: sessao.quando, onde: `sessão "${sessao.title}"` };
+  }
+  return commit ? { quem: `${commit.autor} (via git)`, quando: new Date(commit.quando).toISOString(), onde: `commit ${commit.sha}` } : null;
+}
+
 export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Ficha[]> {
   const { rows: projs } = await pool.query<Proj>('SELECT id, slug, name, path, meta FROM projects ORDER BY id');
   const [pages, c2, deployOrion, orionDumps] = await Promise.all([
@@ -310,11 +324,12 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
     const sessoesP = sess.filter(s => s.project_id === p.id);
     const tarefas = tar.filter(t => t.project_id === p.id).map(t => ({ id: t.id, title: t.title, status: t.status, integracao: t.integracao, quem: t.quem, quando: new Date(t.quando).toISOString() }));
 
-    // Último a mexer: o mais recente entre commit e sessão do Claude.
-    const cands: { quem: string; quando: string; onde: string }[] = [];
-    if (g?.ultimo) cands.push({ quem: g.ultimo.autor, quando: g.ultimo.quando, onde: `commit ${g.ultimo.sha}` });
-    if (sessoesP[0]) cands.push({ quem: sessoesP[0].quem, quando: new Date(sessoesP[0].updated_at).toISOString(), onde: `sessão "${sessoesP[0].title}"` });
-    const ultimo_mexeu = cands.sort((a, b) => b.quando.localeCompare(a.quando))[0] ?? null;
+    // Último a mexer. O autor do git é a identidade compartilhada da c3 ("Bayerl", "Danilo Bayerl"...), não a
+    // pessoa: commit feito pelo Orion sai com esse nome seja quem for. Por isso a pessoa vem da sessão do Claude;
+    // o autor do git só aparece (marcado "via git") quando não há sessão até 2 h antes do commit.
+    const ultimo_mexeu = quemMexeu(
+      g?.ultimo ? { autor: g.ultimo.autor, quando: g.ultimo.quando, sha: g.ultimo.sha } : null,
+      sessoesP[0] ? { quem: sessoesP[0].quem, quando: new Date(sessoesP[0].updated_at).toISOString(), title: sessoesP[0].title } : null);
 
     // Deploy: Cloudflare Pages com o mesmo nome/repo, ou a fila do próprio Orion.
     // Mesmo nome pode existir em mais de uma conta (ex.: cópia velha do ralab na conta brandspace): vale o deploy mais recente.
