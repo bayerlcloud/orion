@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { copyText, filesApi } from './api';
 import ContextMenu, { type MenuItem } from './ContextMenu';
 import { Chevron, IconClose, IconCollapseAll, IconEllipsis, IconLink, IconNewFile, IconNewFolder, IconRefresh, IconSearch } from './icons';
+import { confirmar } from '../dialogo';
 import {
   baseName, filterStaleExpandedKeys, isDirLike, isIgnored, isUnder, joinRel, keyOf, parentRel, splitKey, stemLength, validateNameClient,
   type DirState, type Editing, type GitCode, type GitStatus, type RootInfo, type Row,
@@ -210,7 +211,7 @@ const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(props, ref)
   const expandDir = useCallback(async (rootId: number, rel: string, name?: string, heavy?: boolean) => {
     const key = keyOf(rootId, rel);
     if (heavy && !heavyOk.current.has(key)) {
-      if (!window.confirm(`"${name ?? rel}" pode ter milhares de entradas. Expandir mesmo assim?`)) return false;
+      if (!(await confirmar(`"${name ?? rel}" pode ter milhares de entradas. Expandir mesmo assim?`))) return false;
       heavyOk.current.add(key);
     }
     setExp(key, true);
@@ -405,7 +406,7 @@ const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(props, ref)
   const remove = async (row: Row) => {
     if (row.kind !== 'entry') return;
     const what = row.isDir ? `a pasta "${row.name}" e tudo dentro dela` : `"${row.name}"`;
-    if (!window.confirm(`Excluir ${what}? Não vai para a lixeira.`)) return;
+    if (!(await confirmar(`Excluir ${what}? Não vai para a lixeira.`, { perigo: true }))) return;
     try {
       await filesApi.remove(row.rootId, row.rel);
       cb.current.onPathChange({ kind: 'deleted', rootId: row.rootId, rel: row.rel, isDir: row.isDir });
@@ -427,7 +428,7 @@ const Explorer = forwardRef<ExplorerHandle, Props>(function Explorer(props, ref)
     if (parentRel(src.rel) === destRel) return;
     if (src.isDir && isUnder(destRel, src.rel)) { cb.current.onToast('não dá para mover uma pasta para dentro dela mesma'); return; }
     const destName = destRel ? baseName(destRel) : (rootOf(destRootId)?.name ?? 'raiz');
-    if (!window.confirm(`Mover "${src.name}" para "${destName}"?`)) return;
+    if (!(await confirmar(`Mover "${src.name}" para "${destName}"?`))) return;
     try {
       const r = await filesApi.move(src.rootId, src.rel, destRel);
       if (src.isDir) remapExpanded(src.rootId, src.rel, r.to);

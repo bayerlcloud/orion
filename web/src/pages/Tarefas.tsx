@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type User } from '../api';
 import './tarefas.css';
+import { confirmar } from '../dialogo';
 
 type TaskStatus = 'backlog' | 'fazendo' | 'revisao' | 'feito' | 'arquivada';
 type IntegrationStatus = 'pendente' | 'integrando' | 'integrada' | 'conflito' | 'testes_falharam' | null;
@@ -212,7 +213,7 @@ export default function Tarefas({ user }: { user: User }) {
   }
 
   async function excluir(id: number) {
-    if (!window.confirm('Excluir esta tarefa? O worktree também será removido.')) return;
+    if (!(await confirmar('Excluir esta tarefa? O worktree também será removido.', { perigo: true }))) return;
     try {
       await api(`/api/tasks/${id}`, { method: 'DELETE' });
       setSelId(null);

@@ -9,6 +9,7 @@ import { Chevron } from '../files/icons';
 import { GIT_LABEL, IMAGE_EXT, baseName, extOf, isUnder, keyOf, type GitStatus, type OpenFile, type RootInfo } from '../files/types';
 import { formatBytes } from './driveUtils';
 import './arquivos.css';
+import { confirmar } from '../dialogo';
 
 // CodeMirror só entra no bundle quando um arquivo de texto abre.
 const Editor = lazy(() => import('../files/Editor'));
@@ -92,10 +93,10 @@ export default function Arquivos(_props: { user: User }) {
     if (!opts.preserveFocus) window.setTimeout(() => editor.current?.focus(), 0);
   }, [patch, showToast]);
 
-  const closeFile = useCallback((key: string) => {
+  const closeFile = useCallback(async (key: string) => {
     const f = filesRef.current.find(x => x.key === key);
     if (!f) return;
-    if (f.dirty && !window.confirm(`Descartar as alterações em "${f.name}"?`)) return;
+    if (f.dirty && !(await confirmar(`Descartar as alterações em "${f.name}"?`, { perigo: true }))) return;
     setFiles(fs => {
       const i = fs.findIndex(x => x.key === key);
       const next = fs.filter(x => x.key !== key);
