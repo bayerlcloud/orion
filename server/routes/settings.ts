@@ -30,7 +30,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         via: token ? 'token' : (fileCreds ? 'login' : null),
         linux_user: process.env.USER ?? null,
       },
-      defaults: { permission_mode: mode ?? 'acceptEdits', model: model ?? '', max_budget_usd: budget ? Number(budget) : 5 },
+      defaults: { permission_mode: mode ?? 'acceptEdits', model: model ?? '', max_budget_usd: budget ? Number(budget) : null },
       meta: rows,
     };
   });
@@ -98,14 +98,16 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
   app.post('/api/settings/claude-login/cancel', async () => { flow?.cancel(); return flow ? flow.snapshot() : { state: 'idle' }; });
 
-  app.put<{ Body: { permission_mode?: string; model?: string; max_budget_usd?: number } }>('/api/settings/defaults', async (req, reply) => {
+  app.put<{ Body: { permission_mode?: string; model?: string; max_budget_usd?: number | null } }>('/api/settings/defaults', async (req, reply) => {
     const b = req.body ?? {};
     if (b.permission_mode !== undefined) {
       if (!['acceptEdits', 'default', 'plan', 'auto'].includes(b.permission_mode)) return reply.code(400).send({ error: 'modo inválido' });
       await setSetting(app.pool, KEYS.defaultMode, b.permission_mode, req.user!.id);
     }
     if (b.model !== undefined) await setSetting(app.pool, KEYS.defaultModel, String(b.model).trim(), req.user!.id);
-    if (b.max_budget_usd !== undefined) {
+    // Vazio/null/0 = sem teto (apaga a configuração).
+    if (b.max_budget_usd === null || b.max_budget_usd === 0) await deleteSetting(app.pool, KEYS.maxBudgetUsd);
+    else if (b.max_budget_usd !== undefined) {
       const n = Number(b.max_budget_usd);
       if (!(n > 0 && n <= 500)) return reply.code(400).send({ error: 'orçamento entre 0 e 500' });
       await setSetting(app.pool, KEYS.maxBudgetUsd, String(n), req.user!.id);

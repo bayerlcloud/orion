@@ -4,7 +4,7 @@ import DeployCard from './DeployCard';
 
 type Settings = {
   claude: { token_set: boolean; token_hint: string | null; via: 'token' | 'login' | null; linux_user: string | null };
-  defaults: { permission_mode: string; model: string; max_budget_usd: number };
+  defaults: { permission_mode: string; model: string; max_budget_usd: number | null };
   meta: { key: string; updated_at: string; updated_by: string | null }[];
 };
 type LoginSnap = { state: 'idle' | 'starting' | 'awaiting_code' | 'exchanging' | 'done' | 'error'; url: string | null; error: string | null; output_tail: string };
@@ -18,7 +18,7 @@ export default function Config({ user }: { user: User }) {
   const [test, setTest] = useState<TestResult | null>(null);
   const [mode, setMode] = useState('acceptEdits');
   const [model, setModel] = useState('');
-  const [budget, setBudget] = useState(5);
+  const [budget, setBudget] = useState<number | null>(null);
   const [login, setLogin] = useState<LoginSnap | null>(null);
   const [code, setCode] = useState('');
 
@@ -139,8 +139,8 @@ export default function Config({ user }: { user: User }) {
           <label>modelo (vazio = padrão da conta)
             <input value={model} onChange={e => setModel(e.target.value)} placeholder="ex.: claude-fable-5-1" />
           </label>
-          <label>orçamento máximo por sessão (US$)
-            <input type="number" min={1} max={500} step={1} value={budget} onChange={e => setBudget(Number(e.target.value))} />
+          <label>teto de custo estimado por mensagem (US$, vazio = sem limite)
+            <input type="number" min={1} max={500} step={1} value={budget ?? ''} placeholder="sem limite" onChange={e => setBudget(e.target.value ? Number(e.target.value) : null)} />
           </label>
         </div>
         <div className="cfg-actions"><button className="btn-primary" onClick={saveDefaults} disabled={busy}>Salvar padrões</button></div>
