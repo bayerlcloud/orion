@@ -355,20 +355,26 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   /** Rascunhos da caixa de mensagem da pessoa logada, por sessão (autosave). */
   app.get('/api/claude/drafts', async (req) => {
-    const { rows } = await app.pool.query<{ session_id: string; text: string }>('SELECT session_id, text FROM claude_drafts WHERE user_id = $1', [req.user!.id]);
-    return { drafts: Object.fromEntries(rows.map(r => [r.session_id, r.text])) };
+    const { rows } = await app.pool.query<{ session_id: string; text: string; attachments: unknown[] }>('SELECT session_id, text, attachments FROM claude_drafts WHERE user_id = $1', [req.user!.id]);
+    return { drafts: Object.fromEntries(rows.map(r => [r.session_id, { text: r.text, attachments: r.attachments ?? [] }])) };
   });
-  app.put<{ Params: { id: string }; Body: { text?: string } }>('/api/claude/drafts/:id', async (req, reply) => {
+  app.put<{ Params: { id: string }; Body: { text?: string; attachments?: Attachment[] } }>('/api/claude/drafts/:id', async (req, reply) => {
     const text = String(req.body?.text ?? '').slice(0, 200_000);
-    if (!text.trim()) {
+    // Só aceita anexos que já estão na pasta de uploads desta pessoa (nunca um caminho qualquer).
+    const mine = path.join(uploadRoot, String(req.user!.id)) + path.sep;
+    const atts = (Array.isArray(req.body?.attachments) ? req.body!.attachments : [])
+      .filter(a => a && typeof a.path === 'string' && path.resolve(a.path).startsWith(mine))
+      .slice(0, 20)
+      .map(a => ({ kind: a.kind === 'image' ? 'image' : 'file', media_type: String(a.media_type ?? ''), name: String(a.name ?? 'arquivo'), path: path.resolve(a.path), size: Number((a as { size?: number }).size) || undefined }));
+    if (!text.trim() && !atts.length) {
       await app.pool.query('DELETE FROM claude_drafts WHERE user_id = $1 AND session_id = $2', [req.user!.id, req.params.id]);
       return { ok: true };
     }
     const { rowCount } = await app.pool.query('SELECT 1 FROM claude_sessions WHERE id = $1', [req.params.id]);
     if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
     await app.pool.query(
-      `INSERT INTO claude_drafts (user_id, session_id, text) VALUES ($1, $2, $3)
-       ON CONFLICT (user_id, session_id) DO UPDATE SET text = EXCLUDED.text, updated_at = now()`, [req.user!.id, req.params.id, text]);
+      `INSERT INTO claude_drafts (user_id, session_id, text, attachments) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, session_id) DO UPDATE SET text = EXCLUDED.text, attachments = EXCLUDED.attachments, updated_at = now()`, [req.user!.id, req.params.id, text, JSON.stringify(atts)]);
     return { ok: true };
   });
 

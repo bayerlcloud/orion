@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { Bolt, Clock, Plus, Chevron, X, Image, File, GitBranch, Mic, AgentsPill, AddPlus, SendArrow, SlashCmd, StopSquare, ModeManual, ModeAcceptEdits, ModePlan, ModeAuto } from './icons';
-import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, claudeApi } from './api';
-import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState } from './mapper';
+import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, claudeApi, type Attachment } from './api';
+import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState, attachmentImageUrl } from './mapper';
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
@@ -22,7 +22,7 @@ const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
 ];
 
 /** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */
-type Pending = { id: string; file: File; name: string; isImage: boolean; url?: string };
+type Pending = { id: string; file?: File; name: string; isImage: boolean; url?: string; uploaded?: Attachment };
 
 let uid = 0;
 function toPending(file: File): Pending {
@@ -130,7 +130,7 @@ export function prettyModel(label: string): string {
 }
 
 export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle }: {
-  onSend: (text: string, files: File[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
+  onSend: (text: string, files: File[], uploaded?: Attachment[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
   history?: string[];
@@ -197,35 +197,43 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const prevSessionRef = useRef(sessionId);
   // Autosave no servidor (por pessoa e sessão): o rascunho volta depois de F5, fechar o navegador ou
   // abrir em outro aparelho. Rascunhos de aba nova ainda sem sessão ("draft-…") ficam só na memória.
-  const savedDraftsRef = useRef<Record<string, string> | null>(null);
-  const lastSavedRef = useRef<{ id?: string; text: string }>({ text: '' });
+  type Saved = { text: string; attachments: Attachment[] };
+  const savedDraftsRef = useRef<Record<string, Saved> | null>(null);
+  const lastSavedRef = useRef<{ id?: string; key: string }>({ key: '' });
   const persistable = (id?: string) => !!id && !id.startsWith('draft-');
+  const uploadedOf = (list: Pending[]) => list.flatMap(a => a.uploaded ? [a.uploaded] : []);
+  const saveKey = (t: string, list: Attachment[]) => JSON.stringify([t, list.map(a => a.path)]);
+  const fromSaved = (list: Attachment[]): Pending[] => list.map(u => ({ id: `att-${++uid}`, name: u.name, isImage: u.kind === 'image', url: attachmentImageUrl(u), uploaded: u }));
   useEffect(() => {
     let alive = true;
     claudeApi.drafts().then(r => {
       if (!alive) return;
       savedDraftsRef.current = r.drafts;
       const id = sessionRef.current;
+      const d = persistable(id) ? r.drafts[id!] : undefined;
       // Abriu a página já numa aba: se a caixa ainda está vazia, traz o rascunho salvo dela.
-      if (persistable(id) && !textRef.current && r.drafts[id!]) {
-        textRef.current = r.drafts[id!];
-        lastSavedRef.current = { id, text: r.drafts[id!] };
-        setText(r.drafts[id!]);
+      if (d && !textRef.current && !attachmentsRef.current.length) {
+        textRef.current = d.text;
+        lastSavedRef.current = { id, key: saveKey(d.text, d.attachments) };
+        setText(d.text);
+        setAttachments(fromSaved(d.attachments));
       }
     }).catch(() => { savedDraftsRef.current = {}; });
     return () => { alive = false; };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const id = sessionId;
     if (!persistable(id) || savedDraftsRef.current === null) return;
-    if (lastSavedRef.current.id === id && lastSavedRef.current.text === text) return;
+    const ups = uploadedOf(attachments);
+    const key = saveKey(text, ups);
+    if (lastSavedRef.current.id === id && lastSavedRef.current.key === key) return;
     const t = setTimeout(() => {
-      lastSavedRef.current = { id, text };
-      savedDraftsRef.current![id!] = text;
-      void claudeApi.saveDraft(id!, text).catch(() => { /* tenta de novo na próxima digitação */ });
+      lastSavedRef.current = { id, key };
+      savedDraftsRef.current![id!] = { text, attachments: ups };
+      void claudeApi.saveDraft(id!, text, ups).catch(() => { /* tenta de novo na próxima mudança */ });
     }, 600);
     return () => clearTimeout(t);
-  }, [text, sessionId]);
+  }, [text, attachments, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const prev = prevSessionRef.current;
     if (prev === sessionId) return;
@@ -234,11 +242,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     draftsRef.current.delete(sessionId ?? '');
     prevSessionRef.current = sessionId;
     // Sem rascunho nesta guia: usa o salvo no servidor (vindo de outro aparelho/navegador).
-    const nextText = next?.text ?? (persistable(sessionId) ? savedDraftsRef.current?.[sessionId!] ?? '' : '');
+    const saved = persistable(sessionId) ? savedDraftsRef.current?.[sessionId!] : undefined;
+    const nextText = next?.text ?? saved?.text ?? '';
+    const nextAtts = next?.attachments ?? fromSaved(saved?.attachments ?? []);
     textRef.current = nextText;
-    lastSavedRef.current = { id: sessionId, text: nextText };
+    lastSavedRef.current = { id: sessionId, key: saveKey(nextText, uploadedOf(nextAtts)) };
     setText(nextText);
-    setAttachments(next?.attachments ?? []);
+    setAttachments(nextAtts);
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [micBusy, setMicBusy] = useState(false);
   const [micRecording, setMicRecording] = useState(false);
@@ -269,7 +279,15 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   function addFiles(list: FileList | File[] | null | undefined) {
     const files = Array.from(list ?? []);
     if (!files.length) return;
-    setAttachments(prev => [...prev, ...files.map(toPending)]);
+    const added = files.map(toPending);
+    setAttachments(prev => [...prev, ...added]);
+    // Sobe cada anexo na hora (não só ao enviar): assim ele entra no rascunho salvo e volta depois de F5.
+    for (const p of added) {
+      const f = p.file!;
+      claudeApi.uploads([new window.File([f], pasteFilename(p.name, f.type), { type: f.type })])
+        .then(r => { const u = r.attachments[0]; if (u) setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, uploaded: u } : a)); })
+        .catch(() => { /* fica só no navegador; o envio tenta subir de novo */ });
+    }
   }
   function removeAttachment(id: string) {
     setAttachments(prev => { const gone = prev.find(a => a.id === id); if (gone?.url) URL.revokeObjectURL(gone.url); return prev.filter(a => a.id !== id); });
@@ -285,12 +303,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     }
     const t = textRef.current.trim();
     if (sending || (!t && attachments.length === 0)) return;
-    const files = attachments.map(a => new window.File([a.file], pasteFilename(a.name, a.file.type), { type: a.file.type }));
+    const files = attachments.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
+    const pre = uploadedOf(attachments);
     setSending(true);
     try {
-      await onSend(t, files);
+      await onSend(t, files, pre);
       setText('');
-      attachments.forEach(a => a.url && URL.revokeObjectURL(a.url));
+      attachments.forEach(a => a.url?.startsWith('blob:') && URL.revokeObjectURL(a.url));
       setAttachments([]);
     } catch { /* o ClaudePage mostra o erro; mantém o rascunho e os anexos */ }
     finally { setSending(false); }

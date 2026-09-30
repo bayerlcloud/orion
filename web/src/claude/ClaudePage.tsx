@@ -442,11 +442,13 @@ export default function ClaudePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [sessions]);
 
-  async function send(text: string, files: File[] = []) {
+  async function send(text: string, files: File[] = [], uploaded: Attachment[] = []) {
     setErro('');
     try {
-      const prompt = text || (files.length ? '(arquivos em anexo)' : '');
-      const attachments = files.length ? (await claudeApi.uploads(files)).attachments : undefined;
+      const prompt = text || (files.length || uploaded.length ? '(arquivos em anexo)' : '');
+      const fresh = files.length ? (await claudeApi.uploads(files)).attachments : [];
+      const all = [...uploaded, ...fresh];
+      const attachments = all.length ? all : undefined;
       // 'default' = sem override (deixa a sessão/conta decidir); só manda um valor real quando o
       // usuário escolheu algo no seletor de modelo.
       const modelOverride = model !== 'default' ? model : undefined;
