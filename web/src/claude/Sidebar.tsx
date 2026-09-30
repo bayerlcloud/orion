@@ -117,6 +117,9 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
     onMoveToGroup: (sessionId: string, groupId: string | null) => void;
   }) {
   const [where, setWhere] = useState<'local' | 'web'>('local');
+  // Gaveta do celular (≤800px, ver claude.css): fecha sozinha ao escolher ou criar sessão. No desktop o botão fica oculto.
+  const [drawer, setDrawer] = useState(false);
+  const pick = (id: string) => { setDrawer(false); onSelect(id); };
   const [open, setOpen] = useState(true);
   const [acctOpen, setAcctOpen] = useState(true);
   const [q, setQ] = useState('');
@@ -161,7 +164,12 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
   projectOptions.sort((a, b) => a[1].localeCompare(b[1], 'pt-BR'));
 
   return (
-    <aside className="cc-side">
+    <>
+    <button className="cc-side-toggle" onClick={() => setDrawer(true)} title="Sessões" aria-label="Abrir lista de sessões">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" /></svg>
+    </button>
+    <div className={`cc-side-backdrop ${drawer ? 'is-open' : ''}`} onClick={() => setDrawer(false)} />
+    <aside className={`cc-side ${drawer ? 'is-open' : ''}`}>
       <div className="cc-side-title">CLAUDE CODE</div>
 
       <section className="cc-section">
@@ -213,7 +221,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
         <div className="cc-section-head" onClick={() => setOpen(o => !o)}><Chevron size={12} className={`cc-chev ${open ? 'is-open' : ''}`} /> SESSÕES</div>
         {open && (
           <>
-            <button className="cc-new" onClick={onNew}><Plus size={13} /> Nova sessão</button>
+            <button className="cc-new" onClick={() => { setDrawer(false); onNew(); }}><Plus size={13} /> Nova sessão</button>
             <div className="cc-toggle">
               <button className={where === 'local' ? 'is-on' : ''} onClick={() => setWhere('local')}>Local</button>
               <button className={where === 'web' ? 'is-on' : ''} onClick={() => setWhere('web')}>Web</button>
@@ -273,7 +281,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
                 {groups.map(g => (
                   <SessionGroupSection key={g.key} groupKey={g.key} label={g.label} sessions={g.sessions}
                     collapsible={groupBy !== 'none'} collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-                    activeId={activeId} onSelect={onSelect} onRename={onRename} onArchive={onArchive}
+                    activeId={activeId} onSelect={pick} onRename={onRename} onArchive={onArchive}
                     folders={folders} onMoveToGroup={onMoveToGroup}
                     isFolder={groupBy === 'folder' && g.key !== 'ungrouped'}
                     onRenameGroup={g.key.startsWith('folder:') ? (name) => onRenameGroup(g.key.slice('folder:'.length), name) : undefined}
@@ -288,7 +296,7 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
                     {showArchived && (
                       <div className="cc-list">
                         {archivedList.map(s => (
-                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive}
+                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => pick(s.id)} onRename={onRename} onArchive={onArchive}
                             folders={folders} onMoveToGroup={onMoveToGroup} />
                         ))}
                       </div>
@@ -301,5 +309,6 @@ export default function Sidebar({ sessions, usage, modelAttribution, activeId, l
         )}
       </section>
     </aside>
+    </>
   );
 }

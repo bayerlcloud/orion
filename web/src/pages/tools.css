@@ -69,6 +69,8 @@
 @media (max-width: 640px) {
   .tls-form-grid { grid-template-columns: 1fr 1fr; }
   .tls-form-name { grid-column: 1 / -1; }
+  .tls-icon-btn { min-width: 36px; }
+  .tls-modal-bg { padding: 8px; }
 }
 
 .tls-card { cursor: pointer; }

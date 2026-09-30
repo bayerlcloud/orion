@@ -124,4 +124,19 @@ strong { color: var(--fg); }
   .avatar-wrap { margin-top: 0; margin-left: auto; }
   .avatar-menu { left: auto; right: 0; bottom: auto; top: 40px; }
   .content { padding: 14px 16px; }
+  /* minmax(0,1fr): sem isso a trilha 1fr cresce até a largura mínima da barra de ícones (~426px) e a tela toda rola de lado. */
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); height: 100dvh; }
+  .rail { min-width: 0; }
+  .rail-nav { min-width: 0; scrollbar-width: none; }
+  .rail-nav::-webkit-scrollbar { display: none; }
+  .rail-btn { flex-shrink: 0; }
+  /* 16px nos campos: abaixo disso o Safari do iPhone dá zoom ao focar. */
+  input, select, textarea { font-size: 16px; max-width: 100%; }
+  .cfg-grid { grid-template-columns: minmax(0, 1fr); }
+  .cfg-box { padding: 12px; overflow-x: auto; }
+  .cfg-code-row input { min-width: 0; }
+  /* alvos de toque: botões das páginas comuns com pelo menos 36px (o Claude tem regras próprias em claude.css) */
+  .content:not(.is-wide) button:not(.link), .tabs button { min-height: 36px; }
+  .md pre, pre { max-width: 100%; }
+  .avatar { width: 36px; height: 36px; }
 }
