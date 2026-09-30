@@ -150,7 +150,7 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
 
           <Bloco titulo="Arquitetura" quando={a.atualizado && <Quando iso={a.atualizado} clock={clock} prefixo={`${a.fonte} `} />}>
             <div className="pj-stack">{a.stack.map(s => <span key={s} className="tag off">{s}</span>)}</div>
-            {a.resumo ? <p className="pj-p">{a.resumo}</p> : <div className="vazio">sem CLAUDE.md nem README</div>}
+            {a.resumo ? <p className="pj-p">{a.resumo}</p> : <div className="vazio">{a.fonte ? `${a.fonte} sem texto descritivo (só regras ou TODO)` : 'sem CLAUDE.md nem README'}</div>}
             {a.pastas.length > 0 && <div className="muted small mono">pastas: {a.pastas.join('  ')}</div>}
           </Bloco>
 

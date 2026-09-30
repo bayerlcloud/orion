@@ -314,7 +314,9 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
     const ultimo_mexeu = cands.sort((a, b) => b.quando.localeCompare(a.quando))[0] ?? null;
 
     // Deploy: Cloudflare Pages com o mesmo nome/repo, ou a fila do próprio Orion.
-    const pg = pages.find(x => x.name === p.slug || (x.repo && x.repo === g?.github?.split('/')[1]));
+    // Mesmo nome pode existir em mais de uma conta (ex.: cópia velha do ralab na conta brandspace): vale o deploy mais recente.
+    const pg = pages.filter(x => x.name === p.slug || (x.repo && x.repo === g?.github?.split('/')[1]))
+      .sort((a, b) => (b.quando ?? '').localeCompare(a.quando ?? ''))[0];
     let deploy: Ficha['deploy'] = null;
     if (pg) deploy = { onde: `Cloudflare Pages (${pg.conta})`, quando: pg.quando, estado: pg.estado || '?', detalhe: pg.commit ? `commit ${pg.commit}` : '', dominios: pg.dominios };
     else if (ehOrion && deployOrion) deploy = { onde: 'fila de deploy da c3 (/srv/orion-live)', quando: deployOrion.fim ?? deployOrion.inicio ?? null, estado: deployOrion.estado, detalhe: `${deployOrion.sha ?? ''} por ${deployOrion.por ?? '?'}`, dominios: ['v2.bayerl.cloud'] };
