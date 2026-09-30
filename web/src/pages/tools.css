@@ -138,3 +138,5 @@
 .tls-notes { color: var(--fg2); font-size: 12.5px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .tls-notes.is-open { display: block; }
 .tls-more { border: 0; background: none; color: var(--link); font: inherit; font-size: 12px; padding: 0; cursor: pointer; align-self: flex-start; margin-top: -6px; }
+
+.tls-badge.is-tag { background: var(--bad); margin-right: 6px; }

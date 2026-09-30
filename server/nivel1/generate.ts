@@ -39,15 +39,15 @@ export function renderMapa(): string {
   return `# Mapa: onde estou e como chego (nível 1, auto-atualizável)
 
 ## Servidores Bayerl Cloud
-| Apelido | IP | Papel |
+| Nome (como a equipe chama) | IP | Papel |
 |---|---|---|
-| c3 (VOCÊ ESTÁ AQUI) | 217.76.55.249 | Orion v2 (v2.bayerl.cloud), 6 vCPU/12 GB, Ubuntu 24.04 |
-| c1 | 86.48.28.10 | code-server, SilverBullet, n8n, Evolution, Caddy (code/notas/workflow/evo/pages.bayerl.cloud) |
-| c2 | 212.47.70.170 | Supabase self-hosted, litellm (RAM apertada, swap alto) |
-| hostinger | 72.61.135.82 | Coolify + ~66 containers (disco 73%) |
+| contabo 03 = c3 (VOCÊ ESTÁ AQUI) | 217.76.55.249 | Orion v2 (v2.bayerl.cloud), 6 vCPU/12 GB, Ubuntu 24.04 |
+| contabo 01 = c1 | 86.48.28.10 | code-server, SilverBullet, n8n, Evolution, Caddy (code/notas/workflow/evo/pages.bayerl.cloud) |
+| contabo 02 = c2 | 212.47.70.170 | Supabase self-hosted, litellm (RAM apertada, swap alto) |
+| hosting = hostinger | 72.61.135.82 | Coolify + ~66 containers (disco 73%) |
 
 ## Acesso
-- Da c3 para c1/c2/hostinger-nao: chave da frota em ~danilo/.ssh/fleet_ed25519 (root em c1 e c2, restrita ao IP da c3). Hostinger NÃO aceita essa chave.
+- SSH da c3 para as outras ("ssh contabo 01/02", "ssh hosting"): ssh -i ~danilo/.ssh/fleet_ed25519 root@<IP>. Chave da frota, root nas três, restrita ao IP da c3.
 - Segredos: /etc/orion/central.env (DATABASE_URL, SESSION_SECRET); tabela settings do Postgres (token Claude, token Hostinger); /config/.secrets na c1. Nunca copiar segredo para memória ou repositório.
 
 ## DNS (bayerl.cloud)

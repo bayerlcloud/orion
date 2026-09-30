@@ -7,13 +7,13 @@ import ToolsContaModal from './ToolsContaModal';
 type Github = { id: number; label: string; login: string; email: string; notes: string; mcp: string; token_hint: string };
 type Cloudflare = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; nome: string; url: string; token_hint: string };
 type Kind = 'tool' | 'skill' | 'mcp';
-type ToolItem = { id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo'; link: string | null; details: string; created_by_name: string | null };
+type ToolItem = { id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo'; link: string | null; details: string; tag: string | null; created_by_name: string | null };
 type Prov = 'github' | 'cloudflare';
 type Hostinger = { conectado: boolean; token_hint: string | null; mcps: string[] };
 type Tipo = Prov | 'hostinger' | Kind;
 /** Linha do card: rótulo, valor inteiro (copiar/popup) e, se houver, versão curta para o card. */
 type Linha = [string, string, string?];
-type Card = { tipo: Tipo; id: number; label: string; sub: string; linhas: Linha[]; notas: string; detalhes?: string; icone: ReactNode; status?: 'ativo' | 'inativo'; autor?: string | null };
+type Card = { tipo: Tipo; id: number; label: string; sub: string; linhas: Linha[]; notas: string; detalhes?: string; icone: ReactNode; tag?: string | null; status?: 'ativo' | 'inativo'; autor?: string | null };
 
 const TIPO: Record<Tipo, { titulo: string; badge: string; classe: string }> = {
   github: { titulo: 'GitHub', badge: 'MCP', classe: 'is-mcp' },
@@ -42,7 +42,7 @@ const HOSTINGER_NOTAS = `Um token da API Hostinger vira 8 MCPs oficiais em toda 
 Atenção: billing, compra de domínio e ações de VPS mexem com dinheiro ou derrubam servidor. Confirmar antes.`;
 
 const contaVazia = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
-const catVazio = () => ({ kind: 'mcp' as Kind, name: '', description: '', icon: '⚙️', link: '', details: '' });
+const catVazio = () => ({ kind: 'mcp' as Kind, name: '', description: '', icon: '⚙️', link: '', details: '', tag: '' });
 type FormConta = { prov: Prov; id: number | null; v: ReturnType<typeof contaVazia> };
 type FormCat = { id: number | null; v: ReturnType<typeof catVazio> };
 
@@ -77,7 +77,7 @@ export default function ToolsConectores({ user }: { user: User }) {
       linhas: [['account', c.account_id], ['proxy', c.url, c.url.replace(/^https?:\/\/[^/]+/, '')], ['token', c.token_hint]] })),
     ...(host ? [{ tipo: 'hostinger' as const, id: 0, label: 'hostinger', sub: host.conectado ? `${host.mcps.length} MCPs em toda sessão` : 'sem token: nenhum MCP ativo', notas: 'DNS, domínios, VPS, hosting, WordPress, billing, e-commerce e e-mail marketing.', detalhes: HOSTINGER_NOTAS, icone: '🌐',
       linhas: [['tools', host.mcps.map(m => `mcp__${m}__*`).join('\n'), 'mcp__hostinger-*__*'], ['token', host.token_hint ?? 'nenhum']] as Linha[] }] : []),
-    ...cat.map((t): Card => ({ tipo: t.kind, id: t.id, label: t.name, sub: '', notas: t.description, detalhes: t.details, icone: t.icon, status: t.status, autor: t.created_by_name,
+    ...cat.map((t): Card => ({ tipo: t.kind, id: t.id, label: t.name, sub: '', notas: t.description, detalhes: t.details, tag: t.tag, icone: t.icon, status: t.status, autor: t.created_by_name,
       linhas: t.link ? [['link', t.link, t.link.replace(/^https?:\/\//, '')]] : [] })),
   ], [gh, cf, cat, host]);
   const contagem = useMemo(() => {
@@ -115,7 +115,7 @@ export default function ToolsConectores({ user }: { user: User }) {
     const t = cat.find(x => x.id === c.id);
     if (!t) return;
     setOpen(null); setFormConta(null);
-    setFormCat({ id: t.id, v: { kind: t.kind, name: t.name, description: t.description, icon: t.icon, link: t.link ?? '', details: t.details } });
+    setFormCat({ id: t.id, v: { kind: t.kind, name: t.name, description: t.description, icon: t.icon, link: t.link ?? '', details: t.details, tag: t.tag ?? '' } });
   }
   async function salvarCat() {
     if (!formCat) return;
@@ -244,6 +244,9 @@ export default function ToolsConectores({ user }: { user: User }) {
           <label>link (opcional)
             <input value={formCat.v.link} onChange={e => setK('link', e.target.value)} placeholder="repo, docs, config…" />
           </label>
+          <label>selo vermelho (opcional, ex.: c1 = lembrete de pendência)
+            <input value={formCat.v.tag} onChange={e => setK('tag', e.target.value)} maxLength={12} />
+          </label>
           <label>permissões e detalhes (aparece no popup do card)
             <textarea value={formCat.v.details} onChange={e => setK('details', e.target.value)} rows={6} />
           </label>
@@ -260,7 +263,7 @@ export default function ToolsConectores({ user }: { user: User }) {
         <div className="tls-grid">
           {visiveis.map(c => { const T = TIPO[c.tipo]; return (
             <div key={`${c.tipo}-${c.id}`} className={`tls-card ${T.classe} is-conta ${c.status === 'inativo' ? 'is-off' : ''}`} onClick={() => setOpen(c)}>
-              <div className="tls-card-top"><span className="tls-icon">{c.icone}</span><span className={`tls-badge ${T.classe}`}>{T.badge}</span></div>
+              <div className="tls-card-top"><span className="tls-icon">{c.icone}</span><span className="tls-spacer" />{c.tag && <span className="tls-badge is-tag" title="pendência">{c.tag}</span>}<span className={`tls-badge ${T.classe}`}>{T.badge}</span></div>
               <div>
                 <div className="tls-eyebrow">{T.titulo}</div>
                 <div className="tls-name">{c.label}</div>

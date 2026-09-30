@@ -205,6 +205,12 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: '012_claude_approvals_used_at',
     sql: `ALTER TABLE claude_approvals ADD COLUMN IF NOT EXISTS used_at TIMESTAMPTZ;`,
   },
+  {
+    id: '012_tools_tag',
+    sql: `
+      ALTER TABLE tools ADD COLUMN IF NOT EXISTS tag TEXT;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
