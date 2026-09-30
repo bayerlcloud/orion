@@ -77,6 +77,7 @@ export function parseUsageResponse(data: RawUsageResponse): RealUsageResult {
 }
 
 let cache: { at: number; value: RealUsageResult } | null = null;
+let refreshing = false;
 const CACHE_TTL_MS = 60_000;
 
 async function tokenForUsageCall(pool: Pool): Promise<string | null> {
@@ -91,7 +92,12 @@ async function tokenForUsageCall(pool: Pool): Promise<string | null> {
 /** Chama a API real; null em qualquer falha (sem escopo, sem token, rede fora) — nunca lança,
  * quem chama já sabe cair para o proxy por custo quando isso devolve null. */
 export async function fetchRealUsage(pool: Pool, opts?: { skipCache?: boolean }): Promise<RealUsageResult> {
-  if (!opts?.skipCache && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
+  if (!opts?.skipCache && cache) {
+    if (Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
+    // Vencido: responde na hora com o último valor e atualiza em segundo plano (a chamada real leva ~1s).
+    if (cache.value && !refreshing) { refreshing = true; void fetchRealUsage(pool, { skipCache: true }).finally(() => { refreshing = false; }); }
+    if (cache.value) return cache.value;
+  }
   const token = await tokenForUsageCall(pool);
   if (!token) return null;
   try {
