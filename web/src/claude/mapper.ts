@@ -1227,7 +1227,10 @@ export function sessionWorktreeName(cwd: string | null | undefined, projectPath:
   if (!cwd || !projectPath) return null;
   const norm = (p: string) => p.replace(/\/+$/, '');
   const c = norm(cwd);
-  if (c === norm(projectPath)) return null;
+  // Só é worktree o que mora na pasta irmã `<projeto>-worktrees/` (convenção de server/claude/worktree.ts).
+  // Sessão movida de projeto continua no cwd antigo: isso não é worktree e não ganha pill.
+  const base = `${norm(projectPath)}-worktrees/`;
+  if (!c.startsWith(base)) return null;
   const segs = c.split('/').filter(Boolean);
   return segs.length ? segs[segs.length - 1] : null;
 }
