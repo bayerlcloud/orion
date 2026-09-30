@@ -220,6 +220,11 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS output_tokens BIGINT NOT NULL DEFAULT 0;
     `,
   },
+  {
+    // Seção Projetos do Dash: o que não dá para descobrir sozinho (URL de produção, banco, notas), editado no card.
+    id: '014_projects_meta',
+    sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;`,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
