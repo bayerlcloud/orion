@@ -3,7 +3,8 @@ import type { HookCallback, PreToolUseHookInput } from '@anthropic-ai/claude-age
 /**
  * Política padrão de permissão de TODA sessão do Orion (decisão do Danilo, 29/09/2026):
  * ação comum roda sem perguntar; ação sensível vira o cartão Aprovar/Recusar no chat (o mesmo do
- * `canUseTool` do runner), nunca um bloqueio, e nunca depende do modo da sessão.
+ * `canUseTool` do runner), nunca um bloqueio. Exceção: modo `auto` libera tudo, sem cartão
+ * (Danilo, 30/09/2026: "se é Auto é Auto").
  *
  * Entra como hook PreToolUse in-process (runner.ts), que o CLI consulta ANTES do modo e do
  * classificador do modo `auto`: 'allow' pula tudo, 'ask' cai no canUseTool (o botão).
@@ -76,6 +77,7 @@ const INTERATIVAS = new Set(['AskUserQuestion', 'ExitPlanMode']);
 export const policyHook: HookCallback = async (input) => {
   const i = input as PreToolUseHookInput;
   if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
+  if (i.permission_mode === 'auto') return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
   const v = classify(i.tool_name, i.tool_input);
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: v.decision, ...(v.reason ? { permissionDecisionReason: `Ação sensível: ${v.reason}` } : {}) } };
 };
