@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Login do Orion no preview pessoal (spec 2026-09-30-preview-design, Parte 1). O cookie do painel
- * fica só no painel (orion.bayerl.cloud e v2.bayerl.cloud); para o preview, o painel entrega um token curto e de uso único, preso
+ * fica só no painel (orion.bayerl.cloud e v2.bayerl.cloud, cada um com o seu); para o preview, o painel entrega um token curto e de uso único, preso
  * ao host, e o próprio preview troca esse token por um cookie `orion_preview` daquele host.
  * Formato: base64url(json).base64url(hmac-sha256).
  */
@@ -11,6 +11,10 @@ export const COOKIE_PREVIEW = 'orion_preview';
 export const LOGIN_URL = 'https://orion.bayerl.cloud/';
 export const TOKEN_TTL_MS = 60_000;
 export const COOKIE_TTL_MS = 7 * 86_400_000;
+/** Preview público liga por 48 h; religar renova. */
+export const PUBLICO_TTL_MS = 48 * 3_600_000;
+/** Os dois endereços do painel (mesmo Orion, cookie de sessão separado em cada um). */
+export const PAINEIS = ['orion.bayerl.cloud', 'v2.bayerl.cloud'];
 
 type Dados = { u: number; h: string; exp: number; j?: string };
 
@@ -57,7 +61,22 @@ export function podeAbrir(o: { ehRaiz: boolean; publico: boolean; cookieOk: bool
   return o.cookieOk || (o.ehRaiz && o.publico);
 }
 
-/** Sem cookie: manda para o painel, que emite o token daquele host se a pessoa estiver logada lá. */
-export function urlEntrar(host: string): string {
-  return `https://orion.bayerl.cloud/api/preview/entrar?host=${encodeURIComponent(host)}`;
+/** `projects.meta.preview_publico_ate` ainda no futuro? Sem data (ou data ruim) conta como desligado. */
+export function publicoAtivo(ate: string | null | undefined, agora = Date.now()): boolean {
+  const t = ate ? Date.parse(ate) : NaN;
+  return t > agora;
+}
+
+/**
+ * Sem cookie: manda para o painel, que emite o token daquele host se a pessoa estiver logada lá.
+ * Logado só no outro endereço do painel? O `entrar` tenta o próximo da lista antes de pedir senha.
+ */
+export function urlEntrar(host: string, painel = PAINEIS[0], tentados = ''): string {
+  return `https://${painel}/api/preview/entrar?host=${encodeURIComponent(host)}${tentados ? `&tentados=${encodeURIComponent(tentados)}` : ''}`;
+}
+
+/** Próximo endereço do painel ainda não tentado, ou null (aí vai para o login). */
+export function proximoPainel(atual: string, tentados: string): string | null {
+  const ja = new Set([atual, ...tentados.split(',')]);
+  return PAINEIS.find(p => !ja.has(p)) ?? null;
 }

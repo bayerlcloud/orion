@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { agoIso } from './dashUtils';
 import { formatTokens } from '../claude/mapper';
+import PreviewPublico from '../PreviewPublico';
 
 // Espelha server/projetos/coletar.ts (Ficha). Tudo opcional no uso: a tela aguenta campo faltando.
 type Alerta = { nivel: 'ruim' | 'atencao'; texto: string };
@@ -75,6 +76,7 @@ function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => voi
       <Link url={f.preview_url} rotulo="URL preview" vazio="projeto sem preview" />
       <Link url={f.prod?.url ?? null} rotulo="URL de produção" vazio="sem produção conhecida (defina em Editar)" />
     </div>
+    {f.preview_url && <PreviewPublico projectId={f.id} compacto />}
     </div>
   );
 }
