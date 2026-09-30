@@ -7,7 +7,7 @@
   /* Cor do degrau Ultracode do seletor de esforço: `--app-ultracode-color` real resolve em `--vscode-charts-purple,#a855f7` (webview v2.1.283). */
   --cc-ultracode: #a855f7;
   --cc-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; --r: 6px;
-  display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 100vh; height: 100vh; min-height: 0; margin: 0; background: var(--cc-bg); color: var(--cc-fg);
+  display: grid; grid-template-columns: 320px 1fr; grid-template-rows: 100vh; height: 100vh; min-height: 0; margin: 0; background: var(--cc-bg); color: var(--cc-fg);
   font-size: 13px; line-height: 1.5; color-scheme: dark;
 }
 .cc * { box-sizing: border-box; }
@@ -825,3 +825,9 @@
 .cc-item-project { flex-shrink: 0; max-width: 90px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--cc-line); color: var(--cc-fg2); font-size: 10px; line-height: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cc-item-avatar { flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: var(--cc-bg2); color: var(--cc-fg2); font-size: 9px; font-weight: 600; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-item-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Lista de sessões recolhida pelo ícone do Claude no menu (só no desktop; no celular ela já é gaveta). */
+@media (min-width: 801px) {
+  .cc.is-side-hidden { grid-template-columns: 1fr; }
+  .cc.is-side-hidden > .cc-side { display: none; }
+}

@@ -78,7 +78,9 @@ export default function App() {
       <aside className="rail">
         <nav className="rail-nav">
           {MENU.filter(m => !m.ownerOnly || user.role === 'owner').map(m => (
-            <NavLink key={m.to} to={m.to} className={({ isActive }) => `rail-btn ${isActive ? 'active' : ''}`} title={m.label} aria-label={m.label}>
+            <NavLink key={m.to} to={m.to} className={({ isActive }) => `rail-btn ${isActive ? 'active' : ''}`} title={m.label} aria-label={m.label}
+              // Clicar em Claude estando já no Claude mostra/esconde a lista de sessões (fica só o chat).
+              onClick={e => { if (m.to === '/claude' && loc.pathname.startsWith('/claude')) { e.preventDefault(); window.dispatchEvent(new Event('orion:toggle-claude-side')); } }}>
               <m.Icon />
               <span className="rail-label">{m.label}</span>
             </NavLink>

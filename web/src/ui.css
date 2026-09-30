@@ -56,6 +56,8 @@ button[type=submit]:disabled { opacity: .5; }
 .rail-btn { position: relative; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 8px; color: var(--fg2); text-decoration: none; }
 .rail-btn:hover { background: var(--hover); color: var(--fg); }
 .rail-btn.active { color: var(--fg); background: var(--active); }
+/* Claude com a lista de sessões recolhida: sem o quadrado de fundo (só o traço), sinal de que está fechada. */
+body[data-claude-side="hidden"] .rail-btn.active[href="/claude"] { background: none; }
 .rail-btn.active::before { content: ""; position: absolute; left: -6px; top: 10px; bottom: 10px; width: 2px; background: var(--accent); border-radius: 2px; }
 .rail-label { position: absolute; left: 48px; top: 50%; transform: translateY(-50%); background: var(--bg2); border: 1px solid var(--line); color: var(--fg); padding: 3px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .1s; z-index: 20; }
 .rail-btn:hover .rail-label { opacity: 1; }

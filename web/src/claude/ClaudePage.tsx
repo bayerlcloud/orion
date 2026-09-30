@@ -53,6 +53,14 @@ export default function ClaudePage() {
   // usuários do Orion (um único settings.json de usuário, do login que roda o servidor na c3).
   const [role, setRole] = useState<string | null>(null);
   const [tabs, setTabs] = useState<Tab[]>([]);
+  // Lista de sessões recolhida (clique no ícone do Claude no menu da esquerda). Lembra no navegador.
+  const [sideHidden, setSideHidden] = useState(() => localStorage.getItem('orion.claudeSideHidden') === '1');
+  useEffect(() => {
+    const t = () => setSideHidden(h => { localStorage.setItem('orion.claudeSideHidden', h ? '0' : '1'); return !h; });
+    window.addEventListener('orion:toggle-claude-side', t);
+    return () => window.removeEventListener('orion:toggle-claude-side', t);
+  }, []);
+  useEffect(() => { document.body.dataset.claudeSide = sideHidden ? 'hidden' : 'shown'; return () => { delete document.body.dataset.claudeSide; }; }, [sideHidden]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
@@ -556,7 +564,7 @@ export default function ClaudePage() {
   const permRulesProjectId = activeTab?.draft ? (activeTab.projectId ?? undefined) : (active ? projects.find(p => p.slug === active.project_slug)?.id : undefined);
 
   return (
-    <div className="cc">
+    <div className={`cc ${sideHidden ? 'is-side-hidden' : ''}`}>
       <Sidebar sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
         onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
