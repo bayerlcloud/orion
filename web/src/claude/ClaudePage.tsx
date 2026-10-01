@@ -4,7 +4,7 @@ import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
 import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
-import Sidebar from './Sidebar';
+import Sidebar, { Avatar } from './Sidebar';
 import Timeline, { PermissionDock } from './Timeline';
 import Composer from './Composer';
 import AgentMap from './AgentMap';
@@ -44,6 +44,7 @@ export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [meId, setMeId] = useState<number | undefined>(undefined);
+  const [meName, setMeName] = useState('');
   // Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — compartilhadas entre usuários,
   // mesmo modelo de `sessions` (sem filtro por dono).
   const [groups, setGroups] = useState<SessionGroupInfo[]>([]);
@@ -165,7 +166,7 @@ export default function ClaudePage() {
     void refreshStyles();
     claudeApi.projects().then(r => setProjects(r.projects)).catch(falha);
     claudeApi.status().then(setLogin).catch(() => setLogin(null));
-    claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); setMeId(r.user.id); }).catch(() => { setEmail(null); setRole(null); });
+    claudeApi.me().then(r => { setEmail(r.user.email); setRole(r.user.role); setMeId(r.user.id); setMeName(r.user.name); }).catch(() => { setEmail(null); setRole(null); });
     const t = setInterval(() => { void refreshSessions(); void refreshUsage(); }, 8000);
     return () => { alive = false; clearInterval(t); };
   }, [refreshSessions, refreshUsage, refreshGroups, refreshStyles]);
@@ -613,7 +614,10 @@ export default function ClaudePage() {
                 onDragLeave={() => setDragOverTab(d => d === t.id ? null : d)}
                 onDrop={e => { e.preventDefault(); dropTab(t.id); }}
                 onDragEnd={() => { dragTabRef.current = null; setDragOverTab(null); }}>
-                <span className="cc-tab-spark">✳</span>
+                {/* Foto de quem criou a sessão no lugar do asterisco do Claude; aba rascunho é minha. */}
+                {s ? <Avatar id={s.user_id} name={s.user_name} />
+                  : t.draft && meId !== undefined ? <Avatar id={meId} name={meName} />
+                  : <span className="cc-tab-spark">✳</span>}
                 {/* Dot de status na própria aba — outro destino da barra removida (o texto de status ficava lá). */}
                 {s && <span className={`cc-dot cc-tab-dot is-${toSummary(s, projects).status}`} />}
                 <span className="cc-tab-title">{label}</span>
