@@ -1,99 +1,113 @@
+import { execFile } from 'node:child_process';
+import { access, symlink } from 'node:fs/promises';
 import path from 'node:path';
-import { commitTurno, commitsAFrente, integrate, raizLimpa, sincronizarComBase } from '../tasks/git.js';
+import { commitTurno, commitsAFrente, integrate, raizLimpa, runTests, sincronizarComBase } from '../tasks/git.js';
+import { escreverPedido } from '../deploy/estado.js';
 import type { FilaIntegracao } from './fila.js';
-import type { TurnParams } from '../claude/runner.js';
 
 /**
- * Integração automática a cada turno (spec 2026-09-30-preview-design, Parte 2). Só para sessões numa
- * worktree do projeto: no início do turno traz a base; no fim, commita e manda a branch para a raiz
- * pela fila do projeto. Conflito volta para a própria sessão resolver (até 3 vezes seguidas).
+ * Worktree por pessoa, publicação por comando (Danilo, 01/10/2026; substitui a junção automática a
+ * cada turno da spec 2026-09-30-preview-design, Parte 2). Só para sessões numa worktree do projeto:
+ * - início do turno: traz a raiz para a worktree (trabalha sempre sobre o que já foi publicado);
+ * - fim do turno: só commita na worktree (nada sobe sozinho);
+ * - "publica": commit, traz a raiz, testes, junta na raiz (o preview <projeto>.bayerl.cloud mostra);
+ * - "deploy": publica, manda a raiz para o GitHub e roda o deploy.sh da raiz (Orion: pedido.json).
  */
 
-const MAX_CONFLITOS = 3;
-const ESPERAS_RAIZ_SUJA = 10;
-const ESPERA_MS = 60_000;
+/** O próprio Orion publica pela fila do systemd (pedido.json), não por deploy.sh. */
+export const ORION_RAIZ = '/srv/orion';
+const DEPLOY_TIMEOUT = 15 * 60_000;
 
-// Conflitos seguidos por sessão; zera quando uma integração da sessão dá certo.
-const tentativas = new Map<string, number>();
-// Sessões já avisadas de uma falha que não é conflito; zera no próximo sucesso (não repete o aviso a cada turno).
-const falhaAvisada = new Set<string>();
-export function _zerarTentativas(): void { tentativas.clear(); falhaAvisada.clear(); }
+export type Resultado = { ok: boolean; texto: string };
+export type Publicador = { raiz: string; publicar: () => Promise<Resultado>; deploy: () => Promise<Resultado> };
+export type Ganchos = { antes: () => Promise<void>; depois: () => Promise<void>; publicador: Publicador };
 
 type Projeto = { id: number; path: string; default_branch: string };
+type Rodar = (cmd: string, args: string[], cwd: string) => Promise<{ code: number; out: string }>;
 type Opcoes = {
-  sessaoId: string; cwd: string; projeto: Projeto | null; prompt: string;
-  avisar: (texto: string) => void; fila: FilaIntegracao; esperar?: (ms: number) => Promise<void>;
-  /** Nota na sessão sem abrir turno (sucesso). */
+  cwd: string; projeto: Projeto | null; prompt: string; fila: FilaIntegracao;
+  /** Quem pediu (vai no pedido de publicação do Orion). */
+  pessoa?: string;
+  /** Nota na sessão sem abrir turno. */
   registrar?: (texto: string) => void;
   integrar?: typeof integrate;
+  rodar?: Rodar;
+  pedirOrion?: (por: string) => Promise<void>;
 };
 
-const esperarPadrao = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+const rodarPadrao: Rodar = (cmd, args, cwd) => new Promise((resolve) => {
+  execFile(cmd, args, { cwd, timeout: DEPLOY_TIMEOUT, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+    (err, stdout, stderr) => resolve({ code: err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0, out: `${stdout ?? ''}${stderr ?? ''}` }));
+});
+
+const fim = (t: string, n = 1500) => t.trim().slice(-n);
 
 function arquivosEmConflito(log: string): string {
-  const nomes = [...log.matchAll(/Merge conflict in (.+)/g)].map(m => m[1].trim());
+  const nomes = [...log.matchAll(/(?:Merge conflict in|CONFLICT \([^)]*\): .* in) (.+)/g)].map(m => m[1].trim());
   return [...new Set(nomes)].join(', ') || 'arquivos do projeto';
 }
 
-export function ganchosDaSessao(o: Opcoes): TurnParams['ganchos'] | undefined {
+const existe = (p: string) => access(p).then(() => true, () => false);
+
+export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
   const { projeto } = o;
   if (!projeto || path.resolve(o.cwd) === path.resolve(projeto.path)) return undefined;
+  const raiz = projeto.path;
   const base = projeto.default_branch || 'main';
-  const esperar = o.esperar ?? esperarPadrao;
+  const integrar = o.integrar ?? integrate;
+  const rodar = o.rodar ?? rodarPadrao;
 
-  async function integrarNaRaiz(branch: string): Promise<void> {
-    for (let i = 0; !(await raizLimpa(projeto!.path)); i++) {
-      if (i >= ESPERAS_RAIZ_SUJA) {
-        o.avisar('A pasta raiz do projeto tem edição direta não enviada, e sua mudança não pôde entrar. Avise a pessoa, em uma linha, que alguém precisa enviar ou descartar o que está na raiz.');
-        return;
-      }
-      await esperar(ESPERA_MS);
-    }
-    const r = await (o.integrar ?? integrate)(projeto!.path, branch, base);
-    if (r.ok) {
-      tentativas.delete(o.sessaoId); falhaAvisada.delete(o.sessaoId);
-      o.registrar?.(`Mudança enviada para a raiz (branch ${branch}).`);
-      return;
-    }
-    if (!r.conflict) {
-      if (falhaAvisada.has(o.sessaoId)) return;
-      falhaAvisada.add(o.sessaoId);
-      o.avisar(`Não consegui juntar sua mudança na raiz, e não foi conflito. Últimas linhas do git: ${r.log.slice(-400)}. Explique para a pessoa em poucas linhas; eu tento de novo no fim do próximo turno.`);
-      return;
-    }
-    const n = (tentativas.get(o.sessaoId) ?? 0) + 1;
-    tentativas.set(o.sessaoId, n);
-    const arquivos = arquivosEmConflito(r.log);
-    if (n < MAX_CONFLITOS) {
-      o.avisar(`Conflito ao juntar sua mudança na raiz (${arquivos}). Rode git merge ${base} nesta pasta, junte as duas mudanças mantendo a intenção de cada uma, e termine o turno. Não descarte a mudança de ninguém.`);
-    } else if (n === MAX_CONFLITOS) {
-      o.avisar(`Não consegui juntar sua mudança na raiz depois de 3 tentativas (${arquivos}). Pare de tentar e explique o conflito para a pessoa, em poucas linhas.`);
-    }
+  async function publicar(): Promise<Resultado> {
+    const c = await commitTurno(o.cwd, o.prompt);
+    if (!c.branch || c.branch === 'HEAD' || c.branch === base) return { ok: false, texto: `a worktree não está numa branch própria (${c.branch ?? 'sem branch'}); nada subiu.` };
+    const s = await sincronizarComBase(o.cwd, base);
+    if (!s.ok) return { ok: false, texto: s.conflito
+      ? `conflito com a raiz (${arquivosEmConflito(s.log)}); nada subiu. Rode git merge ${base} nesta pasta, junte mantendo as duas mudanças, faça o commit e publique de novo.`
+      : `não consegui trazer a raiz para a worktree; nada subiu. git: ${fim(s.log, 400)}` };
+    if ((await commitsAFrente(o.cwd, base)) === 0) return { ok: true, texto: 'nada novo para subir: a raiz já tem tudo desta worktree.' };
+    // Worktree nasce sem node_modules; os testes usam o da raiz (commitTurno nunca commita o symlink).
+    if (!(await existe(path.join(o.cwd, 'node_modules'))) && (await existe(path.join(raiz, 'node_modules'))))
+      await symlink(path.join(raiz, 'node_modules'), path.join(o.cwd, 'node_modules')).catch(() => {});
+    const t = await runTests(o.cwd);
+    if (!t.ok) return { ok: false, texto: `os testes falharam; nada subiu.\n${fim(t.tail)}` };
+    return o.fila.enfileirar(projeto!.id, async (): Promise<Resultado> => {
+      if (!(await raizLimpa(raiz))) return { ok: false, texto: 'a pasta raiz tem edição direta não enviada; nada subiu. Alguém precisa enviar ou descartar o que está na raiz.' };
+      const r = await integrar(raiz, c.branch!, base);
+      if (r.ok) { o.registrar?.(`Publicado na raiz (branch ${c.branch}).`); return { ok: true, texto: `subiu para a raiz (${base}).` }; }
+      return { ok: false, texto: r.conflict
+        ? `alguém publicou na raiz agora e deu conflito (${arquivosEmConflito(r.log)}); nada subiu. Rode git merge ${base} nesta pasta, resolva e publique de novo.`
+        : `o git falhou ao juntar na raiz; nada subiu. ${fim(r.log, 400)}` };
+    });
   }
 
-  /** Antes de publicar de dentro da worktree: commita e junta na raiz já, pela fila. null = ok; senão o motivo. */
-  async function juntarAgora(): Promise<string | null> {
-    const c = await commitTurno(o.cwd, o.prompt);
-    if (!c.branch || c.branch === 'HEAD' || c.branch === base) return `a worktree não está numa branch própria (${c.branch ?? 'sem branch'})`;
-    if ((await commitsAFrente(o.cwd, base)) === 0) return null;
-    return o.fila.enfileirar(projeto!.id, async () => {
-      if (!(await raizLimpa(projeto!.path))) return 'a pasta raiz do projeto tem edição direta não enviada; alguém precisa enviar ou descartar antes';
-      const r = await (o.integrar ?? integrate)(projeto!.path, c.branch!, base);
-      if (r.ok) { o.registrar?.(`Mudança enviada para a raiz antes de publicar (branch ${c.branch}).`); return null; }
-      return r.conflict
-        ? `conflito ao juntar na raiz (${arquivosEmConflito(r.log)}); rode git merge ${base} nesta pasta, resolva mantendo as duas mudanças e tente publicar de novo`
-        : `o git falhou ao juntar na raiz: ${r.log.slice(-300)}`;
+  async function deploy(): Promise<Resultado> {
+    const p = await publicar();
+    if (!p.ok) return { ok: false, texto: `Deploy cancelado: ${p.texto}` };
+    if (path.resolve(raiz) === ORION_RAIZ) {
+      await (o.pedirOrion ?? ((por) => escreverPedido('main', por)))(`${o.pessoa ?? 'alguém'} (via Claude)`);
+      return { ok: true, texto: `${p.texto} Pedido de publicação do Orion na fila: acompanhe /srv/builds/status.json (o Orion reinicia no fim e a sessão é retomada com o resultado).` };
+    }
+    // ponytail: deploy dentro da fila do projeto segura as publicações do projeto até acabar (1 a 2 min); fila separada se incomodar.
+    return o.fila.enfileirar(projeto!.id, async (): Promise<Resultado> => {
+      if (!(await raizLimpa(raiz))) return { ok: false, texto: `${p.texto} Deploy cancelado: a raiz tem edição direta não enviada.` };
+      if (!(await existe(path.join(raiz, 'deploy.sh')))) return { ok: false, texto: `${p.texto} Deploy cancelado: o projeto não tem deploy.sh na raiz.` };
+      const remoto = await rodar('git', ['remote'], raiz);
+      let git = 'sem GitHub configurado (sem remote origin).';
+      if (/^origin$/m.test(remoto.out)) {
+        const push = await rodar('git', ['push', 'origin', base], raiz);
+        if (push.code !== 0) return { ok: false, texto: `${p.texto} Deploy cancelado: o push para o GitHub falhou.\n${fim(push.out, 600)}` };
+        git = `GitHub atualizado (origin ${base}).`;
+      }
+      const d = await rodar('bash', ['./deploy.sh'], raiz);
+      if (d.code !== 0) return { ok: false, texto: `${p.texto} ${git} O deploy.sh FALHOU (exit ${d.code}); produção segue com a versão anterior.\n${fim(d.out)}` };
+      o.registrar?.('Deploy feito a partir da raiz.');
+      return { ok: true, texto: `${p.texto} ${git} Deploy feito.\n${fim(d.out, 800)}` };
     });
   }
 
   return {
-    publicar: { raiz: projeto.path, juntar: juntarAgora },
     antes: async () => { await sincronizarComBase(o.cwd, base); },
-    depois: async () => {
-      const c = await commitTurno(o.cwd, o.prompt);
-      if (!c.branch || c.branch === 'HEAD' || c.branch === base) return;
-      if (!c.commitou && (await commitsAFrente(o.cwd, base)) === 0) return;
-      void o.fila.enfileirar(projeto.id, () => integrarNaRaiz(c.branch!)).catch(() => {});
-    },
+    depois: async () => { await commitTurno(o.cwd, o.prompt); },
+    publicador: { raiz, publicar, deploy },
   };
 }
