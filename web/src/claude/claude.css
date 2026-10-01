@@ -80,7 +80,6 @@
 .cc-item-act { display: inline-flex; padding: 3px; border-radius: 4px; color: var(--cc-fg2); }
 .cc-item-act:hover { background: var(--cc-active); color: var(--cc-fg); }
 /* Pill de worktree na lista de sessões (`worktreePill_OOQiHg` real) — ver PARIDADE.md seção 14. */
-.cc-item-worktree { display: inline-flex; align-items: center; gap: 3px; max-width: 90px; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--cc-fg) 10%, transparent); color: var(--cc-fg2); font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex-shrink: 0; }
 .cc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--cc-fg2); opacity: .4; }
 .cc-dot.is-none { visibility: hidden; }
 .cc-dot.is-running { background: var(--cc-busy); opacity: 1; }

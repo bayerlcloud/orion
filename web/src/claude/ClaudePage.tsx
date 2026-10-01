@@ -17,7 +17,7 @@ import PreviewPublico, { prefetchPreviewPublico } from '../PreviewPublico';
 import SessionMenu from './SessionMenu';
 import { Pencil } from './icons';
 import './claude.css';
-import { perguntar } from '../dialogo';
+import { confirmar, perguntar } from '../dialogo';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
@@ -538,6 +538,13 @@ export default function ClaudePage() {
     setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
     try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
+  async function deleteSession(id: string) {
+    const s = sessions.find(x => x.id === id);
+    if (!(await confirmar(`Excluir "${s?.title ?? 'sessão'}" definitivamente? A conversa some e não dá para desfazer.`, { perigo: true }))) return;
+    closeTab(id);
+    setSessions(ss => ss.filter(x => x.id !== id));
+    try { await claudeApi.remove(id); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
+  }
   /**
    * Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — CRUD + mover sessão pra
    * dentro/fora. Mesmo padrão otimista já usado por `renameSession`/`archiveSession` acima quando faz
@@ -586,7 +593,7 @@ export default function ClaudePage() {
 
   return (
     <div className={`cc ${sideHidden ? 'is-side-hidden' : ''}`}>
-      <Sidebar tabOrder={tabs.map(t => t.id)} onMoveTab={moveTab} sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession}
+      <Sidebar tabOrder={tabs.map(t => t.id)} onMoveTab={moveTab} sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} onDelete={deleteSession}
         onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
         <div className="cc-tabs">
