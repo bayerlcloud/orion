@@ -8,6 +8,8 @@ Slice=preview.slice
 MemoryMax=600M
 EnvironmentFile=/srv/previews/%i.env
 Environment=NODE_ENV=development
+# Vite sai com 143 (SIGTERM) quando o preview desliga por ociosidade: é parada normal, não falha.
+SuccessExitStatus=143
 ExecStart=/bin/sh -c 'cd "$PREVIEW_DIR" && exec "$VITE_BIN" --host 127.0.0.1 --port "$VITE_PORT" --strictPort'
 ExecStartPost=/bin/sh -c 'for i in $(seq 240); do nc -z 127.0.0.1 "$VITE_PORT" && exit 0; kill -0 "$MAINPID" 2>/dev/null || exit 1; sleep 0.5; done; exit 1'
 TimeoutStartSec=150

@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import { access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { slugify } from '../tasks/util.js';
 
@@ -34,9 +34,9 @@ export function instancia(host: string): string {
   return host.endsWith(`.${DOMINIO}`) ? host.slice(0, -(DOMINIO.length + 1)) : host;
 }
 
-/** Só projeto com package.json na pasta do app ganha preview (tira pastas de referência, tipo antigravity). */
+/** Só projeto com vite no package.json da pasta do app ganha preview (tira pastas de referência e servidor Node puro, tipo seo-engine). */
 export async function temPreview(dir: string, subpasta: string | null): Promise<boolean> {
-  return access(path.join(dir, subpasta ?? '', 'package.json')).then(() => true, () => false);
+  return readFile(path.join(dir, subpasta ?? '', 'package.json'), 'utf8').then(t => /"vite"\s*:/.test(t), () => false);
 }
 
 export function proximaPorta(usadas: number[]): number {
