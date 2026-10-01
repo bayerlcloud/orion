@@ -63,6 +63,23 @@ export function rootPerigo(cmd: string): string | null {
   return null;
 }
 
+/**
+ * Comandos que publicam o código da pasta atual (deploy de projeto, push direto na main remota).
+ * Numa worktree eles publicariam a worktree e pulariam a raiz (incidente do FisioExpert, 01/10/2026).
+ */
+const PUBLICACAO = /\bdeploy\.sh\b|\bwrangler\b[^;&|]*\bdeploy\b|\bsupabase\s+functions\s+deploy\b|\bvercel\b[^;&|]*--prod\b|\bnetlify\s+deploy\b|\bgit\s+push\b[^;&|]*:(refs\/heads\/)?(main|master)\b/;
+export function ehPublicacao(cmd: string): boolean { return PUBLICACAO.test(cmd); }
+
+/** Sessão numa worktree de projeto: `raiz` do projeto e `juntar`, que leva a worktree para a raiz já (null = ok, senão o motivo). */
+export type PublicarDaRaiz = { raiz: string; juntar: () => Promise<string | null> };
+
+const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** O comando começa entrando na raiz (`cd <raiz> && ...`, com ou sem aspas). */
+export function saiDaRaiz(cmd: string, raiz: string): boolean {
+  const r = escRe(raiz.replace(/\/+$/, ''));
+  return new RegExp(`^\\s*cd\\s+(['"]?)${r}/?\\1\\s*&&`).test(cmd);
+}
+
 function str(v: unknown): string { return typeof v === 'string' ? v : ''; }
 
 /**
@@ -120,7 +137,8 @@ async function textoBackup(backup: BackupFn | undefined, sql: string): Promise<s
 }
 
 /** `rootLiberado`: a sessão tem um "liberar root" humano dentro do prazo (store.rootLiberado). */
-export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<boolean>): HookCallback {
+/** `publicar`: sessão numa worktree; publicação só depois de juntar na raiz e só rodando da raiz, em qualquer modo. */
+export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<boolean>, publicar?: PublicarDaRaiz): HookCallback {
   return async (input) => {
     const i = input as PreToolUseHookInput;
     if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
@@ -128,6 +146,13 @@ export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<b
       const perigo = rootPerigo(str((i.tool_input as Record<string, unknown> | undefined)?.command));
       if (!perigo && rootLiberado && await rootLiberado()) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: executar como root${perigo ? ` (${perigo})` : ''}` } };
+    }
+    const cmd = i.tool_name === 'Bash' ? str((i.tool_input as Record<string, unknown> | undefined)?.command) : '';
+    if (publicar && cmd && ehPublicacao(cmd)) {
+      const negar = (motivo: string) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: motivo } });
+      const motivo = await publicar.juntar();
+      if (motivo) return negar(`Publicação recusada, nada foi publicado: ${motivo}.`);
+      if (!saiDaRaiz(cmd, publicar.raiz)) return negar(`Publicação só sai da raiz do projeto, nunca da worktree. Sua mudança já foi juntada na raiz. Rode de novo exatamente assim: cd ${publicar.raiz} && ${cmd.trim()}`);
     }
     const v = classify(i.tool_name, i.tool_input);
     if (v.always) {

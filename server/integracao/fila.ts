@@ -7,7 +7,7 @@ export class FilaIntegracao {
   private cauda = new Map<number, Promise<void>>();
   private contagem = new Map<number, number>();
 
-  enfileirar(projetoId: number, job: () => Promise<void>): Promise<void> {
+  enfileirar<T>(projetoId: number, job: () => Promise<T>): Promise<T> {
     this.contagem.set(projetoId, this.tamanho(projetoId) + 1);
     const anterior = this.cauda.get(projetoId) ?? Promise.resolve();
     const atual = anterior.then(job).finally(() => {
@@ -16,7 +16,7 @@ export class FilaIntegracao {
       else { this.contagem.delete(projetoId); if (this.cauda.get(projetoId) === seguro) this.cauda.delete(projetoId); }
     });
     // A cauda nunca rejeita: erro de um job não trava os próximos. Quem enfileirou recebe o erro.
-    const seguro = atual.catch(() => {});
+    const seguro: Promise<void> = atual.then(() => {}, () => {});
     this.cauda.set(projetoId, seguro);
     return atual;
   }

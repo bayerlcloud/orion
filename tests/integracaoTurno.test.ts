@@ -105,4 +105,21 @@ describe('ganchosDaSessao', () => {
     expect(avisos).toHaveLength(1);
     expect(avisos[0]).toContain('fatal: disco cheio');
   });
+
+  it('publicar: junta a worktree na raiz na hora; conflito e raiz suja viram motivo', async () => {
+    await edit(wtD, 0, '<h1 class="big">a</h1>');
+    const pub = ganchosDaSessao(opcoes(wtD, 'publica'))!.publicar!;
+    expect(pub.raiz).toBe(repo);
+    expect(await pub.juntar()).toBeNull();
+    expect(await readFile(path.join(repo, 'index.html'), 'utf8')).toContain('class="big"');
+    expect(await pub.juntar()).toBeNull(); // nada a frente: ok sem merge novo
+
+    await edit(wtG, 0, '<h1 class="small">a</h1>');
+    expect(await ganchosDaSessao(opcoes(wtG))!.publicar!.juntar()).toContain('conflito');
+
+    await edit(repo, 2, '<h2>suja</h2>');
+    await edit(wtD, 1, '<p>y</p>');
+    expect(await ganchosDaSessao(opcoes(wtD))!.publicar!.juntar()).toContain('raiz');
+  });
 });
+
