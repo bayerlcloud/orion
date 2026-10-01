@@ -4,64 +4,70 @@ Consenso entre a sessão do Orion e a do Brandspace, com o Danilo como ponte.
 
 ## Princípio
 
-O Orion é dono das instâncias da Evolution e o único que recebe o webhook delas. Os SaaS nunca falam com a
-Evolution nem veem a chave mestra: cada um tem um conector no Orion com chave própria e fala com o contrato
-`/api/wa/v1`. Uma fila de envio por número real, porque o WhatsApp bane o volume do número, não do SaaS.
+O Orion é dono das instâncias da Evolution e o único que recebe o webhook delas (a Evolution aceita um
+webhook por instância). Os SaaS nunca veem a chave mestra: cada um é um **app** no Orion com token próprio.
+O Orion **imita a Evolution** em `https://orion.bayerl.cloud/wa`, para o SaaS plugar como se fosse uma
+Evolution comum (no Brandspace: `connector_type: "orion"` com `endpointUrl`, `apiKey` = token, `instance` = apelido).
+Uma fila de envio por número real, porque o WhatsApp bane o volume do número, não do SaaS.
 
-## Conector (um por SaaS)
+## Apelidos
 
-- `nome`, hash da `chave` (mostrada uma vez; `Authorization: Bearer <chave>`), `segredo` do HMAC.
-- `webhook_url` opcional: sem webhook = só dispara; com webhook = recebe mensagens e status.
-- `limite_diario` de envios. Passou: 429.
-- **Destinos liberados** (grupos `...@g.us` e números): pode enviar para eles e recebe a resposta deles com
-  `pode_responder: false` (verificação de resposta do Supervisor). Um destino pode estar em vários conectores.
-- **Autorizados** (números): conversa de ida e volta, recebe com `pode_responder: true`. Um dono só por número
-  (índice único). Autorizado também conta como destino liberado.
-- Mensagem de quem não está em nenhuma lista fica só no Orion (`wa_mensagens`) e não vai para SaaS nenhum.
+O SaaS só conhece apelidos. `wa_apelidos (apelido, instancia_real)`:
 
-## Canais (apelidos)
+| apelido | uso | destino do envio |
+|---|---|---|
+| `alertas` | Supervisor, grupos e cobrança | livre, com limite diário por app |
+| `conversa` | Sirius, ida e volta | só contatos com regra `conversar` daquele app |
 
-O SaaS escolhe `canal: "alertas" | "conversa"` no envio; a tabela `wa_canais (canal, instancia_real)` no Orion
-diz qual instância usa. Hoje os dois apontam para `DANILO-BAYERL-IA-ORION`; com o segundo chip, troca uma linha.
+Hoje os dois apontam para `DANILO-BAYERL-IA-ORION` (5511978705527). Com o segundo chip, troca uma linha.
 
-## API v1
+## O que o `/wa` aceita (token do app no header `apikey`)
 
-- `POST /api/wa/v1/enviar` `{ para, texto?, canal?, midia_url?, midia_tipo?: image|document|video, nome_arquivo?, responde_a? }`
-  - 403 se `para` não é destino liberado nem autorizado; 429 acima do limite diário.
-  - Responde `{ id, status: "na_fila" }`. O resultado chega pelo webhook (`evento: "status"`).
-- `GET /api/wa/v1/destinos`: destinos liberados e autorizados do conector, com nome do grupo/contato.
+| caminho | comportamento |
+|---|---|
+| `message/sendText/<apelido>`, `message/sendMedia/<apelido>` | espera a vez na fila, envia e devolve **o corpo e o status reais da Evolution** (o SaaS usa `key.id` e o 400 `exists:false`). Espera acima de ~60 s: 429. Acima do limite diário: 429. Destino proibido no `conversa`: 403. |
+| `instance/connectionState/<apelido>` | estado real da instância por trás do apelido |
+| `instance/fetchInstances` | só os apelidos daquele app |
+| `group/fetchAllGroups/<apelido>`, `chat/findContacts/<apelido>` | leitura, repassada |
+| todo o resto (`instance/create`, `delete`, `connect`, `logout`, `webhook/*`, `settings/*`...) | 403 |
 
-## Repasse para o SaaS
+## Regras de entrada
 
-`POST <webhook_url>` com `x-orion-assinatura: sha256=<HMAC do corpo>`:
+`wa_regras (app, contato, modo)`, `contato` = número ou jid de grupo, `modo` = `ouvir` | `conversar`.
 
-```json
-{ "evento": "mensagem", "id": "...", "de": "5511...", "nome": "...", "grupo": null,
-  "texto": "...", "tipo": "conversation", "ts": "...", "pode_responder": false, "bruto": { } }
-{ "evento": "status", "id": "<id do Orion>", "status": "enviada|entregue|lida|falhou", "motivo": null }
-```
+- `ouvir`: o app recebe a mensagem (verificação de resposta), ninguém responde. Um contato pode ter `ouvir` em vários apps.
+- `conversar`: o app recebe e pode responder. Um dono só por contato (índice único parcial).
+- Contato sem regra: fica só no Orion (`wa_mensagens`).
 
-- `bruto` é o payload da Evolution **sem** `apikey`, e com `server_url` e `instance` trocados pelo canal.
-- Sem 2xx, reenvio com espera crescente. O SaaS deduplica pelo `id`.
+## Repasse para o app
+
+`POST <webhook_url do app>` (no Brandspace, `/api/public/evolution/webhook?k=...`), no formato original
+`messages.upsert` da Evolution, com:
+
+- `apikey` **removida** do corpo, `server_url` trocado pelo Orion;
+- `instance` trocado pelo apelido escolhido pelo modo da regra: `conversar` vira `conversa`, `ouvir` vira `alertas`
+  (assim o bot responde pelo apelido certo e a trava do `conversa` vale);
+- headers `x-orion-modo: ouvir|conversar` e `x-orion-assinatura: sha256=<HMAC do corpo>` (o app valida quando puder; o `?k=` segura o começo);
+- sem 2xx, reenvio com espera crescente.
 
 ## Proteção do número
 
-Fila única por instância real: 3 a 8 s aleatórios entre envios, "digitando" antes de mensagem de conversa,
-limite diário por conector.
+Fila única por instância real: 3 a 8 s aleatórios entre envios, "digitando" antes de mensagem do `conversa`,
+limite diário por app.
 
 ## Serviço separado desde a etapa 1
 
-`orion-wa` (mesmo repositório, mesmo Postgres, systemd próprio) recebe o webhook da Evolution, grava em
-`wa_mensagens`, roda a fila e o repasse, e serve `/api/wa/v1`. A publicação do painel não o reinicia. O painel
-só lê e configura (Configurações › WhatsApp: conectores, destinos, autorizados, lista de grupos da instância
-para liberar com um clique).
+`orion-wa` (mesmo repositório, mesmo Postgres, systemd próprio, Caddy manda `/wa/*` e o webhook da Evolution
+para ele) recebe o webhook, grava em `wa_mensagens`, roda a fila e o repasse e serve o `/wa`. A publicação do
+painel não o reinicia. O painel só lê e configura (Configurações › WhatsApp: apps e tokens, regras, lista de
+grupos da instância para liberar com um clique).
 
 ## Ordem
 
-1. Orion, serviço `orion-wa`: conectores e chave, `/enviar` com checagem e fila, receptor do webhook.
-2. Orion: repasse assinado com `pode_responder`, reenvio, eventos de status; tela de destinos e autorizados.
-3. Brandspace: `connector_type: "orion"` (chave e segredo em `app_connection_secrets`), rota
-   `POST /api/public/orion/webhook` (HMAC, dedup, ingest, Sirius só com `pode_responder`), desvio no
-   supervisor-fire, ContactPicker usando `/destinos`.
-4. Teste: 1 tarefa para grupo e 1 para número; resposta de destino chega sem o Sirius responder, de autorizado
-   o Sirius responde, de desconhecido nada acontece.
+1. Orion: tabelas `wa_apps` (nome, hash do token, webhook_url, segredo, limite diário), `wa_regras`, `wa_apelidos`;
+   serviço `orion-wa` com o `/wa` (lista de permitidos e fila síncrona) e o receptor do webhook.
+2. Orion: repasse com limpeza do payload, apelido pelo modo, `x-orion-modo`, HMAC e reenvio; tela de apps e regras.
+3. Brandspace: `connector_type: "orion"` (token em `app_connection_secrets`); o Sirius responde só com
+   `x-orion-modo: conversar`. HMAC depois.
+4. Teste: 1 tarefa do Supervisor para grupo e 1 para número (reação 👍 aparece no histórico); resposta de contato
+   `ouvir` chega sem o Sirius responder, de `conversar` o Sirius responde, de desconhecido nada acontece.
