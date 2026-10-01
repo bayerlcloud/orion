@@ -147,12 +147,15 @@ export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<b
       if (!perigo && rootLiberado && await rootLiberado()) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: executar como root${perigo ? ` (${perigo})` : ''}` } };
     }
-    const cmd = i.tool_name === 'Bash' ? str((i.tool_input as Record<string, unknown> | undefined)?.command) : '';
-    if (publicar && cmd && ehPublicacao(cmd)) {
+    const inp = (i.tool_input ?? {}) as Record<string, unknown>;
+    const cmd = i.tool_name === 'Bash' ? str(inp.command) : '';
+    // Publicar do Orion (pedido.json) constrói a main da raiz: basta juntar a worktree antes.
+    const pedidoOrion = /\/srv\/builds\/pedido\.json/.test(cmd) || str(inp.file_path) === '/srv/builds/pedido.json';
+    if (publicar && (pedidoOrion || (cmd && ehPublicacao(cmd)))) {
       const negar = (motivo: string) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: motivo } });
       const motivo = await publicar.juntar();
       if (motivo) return negar(`Publicação recusada, nada foi publicado: ${motivo}.`);
-      if (!saiDaRaiz(cmd, publicar.raiz)) return negar(`Publicação só sai da raiz do projeto, nunca da worktree. Sua mudança já foi juntada na raiz. Rode de novo exatamente assim: cd ${publicar.raiz} && ${cmd.trim()}`);
+      if (!pedidoOrion && !saiDaRaiz(cmd, publicar.raiz)) return negar(`Publicação só sai da raiz do projeto, nunca da worktree. Sua mudança já foi juntada na raiz. Rode de novo exatamente assim: cd ${publicar.raiz} && ${cmd.trim()}`);
     }
     const v = classify(i.tool_name, i.tool_input);
     if (v.always) {

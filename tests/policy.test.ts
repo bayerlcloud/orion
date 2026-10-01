@@ -159,5 +159,10 @@ print(json.dumps([rr.perigoso(c, 'deploy/root-perigo.json') for c in sys.argv[1:
     expect(out.permissionDecisionReason).toContain('conflito');
     expect((await run('ls')).permissionDecision).toBe('allow');
     expect(juntou).toBe(4);
+    motivo = null;
+    expect((await run(`echo '{"ref":"main"}' > /srv/builds/pedido.json`)).permissionDecision).toBe('allow');
+    const w: any = await hook({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'Write', tool_input: { file_path: '/srv/builds/pedido.json' } } as any, undefined, sig);
+    expect(w.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(juntou).toBe(6);
   });
 });
