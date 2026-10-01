@@ -618,11 +618,11 @@ export default function ClaudePage() {
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
-            {/* Tudo o mais fica no menu ⋮ (preview ao vivo, agentes, renomear, parar, skills, permissões, plugins). */}
+            {/* Tudo o mais fica no menu ⋮ (preview do usuário, agentes, renomear, parar, skills, permissões, plugins). */}
             <SessionMenu
               topo={activeProject ? <PreviewPublico projectId={activeProject.id} /> : undefined}
               sessao={[
-                { icon: <Eye size={15} />, label: 'Preview ao vivo', desc: 'Abre o site com as mudanças desta sessão', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
+                { icon: <Eye size={15} />, label: 'Preview do usuário', desc: 'Seu endereço pessoal, mostrando esta sessão (a última onde você clicou)', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
                 { icon: <AgentMapIcon size={15} />, label: 'Mapa de agentes', desc: 'Subagentes desta sessão, tempo e tokens', disabled: !activeId, onClick: () => setAgentMapOpen(true) },
                 { icon: <Pencil size={15} />, label: 'Renomear sessão', desc: 'Troca o nome que aparece na aba e na lista', disabled: !activeId || isDraft(activeId), onClick: rename },
                 { icon: <Power size={15} />, label: 'Parar o Claude', desc: 'Interrompe o que ele está fazendo agora', hidden: !running, danger: true, onClick: stop },
