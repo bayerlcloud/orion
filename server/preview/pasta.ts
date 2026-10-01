@@ -11,11 +11,20 @@ import { instancia, type PreviewRow } from './model.js';
 const ENV_DIR = '/srv/previews';
 const NPM_TIMEOUT = 10 * 60_000;
 
-function rodar(cmd: string, args: string[], cwd: string, timeout: number): Promise<void> {
+function rodar(cmd: string, args: string[], cwd: string, timeout: number, tolerar?: (stderr: string) => boolean): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 }, (err, _out, stderr) =>
-      err ? reject(new Error(String(stderr || err.message).slice(-500))) : resolve());
+      err && !tolerar?.(String(stderr)) ? reject(new Error(String(stderr || err.message).slice(-500))) : resolve());
   });
+}
+
+/**
+ * O setfacl -R segue em frente quando não consegue mexer num arquivo e sai com 1 no fim. Arquivo do cache
+ * que o vite (usuário preview) já criou é dele: danilo não consegue dar ACL nele e nem precisa. Só esse
+ * erro é tolerado; qualquer outra linha (pasta sumiu, disco) continua falhando.
+ */
+export function soSemPermissao(stderr: string): boolean {
+  return stderr.trim().split('\n').every(l => /Operation not permitted$/.test(l));
 }
 
 const existe = (p: string) => lstat(p).then(() => true, () => false);
@@ -94,7 +103,7 @@ export async function escreverEnv(p: PreviewRow, base = ENV_DIR, parar: (inst: s
  * (`node_modules/.vite`) e o topo da pasta (config compilado do vite) são os lugares onde ele escreve. Com node_modules por symlink, o cache é o
  * da raiz, dividido com o preview raiz do projeto.
  */
-export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000), base: string = dir): Promise<void> {
+export async function liberarCache(dir: string, setfacl: (args: string[]) => Promise<void> = (a) => rodar('setfacl', a, '/', 30_000, soSemPermissao), base: string = dir): Promise<void> {
   if (!(await existe(path.join(base, 'node_modules')))) return;
   // .vite-temp: onde o vite 6 grava o vite.config compilado.
   for (const nome of ['.vite', '.vite-temp']) {

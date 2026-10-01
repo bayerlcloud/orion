@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, lstat, readdir, readlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { prepararPasta, escreverEnv, liberarCache, ligarEnv } from '../server/preview/pasta';
+import { prepararPasta, escreverEnv, liberarCache, ligarEnv, soSemPermissao } from '../server/preview/pasta';
 
 async function projeto(pkg: string) {
   const base = await mkdtemp(path.join(tmpdir(), 'pv-'));
@@ -65,6 +65,14 @@ describe('liberarCache', () => {
     await liberarCache(dir, async (args) => { chamadas.push(args); });
     expect(await readdir(dir)).toEqual([]);
     expect(chamadas).toEqual([]);
+  });
+});
+
+describe('soSemPermissao (setfacl no cache com arquivo do usuário preview)', () => {
+  it('só "Operation not permitted" é tolerado; outro erro ou stderr vazio, não', () => {
+    expect(soSemPermissao('setfacl: /p/node_modules/.vite/deps/a.js: Operation not permitted\nsetfacl: /p/node_modules/.vite/deps/b.js: Operation not permitted\n')).toBe(true);
+    expect(soSemPermissao('setfacl: /p/node_modules/.vite/deps/a.js: Operation not permitted\nsetfacl: /p/node_modules/.vite: No such file or directory\n')).toBe(false);
+    expect(soSemPermissao('')).toBe(false);
   });
 });
 
