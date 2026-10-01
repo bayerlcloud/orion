@@ -16,6 +16,7 @@ import { mkdir, readdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Pool } from 'pg';
 import type { Binario } from '../inventory.js';
+import { reembedar } from '../memories/embed.js';
 
 export const NIVEL1_DIR = '/home/danilo/.claude/nivel1';
 const CLAUDE_DIR = '/home/danilo/.claude';
@@ -224,8 +225,13 @@ export async function generateNivel1(
     try { await escreverAtomico(path.join(dir, a.nome), a.conteudo); escritos.push(a.nome); }
     catch (e: any) { avisos.push(`falha ao escrever ${a.nome}: ${e?.message ?? e}`); continue; }
     try {
-      const r = await pool.query('UPDATE memories SET body_md = $1, updated_at = now() WHERE code = $2', [a.conteudo, a.code]);
-      if (r.rowCount !== 1) avisos.push(`espelho no painel: code ${a.code} não existe na tabela memories`);
+      const r = await pool.query('UPDATE memories SET body_md = $1, updated_at = now() WHERE code = $2 AND body_md IS DISTINCT FROM $1 RETURNING id', [a.conteudo, a.code]);
+      // Só reembeda quando o texto mudou de verdade (o ciclo roda de hora em hora; sem mudança, zero custo).
+      if (r.rowCount === 1) await reembedar((sql, params) => pool.query(sql, params as any[]), r.rows[0].id);
+      else {
+        const existe = await pool.query('SELECT 1 FROM memories WHERE code = $1', [a.code]);
+        if (!existe.rowCount) avisos.push(`espelho no painel: code ${a.code} não existe na tabela memories`);
+      }
     } catch (e: any) { avisos.push(`espelho no painel falhou para ${a.code}: ${e?.message ?? e}`); }
   }
   return { escritos, avisos };

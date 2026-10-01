@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buscarMemorias, salvarMemoria, type MemQuery, type MemoryToolCtx } from '../server/claude/memoryTool.js';
+import { atualizarMemoria, buscarMemorias, salvarMemoria, type MemQuery, type MemoryToolCtx } from '../server/claude/memoryTool.js';
 import type { Embedder } from '../server/memories/embed.js';
 
 const ctx: MemoryToolCtx = { sessionId: 'sess-1', projectId: 1, userId: 1 };
@@ -50,7 +50,10 @@ describe('buscar', () => {
       return undefined;
     });
     const r = await buscarMemorias(q, ctx, { consulta: 'iowait cpu' });
-    expect(r).toEqual([{ code: 'orion-coletor-cpu-sem-iowait', nivel: 4, nota: 6, titulo: 'Coletor não soma iowait', resumo: 'resumo', corpo: 'corpo' }]);
+    expect(r).toEqual([{ code: 'orion-coletor-cpu-sem-iowait', nivel: 4, nota: 6, titulo: 'Coletor não soma iowait', resumo: 'resumo', corpo: 'corpo', escopo: 'universal', autor: null, quando: null }]);
+    // Filtro de escopo da sessão (universal + projeto + pessoa), só memória ativa, $5 = todos_projetos
+    expect(calls[0].sql).toContain("m.estado = 'ativa'");
+    expect(calls[0].params).toEqual(['iowait cpu', null, 1, 1, false]);
 
     const bump = calls.find((c) => c.sql.includes('LEAST(nota + 1, 10)'))!;
     expect(bump.sql).toContain("last_accessed_at::date <> current_date"); // no máximo 1x/dia por memória
@@ -172,9 +175,10 @@ describe('salvar', () => {
       return undefined;
     });
     const r = await salvarMemoria(q, ctx, { titulo: 'VNC exposto na c2', corpo: 'fechar a porta' });
-    expect(r).toEqual({ code: 'vnc-exposto-na-c2', nivel: 4, nota: 5 });
+    expect(r).toEqual({ salva: true, code: 'vnc-exposto-na-c2', nivel: 4, nota: 5 });
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
-    expect(insert.params).toEqual(['vnc-exposto-na-c2', 'VNC exposto na c2', '', 'fechar a porta', 4, 5, [], 1, null]);
+    // ... + autor (quem mandou o turno; sem autorId cai no criador), sessão de origem e origem 'tool'
+    expect(insert.params).toEqual(['vnc-exposto-na-c2', 'VNC exposto na c2', '', 'fechar a porta', 4, 5, [], 1, null, 1, 'sess-1', 'tool']);
   });
 
   it('universal: true grava sem escopo nenhum (exceção consciente)', async () => {
@@ -261,22 +265,55 @@ describe('salvar', () => {
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
     expect(insert.sql).toContain('embedding');
     expect(insert.sql).toContain('::vector');
-    expect(insert.params?.[9]).toBe('[0.1,0.2,0.3]');
+    expect(insert.params?.[12]).toBe('[0.1,0.2,0.3]');
     expect(emb.textos).toEqual(['Título\nresumo\ncorpo md']);
   });
 
-  it('embedder quebrado não impede o salvar: grava com embedding nulo', async () => {
+  it('embedder quebrado não impede o salvar: grava sem embedding (o backfill cobre)', async () => {
     const { q, calls } = comColuna((sql) => {
       if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
       return undefined;
     });
     const r = await salvarMemoria(q, ctx, { titulo: 'x', corpo: 'y' }, embedderQuebrado);
-    expect(r.code).toBe('x');
+    expect(r).toMatchObject({ salva: true, code: 'x' });
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
-    expect(insert.sql).toContain('embedding');
-    expect(insert.params?.[9]).toBeNull();
+    expect(insert.sql).not.toContain('embedding');
+    expect(insert.params).toHaveLength(12);
   });
 
+  it('escopo plataforma grava universal; escopo pessoa grava no criador; autorId vira autor', async () => {
+    const { q, calls } = fakeQuery((sql) => (sql.includes('WHERE code = $1') ? { rows: [], rowCount: 0 } : undefined));
+    await salvarMemoria(q, { ...ctx, autorId: 3 }, { titulo: 'Publicar é pela fila', corpo: 'c', nivel: 2, escopo: 'plataforma' });
+    let insert = calls.filter((c) => c.sql.includes('INSERT INTO memories')).at(-1)!;
+    expect(insert.params?.slice(7, 10)).toEqual([null, null, 3]); // sem escopo, autor = quem mandou o turno
+    await salvarMemoria(q, ctx, { titulo: 'Gosta de resposta curta', corpo: 'c', nivel: 2, escopo: 'pessoa' });
+    insert = calls.filter((c) => c.sql.includes('INSERT INTO memories')).at(-1)!;
+    expect(insert.params?.slice(7, 9)).toEqual([null, 1]);
+    await expect(salvarMemoria(q, ctx, { titulo: 'x', corpo: 'y', escopo: 'global' as any })).rejects.toThrow(/escopo/);
+  });
+
+  it('duplicata (cosseno >= 0,95 no mesmo escopo) não grava e aponta o code; forcar grava; parecida só avisa', async () => {
+    let sim = 0.97;
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
+      if (sql.includes('IS NOT DISTINCT FROM')) return { rows: [{ code: 'ja-existe', title: 'Já existe', sim }], rowCount: 1 };
+      return undefined;
+    });
+    const emb = embedderFixo([0.5]);
+    const r = await salvarMemoria(q, ctx, { titulo: 'Quase igual', corpo: 'c' }, emb);
+    expect(r).toMatchObject({ salva: false, parecida: 'ja-existe', similaridade: 0.97 });
+    expect(calls.some((c) => c.sql.includes('INSERT INTO memories'))).toBe(false);
+    const dedupe = calls.find((c) => c.sql.includes('IS NOT DISTINCT FROM'))!;
+    expect(dedupe.params).toEqual(['[0.5]', 1, null]); // mesmo escopo da memória nova: projeto 1, sem pessoa
+
+    const forcada = await salvarMemoria(q, ctx, { titulo: 'Quase igual', corpo: 'c', forcar: true }, emb);
+    expect(forcada).toMatchObject({ salva: true, code: 'quase-igual' });
+
+    sim = 0.92;
+    const parecida = await salvarMemoria(q, ctx, { titulo: 'Parecida', corpo: 'c' }, emb);
+    expect(parecida).toMatchObject({ salva: true, code: 'parecida' });
+    expect((parecida as any).aviso).toContain('ja-existe');
+  });
   it('sem a coluna embedding, o INSERT nem menciona a coluna (pré-migração, zero erro)', async () => {
     const { q, calls } = fakeQuery((sql) => {
       if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
@@ -287,5 +324,59 @@ describe('salvar', () => {
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
     expect(insert.sql).not.toContain('embedding');
     expect(emb.textos).toEqual([]);
+  });
+});
+
+describe('atualizar', () => {
+  const linha = (level: number) => ({ id: 7, code: 'x', title: 't', summary: 's', body_md: 'b', level });
+
+  it('nível 4: muda na hora, guarda o corpo anterior e reembeda', async () => {
+    const { q, calls } = comColuna((sql) => {
+      if (sql.includes('SELECT id, code, title, summary, body_md, level FROM memories')) return { rows: [linha(4)], rowCount: 1 };
+      if (sql.includes('UPDATE memories SET')) return { rows: [{ title: 't', summary: 's', body_md: 'novo' }], rowCount: 1 };
+      return undefined;
+    });
+    const emb = embedderFixo([0.9]);
+    const r = await atualizarMemoria(q, ctx, { code: 'x', corpo: 'novo' }, emb);
+    expect(r).toEqual({ atualizada: true, code: 'x', nivel: 4, campos: ['corpo'] });
+    const up = calls.find((c) => c.sql.includes('UPDATE memories SET') && c.sql.includes('corpo_anterior'))!;
+    expect(up.params).toEqual([7, null, null, 'novo', null, null]);
+    expect(emb.textos).toEqual(['t\ns\nnovo']);
+    expect(calls.some((c) => c.sql.includes('SET embedding'))).toBe(true);
+  });
+
+  it('estado substituida aposenta sem reembedar; nível 3 vira proposta (reescrita ou deleção)', async () => {
+    const { q, calls } = fakeQuery((sql) => {
+      if (sql.includes('SELECT id, code, title, summary, body_md, level FROM memories')) return { rows: [linha(4)], rowCount: 1 };
+      if (sql.includes('UPDATE memories SET')) return { rows: [{ title: 't', summary: 's', body_md: 'b' }], rowCount: 1 };
+      return undefined;
+    });
+    const r = await atualizarMemoria(q, ctx, { code: 'x', estado: 'substituida' });
+    expect(r).toEqual({ atualizada: true, code: 'x', nivel: 4, campos: ['estado'] });
+    expect(calls.some((c) => c.sql.includes('information_schema'))).toBe(false);
+
+    const { q: q3, calls: c3 } = fakeQuery((sql) => {
+      if (sql.includes('SELECT id, code, title, summary, body_md, level FROM memories')) return { rows: [linha(3)], rowCount: 1 };
+      if (sql.includes('FROM memories WHERE id = ANY')) return { rows: [{ id: 7, code: 'x', title: 't', level: 3, nota: null, rewritable: true }], rowCount: 1 };
+      if (sql.includes('INSERT INTO curadoria_propostas')) return { rows: [{ id: 55 }], rowCount: 1 };
+      return undefined;
+    });
+    const p = await atualizarMemoria(q3, { ...ctx, autorId: 2 }, { code: 'x', corpo: 'novo', motivo: 'mudou o fluxo' });
+    expect(p).toMatchObject({ atualizada: false, code: 'x', proposta: 55, tipo: 'reescrita' });
+    const ins = c3.find((c) => c.sql.includes('INSERT INTO curadoria_propostas'))!;
+    expect(ins.params?.[0]).toBe('reescrita');
+    expect(String(ins.params?.[1])).toContain('mudou o fluxo');
+    expect(c3.some((c) => c.sql.includes('UPDATE memories SET'))).toBe(false); // decisão fechada não muda direto
+    const d = await atualizarMemoria(q3, ctx, { code: 'x', estado: 'substituida' });
+    expect(d).toMatchObject({ atualizada: false, tipo: 'delecao' });
+  });
+
+  it('recusa níveis 0 e 1, code inexistente e chamada sem campo', async () => {
+    const { q } = fakeQuery((sql) => (sql.includes('SELECT id, code, title') ? { rows: [linha(1)], rowCount: 1 } : undefined));
+    await expect(atualizarMemoria(q, ctx, { code: 'x', corpo: 'c' })).rejects.toThrow(/níveis 0 e 1/);
+    const { q: vazio } = fakeQuery(() => undefined);
+    await expect(atualizarMemoria(vazio, ctx, { code: 'nao-existe', corpo: 'c' })).rejects.toThrow(/não existe/);
+    await expect(atualizarMemoria(vazio, ctx, { code: 'x' })).rejects.toThrow(/ao menos um campo/);
+    await expect(atualizarMemoria(vazio, ctx, { code: 'x', estado: 'morta' as any })).rejects.toThrow(/estado/);
   });
 });

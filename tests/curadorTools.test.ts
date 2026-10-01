@@ -79,6 +79,17 @@ describe('listarMemorias', () => {
     await listarMemorias(q, { com_corpo: true });
     expect(calls[2].sql).toContain('body_md');
   });
+
+  it('projeto restringe pelo slug; "universal" pega as sem projeto; só memória ativa', async () => {
+    const { q, calls } = fakePool((sql) => (sql.includes('FROM memories') ? { rows: [], rowCount: 0 } : undefined));
+    await listarMemorias(q, { projeto: 'brandspace' });
+    expect(calls[0].sql).toContain('m.scope_project_id = (SELECT id FROM projects WHERE slug = $1)');
+    expect(calls[0].sql).toContain("m.estado = 'ativa'");
+    expect(calls[0].params).toEqual(['brandspace']);
+    await listarMemorias(q, { projeto: 'universal' });
+    expect(calls[2].sql).toContain('m.scope_project_id IS NULL');
+    expect(calls[2].params).toBeUndefined();
+  });
 });
 
 describe('precisaCuradoria', () => {

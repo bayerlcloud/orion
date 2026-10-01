@@ -36,6 +36,26 @@ describe('git do turno', () => {
     const raiz = await readFile(path.join(repo, 'index.html'), 'utf8');
     expect(raiz).toContain('class="big"'); expect(raiz).toContain('class="red"');
   });
+  it('node_modules como symlink nunca entra no commit, ignorado (info/exclude) ou não', async () => {
+    const { symlink, appendFile } = await import('node:fs/promises');
+    await symlink(repo, path.join(wtD, 'node_modules'));
+    await edit(wtD, 1, '<p>um</p>');
+    expect(await commitTurno(wtD, 'sem exclude')).toMatchObject({ commitou: true, sujo: true });
+    expect(g(wtD, 'ls-files', 'node_modules').trim()).toBe('');
+    // 01/10/2026: `node_modules` em .git/info/exclude fazia o add abortar ("paths are ignored") e o commit sumia
+    await appendFile(path.join(repo, '.git', 'info', 'exclude'), 'node_modules\n');
+    await edit(wtD, 1, '<p>dois</p>');
+    expect(await commitTurno(wtD, 'com exclude')).toMatchObject({ commitou: true, sujo: true });
+    expect(g(wtD, 'ls-files', 'node_modules').trim()).toBe('');
+    expect(g(wtD, 'log', '--oneline').trim().split('\n')).toHaveLength(3);
+  });
+  it('git que falha no commit devolve sujo: true e o motivo', async () => {
+    await edit(wtD, 1, '<p>y</p>');
+    g(wtD, 'config', 'commit.gpgsign', 'true'); g(wtD, 'config', 'gpg.program', '/bin/false');
+    const r = await commitTurno(wtD, 'vai falhar');
+    expect(r).toMatchObject({ commitou: false, sujo: true, branch: 'd' });
+    expect(r.log.length).toBeGreaterThan(0);
+  });
   it('mensagem longa vira uma linha de até 72 letras', async () => {
     await edit(wtD, 1, '<p>y</p>');
     await commitTurno(wtD, 'linha um bem comprida '.repeat(10) + '\nsegunda linha');

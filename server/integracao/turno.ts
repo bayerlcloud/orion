@@ -60,6 +60,8 @@ export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
   async function publicar(): Promise<Resultado> {
     const c = await commitTurno(o.cwd, o.prompt);
     if (!c.branch || c.branch === 'HEAD' || c.branch === base) return { ok: false, texto: `a worktree não está numa branch própria (${c.branch ?? 'sem branch'}); nada subiu.` };
+    // Commit que falhou com a worktree suja era engolido e virava "nada novo para subir" (01/10/2026): agora é erro.
+    if (c.sujo && !c.commitou) return { ok: false, texto: `o commit na worktree falhou; nada subiu. git: ${fim(c.log, 500)}` };
     const s = await sincronizarComBase(o.cwd, base);
     if (!s.ok) return { ok: false, texto: s.conflito
       ? `conflito com a raiz (${arquivosEmConflito(s.log)}); nada subiu. Rode git merge ${base} nesta pasta, junte mantendo as duas mudanças, faça o commit e publique de novo.`

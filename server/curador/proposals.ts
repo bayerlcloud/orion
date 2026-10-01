@@ -8,6 +8,7 @@
  */
 import type { Pool } from 'pg';
 import { ValidationError, normalizeScopeId, truncateSummary } from '../memories/util.js';
+import { reembedar } from '../memories/embed.js';
 
 export type CurQuery = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount: number | null }>;
 
@@ -200,11 +201,12 @@ export async function aplicarProposta(
     // Resumo novo é opcional: sem ele, o resumo antigo fica (e pode contradizer o corpo novo).
     const resumo = typeof payload.resumo === 'string' && payload.resumo.trim() ? truncateSummary(payload.resumo.trim()) : null;
     const { rows } = await q(
-      `UPDATE memories SET body_md = $2, summary = COALESCE($3, summary), last_rewritten_at = now(), updated_at = now()
-        WHERE id = $1 AND level >= 2 AND rewritable RETURNING code`,
+      `UPDATE memories SET body_md = $2, summary = COALESCE($3, summary), corpo_anterior = body_md, last_rewritten_at = now(), updated_at = now()
+        WHERE id = $1 AND level >= 2 AND rewritable RETURNING id, code`,
       [ids[0], texto, resumo],
     );
     if (!rows.length) throw new ValidationError('a memória não existe mais ou deixou de ser reescrevível');
+    await reembedar(q, rows[0].id); // corpo mudou: o vetor da busca acompanha (best-effort)
     return `memória ${rows[0].code} reescrita`;
   }
   if (tipo === 'reescopo') {
