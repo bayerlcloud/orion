@@ -546,33 +546,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             <option value="">Neutro</option>
           </select>
         )}
-        {/*
-          "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14). Só
-          aparece junto do seletor de projeto acima (rascunho de sessão nova): na extensão real o
-          botão "createWorktreeButton" fica na barra lateral, ao lado de "New session" — mas lá a
-          ação é independente de mandar mensagem; aqui toda sessão nasce com um primeiro prompt, então
-          faz mais sentido ficar ao lado de "qual projeto", que já é o único outro contexto que só
-          existe nesta tela pra uma sessão ainda não criada. Mesmo padrão `cc-pop`/`Menu`/
-          `cc-menu-item` já usado pelos seletores de Modelo/Esforço/Modo (copiado literalmente, sem
-          inventar interação nova).
-        */}
-        {projects && onProject && onWorktreeName && projectId != null && (
-          <div className="cc-pop">
-            <button type="button" className="cc-pill cc-pill-ghost" onClick={() => setMenu(m => m === 'worktree' ? '' : 'worktree')} title="Criar esta sessão num novo git worktree">
-              <GitBranch size={12} /> {worktreeName || 'Worktree'}
-            </button>
-            <Menu open={menu === 'worktree'} onClose={() => setMenu('')} className="cc-menu-up">
-              <div className="cc-menu-title">Novo worktree (opcional)</div>
-              <div className="cc-worktree-field">
-                <input autoFocus value={worktreeName ?? ''} placeholder="ex. minha-feature"
-                  onChange={e => onWorktreeName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); setMenu(''); } }} />
-              </div>
-              {worktreeName && worktreeNameError && <div className="cc-worktree-error">{worktreeNameError}</div>}
-              {worktreeName && !worktreeNameError && <div className="cc-worktree-status">Cria o worktree ao enviar a 1ª mensagem</div>}
-            </Menu>
-          </div>
-        )}
+        {/* Sem pílula de worktree: toda sessão de projeto nasce na worktree da pessoa (decisão 01/10/2026). */}
         {/* Agents pill (ver prop `agents` acima e PARIDADE-agentmap.md): logo antes do model pill,
             mesma vizinhança do real (`w0&&F(pB0,...)` vem imediatamente antes do bloco do model
             picker no rodapé real). Ícone = path literal do `U11` real; dot pintado por

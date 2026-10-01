@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { validateWorktreeName, worktreesBaseDir, createWorktreeForProject } from '../server/claude/worktree.js';
+import { validateWorktreeName, worktreesBaseDir, createWorktreeForProject, worktreeDoUsuario } from '../server/claude/worktree.js';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 /**
  * Regras extraídas lendo `fF0` no webview decompilado da extensão real (v2.1.283,
@@ -68,5 +72,26 @@ describe('createWorktreeForProject — nome inválido nunca chega a chamar o git
     const r = await createWorktreeForProject('/nao-existe-de-verdade-para-teste', 'a/b', 'main');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).not.toBe('');
+  });
+});
+
+describe('worktreeDoUsuario', () => {
+  const sh = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, stdio: 'pipe' }).toString();
+  async function repo(branch: string) {
+    const dir = await mkdtemp(path.join(tmpdir(), 'wtu-'));
+    const p = path.join(dir, 'proj'); await mkdir(p);
+    sh(p, 'init', '-q', '-b', branch); sh(p, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'x');
+    return p;
+  }
+  it('cria na branch da raiz, reaproveita depois, e recusa raiz suja', async () => {
+    const p = await repo('feat/x');
+    const a = await worktreeDoUsuario(p, 'danilo');
+    expect(a).toEqual({ ok: true, path: `${p}-worktrees/danilo`, branch: 'usuario/danilo' });
+    expect(sh(`${p}-worktrees/danilo`, 'rev-parse', 'HEAD')).toBe(sh(p, 'rev-parse', 'feat/x'));
+    expect(await worktreeDoUsuario(p, 'danilo')).toEqual(a);
+    await writeFile(path.join(p, 'a.txt'), '1'); sh(p, 'add', 'a.txt');
+    const b = await worktreeDoUsuario(p, 'lais');
+    expect(b.ok).toBe(false);
+    expect(!b.ok && b.motivo).toContain('feat/x');
   });
 });

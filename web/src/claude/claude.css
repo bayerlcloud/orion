@@ -895,3 +895,6 @@
 
 /* Painéis do Claude embutidos em outra página (Configurações): só herdam o tema, sem o layout da tela do chat. */
 .cc.cc-embed { display: contents; }
+
+/* Nota do Orion na conversa (runner.aviso): integração, pasta da sessão, sessão paralela */
+.cc-aviso { margin: 6px 0; padding: 6px 10px; border-left: 2px solid var(--warn); color: var(--fg2); font-size: 12px; line-height: 1.4; }

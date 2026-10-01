@@ -252,6 +252,13 @@ export class Runner {
     return true;
   }
 
+  /** Nota do Orion na conversa (integração, pasta da sessão): grava e mostra ao vivo, sem abrir turno. */
+  aviso(id: string, texto: string): void {
+    const m = { type: 'system', subtype: 'orion_aviso', text: texto, session_id: id } as unknown as SDKMessage;
+    void this.deps.store.appendEvent(id, 'system', m).catch(() => {});
+    this.emit(id, { type: 'message', message: m });
+  }
+
   subscribe(id: string, fn: (e: LiveEvent) => void): () => void {
     const l = this.get(id); l.subscribers.add(fn);
     return () => { l.subscribers.delete(fn); };

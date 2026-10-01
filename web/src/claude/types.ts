@@ -45,6 +45,8 @@ export type ConvEvent =
     }
   | { id: string; kind: 'result'; ok: boolean; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string }
+  /** Nota do Orion na conversa (integração na raiz, pasta da sessão, sessão paralela). */
+  | { id: string; kind: 'aviso'; text: string }
   /**
    * Prompt REJEITADO por um hook UserPromptSubmit (exit 2): o SDK manda `system` com
    * `prevent_continuation: true` e o `result` vem "success" com 0 turnos — o Claude nunca viu a

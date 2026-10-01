@@ -23,7 +23,9 @@ import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } fr
 import { backupAntes, dbUrlKey } from '../dbBackup.js';
 import { FilaIntegracao } from '../integracao/fila.js';
 import { ganchosDaSessao } from '../integracao/turno.js';
-import { createWorktreeForProject } from '../claude/worktree.js';
+import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
+import { branchAtual } from '../tasks/git.js';
+import { slugPessoa } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
@@ -156,17 +158,12 @@ export async function claudeRoutes(app: FastifyInstance) {
     return (sql) => backupAntes({ dbUrl, slug, sql });
   }
 
-  /** Projeto com o default_branch lido de forma defensiva (a coluna pode não existir, como em routes/tasks.ts). */
+  /** Projeto para a integração; a base é a branch em que a raiz está (o que o preview raiz mostra), não `main` fixo. */
   async function projetoIntegracao(projectId: number | null): Promise<{ id: number; path: string; default_branch: string } | null> {
     if (!projectId) return null;
     const { rows } = await app.pool.query('SELECT id, path FROM projects WHERE id = $1', [projectId]);
     if (!rows[0]) return null;
-    let default_branch = 'main';
-    try {
-      const r = await app.pool.query('SELECT default_branch FROM projects WHERE id = $1', [projectId]);
-      if (r.rows[0]?.default_branch) default_branch = String(r.rows[0].default_branch);
-    } catch { /* schema sem a coluna default_branch: fica em 'main' */ }
-    return { id: rows[0].id, path: rows[0].path, default_branch };
+    return { id: rows[0].id, path: rows[0].path, default_branch: (await branchAtual(rows[0].path)) ?? 'main' };
   }
 
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
@@ -179,10 +176,14 @@ export async function claudeRoutes(app: FastifyInstance) {
     // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
     const eff = resolveUltracode(effort);
     const textoPrompt = typeof prompt === 'string' ? prompt : prompt.text;
+    // Duas sessões da mesma pessoa no projeto dividem a worktree dela: avisa quando a outra está rodando.
+    const { rows: paralelas } = await app.pool.query<{ title: string }>(
+      `SELECT title FROM claude_sessions WHERE cwd = $1 AND id <> $2 AND status = 'running' LIMIT 3`, [s.cwd, s.id]);
+    if (paralelas.length) runner.aviso(s.id, `Atenção: ${paralelas.map(p => `"${p.title}"`).join(', ')} está rodando agora na mesma pasta. As duas sessões mexem nos mesmos arquivos.`);
     const ganchos = ganchosDaSessao({
       sessaoId: s.id, cwd: s.cwd, projeto: await projetoIntegracao(s.project_id ?? null), prompt: textoPrompt.replace(/^\[[^\]]+\]\s*/, ''), fila: filaIntegracao,
       avisar: (texto) => { void startFor(s, userId, prefixPrompt('Orion', texto), mode, model, effort); },
-      registrar: (texto) => { void store.appendEvent(s.id, 'integracao', { texto }); },
+      registrar: (texto) => { runner.aviso(s.id, texto); },
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
@@ -489,10 +490,16 @@ export async function claudeRoutes(app: FastifyInstance) {
     // sobe para a raiz pela integração automática (spec 2026-09-30-preview-design, Parte 2).
     const proj = await projetoIntegracao(project.id);
     let cwd: string = project.path;
+    let avisoPasta: string | null = null;
     if (b.worktree_name && project.id != null) {
       const wt = await createWorktreeForProject(project.path, b.worktree_name, proj?.default_branch ?? 'main');
       if (!wt.ok) return reply.code(400).send({ error: wt.error });
       cwd = wt.path;
+    } else if (project.id != null) {
+      // Worktree por usuário (decisão 01/10/2026): a sessão nasce na worktree fixa da pessoa no projeto.
+      const wt = await worktreeDoUsuario(project.path, slugPessoa(req.user!.name));
+      if (wt.ok) cwd = wt.path;
+      else avisoPasta = `Sessão na raiz do projeto, sem worktree própria: ${wt.motivo}. Mudanças aqui valem direto para todo mundo.`;
     }
     const id = randomUUID();
     await app.pool.query(
@@ -501,11 +508,12 @@ export async function claudeRoutes(app: FastifyInstance) {
     // Troca o título provisório (1ª linha do prompt) por um curto do Haiku; só se ninguém renomeou antes.
     void getSetting(app.pool, KEYS.claudeToken).then(tk => tituloCurto(prompt, tk)).then(async t => { if (t)
       await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1 AND title = $3', [id, t, titleFromPrompt(prompt)]); }).catch(() => {});
+    if (avisoPasta) runner.aviso(id, avisoPasta);
     const sessaoNova = { id, cwd, project_id: project.id, user_id: req.user!.id, project_name: project.name, rules: project.rules, creator: req.user!.name };
     const ganchos = ganchosDaSessao({
       sessaoId: id, cwd, projeto: proj, prompt, fila: filaIntegracao,
       avisar: (texto) => { void startFor(sessaoNova, req.user!.id, prefixPrompt('Orion', texto), mode, b.model || d.model || undefined, effort); },
-      registrar: (texto) => { void store.appendEvent(id, 'integracao', { texto }); },
+      registrar: (texto) => { runner.aviso(id, texto); },
     });
     runner.startTurn({
       sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
