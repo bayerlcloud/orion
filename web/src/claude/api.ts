@@ -216,8 +216,9 @@ export const MODEL_ORDER: ModelAlias[] = ['haiku', 'sonnet', 'opus', 'fable'];
  * substring (case-insensitive) contra cada alias conhecido; sem match ou sem modelo, `'default'`.
  */
 export function matchModelAlias(model: string | null | undefined): ModelAlias {
-  if (!model) return 'default';
+  // Sem modelo conhecido = padrão do sistema (Opus, decisão 01/10/2026), nunca "Padrão".
+  if (!model) return 'opus';
   const m = model.toLowerCase();
-  for (const alias of MODEL_ORDER) if (alias !== 'default' && m.includes(alias)) return alias;
-  return 'default';
+  for (const alias of MODEL_ORDER) if (m.includes(alias)) return alias;
+  return 'default'; // id desconhecido: quem exibe decide (custo mostra o id cru, seletor mostra Opus)
 }
