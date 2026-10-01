@@ -158,9 +158,8 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   const [soMinhas, setSoMinhas] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [projectFilter, setProjectFilter] = useState('');
-  // Agrupar por projeto (padrão) ou sem agrupar; lembrado no navegador.
-  const [groupBy, setGroupBy] = useState<GroupBy>(() => localStorage.getItem('orion.groupBy') === 'none' ? 'none' : 'project');
-  useEffect(() => { localStorage.setItem('orion.groupBy', groupBy); }, [groupBy]);
+  // Lista direta, sem agrupar (pedido do Danilo, 01/10/2026: o projeto já aparece no selo de cada linha).
+  const groupBy = 'none' as GroupBy;
   const [viewOpen, setViewOpen] = useState(false);
   // Ordem das sessões abertas na lista: por última atividade ou igual às abas (lembrada no navegador).
   const [openOrder, setOpenOrder] = useState<'recent' | 'tabs'>(() => localStorage.getItem('orion.openOrder') === 'tabs' ? 'tabs' : 'recent');
@@ -296,7 +295,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                 <button className={`cc-fchip ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Só as sessões que eu criei" disabled={meId === undefined}>Minhas</button>
                 <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as que estão rodando ou esperando você"><Bolt size={10} /> {activeCount}</button>
                 <span className="cc-fview">
-                  <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar e agrupar">⇅</button>
+                  <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar as abertas">⇅</button>
                   {viewOpen && (
                     <>
                       <div className="cc-menu-backdrop" onClick={() => setViewOpen(false)} />
@@ -304,9 +303,6 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                         <div className="cc-smenu-title">Ordenar abertas</div>
                         <button className={openOrder === 'recent' ? 'is-on' : ''} onClick={() => { setOpenOrder('recent'); setViewOpen(false); }}>Recentes</button>
                         <button className={openOrder === 'tabs' ? 'is-on' : ''} onClick={() => { setOpenOrder('tabs'); setViewOpen(false); }}>Ordem das abas</button>
-                        <div className="cc-smenu-title">Agrupar</div>
-                        <button className={groupBy === 'project' ? 'is-on' : ''} onClick={() => { setGroupBy('project'); setViewOpen(false); }}>Por projeto</button>
-                        <button className={groupBy === 'none' ? 'is-on' : ''} onClick={() => { setGroupBy('none'); setViewOpen(false); }}>Sem agrupar</button>
                       </div>
                     </>
                   )}
