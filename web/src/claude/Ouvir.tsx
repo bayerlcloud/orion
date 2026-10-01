@@ -1,4 +1,7 @@
 import React, { useEffect, useState, type MouseEvent } from 'react';
+import { paraFala, pedacos } from './fala';
+
+export { paraFala, pedacos };
 
 /**
  * Ouvir a resposta em voz alta (pedido do Danilo: escutar no carro). Usa a voz do próprio navegador
@@ -9,34 +12,6 @@ import React, { useEffect, useState, type MouseEvent } from 'react';
 const RATES = [1, 1.25, 1.5, 2];
 const RATE_KEY = 'orion.ouvir.rate';
 
-/** Markdown vira texto falável: bloco de código não é lido, links ficam só com o rótulo, símbolos somem. */
-export function paraFala(md: string): string {
-  return md
-    .replace(/```[\s\S]*?```/g, ' (bloco de código) ')
-    .replace(/`([^`]*)`/g, '$1')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^\s*\|?[-:| ]+\|[-:| ]*$/gm, '')
-    .replace(/[|*_#>~]/g, ' ')
-    .replace(/^\s*[-+]\s+/gm, '')
-    .replace(/[ \t]+/g, ' ')
-    .trim();
-}
-
-/** Pedaços curtos: o Chrome corta falas longas (~15 s) e trocar a velocidade recomeça só o pedaço atual. */
-export function pedacos(texto: string): string[] {
-  const out: string[] = [];
-  for (const par of texto.split(/\n+/)) {
-    for (const frase of par.match(/[^.!?;:]+[.!?;:]*/g) ?? []) {
-      const f = frase.trim();
-      if (!f) continue;
-      const last = out[out.length - 1];
-      if (last && last.length + f.length < 200 && !/[.!?]$/.test(last)) out[out.length - 1] = `${last} ${f}`;
-      else out.push(f);
-    }
-  }
-  return out;
-}
 
 type Estado = { id: string | null; paused: boolean; rate: number };
 let estado: Estado = { id: null, paused: false, rate: (typeof localStorage !== 'undefined' && Number(localStorage.getItem(RATE_KEY))) || 1 };
