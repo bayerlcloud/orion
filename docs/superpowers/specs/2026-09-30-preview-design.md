@@ -83,6 +83,17 @@ Projetos com vite (fisioexpert, ralab, trackingmachine, brandspace, abcprimecred
 
 ## Parte 2: Integração automática a cada turno
 
+> **Atualização 01/10/2026 (Danilo), substitui a junção automática abaixo: publicação por comando.**
+> Nada sai da worktree sozinho. O fim do turno só commita na worktree; o início traz a raiz. Dois comandos, pelo MCP
+> `orion-publicar` (server/integracao/publicarTool.ts), só em sessão de worktree:
+> - **publica**: commit, `git merge <base>` na worktree (conflito volta para a sessão), testes, junta na raiz pela fila do
+>   projeto. A raiz é o preview `<projeto>.bayerl.cloud`, onde a equipe e o cliente veem tudo o que foi publicado.
+> - **deploy**: publica; depois, na fila do projeto, `git push origin <base>` (GitHub é espelho) e `./deploy.sh` da raiz.
+>   No Orion, o deploy escreve `/srv/builds/pedido.json`.
+> Numa worktree, `deploy.sh`, `wrangler deploy`, push na main e `pedido.json` na mão são recusados (policy.ts), em qualquer modo.
+> No fim de cada entrega o Claude pergunta "Posso publicar na raiz?". Motivo: em 01/10/2026 uma sessão do FisioExpert
+> publicou direto da worktree; e com junção a cada turno a raiz nunca ficava "pronta".
+
 > **Atualização 01/10/2026 (Danilo): worktree por usuário.** Toda sessão de projeto nasce na worktree fixa da pessoa,
 > `<projeto>-worktrees/<pessoa>` (branch `usuario/<pessoa>`, saída da branch atual da raiz). O preview do usuário mostra
 > essa worktree; cada turno sobe para a raiz como abaixo. A base da integração é a branch em que a raiz está, não `main` fixo.
