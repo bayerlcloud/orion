@@ -25,6 +25,7 @@ import { previewRoutes } from './routes/preview.js';
 import { marketplaceRoutes } from './routes/marketplace.js';
 import { outputStylesRoutes } from './routes/outputStyles.js';
 import { conectorRoutes } from './routes/conector.js';
+import { iniciarCofreCompartilhado } from './tools/cofre.js';
 import { whatsappRoutes } from './routes/whatsapp.js';
 
 declare module 'fastify' {
@@ -101,6 +102,7 @@ async function main() {
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen({ port, host: '127.0.0.1' });
+  iniciarCofreCompartilhado(m => app.log.warn(m));
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -44,21 +44,6 @@ export function sdkEnv(token: string | null): Record<string, string> | undefined
 
 export type StdioMcpServerConfig = { type: 'stdio'; command: string; args: string[]; env: Record<string, string> };
 
-/** Um binário do pacote hostinger-api-mcp por vertical da API (mesmo token para todos, igual ao .mcp.json da c1). */
-const HOSTINGER_MCP_BINS: Record<string, string> = {
-  'hostinger-hosting': 'hostinger-hosting-mcp',
-  'hostinger-wordpress': 'hostinger-wordpress-mcp',
-  'hostinger-domains': 'hostinger-domains-mcp',
-  'hostinger-dns': 'hostinger-dns-mcp',
-  'hostinger-billing': 'hostinger-billing-mcp',
-  'hostinger-reach': 'hostinger-reach-mcp',
-  'hostinger-vps-studio': 'hostinger-vps-mcp',
-  'hostinger-ecommerce': 'hostinger-ecommerce-mcp',
-};
-
-/** Nomes dos MCPs da Hostinger que entram em toda sessão (para o card de Conectores). */
-export const HOSTINGER_MCPS = Object.keys(HOSTINGER_MCP_BINS);
-
 /** Valida o token na API da Hostinger (lista as VPS). null = recusado; senão, quantas VPS a conta tem. */
 export async function hostingerVpsCount(token: string): Promise<number | null> {
   try {
@@ -69,12 +54,3 @@ export async function hostingerVpsCount(token: string): Promise<number | null> {
   } catch { return null; }
 }
 
-/** MCP servers da Hostinger pras sessões do Claude — undefined sem token configurado. */
-export function hostingerMcpServers(token: string | null): Record<string, StdioMcpServerConfig> | undefined {
-  if (!token) return undefined;
-  const out: Record<string, StdioMcpServerConfig> = {};
-  for (const [name, bin] of Object.entries(HOSTINGER_MCP_BINS)) {
-    out[name] = { type: 'stdio', command: 'npx', args: ['--package=hostinger-api-mcp@latest', bin], env: { APITOKEN: token, HOSTINGER_API_TOKEN: token } };
-  }
-  return out;
-}

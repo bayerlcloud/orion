@@ -10,7 +10,7 @@ type Cloudflare = { id: number; label: string; account_id: string; account_name:
 type Kind = 'tool' | 'skill' | 'mcp';
 type ToolItem = { id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo'; link: string | null; details: string; tag: string | null; created_by_name: string | null };
 type Prov = 'github' | 'cloudflare';
-type Hostinger = { conectado: boolean; token_hint: string | null; mcps: string[] };
+type Hostinger = { conectado: boolean; token_hint: string | null };
 type Evolution = { conectado: boolean; servidor: string | null; local: string | null; proxy: string; key_hint: string | null; versao: string | null; instancias: { nome: string; status: string }[] };
 type Tipo = Prov | 'hostinger' | 'evolution' | Kind;
 /** Linha do card: rótulo, valor inteiro (copiar/popup) e, se houver, versão curta para o card. */
@@ -31,18 +31,13 @@ const KINDS: Kind[] = ['mcp', 'tool', 'skill'];
 const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'hostinger', 'evolution', 'mcp', 'tool', 'skill'];
 const ehConta = (t: Tipo): t is Prov => t === 'github' || t === 'cloudflare';
 
-const HOSTINGER_NOTAS = `Um token da API Hostinger vira 8 MCPs oficiais em toda sessão. Cada um tem search (acha a operação), execute e multi-execute: dentro da área, o Claude lê E altera tudo que a API permite.
+const HOSTINGER_NOTAS = `O token da API Hostinger vira o conector simples "hostinger" (proxy local, sem processo por sessão). A sessão chama http://127.0.0.1:3000/conector/hostinger/<caminho> com curl e o Orion injeta o token. Antes eram 8 MCPs por sessão (~1,4 GB de RAM em cada uma).
 
-• hostinger-dns: criar, alterar e apagar registros DNS (bayerl.cloud incluso). Sempre registro A explícito.
-• hostinger-domains: domínios, disponibilidade, WHOIS, nameservers, compra.
-• hostinger-hosting: sites, bancos MySQL, FTP, builds Node.js e variáveis de ambiente.
-• hostinger-vps-studio: VPS (ligar, desligar, reiniciar, firewall, snapshots, backups, chaves SSH, reinstalar SO).
-• hostinger-wordpress: instalar WordPress, plugins, temas, core.
-• hostinger-billing: assinaturas, pagamentos, pedidos (pode gerar cobrança).
-• hostinger-ecommerce: lojas Hostinger.
-• hostinger-reach: e-mail marketing.
+• DNS: api/dns/v1/zones/<domínio> (GET, PUT, DELETE). Sempre registro A explícito.
+• Domínios: api/domains/v1/portfolio. VPS: api/vps/v1/virtual-machines.
+• Bloqueado no conector: recriar VPS e qualquer DELETE em billing.
 
-Atenção: billing, compra de domínio e ações de VPS mexem com dinheiro ou derrubam servidor. Confirmar antes.`;
+Atenção: compra de domínio e ações de VPS mexem com dinheiro ou derrubam servidor. Confirmar antes.`;
 
 const EVOLUTION_NOTAS = `Conector simples, não é MCP: a sessão chama a API da Evolution v2 pelo proxy local, sem chave; o Orion injeta a apikey global (a mesma EVOLUTION_MASTER_KEY do Brandspace e do TrackingMachine). Só aceita chamada de dentro da c3.
 
@@ -88,8 +83,8 @@ export default function ToolsConectores({ user }: { user: User }) {
       linhas: [['tools', `mcp__${c.mcp}__*`], ['token', c.token_hint]] })),
     ...cf.map((c): Card => ({ tipo: 'cloudflare', id: c.id, label: c.label, sub: c.email || c.account_name, notas: c.notes, icone: <IcoCloudflare />,
       linhas: [['account', c.account_id], ['proxy', c.url, c.url.replace(/^https?:\/\/[^/]+/, '')], ['token', c.token_hint]] })),
-    ...(host ? [{ tipo: 'hostinger' as const, id: 0, label: 'hostinger', sub: host.conectado ? `${host.mcps.length} MCPs em toda sessão` : 'sem token: nenhum MCP ativo', notas: 'DNS, domínios, VPS, hosting, WordPress, billing, e-commerce e e-mail marketing.', detalhes: HOSTINGER_NOTAS, icone: '🌐',
-      linhas: [['tools', host.mcps.map(m => `mcp__${m}__*`).join('\n'), 'mcp__hostinger-*__*'], ['token', host.token_hint ?? 'nenhum']] as Linha[] }] : []),
+    ...(host ? [{ tipo: 'hostinger' as const, id: 0, label: 'hostinger', sub: host.conectado ? 'conector simples em /conector/hostinger' : 'sem token: conector inativo', notas: 'DNS, domínios, VPS, hosting, WordPress, billing, e-commerce e e-mail marketing.', detalhes: HOSTINGER_NOTAS, icone: '🌐',
+      linhas: [['proxy', 'http://127.0.0.1:3000/conector/hostinger/<caminho da API>', 'curl sem token'], ['token', host.token_hint ?? 'nenhum']] as Linha[] }] : []),
     ...(evo ? [{ tipo: 'evolution' as const, id: 0, label: evo.servidor?.replace(/^https?:\/\//, '') ?? 'evolution', icone: '💬', notas: 'API de WhatsApp da equipe. Toda sessão usa pelo proxy local, sem chave.', detalhes: EVOLUTION_NOTAS,
       sub: evo.conectado ? `${evo.instancias.filter(i => i.status === 'open').length} de ${evo.instancias.length} instâncias conectadas${evo.versao ? ` · v${evo.versao}` : ''}` : 'fora do ar ou sem chave',
       linhas: [['servidor', evo.servidor ?? 'nenhum'], ['local', evo.local ?? '?'], ['proxy', evo.proxy, evo.proxy.replace(/^https?:\/\/[^/]+/, '')], ['chave', evo.key_hint ?? 'nenhuma'],

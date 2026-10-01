@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { bloqueadoNaEvolution, evolutionConfig, NOME_CONECTOR_EVOLUTION, NOME_CONECTOR_WHATSAPP, WA_TOKEN_ORION, urlGatewayLocal } from '../tools/evolution.js';
 import { getSetting } from '../settings.js';
+import { bloqueadoNoHttp, listarConectoresHttp } from '../tools/conectoresHttp.js';
 import { bloqueadoNoConector, contaDoConector, ehPedidoLocal, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
@@ -32,6 +33,11 @@ export async function conectorRoutes(app: FastifyInstance) {
         const token = await getSetting(app.pool, WA_TOKEN_ORION);
         if (!token) return reply.code(404).send({ error: 'app orion do gateway sem token (settings whatsapp_token_orion)' });
         return repassar(`${urlGatewayLocal()}/${req.params['*']}${qs}`, { apikey: token });
+      }
+      const http = (await listarConectoresHttp(app.pool)).find(c => c.nome === req.params.nome);
+      if (http) {
+        if (bloqueadoNoHttp(http, req.method, req.params['*'])) return reply.code(403).send({ error: `essa operação é bloqueada no conector ${http.nome}; faça no painel do serviço` });
+        return repassar(`${http.base.replace(/\/+$/, '')}/${req.params['*']}${qs}`, { [http.header]: http.valor });
       }
       const conta = contaDoConector(req.params.nome, await listarContasCloudflare(app.pool));
       if (!conta) return reply.code(404).send({ error: `conector ${req.params.nome} não existe; veja a aba Tools › Conectores` });

@@ -34,6 +34,8 @@ export type SessionHeader = {
   evolution?: { nome: string; url: string; servidor: string } | null;
   /** WhatsApp do Orion pelo gateway orion-wa (o próprio Orion como app): URL do conector local. */
   whatsapp?: { url: string } | null;
+  /** Conectores HTTP genéricos (Hostinger, Coolify, n8n, Supabase...): APIs REST que antes eram MCP. */
+  conectores?: { nome: string; url: string; dica: string }[] | null;
   /** Cofre: Chrome compartilhado com perfil persistente (MCP `cofre`) e o painel web para login manual. */
   cofre?: { painel: string } | null;
 };
@@ -70,6 +72,10 @@ export function buildSystemAppend(h: SessionHeader): string {
   }
   if (h.whatsapp) {
     lines.push('', `WhatsApp do Orion (conector "whatsapp", passa pelo gateway com fila e limites): para avisar alguém ou um grupo, use POST ${h.whatsapp.url}/message/sendText/alertas com {"number":"55... ou <jid>@g.us","text":"..."}, SEM apikey. Grupos do número: GET ${h.whatsapp.url}/group/fetchAllGroups/alertas?getParticipants=false (demora ~25 s). Prefira este conector ao da Evolution para mandar mensagem; o da Evolution é para administrar instâncias.`);
+  }
+  if (h.conectores?.length) {
+    lines.push('', 'Outros conectores simples (APIs REST, não são MCP): chame com curl em <url>/<caminho da API>, SEM token; o Orion injeta a autenticação. Corpo em JSON com -H "Content-Type: application/json".');
+    for (const c of h.conectores) lines.push(`- ${c.nome}: ${c.url}: ${c.dica}`);
   }
 
   if (h.cofre) {
