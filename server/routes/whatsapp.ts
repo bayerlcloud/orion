@@ -10,11 +10,11 @@ const URL_PUBLICA = process.env.ORION_PUBLIC_URL ?? 'https://orion.bayerl.cloud'
 export async function whatsappRoutes(app: FastifyInstance) {
   await ensureWhatsappTable(app.pool);
 
-  async function evo(caminho: string, init?: { method?: string; body?: unknown }) {
+  async function evo(caminho: string, init?: { method?: string; body?: unknown; timeoutMs?: number }) {
     const cfg = await evolutionConfig(app.pool);
     if (!cfg) throw Object.assign(new Error('Evolution sem URL/chave (aba Tools)'), { statusCode: 400 });
     const r = await fetch(`${cfg.url}${caminho}`, {
-      method: init?.method ?? 'GET', signal: AbortSignal.timeout(10_000),
+      method: init?.method ?? 'GET', signal: AbortSignal.timeout(init?.timeoutMs ?? 10_000),
       headers: { apikey: cfg.apiKey, ...(init?.body ? { 'Content-Type': 'application/json' } : {}) },
       body: init?.body ? JSON.stringify(init.body) : undefined,
     });
@@ -95,9 +95,15 @@ export async function whatsappRoutes(app: FastifyInstance) {
     });
 
     /** Grupos da instância (para liberar com um clique) e contatos que falaram com o número recentemente. */
+    // A Evolution leva ~25 s para listar os grupos; guarda 10 min em memória.
+    let cacheGrupos: { at: number; instancia: string; grupos: any[] } | null = null;
     dono.get('/api/whatsapp/contatos', async () => {
       const instancia = await getSetting(app.pool, WA_KEYS.instancia);
-      const grupos: any[] = instancia ? await evo(`/group/fetchAllGroups/${encodeURIComponent(instancia)}?getParticipants=false`).catch(() => []) : [];
+      if (instancia && (!cacheGrupos || cacheGrupos.instancia !== instancia || Date.now() - cacheGrupos.at > 600_000)) {
+        const lista = await evo(`/group/fetchAllGroups/${encodeURIComponent(instancia)}?getParticipants=false`, { timeoutMs: 60_000 }).catch(() => null);
+        if (Array.isArray(lista)) cacheGrupos = { at: Date.now(), instancia, grupos: lista };
+      }
+      const grupos = cacheGrupos?.instancia === instancia ? cacheGrupos.grupos : [];
       const { rows } = await app.pool.query(
         `SELECT DISTINCT ON (remoto) remoto AS contato, nome FROM wa_mensagens
           WHERE direcao = 'entra' AND remoto !~ '^120363' AND ts > now() - interval '30 days' ORDER BY remoto, ts DESC LIMIT 200`);
