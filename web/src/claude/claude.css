@@ -891,5 +891,4 @@
 @media (max-width: 800px) { .cc-smenu-pop { position: fixed; top: auto; bottom: 0; left: 0; right: 0; width: auto; max-height: 75vh; border-radius: 14px 14px 0 0; padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); } }
 
 .cc-smenu-preview { padding: 4px 8px 8px; }
-.cc-smenu-preview .pv-pub { white-space: normal; flex-wrap: wrap; row-gap: 6px; }
-.cc-smenu-preview .pv-info { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.cc-smenu-preview .pv-pub { display: flex; width: 100%; }
