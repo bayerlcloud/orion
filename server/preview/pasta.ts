@@ -26,6 +26,7 @@ const existe = (p: string) => lstat(p).then(() => true, () => false);
  */
 export async function prepararPasta(dir: string, raiz: string, npm = 'npm'): Promise<'symlink' | 'npm-ci' | 'ja-tem' | 'raiz'> {
   if (path.resolve(dir) === path.resolve(raiz)) return 'raiz';
+  await ligarEnv(dir, raiz);
   const nm = path.join(dir, 'node_modules');
   if (await existe(nm)) return 'ja-tem';
   const [pkgDir, pkgRaiz] = await Promise.all([
@@ -39,6 +40,21 @@ export async function prepararPasta(dir: string, raiz: string, npm = 'npm'): Pro
   // --include=dev: o serviço roda com NODE_ENV=production, e sem isso o npm pula o vite (devDependency).
   await rodar(npm, ['ci', '--include=dev'], dir, NPM_TIMEOUT);
   return 'npm-ci';
+}
+
+/**
+ * Worktree nasce sem o `.env` da raiz (ignorado pelo git), e o vite do projeto o lê da pasta em que roda
+ * (ex.: Brandspace, `set -a; . ./.env` na unit). Aponta `<dir>/.env` para o da raiz, só quando o git da
+ * worktree ignora `.env`: senão o symlink entraria no commit do turno. Devolve se criou.
+ */
+export async function ligarEnv(dir: string, raiz: string): Promise<boolean> {
+  const alvo = path.join(raiz, '.env');
+  const link = path.join(dir, '.env');
+  if (!(await existe(alvo)) || (await existe(link))) return false;
+  const ignorado = await rodar('git', ['check-ignore', '-q', '.env'], dir, 10_000).then(() => true, () => false);
+  if (!ignorado) return false;
+  await symlink(alvo, link);
+  return true;
 }
 
 /** Pasta do app dentro do repositório (monorepo: `apps/portal`); nunca sai da base. */
