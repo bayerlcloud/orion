@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 import DeployCard from './DeployCard';
 import DbBackupCard from './DbBackupCard';
+import WhatsappCard from './WhatsappCard';
 import ConfigClaude from './ConfigClaude';
 import { confirmar } from '../dialogo';
 
@@ -128,6 +129,7 @@ export default function Config({ user }: { user: User }) {
 
       <DeployCard />
       <DbBackupCard />
+      <WhatsappCard />
 
       <section className="cfg-box">
         <h2>Padrões das sessões</h2>
