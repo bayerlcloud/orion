@@ -2,6 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
 import { transcribe } from '../claude/transcribe.js';
+import {
+  PERMISSION_BEHAVIORS, settingsPathForScope, readPermissionRuleSet, mutatePermissionRuleSet,
+  validateRuleText, addRule, removeRule, replaceRule, type PermissionBehavior, type PermissionScope,
+} from '../claude/permissionRules.js';
+import { readProjectHooks } from '../claude/hooks.js';
+import { listProjectSkills, setSkillOverride } from '../claude/skills.js';
 import { validateGroupName, sanitizeGroupName } from '../claude/groups.js';
 import { access, mkdir, realpath, stat, unlink } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -273,6 +279,99 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get('/api/claude/projects', async () => {
     const { rows } = await app.pool.query('SELECT id, slug, name, path, rules FROM projects ORDER BY id');
     return { projects: rows };
+  });
+
+  // Skills/hooks do projeto e regras de permissão: restauradas em 01/10/2026 (sumiram sem querer no commit 690b817).
+  async function resolveRuleScopePath(scope: unknown, projectId: unknown): Promise<{ ok: true; path: string } | { ok: false; code: number; error: string }> {
+    if (scope !== 'user' && scope !== 'project') return { ok: false, code: 400, error: 'scope inválido (use "user" ou "project")' };
+    if (scope === 'user') return { ok: true, path: settingsPathForScope('user', { homeDir: homedir() }) };
+    const pid = Number(projectId);
+    if (!pid) return { ok: false, code: 400, error: 'project_id é obrigatório pro scope "project"' };
+    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [pid]);
+    const projectPath = rows[0]?.path;
+    if (!projectPath) return { ok: false, code: 404, error: 'projeto não encontrado' };
+    try {
+      return { ok: true, path: settingsPathForScope('project', { homeDir: homedir(), projectPath }) };
+    } catch (e: any) {
+      return { ok: false, code: 500, error: e?.message ?? 'projeto com caminho inválido' };
+    }
+  }
+  function requireOwnerForUserScope(scope: unknown, req: { user?: { role: string } | null }): string | null {
+    if (scope === 'user' && req.user?.role !== 'owner') return 'só o admin edita regras de usuário (afeta todos os projetos e usuários do Orion)';
+    return null;
+  }
+
+  type PermRuleBody = { scope?: PermissionScope; project_id?: number; behavior?: PermissionBehavior; rule?: string };
+  type PermRuleEditBody = PermRuleBody & { old_behavior?: PermissionBehavior; old_rule?: string };
+  app.get<{ Params: { id: string } }>('/api/claude/projects/:id/hooks', async (req, reply) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [projectId]);
+    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    return await readProjectHooks(rows[0].path);
+  });
+  app.get<{ Params: { id: string } }>('/api/claude/projects/:id/skills', async (req, reply) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query('SELECT path FROM projects WHERE id = $1', [projectId]);
+    if (!rows[0]) return reply.code(404).send({ error: 'projeto não existe' });
+    const skills = await listProjectSkills(app.pool, projectId, rows[0].path);
+    return { skills };
+  });
+  app.post<{ Params: { id: string }; Body: { name?: string; enabled?: boolean } }>('/api/claude/projects/:id/skills', async (req, reply) => {
+    const projectId = Number(req.params.id);
+    if (!Number.isInteger(projectId)) return reply.code(400).send({ error: 'id inválido' });
+    const name = (req.body?.name ?? '').trim();
+    if (!name) return reply.code(400).send({ error: 'nome da skill é obrigatório' });
+    if (typeof req.body?.enabled !== 'boolean') return reply.code(400).send({ error: 'enabled deve ser booleano' });
+    const { rowCount } = await app.pool.query('SELECT 1 FROM projects WHERE id = $1', [projectId]);
+    if (!rowCount) return reply.code(404).send({ error: 'projeto não existe' });
+    await setSkillOverride(app.pool, projectId, name, req.body.enabled, req.user!.id);
+    return { ok: true };
+  });
+  app.get<{ Querystring: { scope?: string; project_id?: string } }>('/api/claude/permission-rules', async (req, reply) => {
+    const r = await resolveRuleScopePath(req.query.scope, req.query.project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    const { set, error } = await readPermissionRuleSet(r.path);
+    return { ...set, ...(error ? { error } : {}) };
+  });
+  app.post<{ Body: PermRuleBody }>('/api/claude/permission-rules', async (req, reply) => {
+    const { scope, project_id, behavior, rule } = req.body ?? {};
+    const denied = requireOwnerForUserScope(scope, req);
+    if (denied) return reply.code(403).send({ error: denied });
+    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior)) return reply.code(400).send({ error: 'behavior inválido (use allow, ask ou deny)' });
+    const msg = validateRuleText(rule ?? '');
+    if (msg) return reply.code(400).send({ error: msg });
+    const r = await resolveRuleScopePath(scope, project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    try {
+      return await mutatePermissionRuleSet(r.path, (s) => addRule(s, behavior, rule!.trim()));
+    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao salvar' }); }
+  });
+  app.put<{ Body: PermRuleEditBody }>('/api/claude/permission-rules', async (req, reply) => {
+    const { scope, project_id, behavior, rule, old_behavior, old_rule } = req.body ?? {};
+    const denied = requireOwnerForUserScope(scope, req);
+    if (denied) return reply.code(403).send({ error: denied });
+    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior)) return reply.code(400).send({ error: 'behavior inválido (use allow, ask ou deny)' });
+    if (!old_behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(old_behavior) || !old_rule) return reply.code(400).send({ error: 'regra original ausente' });
+    const msg = validateRuleText(rule ?? '');
+    if (msg) return reply.code(400).send({ error: msg });
+    const r = await resolveRuleScopePath(scope, project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    try {
+      return await mutatePermissionRuleSet(r.path, (s) => replaceRule(s, old_behavior, old_rule, behavior, rule!.trim()));
+    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao salvar' }); }
+  });
+  app.delete<{ Body: PermRuleBody }>('/api/claude/permission-rules', async (req, reply) => {
+    const { scope, project_id, behavior, rule } = req.body ?? {};
+    const denied = requireOwnerForUserScope(scope, req);
+    if (denied) return reply.code(403).send({ error: denied });
+    if (!behavior || !(PERMISSION_BEHAVIORS as readonly string[]).includes(behavior) || !rule) return reply.code(400).send({ error: 'regra inválida' });
+    const r = await resolveRuleScopePath(scope, project_id);
+    if (!r.ok) return reply.code(r.code).send({ error: r.error });
+    try {
+      return await mutatePermissionRuleSet(r.path, (s) => removeRule(s, behavior, rule));
+    } catch (e: any) { return reply.code(500).send({ error: e?.message ?? 'erro ao remover' }); }
   });
 
   // Pastas de sessão: rotas restauradas em 30/09/2026 (tinham sumido sem querer no commit 690b817).
