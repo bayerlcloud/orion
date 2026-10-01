@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
-import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, GitBranch, Folder, Filter } from './icons';
+import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restore, Trash } from './icons';
 
 /**
  * Sentinela usado pelo `<select>` "Mover para pasta" de cada sessão pra representar "solta, sem
@@ -22,9 +22,10 @@ function Avatar({ id, name }: { id: number; name: string }) {
   );
 }
 
-function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveToGroup }: {
+function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folders, onMoveToGroup }: {
   s: SessionSummary; active: boolean; onSelect: () => void;
   onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
+  onDelete?: (id: string) => void;
   folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -45,10 +46,6 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
       ) : (
         <button className="cc-item-name" onClick={onSelect} title={s.title}>{s.title}</button>
       )}
-      {/* Pill de worktree (`worktreePill_OOQiHg` na extensão real) — ver PARIDADE.md seção 14. Sem
-          ação de clique (lá abre "em nova janela"; aqui não há equivalente numa página web só de
-          chat) — só informa em qual worktree a sessão roda, título completo no hover. */}
-      {s.worktreeName && <span className="cc-item-worktree" title={`Worktree: ${s.worktreeName}`}><GitBranch size={10} /> {s.worktreeName}</span>}
       <span className="cc-item-time">{relativeTime(s.updatedAt)}</span>
       <span className="cc-item-actions">
         {/*
@@ -69,7 +66,14 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, folders, onMoveT
           </select>
         )}
         <button className="cc-item-act" title="Renomear" onClick={() => { setDraft(s.title); setEditing(true); }}><Pencil size={12} /></button>
-        <button className="cc-item-act" title={s.archived ? 'Desarquivar' : 'Arquivar'} onClick={() => onArchive(s.id, !s.archived)}><Archive size={12} /></button>
+        {s.archived ? (
+          <>
+            <button className="cc-item-act" title="Restaurar" onClick={() => onArchive(s.id, false)}><Restore size={12} /></button>
+            {onDelete && <button className="cc-item-act" title="Excluir definitivamente" onClick={() => onDelete(s.id)}><Trash size={12} /></button>}
+          </>
+        ) : (
+          <button className="cc-item-act" title="Arquivar" onClick={() => onArchive(s.id, true)}><Archive size={12} /></button>
+        )}
       </span>
     </div>
   );
@@ -135,7 +139,7 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   );
 }
 
-export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
+export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onDelete, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
   {
     tabOrder: string[]; onMoveTab: (fromId: string, toId: string) => void;
     sessions: SessionSummary[]; meId?: number; usage: UsageBar[];
@@ -145,6 +149,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
     /** Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — `[]` quando nenhuma foi criada ainda; o modo "Por pasta" e o seletor "Mover para pasta" por sessão só aparecem de fato úteis quando há pelo menos uma. */
     folders: SessionGroupInfo[];
     onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
+    onDelete: (id: string) => void;
     onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void;
     onMoveToGroup: (sessionId: string, groupId: string | null) => void;
   }) {
@@ -334,7 +339,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                     {showArchived && (
                       <div className="cc-list">
                         {archivedList.map(s => (
-                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => { onArchive(s.id, false); pick(s.id); }} onRename={onRename} onArchive={onArchive}
+                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => { onArchive(s.id, false); pick(s.id); }} onRename={onRename} onArchive={onArchive} onDelete={onDelete}
                             folders={folders} onMoveToGroup={onMoveToGroup} />
                         ))}
                       </div>
