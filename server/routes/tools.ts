@@ -8,6 +8,8 @@ import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, inval
 import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
 import { cloudflareContaDe, ensureCloudflareAccountsTable, listarContasCloudflare, looksLikeCloudflareAccountId, looksLikeCloudflareToken, maskCloudflareToken, nomeConectorCloudflare, urlDoConector, type CloudflareAccount } from '../tools/cloudflareAccounts.js';
 
+import { evolutionResumo } from '../tools/evolution.js';
+
 const KINDS = new Set(['tool', 'skill', 'mcp']);
 
 type ToolBody = { kind?: string; name?: string; description?: string; icon?: string; status?: string; link?: string; details?: string; tag?: string };
@@ -183,6 +185,9 @@ export async function toolsRoutes(app: FastifyInstance) {
     if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
     return { ok: true };
   });
+
+  // ---------- Evolution (WhatsApp, conector simples /conector/evolution; chave na tabela settings) ----------
+  app.get('/api/tools/evolution', async () => evolutionResumo(app.pool));
 
   // ---------- conta Hostinger (um token só, na tabela settings; vira os MCPs hostinger-* em toda sessão) ----------
   app.get('/api/tools/hostinger', async () => {

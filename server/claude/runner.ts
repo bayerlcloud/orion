@@ -100,6 +100,17 @@ export async function attachmentBlocks(
   return { blocks, textSuffix: notes.join('') };
 }
 
+function normalizar(prompt: TurnPrompt): { text: string; attachments: Attachment[] } {
+  return typeof prompt === 'string' ? { text: prompt, attachments: [] } : { text: prompt.text, attachments: prompt.attachments ?? [] };
+}
+
+/** Mensagem do usuário para o SDK: texto (com as notas dos arquivos) e imagens como blocos. */
+async function mensagemUsuario(sessionId: string, text: string, attachments: Attachment[]): Promise<SDKUserMessage> {
+  const { blocks, textSuffix } = await attachmentBlocks(attachments);
+  const content = blocks.length || textSuffix ? [{ type: 'text', text: text + textSuffix }, ...blocks] : text;
+  return { type: 'user', parent_tool_use_id: null, session_id: sessionId, message: { role: 'user', content } } as unknown as SDKUserMessage;
+}
+
 export type TurnParams = {
   sessionId: string;
   cwd: string;
@@ -129,6 +140,31 @@ export type TurnParams = {
   ganchos?: { antes?: () => Promise<void>; depois?: (ok: boolean) => Promise<void> };
 };
 
+/**
+ * Entrada viva do query() (modo streaming do SDK): mensagem nova durante o turno entra direto no
+ * CLI, que a encaixa entre rodadas de ferramenta, igual à extensão do VS Code/Antigravity. Guarda
+ * promessas para o push ser síncrono mesmo com anexo ainda sendo lido.
+ */
+export function canal<T>() {
+  const fila: Promise<T>[] = [];
+  let acordar: (() => void) | null = null;
+  let fechado = false;
+  return {
+    push(v: Promise<T>) { fila.push(v); acordar?.(); },
+    fechar() { fechado = true; acordar?.(); },
+    get fechado() { return fechado; },
+    async *[Symbol.asyncIterator]() {
+      for (;;) {
+        if (fila.length) { yield await fila.shift()!; continue; }
+        if (fechado) return;
+        await new Promise<void>(r => { acordar = r; });
+        acordar = null;
+      }
+    },
+  };
+}
+type Entrada = ReturnType<typeof canal<SDKUserMessage>>;
+
 type Pending = { resolve: (r: PermissionResult) => void; suggestions?: PermissionUpdate[]; timer: NodeJS.Timeout; toolName: string; toolUseId?: string };
 
 type Live = {
@@ -152,6 +188,8 @@ type Live = {
    * pra permissões pendentes).
    */
   query: Query | null;
+  /** Entrada viva do turno atual (null entre turnos); startTurn empurra aqui em vez de enfileirar. */
+  entrada: Entrada | null;
 };
 
 export class Runner {
@@ -160,7 +198,7 @@ export class Runner {
 
   private get(id: string): Live {
     let l = this.live.get(id);
-    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null }; this.live.set(id, l); }
+    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null, entrada: null }; this.live.set(id, l); }
     return l;
   }
 
@@ -274,11 +312,35 @@ export class Runner {
     await this.deps.store.updateSession(id, { status, ...(extra ?? {}) });
   }
 
-  /** Enfileira um turno. Se a sessão está ociosa, começa agora. Retorna sem esperar o turno acabar. */
+  /**
+   * Começa um turno. Com turno rodando, a mensagem entra no bolo: vai pela entrada viva para o CLI,
+   * que a encaixa entre ferramentas (igual à extensão). Só cai na fila se a entrada já fechou (o
+   * turno está terminando). Retorna sem esperar o turno acabar.
+   */
   startTurn(p: TurnParams): void {
     const l = this.get(p.sessionId);
-    if (l.status === 'running' || l.status === 'waiting') { l.queue.push(p); return; }
+    if (l.status === 'running' || l.status === 'waiting') {
+      if (l.entrada && !l.entrada.fechado) {
+        const { text, attachments } = normalizar(p.prompt);
+        void this.ecoUsuario(p.sessionId, text, attachments);
+        l.entrada.push(mensagemUsuario(p.sessionId, text, attachments).catch(() => mensagemUsuario(p.sessionId, `${text}\n\n[anexo não pôde ser lido]`, [])));
+      } else l.queue.push(p);
+      return;
+    }
     void this.run(p);
+  }
+
+  /** Persiste e mostra a mensagem do usuário na hora em que ela chega. */
+  private async ecoUsuario(id: string, text: string, attachments: Attachment[]): Promise<void> {
+    // Nota compacta persistida: nomes + o bastante pra reexibir os anexos ao reabrir a sessão. `path`
+    // (28/09/2026, popup de imagem/Lightbox — ver PARIDADE.md) já era devolvido ao navegador pelo
+    // endpoint de upload (POST /api/claude/uploads) antes de chegar aqui, então não é uma exposição
+    // nova; é o que permite `attachmentImageUrl` (web/src/claude/mapper.ts) montar a URL de
+    // `GET /api/claude/attachments` e mostrar a miniatura clicável do anexo já enviado no histórico,
+    // mesmo depois de recarregar a página (o arquivo em si nunca é apagado depois de usado num turno).
+    const attachNote = attachments.map(a => ({ kind: a.kind, name: a.name, media_type: a.media_type, path: a.path }));
+    await this.deps.store.appendEvent(id, 'user_prompt', { prompt: text, ...(attachNote.length ? { attachments: attachNote } : {}) });
+    this.emit(id, { type: 'message', message: { type: 'user', message: { role: 'user', content: text, ...(attachNote.length ? { attachments: attachNote } : {}) }, parent_tool_use_id: null, session_id: id } as unknown as SDKMessage });
   }
 
   async stop(id: string): Promise<void> {
@@ -317,20 +379,9 @@ export class Runner {
     const l = this.get(id);
     const abort = new AbortController();
     l.abort = abort; l.stderr = [];
-    // Normaliza: texto puro (comportamento antigo) ou { text, attachments }.
-    const promptObj = typeof p.prompt === 'string' ? { text: p.prompt, attachments: [] as Attachment[] } : p.prompt;
-    const text = promptObj.text;
-    const attachments = promptObj.attachments ?? [];
-    // Nota compacta persistida: nomes + o bastante pra reexibir os anexos ao reabrir a sessão. `path`
-    // (28/09/2026, popup de imagem/Lightbox — ver PARIDADE.md) já era devolvido ao navegador pelo
-    // endpoint de upload (POST /api/claude/uploads) antes de chegar aqui, então não é uma exposição
-    // nova; é o que permite `attachmentImageUrl` (web/src/claude/mapper.ts) montar a URL de
-    // `GET /api/claude/attachments` e mostrar a miniatura clicável do anexo já enviado no histórico,
-    // mesmo depois de recarregar a página (o arquivo em si nunca é apagado depois de usado num turno).
-    const attachNote = attachments.map(a => ({ kind: a.kind, name: a.name, media_type: a.media_type, path: a.path }));
+    const { text, attachments } = normalizar(p.prompt);
     await this.setStatus(id, 'running', { lastError: null });
-    await this.deps.store.appendEvent(id, 'user_prompt', { prompt: text, ...(attachNote.length ? { attachments: attachNote } : {}) });
-    this.emit(id, { type: 'message', message: { type: 'user', message: { role: 'user', content: text, ...(attachNote.length ? { attachments: attachNote } : {}) }, parent_tool_use_id: null, session_id: id } as unknown as SDKMessage });
+    await this.ecoUsuario(id, text, attachments);
 
     const canUseTool: Options['canUseTool'] = (toolName, input, opts) => new Promise<PermissionResult>((resolve) => {
       const pid = randomUUID();
@@ -409,16 +460,10 @@ export class Runner {
     try {
       // Gancho de início (integração por turno: traz a base para a worktree). Erro só vira log.
       if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
-      // Sem anexos: mantém o prompt string (não muda o comportamento antigo).
-      // Com anexos: monta UMA SDKUserMessage com [texto, ...imagens] e o texto ganha as notas dos arquivos.
-      let promptArg: string | AsyncIterable<SDKUserMessage> = text;
-      if (attachments.length) {
-        const { blocks, textSuffix } = await attachmentBlocks(attachments);
-        const content = [{ type: 'text', text: text + textSuffix }, ...blocks];
-        const userMsg = { type: 'user', parent_tool_use_id: null, session_id: id, message: { role: 'user', content } } as unknown as SDKUserMessage;
-        promptArg = (async function* () { yield userMsg; })();
-      }
-      const q = this.deps.queryFn({ prompt: promptArg, options });
+      const entrada = canal<SDKUserMessage>();
+      entrada.push(Promise.resolve(await mensagemUsuario(id, text, attachments)));
+      l.entrada = entrada;
+      const q = this.deps.queryFn({ prompt: entrada, options });
       // Guardada em l.query (não só na variável local `q`) pra que setPermissionModeLive/setModelLive/
       // setEffortLive — chamados por uma rota HTTP a qualquer momento, fora deste for-await — consigam
       // achar a Query certa enquanto o turno está rodando. Limpa no finally, junto de l.abort.
@@ -462,7 +507,15 @@ export class Runner {
         // 'result' — o que estava acumulado em partialText/partialThinking já virou (ou vai virar)
         // conteúdo definitivo dessa mensagem, não sobra parcial órfão pro próximo bloco.
         if (m.type === 'assistant' || m.type === 'result') { partialText = ''; partialThinking = ''; }
-        if (m.type === 'result') { ok = !m.is_error; semTexto = ok && typeof (m as { result?: unknown }).result === 'string' && !(m as { result: string }).result.trim(); tokens = resultTokens(m); turns = m.num_turns ?? 0; if (m.is_error) l.stderr.push(m.subtype); }
+        if (m.type === 'result') {
+          ok = !m.is_error; semTexto = ok && typeof (m as { result?: unknown }).result === 'string' && !(m as { result: string }).result.trim();
+          // Mensagem que entrou no bolo depois da última rodada vira mais um result no mesmo query(): soma.
+          const t = resultTokens(m); tokens = { input: (tokens?.input ?? 0) + t.input, output: (tokens?.output ?? 0) + t.output }; turns += m.num_turns ?? 0;
+          if (m.is_error) l.stderr.push(m.subtype);
+          // Nada mais na fila do CLI: fecha a entrada e o query() termina. O que já foi empurrado e o CLI
+          // ainda não viu sai mesmo assim (o canal entrega o resto antes de acabar) e gera outro result.
+          if (!((m as { queued_turn_count?: number }).queued_turn_count! > 0)) entrada.fechar();
+        }
       }
       await this.setStatus(id, ok ? 'idle' : 'error', { tokens, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
       this.emit(id, { type: 'turn_end', turns, ok });
@@ -487,6 +540,7 @@ export class Runner {
     } finally {
       l.abort = null;
       l.query = null;
+      l.entrada?.fechar(); l.entrada = null;
       for (const [pid, pend] of l.pending) { clearTimeout(pend.timer); l.pending.delete(pid); }
       // Gancho de fim (commit e fila de integração): roda também em turno interrompido ou com erro,
       // e antes do próximo turno da fila, para não disputar o git da mesma worktree.
