@@ -98,6 +98,8 @@ strong { color: var(--fg); }
 .cfg-box h3 { font-size: 13px; margin: 14px 0 6px; font-weight: 600; }
 .cfg-box th { background: var(--bg); }
 .cfg-box label { display: grid; gap: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg2); margin: 10px 0; }
+.cfg-box label.cfg-check { display: inline-flex; align-items: center; gap: 4px; margin: 0 10px 0 0; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--fg); }
+.cfg-scroll { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
 .cfg-grid { display: grid; gap: 4px 20px; grid-template-columns: 1fr; }
 .cfg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .cfg-actions button, .cfg-code-row button { font: inherit; padding: 7px 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; border-radius: 6px; }

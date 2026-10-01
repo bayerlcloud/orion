@@ -67,9 +67,9 @@ export default function WhatsappAppsCard() {
         <div key={a.id} className="cfg-details" style={{ marginTop: 12 }}>
           <table><tbody>
             <tr><th>{a.nome}</th><td>
-              <label><input type="checkbox" checked={a.ativo} onChange={e => mudar(a, { ativo: e.target.checked })} /> ativo</label>{' · '}
-              {APELIDOS.map(ap => <label key={ap}><input type="checkbox" checked={a.apelidos.includes(ap)} onChange={e => mudar(a, { apelidos: e.target.checked ? [...a.apelidos, ap] : a.apelidos.filter(x => x !== ap) })} /> {ap} </label>)}
-              {' · '}hoje {a.enviados_hoje}/{a.limite_diario}
+              <label className="cfg-check"><input type="checkbox" checked={a.ativo} onChange={e => mudar(a, { ativo: e.target.checked })} /> ativo</label>
+              {APELIDOS.map(ap => <label key={ap} className="cfg-check"><input type="checkbox" checked={a.apelidos.includes(ap)} onChange={e => mudar(a, { apelidos: e.target.checked ? [...a.apelidos, ap] : a.apelidos.filter(x => x !== ap) })} /> {ap} </label>)}
+              hoje {a.enviados_hoje}/{a.limite_diario}
               {a.pendentes > 0 && <> · <span className="is-bad">{a.pendentes} repasses pendentes</span></>}
               {a.falhos > 0 && <> · <span className="is-bad">{a.falhos} desistidos</span></>}
               {a.ultimo_erro && <div className="muted small mono">{a.ultimo_erro}</div>}
@@ -109,7 +109,7 @@ export default function WhatsappAppsCard() {
       <div className="cfg-code-row">
         <input value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} placeholder="nome (ex.: trackingmachine)" style={{ maxWidth: 200 }} />
         <input value={novo.webhook_url} onChange={e => setNovo({ ...novo, webhook_url: e.target.value })} placeholder="webhook (opcional)" />
-        {APELIDOS.map(ap => <label key={ap} className="small"><input type="checkbox" checked={novo.apelidos.includes(ap)} onChange={e => setNovo({ ...novo, apelidos: e.target.checked ? [...novo.apelidos, ap] : novo.apelidos.filter(x => x !== ap) })} /> {ap}</label>)}
+        {APELIDOS.map(ap => <label key={ap} className="cfg-check"><input type="checkbox" checked={novo.apelidos.includes(ap)} onChange={e => setNovo({ ...novo, apelidos: e.target.checked ? [...novo.apelidos, ap] : novo.apelidos.filter(x => x !== ap) })} /> {ap}</label>)}
         <button className="btn-primary" onClick={criar} disabled={!novo.nome.trim()}>Criar</button>
       </div>
     </section>

@@ -64,7 +64,7 @@ export default function WhatsappCard() {
           </div>
           <h3 className="small">Últimas mensagens</h3>
           {s.mensagens.length === 0 ? <p className="muted small">Nada ainda. Mande uma mensagem para o número da instância.</p> : (
-            <table className="small"><tbody>
+            <div className="cfg-scroll"><table className="small"><tbody>
               {s.mensagens.map(m => (
                 <tr key={m.id}>
                   <td className="muted">{new Date(m.ts).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</td>
@@ -73,7 +73,7 @@ export default function WhatsappCard() {
                   <td>{m.texto || <span className="muted">({m.tipo})</span>}{m.enviado_por && <span className="muted"> · {m.enviado_por}</span>}</td>
                 </tr>
               ))}
-            </tbody></table>
+            </tbody></table></div>
           )}
         </>
       )}
