@@ -13,6 +13,10 @@ EnvironmentFile=/etc/orion/central.env
 ExecStart=/usr/bin/node /srv/orion-live/dist/server/wa/main.js
 Restart=always
 RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
