@@ -38,3 +38,12 @@ export async function evolutionResumo(pool: Pool) {
     instancias: Array.isArray(lista) ? lista.map((i: { name: string; connectionStatus: string }) => ({ nome: i.name, status: i.connectionStatus })) : [],
   };
 }
+
+/** Conector "whatsapp": o próprio Orion como app do gateway orion-wa (token em settings.whatsapp_token_orion).
+ *  A sessão manda alerta por /conector/whatsapp/message/sendText/alertas sem token, e passa pela fila e pelos limites. */
+export const NOME_CONECTOR_WHATSAPP = 'whatsapp';
+export const WA_TOKEN_ORION = 'whatsapp_token_orion';
+export const urlGatewayLocal = () => `http://127.0.0.1:${process.env.WA_PORT ?? 3001}/wa`;
+export function whatsappParaHeader(token: string | null): { url: string } | null {
+  return token ? { url: urlDoConector(NOME_CONECTOR_WHATSAPP) } : null;
+}

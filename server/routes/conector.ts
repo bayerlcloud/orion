@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { bloqueadoNaEvolution, evolutionConfig, NOME_CONECTOR_EVOLUTION } from '../tools/evolution.js';
+import { bloqueadoNaEvolution, evolutionConfig, NOME_CONECTOR_EVOLUTION, NOME_CONECTOR_WHATSAPP, WA_TOKEN_ORION, urlGatewayLocal } from '../tools/evolution.js';
+import { getSetting } from '../settings.js';
 import { bloqueadoNoConector, contaDoConector, ehPedidoLocal, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
@@ -26,6 +27,11 @@ export async function conectorRoutes(app: FastifyInstance) {
         if (!evo) return reply.code(404).send({ error: 'conector evolution sem URL/chave configuradas (settings evolution_url e evolution_api_key)' });
         if (bloqueadoNaEvolution(req.method, req.params['*'])) return reply.code(403).send({ error: 'apagar ou deslogar instância é bloqueado no conector; faça no manager da Evolution' });
         return repassar(`${evo.url}/${req.params['*']}${qs}`, { apikey: evo.apiKey });
+      }
+      if (req.params.nome === NOME_CONECTOR_WHATSAPP) {
+        const token = await getSetting(app.pool, WA_TOKEN_ORION);
+        if (!token) return reply.code(404).send({ error: 'app orion do gateway sem token (settings whatsapp_token_orion)' });
+        return repassar(`${urlGatewayLocal()}/${req.params['*']}${qs}`, { apikey: token });
       }
       const conta = contaDoConector(req.params.nome, await listarContasCloudflare(app.pool));
       if (!conta) return reply.code(404).send({ error: `conector ${req.params.nome} não existe; veja a aba Tools › Conectores` });
