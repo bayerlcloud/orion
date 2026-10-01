@@ -131,38 +131,24 @@ print(json.dumps([rr.perigoso(c, 'deploy/root-perigo.json') for c in sys.argv[1:
     expect(out).toEqual([...cmds.map(c => rootPerigo(c)), 'lista de perigo ilegível']);
   });
 
-  it('publicação numa worktree: junta na raiz antes e só roda da raiz, até no modo auto', async () => {
-    for (const c of ['./deploy.sh', 'timeout 580 ./deploy.sh | tail', 'npx -y wrangler@3 pages deploy dist --project-name=x', 'supabase functions deploy f',
-      'vercel deploy --prod', 'netlify deploy --prod', 'git push origin HEAD:main', 'git push origin usuario/danilo:refs/heads/main'])
+  it('publicação numa worktree: só pelo orion-publicar, recusada na mão até no modo auto', async () => {
+    for (const c of ['./deploy.sh', 'timeout 580 ./deploy.sh | tail', 'cd /srv/projects/fx && ./deploy.sh', 'bash /srv/projects/ralab/deploy.sh',
+      'npx -y wrangler@3 pages deploy dist --project-name=x', 'supabase functions deploy f', 'vercel deploy --prod', 'netlify deploy --prod',
+      'git push origin HEAD:main', 'git push origin usuario/danilo:refs/heads/main', 'git push origin main', 'git -C /srv/projects/fx push origin main',
+      `echo '{"ref":"main"}' > /srv/builds/pedido.json`])
       expect(ehPublicacao(c), c).toBe(true);
-    for (const c of ['git push origin main', 'git push -u origin usuario/danilo', 'npm run build', 'cat deploy.md'])
+    for (const c of ['git push -u origin usuario/danilo', 'npm run build', 'cat deploy.md', 'cat deploy.sh', 'grep -n x deploy.sh', '[ -f $p/deploy.sh ] && echo sim'])
       expect(ehPublicacao(c), c).toBe(false);
-    expect(saiDaRaiz('cd /srv/projects/fx && ./deploy.sh', '/srv/projects/fx')).toBe(true);
-    expect(saiDaRaiz(`cd '/srv/projects/fx/' && ./deploy.sh`, '/srv/projects/fx')).toBe(true);
-    expect(saiDaRaiz('cd /srv/projects/fx-worktrees/d && ./deploy.sh', '/srv/projects/fx')).toBe(false);
-    expect(saiDaRaiz('./deploy.sh', '/srv/projects/fx')).toBe(false);
 
     const sig = { signal: new AbortController().signal };
-    let juntou = 0; let motivo: string | null = null;
-    const hook = makePolicyHook(undefined, undefined, { raiz: '/srv/projects/fx', juntar: async () => { juntou++; return motivo; } });
-    const run = async (command: string, permission_mode = 'auto'): Promise<any> =>
-      (await hook({ hook_event_name: 'PreToolUse', permission_mode, tool_name: 'Bash', tool_input: { command } } as any, undefined, sig) as any).hookSpecificOutput;
-    let out = await run('./deploy.sh');
-    expect(out.permissionDecision).toBe('deny');
-    expect(out.permissionDecisionReason).toContain('cd /srv/projects/fx && ./deploy.sh');
-    expect(juntou).toBe(1);
-    expect((await run('cd /srv/projects/fx && ./deploy.sh')).permissionDecision).toBe('allow');
-    expect((await run('cd /srv/projects/fx && ./deploy.sh', 'default')).permissionDecision).toBe('ask');
-    motivo = 'conflito ao juntar na raiz (a.ts)';
-    out = await run('cd /srv/projects/fx && ./deploy.sh');
-    expect(out.permissionDecision).toBe('deny');
-    expect(out.permissionDecisionReason).toContain('conflito');
-    expect((await run('ls')).permissionDecision).toBe('allow');
-    expect(juntou).toBe(4);
-    motivo = null;
-    expect((await run(`echo '{"ref":"main"}' > /srv/builds/pedido.json`)).permissionDecision).toBe('allow');
-    const w: any = await hook({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'Write', tool_input: { file_path: '/srv/builds/pedido.json' } } as any, undefined, sig);
-    expect(w.hookSpecificOutput.permissionDecision).toBe('allow');
-    expect(juntou).toBe(6);
+    const run = async (hook: ReturnType<typeof makePolicyHook>, tool_name: string, tool_input: object): Promise<any> =>
+      (await hook({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name, tool_input } as any, undefined, sig) as any).hookSpecificOutput;
+    const wt = makePolicyHook(undefined, undefined, true);
+    expect((await run(wt, 'Bash', { command: 'cd /srv/projects/fx && ./deploy.sh' })).permissionDecision).toBe('deny');
+    expect((await run(wt, 'Bash', { command: 'cd /srv/projects/fx && ./deploy.sh' })).permissionDecisionReason).toContain('orion-publicar');
+    expect((await run(wt, 'Write', { file_path: '/srv/builds/pedido.json' })).permissionDecision).toBe('deny');
+    expect((await run(wt, 'Bash', { command: 'ls' })).permissionDecision).toBe('allow');
+    // Fora de worktree (raiz, sessão neutra) segue a regra antiga: auto libera, default pede o cartão.
+    expect((await run(makePolicyHook(), 'Bash', { command: './deploy.sh' })).permissionDecision).toBe('allow');
   });
 });

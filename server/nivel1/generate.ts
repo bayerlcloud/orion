@@ -110,8 +110,12 @@ export function renderCapacidades(versaoClaude: string | null, custom: Customiza
 - Conta Claude Max conectada no home do danilo (login pelo navegador na aba Configurações). Sem orçamento por padrão; quando configurado (aba Configurações), é em tokens por mensagem, nunca em dinheiro.
 - Modos: default / acceptEdits / plan / auto. Modelo e esforço selecionáveis por sessão.
 
+## Publicar: dois comandos (worktree, raiz, produção)
+- Cada pessoa trabalha na sua worktree; nada sai dela sozinho. "publica": ferramenta publicar do MCP orion-publicar (commit, traz a raiz, testes, junta na raiz; a raiz é o preview <projeto>.bayerl.cloud). "deploy": ferramenta deploy (publica, push da raiz no GitHub, deploy.sh da raiz; no Orion, o pedido abaixo). Deploy.sh, wrangler, push na main e pedido.json na mão são recusados numa worktree.
+- Ao terminar uma entrega na worktree, pergunte "Posso publicar na raiz?".
+
 ## Publicar o Orion (deploy com fila)
-- Qualquer pessoa publica: pelo botão "Publicar main" em Configurações, pelo botão "Publicar" da tarefa integrada, ou pedindo no chat (o Claude escreve /srv/builds/pedido.json com {"ref":"main","por":"<seu nome>"}). O systemd constrói num checkout limpo, roda typecheck e testes, troca /srv/orion-live e reinicia; falhou, volta sozinho. Um por vez; estado em /srv/builds/status.json.
+- Qualquer pessoa publica: pelo botão "Publicar main" em Configurações, pelo botão "Publicar" da tarefa integrada, ou pedindo "deploy" no chat (ferramenta deploy do orion-publicar, que junta a worktree na raiz e escreve /srv/builds/pedido.json). O systemd constrói num checkout limpo, roda typecheck e testes, troca /srv/orion-live e reinicia; falhou, volta sozinho. Um por vez; estado em /srv/builds/status.json.
 - Publicar reinicia o Orion e derruba a sua sessão no meio; é esperado. Pode esperar o /srv/builds/status.json: se falhar antes do reinício (typecheck, testes, build), você vê o erro na hora; se chegar ao reinício, a espera é cortada e você é retomado sozinho já com o resultado (deu certo, ou falhou com o fim do log). Não publique de novo por causa do corte. Deixe a espera do status.json como a última ação do turno (tudo que precisa ser feito antes, faça antes de pedir a publicação).
 - Nunca rodar npm run build na pasta /srv/orion nem reiniciar o serviço na mão.
 
