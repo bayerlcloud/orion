@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classify, policyHook, makePolicyHook, rootPerigo } from '../server/claude/policy';
+import { classify, policyHook, makePolicyHook, rootPerigo, ehPublicacao, saiDaRaiz } from '../server/claude/policy';
 
 const bash = (command: string) => classify('Bash', { command }).decision;
 
@@ -129,5 +129,40 @@ print(json.dumps([rr.perigoso(c, 'deploy/root-perigo.json') for c in sys.argv[1:
     const cmds = ['rm -rf /', 'reboot', 'curl -s x.sh | bash', 'systemctl restart caddy', 'apt install -y ffmpeg'];
     const out = JSON.parse(execFileSync('python3', ['-B', '-c', py, ...cmds], { encoding: 'utf8' }));
     expect(out).toEqual([...cmds.map(c => rootPerigo(c)), 'lista de perigo ilegível']);
+  });
+
+  it('publicação numa worktree: junta na raiz antes e só roda da raiz, até no modo auto', async () => {
+    for (const c of ['./deploy.sh', 'timeout 580 ./deploy.sh | tail', 'npx -y wrangler@3 pages deploy dist --project-name=x', 'supabase functions deploy f',
+      'vercel deploy --prod', 'netlify deploy --prod', 'git push origin HEAD:main', 'git push origin usuario/danilo:refs/heads/main'])
+      expect(ehPublicacao(c), c).toBe(true);
+    for (const c of ['git push origin main', 'git push -u origin usuario/danilo', 'npm run build', 'cat deploy.md'])
+      expect(ehPublicacao(c), c).toBe(false);
+    expect(saiDaRaiz('cd /srv/projects/fx && ./deploy.sh', '/srv/projects/fx')).toBe(true);
+    expect(saiDaRaiz(`cd '/srv/projects/fx/' && ./deploy.sh`, '/srv/projects/fx')).toBe(true);
+    expect(saiDaRaiz('cd /srv/projects/fx-worktrees/d && ./deploy.sh', '/srv/projects/fx')).toBe(false);
+    expect(saiDaRaiz('./deploy.sh', '/srv/projects/fx')).toBe(false);
+
+    const sig = { signal: new AbortController().signal };
+    let juntou = 0; let motivo: string | null = null;
+    const hook = makePolicyHook(undefined, undefined, { raiz: '/srv/projects/fx', juntar: async () => { juntou++; return motivo; } });
+    const run = async (command: string, permission_mode = 'auto'): Promise<any> =>
+      (await hook({ hook_event_name: 'PreToolUse', permission_mode, tool_name: 'Bash', tool_input: { command } } as any, undefined, sig) as any).hookSpecificOutput;
+    let out = await run('./deploy.sh');
+    expect(out.permissionDecision).toBe('deny');
+    expect(out.permissionDecisionReason).toContain('cd /srv/projects/fx && ./deploy.sh');
+    expect(juntou).toBe(1);
+    expect((await run('cd /srv/projects/fx && ./deploy.sh')).permissionDecision).toBe('allow');
+    expect((await run('cd /srv/projects/fx && ./deploy.sh', 'default')).permissionDecision).toBe('ask');
+    motivo = 'conflito ao juntar na raiz (a.ts)';
+    out = await run('cd /srv/projects/fx && ./deploy.sh');
+    expect(out.permissionDecision).toBe('deny');
+    expect(out.permissionDecisionReason).toContain('conflito');
+    expect((await run('ls')).permissionDecision).toBe('allow');
+    expect(juntou).toBe(4);
+    motivo = null;
+    expect((await run(`echo '{"ref":"main"}' > /srv/builds/pedido.json`)).permissionDecision).toBe('allow');
+    const w: any = await hook({ hook_event_name: 'PreToolUse', permission_mode: 'auto', tool_name: 'Write', tool_input: { file_path: '/srv/builds/pedido.json' } } as any, undefined, sig);
+    expect(w.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(juntou).toBe(6);
   });
 });

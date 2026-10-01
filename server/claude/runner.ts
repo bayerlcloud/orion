@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { makePolicyHook, type BackupFn } from './policy.js';
+import { makePolicyHook, type BackupFn, type PublicarDaRaiz } from './policy.js';
 import { readFile } from 'node:fs/promises';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
@@ -137,7 +137,7 @@ export type TurnParams = {
   /** Backup antes de SQL destrutivo aprovado (server/dbBackup.ts); ausente = projeto sem db_url. */
   backupSql?: BackupFn;
   /** Integração por turno (server/integracao/turno.ts): antes do SDK e no fim do turno (ok = terminou sem erro). */
-  ganchos?: { antes?: () => Promise<void>; depois?: (ok: boolean) => Promise<void> };
+  ganchos?: { antes?: () => Promise<void>; depois?: (ok: boolean) => Promise<void>; publicar?: PublicarDaRaiz };
 };
 
 /**
@@ -429,7 +429,7 @@ export class Runner {
       canUseTool,
       onElicitation,
       // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
-      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql, this.deps.store.rootLiberado ? () => this.deps.store.rootLiberado!(id) : undefined)] }] },
+      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql, this.deps.store.rootLiberado ? () => this.deps.store.rootLiberado!(id) : undefined, p.ganchos?.publicar)] }] },
       abortController: abort,
       includePartialMessages: true,
       settingSources: ['user', 'project'],

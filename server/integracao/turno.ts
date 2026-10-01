@@ -71,7 +71,23 @@ export function ganchosDaSessao(o: Opcoes): TurnParams['ganchos'] | undefined {
     }
   }
 
+  /** Antes de publicar de dentro da worktree: commita e junta na raiz já, pela fila. null = ok; senão o motivo. */
+  async function juntarAgora(): Promise<string | null> {
+    const c = await commitTurno(o.cwd, o.prompt);
+    if (!c.branch || c.branch === 'HEAD' || c.branch === base) return `a worktree não está numa branch própria (${c.branch ?? 'sem branch'})`;
+    if ((await commitsAFrente(o.cwd, base)) === 0) return null;
+    return o.fila.enfileirar(projeto!.id, async () => {
+      if (!(await raizLimpa(projeto!.path))) return 'a pasta raiz do projeto tem edição direta não enviada; alguém precisa enviar ou descartar antes';
+      const r = await (o.integrar ?? integrate)(projeto!.path, c.branch!, base);
+      if (r.ok) { o.registrar?.(`Mudança enviada para a raiz antes de publicar (branch ${c.branch}).`); return null; }
+      return r.conflict
+        ? `conflito ao juntar na raiz (${arquivosEmConflito(r.log)}); rode git merge ${base} nesta pasta, resolva mantendo as duas mudanças e tente publicar de novo`
+        : `o git falhou ao juntar na raiz: ${r.log.slice(-300)}`;
+    });
+  }
+
   return {
+    publicar: { raiz: projeto.path, juntar: juntarAgora },
     antes: async () => { await sincronizarComBase(o.cwd, base); },
     depois: async () => {
       const c = await commitTurno(o.cwd, o.prompt);
