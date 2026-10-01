@@ -1,5 +1,6 @@
 import path from 'node:path';
-import { createWorktree as gitCreateWorktree } from '../tasks/git.js';
+import { access } from 'node:fs/promises';
+import { addWorktreeExistente, branchAtual, branchExiste, createWorktree as gitCreateWorktree, raizLimpa } from '../tasks/git.js';
 import { isSafeBranch } from '../tasks/util.js';
 
 // "Aba Claude" — criar/gerenciar git worktree direto pela UI do chat (ver PARIDADE.md seção 14).
@@ -67,4 +68,26 @@ export async function createWorktreeForProject(
   const r = await gitCreateWorktree(projectPath, branch, baseBranch, target);
   if (!r.ok || !r.path) return { ok: false, error: r.log || 'falha ao criar o worktree' };
   return { ok: true, path: r.path, branch };
+}
+
+export type WorktreeUsuario = { ok: true; path: string; branch: string } | { ok: false; motivo: string };
+
+/**
+ * Worktree fixa da pessoa no projeto (decisão 01/10/2026): `<projeto>-worktrees/<pessoa>`, branch
+ * `usuario/<pessoa>` saída da branch atual da raiz. Toda sessão da pessoa no projeto roda nela, o
+ * preview do usuário mostra ela, e cada turno sobe para a raiz pela integração automática.
+ * Só cria com a raiz limpa e numa branch: raiz com edição sem commit esconderia esse trabalho
+ * da worktree, então aí a sessão fica na raiz (como antes) e o motivo volta para avisar.
+ */
+export async function worktreeDoUsuario(projectPath: string, pessoa: string): Promise<WorktreeUsuario> {
+  const target = path.join(worktreesBaseDir(projectPath), pessoa);
+  const branch = `usuario/${pessoa}`;
+  if (await access(path.join(target, '.git')).then(() => true, () => false)) return { ok: true, path: target, branch };
+  const base = await branchAtual(projectPath);
+  if (!base) return { ok: false, motivo: 'a pasta do projeto não é um repositório git numa branch' };
+  if (!(await raizLimpa(projectPath))) return { ok: false, motivo: `a raiz do projeto tem mudanças sem commit na branch ${base}` };
+  const r = (await branchExiste(projectPath, branch))
+    ? await addWorktreeExistente(projectPath, branch, target)
+    : await gitCreateWorktree(projectPath, branch, base, target);
+  return r.ok && r.path ? { ok: true, path: r.path, branch } : { ok: false, motivo: r.log || 'falha ao criar a worktree' };
 }

@@ -144,6 +144,26 @@ export async function commitsAFrente(worktree: string, baseBranch: string): Prom
 }
 
 /** Raiz sem edição direta em arquivos rastreados (arquivo novo não rastreado não atrapalha o merge). */
+/** Branch em que a pasta está (null se não for git ou estiver sem branch, em detached HEAD). */
+export async function branchAtual(repo: string): Promise<string | null> {
+  const r = await git(repo, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+}
+
+/** Worktree já existente de uma branch que já existe (`git worktree add <alvo> <branch>`). */
+export async function addWorktreeExistente(repoPath: string, branch: string, targetPath: string): Promise<WorktreeResult> {
+  if (!isSafeBranch(branch)) return { ok: false, path: null, log: `nome de branch inválido: ${branch}` };
+  await mkdir(path.dirname(targetPath), { recursive: true }).catch(() => {});
+  const r = await git(repoPath, ['worktree', 'add', targetPath, branch]);
+  if (r.code !== 0) return { ok: false, path: null, log: (r.stderr || r.stdout).trim() || 'falha ao criar worktree' };
+  return { ok: true, path: targetPath, log: r.stdout.trim() };
+}
+
+/** Existe a branch local? */
+export async function branchExiste(repo: string, branch: string): Promise<boolean> {
+  return (await git(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
+}
+
 export async function raizLimpa(repo: string): Promise<boolean> {
   const st = await git(repo, ['status', '--porcelain', '--untracked-files=no']);
   return st.code === 0 && st.stdout.trim() === '';

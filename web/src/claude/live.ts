@@ -116,6 +116,8 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
       case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false, toolUseId: typeof p.toolUseId === 'string' ? p.toolUseId : undefined }); break;
       case 'permission_resolved': { const q = reqs.get(p.id); if (q) { q.decision = p.decision; if (typeof p.message === 'string') q.answer = p.message; } break; }
       case 'error': s = { ...s, error: String(p.message ?? 'erro') }; break;
+      // Notas antigas da integração (antes do runner.aviso) viram o mesmo aviso.
+      case 'integracao': s = pushMessage(s, { type: 'system', subtype: 'orion_aviso', text: String(p.texto ?? '') } as unknown as SdkMessage, whenOk); break;
       // Stop manual persistido (ver server/claude/runner.ts) — texto parcial reconstruído aqui, do
       // próprio payload do evento (nunca das mensagens parciais de streaming, que não são persistidas).
       case 'interrupted': s = { ...s, interrupted: { message: String(p.message ?? 'Interrompido pelo usuário'), duringTool: !!p.duringTool, text: String(p.partialText ?? ''), thinking: String(p.partialThinking ?? '') } }; break;

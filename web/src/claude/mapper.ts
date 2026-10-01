@@ -81,6 +81,7 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
     // alimentam `noteAgentTask` (tool calls aninhadas em `AgentTask.toolCalls`).
     if ((m.type === 'assistant' || m.type === 'user') && m.parent_tool_use_id) continue;
     if (m.type === 'system') {
+      if (m.subtype === 'orion_aviso') { out.push({ id: nid(), kind: 'aviso', text: String((m as { text?: unknown }).text ?? '') }); continue; }
       if (m.subtype === 'init' && !sawInit) {
         sawInit = true;
         const parts = ['Sessão iniciada'];

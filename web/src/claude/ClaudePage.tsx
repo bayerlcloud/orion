@@ -468,8 +468,7 @@ export default function ClaudePage() {
         // "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14): nome
         // digitado no seletor "Worktree" do compositor, se houver. O servidor cria o git worktree e
         // já faz a sessão nascer com `cwd` apontando pra ele; nome vazio = sessão normal, como sempre.
-        const worktreeName = activeTab?.worktreeName?.trim() || undefined;
-        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, model: modelOverride, effort, attachments, worktree_name: worktreeName });
+        const r = await claudeApi.create({ project_id: pid, prompt, permission_mode: mode, model: modelOverride, effort, attachments });
         const draftId = activeId;
         setTabs(t => draftId ? t.map(x => x.id === draftId ? { id: r.id } : x) : [...t, { id: r.id }]);
         setActiveId(r.id);
@@ -559,9 +558,6 @@ export default function ClaudePage() {
     try { await claudeApi.moveToGroup(sessionId, groupId); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
   /** Nome de worktree digitado pro rascunho da aba ativa (ver Composer.tsx, PARIDADE.md seção 14) — só mexe no `Tab`, nada remoto ainda (a criação acontece em `send()`, junto com a 1ª mensagem). */
-  function setDraftWorktreeName(name: string) {
-    setTabs(t => t.map(x => x.id === activeId ? { ...x, worktreeName: name } : x));
-  }
 
   const openIds = useMemo(() => new Set(tabs.map(t => t.id)), [tabs]);
   const summaries = useMemo(() => sessions.map(s => ({ ...toSummary(s, projects), open: openIds.has(s.id) })), [sessions, projects, openIds]);
@@ -624,7 +620,7 @@ export default function ClaudePage() {
             <SessionMenu
               topo={activeProject ? <PreviewPublico projectId={activeProject.id} /> : undefined}
               sessao={[
-                { icon: <Eye size={15} />, label: 'Preview do usuário', desc: 'Seu endereço pessoal, mostrando esta sessão (a última onde você clicou)', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
+                { icon: <Eye size={15} />, label: 'Preview do usuário', desc: 'Seu endereço pessoal, mostrando a sua worktree neste projeto', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
                 { icon: <AgentMapIcon size={15} />, label: 'Mapa de agentes', desc: 'Subagentes desta sessão, tempo e tokens', disabled: !activeId, onClick: () => setAgentMapOpen(true) },
                 { icon: <Pencil size={15} />, label: 'Renomear sessão', desc: 'Troca o nome que aparece na aba e na lista', disabled: !activeId || isDraft(activeId), onClick: rename },
                 { icon: <Power size={15} />, label: 'Parar o Claude', desc: 'Interrompe o que ele está fazendo agora', hidden: !running, danger: true, onClick: stop },
@@ -720,7 +716,6 @@ export default function ClaudePage() {
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft && activeTab.projectId !== undefined ? projects : undefined} projectId={activeTab?.projectId}
                 onProject={escolherProjeto}
-                worktreeName={activeTab?.worktreeName} onWorktreeName={activeTab?.draft ? setDraftWorktreeName : undefined}
                 agents={agentsPill} onAgents={() => setAgentMapOpen(true)}
                 outputStyles={styles} outputStyle={outputStyle}
                 onOutputStyle={!activeTab?.draft ? handleOutputStyle : undefined}

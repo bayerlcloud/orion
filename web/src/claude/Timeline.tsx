@@ -708,6 +708,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
   }, [folded]);
   const renderEvent = (e: ConvEvent) => {
         if (e.kind === 'system') return null;
+        if (e.kind === 'aviso') return <div key={e.id} className="cc-aviso">{e.text}</div>;
         // Result com erro (SDK caiu, turno cortado sem retomada — ver NAO_RETOMADA em routes/claude.ts):
         // antes voltava null junto com o "Concluído" (que segue escondido, igual à extensão), então erro
         // de sessão era invisível. ponytail: casa o texto pra decidir o botão em vez de um campo novo.

@@ -892,3 +892,6 @@
 
 .cc-smenu-preview { padding: 4px 8px 8px; }
 .cc-smenu-preview .pv-pub { display: flex; width: 100%; }
+
+/* Nota do Orion na conversa (runner.aviso): integração, pasta da sessão, sessão paralela */
+.cc-aviso { margin: 6px 0; padding: 6px 10px; border-left: 2px solid var(--warn); color: var(--fg2); font-size: 12px; line-height: 1.4; }
