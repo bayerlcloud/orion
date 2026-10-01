@@ -63,10 +63,10 @@ Primeiro acesso depois de parado: 2 a 5 segundos, ou 10 a 30 segundos quando o v
 - Caddy responde 404 para: caminhos começando em `/@fs`, qualquer `/.env*`, `/.git`, e query com `raw` ou `import` junto de `..` ou `%2e`.
 - O Caddy continua mandando `Host: localhost` para o vite (como o bloco atual do fisioexpert faz), então o `allowedHosts` do vite não precisa mudar.
 - Preview pessoal exige login do Orion:
-  1. O botão Preview chama `GET v2.bayerl.cloud/api/preview/open?session=<id>`. O servidor confere a sessão web, grava `worktree_path` na linha `previews` da pessoa, gera um token assinado (HMAC com `SESSION_SECRET`, validade 60 s, contém `user_id` e `host`) e redireciona para `https://<host>/__orion_auth?t=<token>`.
+  1. O botão Preview chama `GET orion.bayerl.cloud/api/preview/open?session=<id>`. O servidor confere a sessão web, grava `worktree_path` na linha `previews` da pessoa, gera um token assinado (HMAC com `SESSION_SECRET`, validade 60 s, contém `user_id` e `host`) e redireciona para `https://<host>/__orion_auth?t=<token>`.
   2. O Caddy manda `/__orion_auth` para o orion-central, que valida o token e grava o cookie `orion_preview` (httpOnly, secure, só daquele host, 7 dias), e redireciona para `/`.
   3. Todo o resto passa por `forward_auth` para `127.0.0.1:3000/api/preview/check`, que aceita se o cookie for válido para aquele host. Sem cookie, redireciona para o login do Orion.
-  - O cookie do painel (`orion_session`) não sai de `v2.bayerl.cloud`: o preview nunca recebe a sessão do painel.
+  - O cookie do painel (`orion_session`) não sai de `orion.bayerl.cloud`: o preview nunca recebe a sessão do painel.
 - Preview raiz: público, sem `forward_auth`, com as mesmas proteções de caminho e de usuário.
 
 ### Worktree sem node_modules

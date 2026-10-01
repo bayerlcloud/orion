@@ -324,8 +324,8 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
       .sort((a, b) => (b.quando ?? '').localeCompare(a.quando ?? ''))[0];
     let deploy: Ficha['deploy'] = null;
     if (pg) deploy = { onde: `Cloudflare Pages (${pg.conta})`, quando: pg.quando, estado: pg.estado || '?', detalhe: pg.commit ? `commit ${pg.commit}` : '', dominios: pg.dominios };
-    else if (ehOrion && deployOrion) deploy = { onde: 'fila de deploy da c3 (/srv/orion-live)', quando: deployOrion.fim ?? deployOrion.inicio ?? null, estado: deployOrion.estado, detalhe: `${deployOrion.sha ?? ''} por ${deployOrion.por ?? '?'}`, dominios: ['v2.bayerl.cloud'] };
-    const prodUrl = meta.prod_url || (ehOrion ? 'https://v2.bayerl.cloud' : pg ? `https://${pg.dominios.find(d => !d.endsWith('.pages.dev')) ?? pg.dominios[0]}` : '');
+    else if (ehOrion && deployOrion) deploy = { onde: 'fila de deploy da c3 (/srv/orion-live)', quando: deployOrion.fim ?? deployOrion.inicio ?? null, estado: deployOrion.estado, detalhe: `${deployOrion.sha ?? ''} por ${deployOrion.por ?? '?'}`, dominios: ['orion.bayerl.cloud'] };
+    const prodUrl = meta.prod_url || (ehOrion ? 'https://orion.bayerl.cloud' : pg ? `https://${pg.dominios.find(d => !d.endsWith('.pages.dev')) ?? pg.dominios[0]}` : '');
     const prod = prodUrl ? await checarProd(prodUrl) : null;
 
     // Backups: banco (conforme onde ele mora) + código (espelho GitHub e arquivos em ~/backups).

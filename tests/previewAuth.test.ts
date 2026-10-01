@@ -44,12 +44,8 @@ describe('podeAbrir', () => {
   it('urlEntrar leva o host para o painel', () => {
     expect(urlEntrar('fisioexpert.bayerl.cloud')).toBe('https://orion.bayerl.cloud/api/preview/entrar?host=fisioexpert.bayerl.cloud');
   });
-  it('entrar tenta o outro endereço do painel antes do login', () => {
-    expect(proximoPainel('orion.bayerl.cloud', '')).toBe('v2.bayerl.cloud');
-    expect(proximoPainel('v2.bayerl.cloud', '')).toBe('orion.bayerl.cloud');
-    expect(proximoPainel('v2.bayerl.cloud', 'orion.bayerl.cloud')).toBeNull();
-    expect(urlEntrar('x.bayerl.cloud', 'v2.bayerl.cloud', 'orion.bayerl.cloud'))
-      .toBe('https://v2.bayerl.cloud/api/preview/entrar?host=x.bayerl.cloud&tentados=orion.bayerl.cloud');
+  it('com um painel só, entrar vai direto para o login', () => {
+    expect(proximoPainel('orion.bayerl.cloud', '')).toBeNull();
   });
 });
 
