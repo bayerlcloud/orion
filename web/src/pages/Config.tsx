@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type User } from '../api';
 import DeployCard from './DeployCard';
 import DbBackupCard from './DbBackupCard';
+import ConfigClaude from './ConfigClaude';
 import { confirmar } from '../dialogo';
 
 type Settings = {
@@ -157,6 +158,7 @@ export default function Config({ user }: { user: User }) {
             <tbody>{s.meta.map(m => <tr key={m.key}><td className="mono">{m.key}</td><td>{m.updated_by ?? '—'}</td><td>{new Date(m.updated_at).toLocaleString('pt-BR')}</td></tr>)}</tbody></table>
         </section>
       )}
+      <ConfigClaude />
     </div>
   );
 }
