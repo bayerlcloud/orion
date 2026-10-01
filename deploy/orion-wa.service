@@ -1,0 +1,22 @@
+[Unit]
+Description=Orion WA (gateway de WhatsApp: webhook da Evolution, fila de envio e repasse para os apps)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=danilo
+Group=orion
+WorkingDirectory=/srv/orion-live
+Environment=NODE_ENV=production
+Environment=WA_PORT=3001
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion-live/dist/server/wa/main.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

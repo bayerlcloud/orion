@@ -97,6 +97,11 @@ if ! saudavel; then
   exit 1
 fi
 
+etapa 'gateway do WhatsApp'
+# orion-wa não reinicia a cada publicação (é o que segura o webhook da Evolution); só quando o código dele muda.
+wa_hash() { cat "$1"/dist/server/wa/*.js "$1"/dist/server/whatsapp.js "$1"/dist/server/tools/evolution.js "$1"/dist/server/settings.js "$1"/dist/server/db.js 2>/dev/null | sha256sum; }
+if [ -z "$ANTERIOR" ] || [ "$(wa_hash "$ANTERIOR")" != "$(wa_hash "$DIR")" ]; then systemctl try-restart orion-wa || echo "ATENÇÃO: orion-wa não reiniciou"; fi
+
 etapa 'helper root'
 # Ponte de root do chat (server/claude/rootTool.ts): cópia root do helper fora do alcance do danilo,
 # pastas de pedido/resposta do danilo, units instaladas/atualizadas só quando mudam.
@@ -111,11 +116,12 @@ install -m 0644 -o root -g root "$DIR/deploy/root-perigo.json" /usr/local/lib/or
 mv -f /usr/local/lib/orion/.root-perigo.json.novo /usr/local/lib/orion/root-perigo.json
 install -d -m 0770 -o danilo -g orion /srv/root /srv/root/pedidos /srv/root/respostas
 MUDOU=
-for u in orion-root.service orion-root.path orion-deploy.service; do
+for u in orion-root.service orion-root.path orion-deploy.service orion-wa.service; do
   cmp -s "$DIR/deploy/$u" "/etc/systemd/system/$u" || { install -m 0644 "$DIR/deploy/$u" "/etc/systemd/system/$u"; MUDOU=1; }
 done
 [ -n "$MUDOU" ] && systemctl daemon-reload
 systemctl enable --now orion-root.path || echo "ATENÇÃO: orion-root.path não subiu"
+systemctl enable --now orion-wa || echo "ATENÇÃO: orion-wa não subiu"
 
 etapa 'limpeza'
 # Mantém os 3 builds mais novos; nunca apaga o que está no ar nem o anterior. Logs e .json ficam (histórico).

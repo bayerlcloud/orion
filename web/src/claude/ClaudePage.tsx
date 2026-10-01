@@ -70,7 +70,7 @@ export default function ClaudePage() {
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
   const [effort, setEffort] = useState<EffortChoice>('medium');
-  const [model, setModel] = useState<ModelAlias>('default');
+  const [model, setModel] = useState<ModelAlias>('opus');
   // "Mapa de agentes" (ver AgentMap.tsx) — pedido ao vivo do Bayerl 28/09/2026, gatilho na faixa de
   // ações da aba (`.cc-tab-actions`, mesmo grupo de Sync/Power/Dots), painel em portal próprio.
   const [agentMapOpen, setAgentMapOpen] = useState(false);
@@ -573,7 +573,7 @@ export default function ClaudePage() {
   const title = activeTab?.draft ? 'Nova sessão' : (active?.title ?? (activeId ? 'Sessão' : 'Claude'));
   // Mostra o que vale pra PRÓXIMA mensagem: o override escolhido no seletor, se houver; senão o
   // modelo resolvido da sessão (gravado no system/init do SDK), como antes.
-  const modelLabel = model !== 'default' ? MODEL_LABEL[model] : (active?.model ?? 'modelo padrão');
+  const modelLabel = MODEL_LABEL[model === 'default' ? 'opus' : model];
   // Worktree da sessão ATIVA (não rascunho) — alimenta o banner "Esta sessão está no worktree X"
   // abaixo, espelhando `worktree.value.path !== defaultCwd.value` da extensão real (ver PARIDADE.md
   // seção 14). `active` já é `ApiSession` (tem `cwd`); o `path` do projeto vem de `projects` (mesma

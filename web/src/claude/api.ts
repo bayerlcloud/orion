@@ -207,7 +207,8 @@ export function matchEffort(effort: string | null | undefined): EffortChoice {
  */
 export type ModelAlias = 'default' | 'sonnet' | 'opus' | 'haiku' | 'fable';
 export const MODEL_LABEL: Record<ModelAlias, string> = { default: 'Padrão', sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku', fable: 'Fable' };
-export const MODEL_ORDER: ModelAlias[] = ['default', 'sonnet', 'opus', 'haiku', 'fable'];
+/** Ordem do seletor (Danilo, 01/10/2026): do mais leve ao mais forte, sem "Padrão" por enquanto. */
+export const MODEL_ORDER: ModelAlias[] = ['haiku', 'sonnet', 'opus', 'fable'];
 
 /**
  * Alias do menu que corresponde ao `model` resolvido de uma sessão (`system/init` grava o id
@@ -215,8 +216,9 @@ export const MODEL_ORDER: ModelAlias[] = ['default', 'sonnet', 'opus', 'haiku', 
  * substring (case-insensitive) contra cada alias conhecido; sem match ou sem modelo, `'default'`.
  */
 export function matchModelAlias(model: string | null | undefined): ModelAlias {
-  if (!model) return 'default';
+  // Sem modelo conhecido = padrão do sistema (Opus, decisão 01/10/2026), nunca "Padrão".
+  if (!model) return 'opus';
   const m = model.toLowerCase();
-  for (const alias of MODEL_ORDER) if (alias !== 'default' && m.includes(alias)) return alias;
-  return 'default';
+  for (const alias of MODEL_ORDER) if (m.includes(alias)) return alias;
+  return 'default'; // id desconhecido: quem exibe decide (custo mostra o id cru, seletor mostra Opus)
 }

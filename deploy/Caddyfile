@@ -1,6 +1,13 @@
 orion.bayerl.cloud {
 	encode zstd gzip
-	reverse_proxy 127.0.0.1:3000
+	# Gateway de WhatsApp (orion-wa, serviço próprio): /wa dos apps e o webhook da Evolution.
+	@wa path /wa/* /api/whatsapp/webhook/*
+	handle @wa {
+		reverse_proxy 127.0.0.1:3001
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
 }
 
 http://217.76.55.249 {

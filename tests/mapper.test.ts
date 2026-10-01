@@ -748,9 +748,9 @@ describe('cycleMessageIndex', () => {
 
 describe('matchModelAlias', () => {
   it('sem modelo (null/undefined/vazio): default', () => {
-    expect(matchModelAlias(null)).toBe('default');
-    expect(matchModelAlias(undefined)).toBe('default');
-    expect(matchModelAlias('')).toBe('default');
+    expect(matchModelAlias(null)).toBe('opus');
+    expect(matchModelAlias(undefined)).toBe('opus');
+    expect(matchModelAlias('')).toBe('opus');
   });
 
   it('alias exato', () => {

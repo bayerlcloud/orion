@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { paraFala, pedacos } from '../web/src/claude/Ouvir';
+import { paraFala, pedacos } from '../web/src/claude/fala';
 
 describe('ouvir resposta', () => {
   it('limpa markdown e não lê bloco de código', () => {

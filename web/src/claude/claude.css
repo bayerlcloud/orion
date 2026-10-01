@@ -818,7 +818,7 @@
   padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--cc-orange) 22%, transparent); }
 .cc-msec-value.is-ultracode { background: color-mix(in srgb, var(--cc-ultracode) 24%, transparent); }
 /* Segmented control: trilho único, opção ativa "levantada". */
-.cc-seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: color-mix(in srgb, #000 22%, transparent); box-shadow: inset 0 1px 2px rgba(0,0,0,.25); }
+.cc-seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: color-mix(in srgb, #000 22%, transparent); box-shadow: inset 0 1px 2px rgba(0,0,0,.25); }
 .cc-seg-btn { padding: 6px 0; border-radius: 7px; font-size: 12px; color: var(--cc-fg2); transition: background .15s, color .15s, box-shadow .15s; white-space: nowrap; }
 .cc-seg-btn:hover { color: var(--cc-fg); }
 .cc-seg-btn.is-active { color: var(--cc-fg); font-weight: 600; background: color-mix(in srgb, var(--cc-fg) 13%, var(--cc-bg2)); box-shadow: 0 1px 3px rgba(0,0,0,.35), inset 0 1px 0 color-mix(in srgb, var(--cc-fg) 10%, transparent); }
