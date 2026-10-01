@@ -4,6 +4,13 @@ import { avisar, confirmar } from './dialogo';
 
 type Estado = { publico: boolean; ate: string | null; host: string };
 
+// Estado já conhecido por projeto: o menu abre com o interruptor pronto (sem aparecer depois do resto).
+const cache = new Map<number, Estado>();
+/** Busca o estado antes de precisar (ex.: ao abrir a aba da sessão), para o menu ⋮ abrir completo. */
+export function prefetchPreviewPublico(projectId: number): Promise<void> {
+  return api<Estado>(`/api/projects/${projectId}/preview-publico`).then(e => { cache.set(projectId, e); }).catch(() => {});
+}
+
 const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 /**
@@ -11,11 +18,13 @@ const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-
  * abre sem login por 48 h (religar renova); desligado, pede login do Orion. Qualquer pessoa logada mexe.
  */
 export default function PreviewPublico({ projectId, compacto = false }: { projectId: number; compacto?: boolean }) {
-  const [e, setE] = useState<Estado | null>(null);
+  const [e, setEstado] = useState<Estado | null>(() => cache.get(projectId) ?? null);
+  const setE = (v: Estado) => { cache.set(projectId, v); setEstado(v); };
   const [ocupado, setOcupado] = useState(false);
   const [copiado, setCopiado] = useState(false);
   useEffect(() => {
-    setE(null);
+    setEstado(cache.get(projectId) ?? null);
+    // Mostra o que já sabe na hora e confirma com o servidor por trás.
     api<Estado>(`/api/projects/${projectId}/preview-publico`).then(setE).catch(() => {});
   }, [projectId]);
   if (!e) return null;
