@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { ULTRACODE, ULTRACODE_APPEND, resolveUltracode, withUltracodeAppend } from '../server/claude/ultracode';
 import { computeModelAttribution } from '../web/src/claude/mapper';
 import { fastModeFrom, applyLive, emptyLive } from '../web/src/claude/live';
-import { matchEffort, effortPillLabel, ULTRACODE_LABEL, ULTRACODE_MENU_LABEL } from '../web/src/claude/api';
+import { matchEffort, effortPillLabel, ULTRACODE_LABEL, ULTRACODE_MENU_LABEL, NOVA_SESSAO } from '../web/src/claude/api';
+import { readFileSync } from 'node:fs';
 
 /**
  * Trilha par/seletor (29/09/2026) — ver web/src/claude/PARIDADE-seletor.md:
@@ -105,5 +106,17 @@ describe('fastModeFrom / fastMode em LiveState', () => {
     expect(s.fastMode).toBe('on');
     s = applyLive(s, { type: 'message', message: { type: 'result', subtype: 'success', fast_mode_state: 'cooldown', uuid: 'u3' } });
     expect(s.fastMode).toBe('cooldown');
+  });
+});
+
+describe('sessão nova nasce Opus Médio (Danilo, 01/10/2026)', () => {
+  it('NOVA_SESSAO é o padrão do sistema', () => {
+    expect(NOVA_SESSAO).toEqual({ model: 'opus', effort: 'medium', outputStyle: 'default' });
+  });
+  it('aba rascunho reseta o seletor pro padrão (senão o modelo/esforço da última sessão aberta vaza pra sessão nova)', () => {
+    const src = readFileSync(new URL('../web/src/claude/ClaudePage.tsx', import.meta.url), 'utf8');
+    const trecho = src.slice(src.indexOf('if (isDraft(activeId)) {'), src.indexOf('if (isDraft(activeId)) {') + 400);
+    expect(trecho).toContain('setModel(NOVA_SESSAO.model)');
+    expect(trecho).toContain('setEffort(NOVA_SESSAO.effort)');
   });
 });

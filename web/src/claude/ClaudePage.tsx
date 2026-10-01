@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
 import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar, { Avatar } from './Sidebar';
@@ -70,8 +70,8 @@ export default function ClaudePage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
-  const [effort, setEffort] = useState<EffortChoice>('medium');
-  const [model, setModel] = useState<ModelAlias>('opus');
+  const [effort, setEffort] = useState<EffortChoice>(NOVA_SESSAO.effort);
+  const [model, setModel] = useState<ModelAlias>(NOVA_SESSAO.model);
   // "Mapa de agentes" (ver AgentMap.tsx) — pedido ao vivo do Bayerl 28/09/2026, gatilho na faixa de
   // ações da aba (`.cc-tab-actions`, mesmo grupo de Sync/Power/Dots), painel em portal próprio.
   const [agentMapOpen, setAgentMapOpen] = useState(false);
@@ -90,7 +90,7 @@ export default function ClaudePage() {
   // modo/modelo/esforço. 'default' = sem estilo.
   const [buildStyleOpen, setBuildStyleOpen] = useState(false);
   const [styles, setStyles] = useState<OutputStyleInfo[]>([]);
-  const [outputStyle, setOutputStyle] = useState<string>('default');
+  const [outputStyle, setOutputStyle] = useState<string>(NOVA_SESSAO.outputStyle);
   const refreshStyles = useCallback(async () => {
     try { setStyles((await claudeApi.outputStyles()).styles); } catch { /* silencioso: o seletor cai no vazio */ }
   }, []);
@@ -266,7 +266,13 @@ export default function ClaudePage() {
   // do histórico (duplicados são ignorados em pushMessage/permission_request).
   useEffect(() => {
     esRef.current?.close(); esRef.current = null;
-    if (!activeId || isDraft(activeId)) return;
+    if (!activeId) return;
+    if (isDraft(activeId)) {
+      // Rascunho (sessão nova, ou volta pra uma aba rascunho): seletor no padrão do sistema, nunca o
+      // modelo/esforço da última sessão aberta nesta página (ver NOVA_SESSAO em api.ts).
+      setModel(NOVA_SESSAO.model); setEffort(NOVA_SESSAO.effort); setOutputStyle(NOVA_SESSAO.outputStyle);
+      return;
+    }
     let alive = true;
     let buffer: any[] | null = [];
     let first = true; // modo/modelo só vêm do servidor na primeira carga (reconexão não desfaz o seletor)
