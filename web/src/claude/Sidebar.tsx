@@ -12,8 +12,8 @@ import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restor
  */
 const UNGROUPED = '__sem_pasta__';
 
-/** Fotinho de quem criou a sessão; sem foto, a inicial do nome. */
-function Avatar({ id, name }: { id: number; name: string }) {
+/** Fotinho de quem criou a sessão; sem foto, a inicial do nome. Usado na lista e nas abas. */
+export function Avatar({ id, name }: { id: number; name: string }) {
   const [falhou, setFalhou] = useState(false);
   return (
     <span className="cc-item-avatar" title={`Criada por ${name}`}>
