@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
-import { Bolt, Clock, Plus, Chevron, X, Image, File, GitBranch, Mic, AgentsPill, AddPlus, SendArrow, SlashCmd, StopSquare, ModeManual, ModeAcceptEdits, ModePlan, ModeAuto } from './icons';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Bolt, Check, Clock, Plus, Chevron, X, Image, File, GitBranch, Mic, AgentsPill, AddPlus, SendArrow, SlashCmd, StopSquare, ModeManual, ModeAcceptEdits, ModePlan, ModeAuto } from './icons';
 import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, claudeApi, type Attachment } from './api';
 import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState, attachmentImageUrl } from './mapper';
 import type { FastModeState } from './live';
@@ -59,65 +59,29 @@ function Menu({ open, onClose, children, className = '' }: { open: boolean; onCl
 }
 
 /**
- * Controle deslizante de esforço com o degrau extra "Ultracode" — cópia do componente `ye` da
- * extensão real (webview v2.1.283, classes `toggle/fill/fillUltracode/notch/notchUltracode/thumb`
- * `_P1HaRA`; ver PARIDADE-seletor.md): trilho de 76×18px, um notch por nível + um último notch
- * Ultracode (sempre na cor própria), preenchimento até o thumb (na cor Ultracode quando ele está
- * selecionado), clique OU arrasto (pointer capture) escolhem o degrau mais próximo. Mesmos cálculos
- * de posição (`calc()` com --thumb-size/--thumb-inset) e o mesmo comportamento de `P(O)`: o último
- * índice chama `onSelectUltracode`, os demais `onSelect(nível)`.
+ * Medidor de esforço: uma barra por nível (altura crescente) + a barra Ultracode no fim, acesas até
+ * o nível atual. Substitui o slider copiado da extensão (pedido do Danilo, 01/10/2026: menu mais bonito).
+ * Cada barra é um botão de rádio; setas do teclado andam um degrau.
  */
-function EffortSlider({ effort, onSelect, onSelectUltracode }: { effort: EffortChoice; onSelect: (e: Effort) => void; onSelectUltracode: () => void }) {
-  const drag = useRef<number | null>(null);
-  const total = EFFORT_ORDER.length + 1; // 5 níveis reais + o degrau Ultracode
-  const idx = effort === 'ultracode' ? total - 1 : Math.max(0, EFFORT_ORDER.indexOf(effort));
-  const frac = idx / (total - 1);
-  const span = '(100% - var(--thumb-size) - 2 * var(--thumb-inset))';
-  const thumbLeft = `calc(var(--thumb-inset) + ${frac} * ${span})`;
-  const fillWidth = `calc(var(--thumb-inset) + ${frac} * ${span} + var(--thumb-size) + var(--thumb-inset))`;
-  const notchLeft = (f: number) => `calc(var(--thumb-inset) + ${f} * ${span} + var(--thumb-size) / 2)`;
-  function indexAt(e: PointerEvent<HTMLButtonElement>): number {
-    const r = e.currentTarget.getBoundingClientRect();
-    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-    return Math.round(f * (total - 1));
+function EffortBars({ effort, onPick }: { effort: EffortChoice; onPick: (e: EffortChoice) => void }) {
+  const steps: EffortChoice[] = [...EFFORT_ORDER, 'ultracode'];
+  const idx = Math.max(0, steps.indexOf(effort));
+  function key(e: KeyboardEvent<HTMLDivElement>) {
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    onPick(steps[Math.max(0, Math.min(steps.length - 1, idx + d))]);
   }
-  function pick(i: number) {
-    if (i === total - 1) { onSelectUltracode(); return; }
-    const level = EFFORT_ORDER[i];
-    if (level) onSelect(level);
-  }
-  function down(e: PointerEvent<HTMLButtonElement>) {
-    if (e.button !== 0) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const i = indexAt(e);
-    drag.current = i;
-    pick(i);
-  }
-  function move(e: PointerEvent<HTMLButtonElement>) {
-    if (drag.current === null) return;
-    const i = indexAt(e);
-    if (i === drag.current) return;
-    drag.current = i;
-    pick(i);
-  }
-  function up() { drag.current = null; }
   return (
-    <button type="button" className="cc-effort-toggle" title="Clique ou arraste para definir o esforço"
-      role="slider" aria-label="Esforço" aria-valuemin={0} aria-valuemax={total - 1} aria-valuenow={idx} aria-valuetext={effortPillLabel(effort)}
-      onKeyDown={e => {
-        const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
-        if (!d) return;
-        e.preventDefault();
-        pick(Math.max(0, Math.min(total - 1, idx + d)));
-      }}
-      onMouseDown={e => e.preventDefault()} onPointerDown={down} onPointerMove={move}
-      onPointerUp={up} onPointerCancel={up} onLostPointerCapture={up} onClick={e => e.stopPropagation()}>
-      <div className={`cc-effort-fill ${effort === 'ultracode' ? 'is-ultracode' : ''}`} style={{ width: fillWidth }} />
-      {Array.from({ length: total }, (_, i) => (
-        <div key={i} className={`cc-effort-notch ${i === total - 1 ? 'is-ultracode' : ''}`} style={{ left: notchLeft(i / (total - 1)) }} />
+    <div className={`cc-ebars ${effort === 'ultracode' ? 'is-ultracode' : ''}`} role="radiogroup" aria-label="Esforço" onKeyDown={key}>
+      {steps.map((st, i) => (
+        <button key={st} type="button" role="radio" aria-checked={i === idx} tabIndex={i === idx ? 0 : -1}
+          className={`cc-ebar ${i <= idx ? 'is-on' : ''} ${st === 'ultracode' ? 'is-ultracode' : ''}`}
+          title={st === 'ultracode' ? ULTRACODE_MENU_LABEL : EFFORT_LABEL[st]} onClick={() => onPick(st)}>
+          <span style={{ height: `${30 + i * 14}%` }} />
+        </button>
       ))}
-      <div className="cc-effort-thumb" style={{ left: thumbLeft }} />
-    </button>
+    </div>
   );
 }
 
@@ -575,7 +539,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           </button>
           <Menu open={menu === 'model'} onClose={() => setMenu('')} className="cc-menu-up cc-menu-model">
             {onModel && <div className="cc-msec">
-              <div className="cc-msec-head"><span className="cc-menu-title">Modelo</span></div>
+              <div className="cc-msec-head"><span className="cc-msec-title">Modelo</span></div>
               <div className="cc-seg" role="radiogroup" aria-label="Modelo">
                 {MODEL_ORDER.map(m => (
                   <button key={m} type="button" role="radio" aria-checked={m === (model ?? 'default')}
@@ -587,26 +551,35 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             </div>}
             {onEffort && <div className="cc-msec">
               <div className="cc-msec-head">
-                <span className="cc-menu-title">Esforço</span>
+                <span className="cc-msec-title">Esforço</span>
                 <span className={`cc-msec-value ${effort === 'ultracode' ? 'is-ultracode' : ''}`} title={effort === 'ultracode' ? ULTRACODE_MENU_LABEL : undefined}>
-                  <Bolt size={11} /> {effortPillLabel(effort ?? 'medium')}
+                  <Bolt size={11} />{effortPillLabel(effort ?? 'medium')}
                 </span>
               </div>
-              <EffortSlider effort={effort ?? 'medium'} onSelect={ef => onEffort(ef)} onSelectUltracode={() => onEffort('ultracode')} />
-              <div className="cc-effort-scale" aria-hidden="true"><span>{EFFORT_LABEL.low}</span><span className="is-ultracode">Ultracode</span></div>
+              <EffortBars effort={effort ?? 'medium'} onPick={onEffort} />
             </div>}
             {onOutputStyle && <div className="cc-msec">
-              <div className="cc-msec-head"><span className="cc-menu-title">Estilo de saída</span></div>
+              <div className="cc-msec-head"><span className="cc-msec-title">Estilo de saída</span></div>
               {(outputStyles ?? []).length === 0 && <div className="cc-style-empty">Nenhum estilo de saída disponível</div>}
-              {(outputStyles ?? []).map(st => (
-                <button key={st.nome} className={`cc-menu-item ${st.nome === (outputStyle ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onOutputStyle(st.nome); setMenu(''); }}>
-                  <span className="cc-menu-item-name">{st.label}</span>
-                  {st.descricao && <span className="cc-menu-item-desc">{st.descricao}{st.criado_por ? ` · ${st.criado_por}` : ''}</span>}
-                </button>
-              ))}
+              <div className="cc-style-list">
+                {(outputStyles ?? []).map(st => {
+                  const on = st.nome === (outputStyle ?? 'default');
+                  return (
+                    <button key={st.nome} className={`cc-style-opt ${on ? 'is-active' : ''}`} role="menuitemradio" aria-checked={on}
+                      title={st.descricao ? `${st.descricao}${st.criado_por ? ` · ${st.criado_por}` : ''}` : undefined}
+                      onClick={() => { onOutputStyle(st.nome); setMenu(''); }}>
+                      <span className="cc-style-opt-text">
+                        <span className="cc-style-opt-name">{st.label}</span>
+                        {st.descricao && <span className="cc-style-opt-desc">{st.descricao}</span>}
+                      </span>
+                      {on && <Check size={14} className="cc-style-opt-check" />}
+                    </button>
+                  );
+                })}
+              </div>
               {onBuildStyle && (
-                <button className="cc-menu-item cc-style-build" role="menuitem" onClick={() => { onBuildStyle(); setMenu(''); }}>
-                  <span className="cc-menu-item-name">+ Construir um estilo personalizado</span>
+                <button className="cc-style-new" role="menuitem" onClick={() => { onBuildStyle(); setMenu(''); }}>
+                  <Plus size={12} /> Criar estilo personalizado
                 </button>
               )}
             </div>}

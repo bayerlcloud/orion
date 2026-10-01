@@ -802,23 +802,46 @@
 
 /* Menu "Selecione um estilo de saída" (Composer) + assistente "Construir um estilo personalizado". */
 .cc-menu-styles { min-width: 240px; }
-/* Menu Modelo/Esforço/Estilo: seções com divisória, modelo em botões segmentados, esforço só no slider (largura total). */
-.cc-menu-model { width: 300px; max-width: calc(100vw - 24px); padding: 6px; gap: 0; }
-.cc-msec { display: grid; gap: 6px; padding: 6px 4px 8px; }
-.cc-msec + .cc-msec { border-top: 1px solid var(--cc-line); padding-top: 8px; }
-.cc-msec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.cc-msec-head .cc-menu-title { padding: 0 4px; }
-.cc-msec-value { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--cc-orange); padding-right: 4px; }
-.cc-msec-value.is-ultracode { color: var(--cc-ultracode); }
-.cc-seg { display: flex; flex-wrap: wrap; gap: 4px; }
-.cc-seg-btn { flex: 1 1 auto; padding: 5px 8px; border-radius: 6px; font-size: 12px; color: var(--cc-fg2); background: color-mix(in srgb, var(--cc-fg) 6%, transparent); border: 1px solid transparent; transition: background .12s, color .12s, border-color .12s; }
-.cc-seg-btn:hover { color: var(--cc-fg); background: var(--cc-hover); }
-.cc-seg-btn.is-active { color: var(--cc-fg); background: color-mix(in srgb, var(--cc-orange) 16%, transparent); border-color: color-mix(in srgb, var(--cc-orange) 55%, transparent); }
-.cc-menu-model .cc-effort-toggle { --track-width: 100%; --track-height: 20px; --thumb-size: 16px; margin: 0 4px; width: calc(100% - 8px); }
-.cc-effort-toggle:focus-visible { outline: 2px solid color-mix(in srgb, var(--cc-orange) 60%, transparent); outline-offset: 2px; }
-.cc-effort-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--cc-fg2); padding: 0 4px; }
-.cc-effort-scale .is-ultracode { color: var(--cc-ultracode); }
-.cc-menu-model .cc-style-build { border-top: none; margin-top: 0; }
+/* Menu Modelo/Esforço/Estilo (redesenho 01/10/2026): cartão com vidro, modelo em segmented control,
+   esforço em barras crescentes, estilos em lista compacta com check à direita. */
+.cc-menu.cc-menu-model { width: 340px; max-width: calc(100vw - 24px); max-height: none; overflow: visible; padding: 6px; gap: 0; border-radius: 14px;
+  background: color-mix(in srgb, var(--cc-bg2) 88%, transparent); backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid color-mix(in srgb, var(--cc-fg) 10%, transparent);
+  box-shadow: 0 18px 48px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.25), inset 0 1px 0 color-mix(in srgb, var(--cc-fg) 6%, transparent);
+  transform-origin: bottom left; animation: cc-menu-in .16s cubic-bezier(.2,.8,.2,1); }
+@keyframes cc-menu-in { from { opacity: 0; transform: translateY(6px) scale(.98); } to { opacity: 1; transform: none; } }
+.cc-msec { display: grid; gap: 8px; padding: 10px 8px; }
+.cc-msec + .cc-msec { border-top: 1px solid color-mix(in srgb, var(--cc-fg) 7%, transparent); }
+.cc-msec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 16px; }
+.cc-msec-title { font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--cc-fg2); }
+.cc-msec-value { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--cc-fg);
+  padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--cc-orange) 22%, transparent); }
+.cc-msec-value.is-ultracode { background: color-mix(in srgb, var(--cc-ultracode) 24%, transparent); }
+/* Segmented control: trilho único, opção ativa "levantada". */
+.cc-seg { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: color-mix(in srgb, #000 22%, transparent); box-shadow: inset 0 1px 2px rgba(0,0,0,.25); }
+.cc-seg-btn { padding: 6px 0; border-radius: 7px; font-size: 12px; color: var(--cc-fg2); transition: background .15s, color .15s, box-shadow .15s; white-space: nowrap; }
+.cc-seg-btn:hover { color: var(--cc-fg); }
+.cc-seg-btn.is-active { color: var(--cc-fg); font-weight: 600; background: color-mix(in srgb, var(--cc-fg) 13%, var(--cc-bg2)); box-shadow: 0 1px 3px rgba(0,0,0,.35), inset 0 1px 0 color-mix(in srgb, var(--cc-fg) 10%, transparent); }
+.cc-seg-btn:focus-visible, .cc-ebar:focus-visible, .cc-style-opt:focus-visible { outline: 2px solid color-mix(in srgb, var(--cc-orange) 70%, transparent); outline-offset: 1px; }
+/* Barras de esforço */
+.cc-ebars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; height: 34px; align-items: end; }
+.cc-ebar { height: 100%; display: flex; align-items: flex-end; padding: 0; border-radius: 5px; }
+.cc-ebar > span { display: block; width: 100%; border-radius: 4px; background: color-mix(in srgb, var(--cc-fg) 12%, transparent); transition: background .18s, box-shadow .18s, transform .12s; }
+.cc-ebar:hover > span { background: color-mix(in srgb, var(--cc-fg) 22%, transparent); transform: scaleY(1.06); transform-origin: bottom; }
+.cc-ebar.is-on > span { background: linear-gradient(180deg, color-mix(in srgb, var(--cc-orange) 70%, #fff 30%), var(--cc-orange)); box-shadow: 0 0 10px color-mix(in srgb, var(--cc-orange) 40%, transparent); }
+.cc-ebar.is-ultracode > span { background: color-mix(in srgb, var(--cc-ultracode) 22%, transparent); }
+.cc-ebars.is-ultracode .cc-ebar.is-on > span { background: linear-gradient(180deg, #d8b4fe, var(--cc-ultracode)); box-shadow: 0 0 12px color-mix(in srgb, var(--cc-ultracode) 50%, transparent); }
+/* Estilos de saída */
+.cc-style-list { display: grid; gap: 2px; max-height: 196px; overflow-y: auto; overscroll-behavior: contain; margin: 0 -4px; padding: 0 4px; scrollbar-width: thin; }
+.cc-style-opt { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; text-align: left; width: 100%; transition: background .12s; }
+.cc-style-opt:hover { background: color-mix(in srgb, var(--cc-fg) 7%, transparent); }
+.cc-style-opt.is-active { background: color-mix(in srgb, var(--cc-orange) 14%, transparent); }
+.cc-style-opt-text { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.cc-style-opt-name { font-size: 13px; color: var(--cc-fg); }
+.cc-style-opt-desc { font-size: 11px; color: var(--cc-fg2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-style-opt-check { color: var(--cc-orange); flex-shrink: 0; }
+.cc-style-new { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 5px 10px; margin-top: 2px; border-radius: 999px; font-size: 12px; color: var(--cc-fg2); border: 1px dashed color-mix(in srgb, var(--cc-fg) 18%, transparent); transition: color .12s, border-color .12s, background .12s; }
+.cc-style-new:hover { color: var(--cc-fg); border-color: var(--cc-orange); background: color-mix(in srgb, var(--cc-orange) 10%, transparent); }
 .cc-style-empty { color: var(--cc-fg2); font-size: 12px; padding: 6px 8px; }
 .cc-style-build { border-top: 1px solid var(--cc-line); border-radius: 0 0 5px 5px; margin-top: 2px; }
 .cc-style-build .cc-menu-item-name { color: var(--cc-orange); }
