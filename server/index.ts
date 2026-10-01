@@ -7,6 +7,7 @@ import type { Pool } from 'pg';
 import { createPool, type User } from './db.js';
 import { migrate } from './migrations.js';
 import { SESSION_COOKIE } from './auth.js';
+import { COOKIE_PREVIEW, checarCookie } from './preview/auth.js';
 import { authRoutes } from './routes/auth.js';
 import { specRoutes } from './routes/spec.js';
 import { driveRoutes } from './routes/drive.js';
@@ -46,7 +47,21 @@ async function main() {
   app.addHook('onRequest', async (req) => {
     req.user = null;
     const sid = req.cookies[SESSION_COOKIE];
-    if (!sid) return;
+    if (!sid) {
+      // Preview do próprio Orion (<pessoa>.orionpreview): o front de dev chama este /api pelo host do
+      // preview, onde não existe orion_session. O cookie do preview (emitido só para quem estava logado
+      // no painel, preso ao host) vale como login, mas só nos hosts de preview do projeto Orion.
+      const pv = req.cookies[COOKIE_PREVIEW];
+      if (!pv) return;
+      const c = checarCookie(pv, req.hostname, process.env.SESSION_SECRET ?? '');
+      if (!c.ok) return;
+      const { rows } = await pool.query(
+        `SELECT u.id, u.name, u.email, u.role, u.linux_user
+           FROM previews pv JOIN projects p ON p.id = pv.project_id, users u
+          WHERE pv.host = $1 AND p.path = $2 AND u.id = $3`, [req.hostname, app.repoDir, c.u]);
+      req.user = rows[0] ?? null;
+      return;
+    }
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.email, u.role, u.linux_user
          FROM web_sessions s JOIN users u ON u.id = s.user_id
