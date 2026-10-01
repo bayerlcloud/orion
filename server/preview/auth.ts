@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Login do Orion no preview pessoal (spec 2026-09-30-preview-design, Parte 1). O cookie do painel
- * fica só no painel (orion.bayerl.cloud e v2.bayerl.cloud, cada um com o seu); para o preview, o painel entrega um token curto e de uso único, preso
+ * fica só no painel (orion.bayerl.cloud); para o preview, o painel entrega um token curto e de uso único, preso
  * ao host, e o próprio preview troca esse token por um cookie `orion_preview` daquele host.
  * Formato: base64url(json).base64url(hmac-sha256).
  */
@@ -13,8 +13,8 @@ export const TOKEN_TTL_MS = 60_000;
 export const COOKIE_TTL_MS = 7 * 86_400_000;
 /** Preview público liga por 48 h; religar renova. */
 export const PUBLICO_TTL_MS = 48 * 3_600_000;
-/** Os dois endereços do painel (mesmo Orion, cookie de sessão separado em cada um). */
-export const PAINEIS = ['orion.bayerl.cloud', 'v2.bayerl.cloud'];
+/** Endereços do painel (cookie de sessão separado em cada um). orion.bayerl.cloud saiu em 01/10/2026. */
+export const PAINEIS = ['orion.bayerl.cloud'];
 
 type Dados = { u: number; h: string; exp: number; j?: string };
 

@@ -46,7 +46,7 @@ const PACOTES: Entrada[] = [
 ];
 
 const UNIDADES: Entrada[] = [
-  { teste: /^orion-central\.service$/, texto: 'A Central do Orion: o site v2.bayerl.cloud, a API e o motor das sessões do Claude. Roda como o usuário danilo.' },
+  { teste: /^orion-central\.service$/, texto: 'A Central do Orion: o site orion.bayerl.cloud, a API e o motor das sessões do Claude. Roda como o usuário danilo.' },
   { teste: /^orion-inventory\.(service|timer)$/, texto: 'Coleta de hora em hora do que está instalado nesta máquina, que alimenta esta aba.' },
   { teste: /^kanna\.service$/, texto: 'O kanna, interface de apoio do Claude Code. Só sobe quando houver senha definida.' },
   { teste: /^caddy\.service$/, texto: 'Porta de entrada do site: https, certificados e repasse para a Central.' },
@@ -79,7 +79,7 @@ const PORTAS: Record<number, string> = {
   22: 'SSH: acesso remoto ao servidor por terminal.',
   53: 'DNS local: tradução de nomes de sites em endereços, só para a própria máquina.',
   80: 'http: entrada do site sem criptografia; o Caddy redireciona para https.',
-  443: 'https: entrada do site com cadeado. É por aqui que você acessa v2.bayerl.cloud.',
+  443: 'https: entrada do site com cadeado. É por aqui que você acessa orion.bayerl.cloud.',
   2019: 'Painel interno do Caddy, só acessível de dentro da máquina.',
   3000: 'A Central do Orion, só acessível de dentro; o Caddy repassa para cá.',
   3210: 'O kanna, só acessível de dentro; o Caddy repassa para cá.',

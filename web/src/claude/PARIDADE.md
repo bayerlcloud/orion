@@ -684,7 +684,7 @@ front, sem erro) e `vite build` sem erro (mesmo aviso pré-existente de chunk gr
 (`modo-ao-vivo`) não é o processo `orion-central` rodando de verdade (esse roda o código do
 `main`/`/srv/orion`) — não deu pra fazer `curl` autenticado contra as 3 rotas novas, porque elas
 ainda não existem no processo em produção. Fiz um `curl` sem autenticação contra uma rota JÁ
-EXISTENTE e já em produção (`GET /api/claude/sessions` em `v2.bayerl.cloud`) só pra confirmar que o
+EXISTENTE e já em produção (`GET /api/claude/sessions` em `orion.bayerl.cloud`) só pra confirmar que o
 hook `preHandler` de autenticação do plugin (`app.addHook('preHandler', ...)`, que cobre TODAS as
 rotas registradas dentro do mesmo `claudeRoutes`, incluindo as 3 novas, por escopo de encapsulamento
 do Fastify) está mesmo ativo — devolveu `401`, como esperado. As 3 rotas novas foram verificadas por
@@ -1133,7 +1133,7 @@ harness de rotas Fastify ou de componentes React do zero seria uma mudança bem 
   +3 de `matchEffort`; nenhum teste existente quebrou.
 - `npm run build` (`vite build` + `tsc -p tsconfig.server.json`): bundle gera sem erro (mesmo aviso
   pré-existente de chunk grande, sem relação com esta mudança).
-- `curl -s -o /dev/null -w "%{http_code}" https://v2.bayerl.cloud/api/claude/sessions` sem
+- `curl -s -o /dev/null -w "%{http_code}" https://orion.bayerl.cloud/api/claude/sessions` sem
   autenticação → `401` — confirma que o hook `preHandler` de autenticação do plugin (mesmo padrão já
   usado na rodada 4) segue ativo em produção; as rotas alteradas ficam dentro do mesmo
   `claudeRoutes(app)`, depois do hook, mesmo escopo de encapsulamento do Fastify que já protegia
