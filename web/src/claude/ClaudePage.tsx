@@ -14,6 +14,8 @@ import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
 import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, SendArrow } from './icons';
 import PreviewPublico from '../PreviewPublico';
+import SessionMenu from './SessionMenu';
+import { Pencil } from './icons';
 import './claude.css';
 import { perguntar } from '../dialogo';
 
@@ -617,14 +619,19 @@ export default function ClaudePage() {
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
             {activeProject && <PreviewPublico projectId={activeProject.id} />}
-            <button className="cc-icon" title="Preview ao vivo desta sessão" disabled={!activeId || isDraft(activeId)} onClick={() => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank')}><Eye size={13} /></button>
-            <button className="cc-icon" title="Mapa de agentes" disabled={!activeId} onClick={() => setAgentMapOpen(true)}><AgentMapIcon size={13} /></button>
-            <button className="cc-icon" title="Skills e hooks" disabled={!activeId} onClick={() => setSkillsHooksOpen(true)}><Wrench size={13} /></button>
-            <button className="cc-icon" title="Regras de permissão" onClick={() => setPermRulesOpen(true)}><Shield size={13} /></button>
-            <button className="cc-icon" title="Gerenciar plugins" onClick={() => setMarketplaceOpen(true)}><Puzzle size={13} /></button>
-            <button className="cc-icon" title="Parar sessão" onClick={stop}><Power size={13} /></button>
-            <button className="cc-icon" title="Recarregar lista" onClick={() => { void refreshSessions(); void refreshUsage(); }}><Sync size={13} /></button>
-            <button className="cc-icon" title="Renomear sessão" onClick={rename}><Dots size={13} /></button>
+            {/* Tudo o mais fica no menu ⋮ (preview ao vivo, agentes, renomear, parar, skills, permissões, plugins). */}
+            <SessionMenu
+              sessao={[
+                { icon: <Eye size={15} />, label: 'Preview ao vivo', desc: 'Abre o site com as mudanças desta sessão', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
+                { icon: <AgentMapIcon size={15} />, label: 'Mapa de agentes', desc: 'Subagentes desta sessão, tempo e tokens', disabled: !activeId, onClick: () => setAgentMapOpen(true) },
+                { icon: <Pencil size={15} />, label: 'Renomear sessão', desc: 'Troca o nome que aparece na aba e na lista', disabled: !activeId || isDraft(activeId), onClick: rename },
+                { icon: <Power size={15} />, label: 'Parar o Claude', desc: 'Interrompe o que ele está fazendo agora', hidden: !running, danger: true, onClick: stop },
+              ]}
+              configurar={[
+                { icon: <Wrench size={15} />, label: 'Skills e hooks', desc: 'Habilidades extras e ações automáticas ativas', disabled: !activeId, onClick: () => setSkillsHooksOpen(true) },
+                { icon: <Shield size={15} />, label: 'Regras de permissão', desc: 'O que ele faz sem pedir, o que pergunta e o que é bloqueado', onClick: () => setPermRulesOpen(true) },
+                { icon: <Puzzle size={15} />, label: 'Plugins', desc: 'Instalar, ligar e desligar pacotes do Claude Code', onClick: () => setMarketplaceOpen(true) },
+              ]} />
           </span>
         </div>
         {login && !login.logged_in && (
