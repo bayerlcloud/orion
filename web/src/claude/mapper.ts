@@ -600,6 +600,17 @@ export function formatAskAnswer(questions: { header?: string; question: string }
  * assim se acumulam e, como a linha do tempo lista as permissões numa cauda (ver toConvEvents),
  * aparecem em sequência como uma fileira repetida de "Pedido expirado"/"Pergunta expirada".
  */
+/**
+ * Modo compacto da timeline (menu ⋮ > "Só pergunta e resposta"): esconde os passos do turno
+ * (ferramentas e pensamento) e deixa só a mensagem da pessoa, a última resposta em texto e o que é
+ * aviso/erro. Texto intermediário ("vou olhar X…") some junto: só a resposta final interessa.
+ */
+export function compactarTurno(turn: ConvEvent[]): ConvEvent[] {
+  let ultimoTexto = -1;
+  turn.forEach((e, i) => { if (e.kind === 'text') ultimoTexto = i; });
+  return turn.filter((e, i) => e.kind === 'text' ? i === ultimoTexto : e.kind !== 'tool' && e.kind !== 'thinking');
+}
+
 export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
   const out: ConvEvent[] = [];
   let i = 0;

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
+import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
@@ -688,7 +688,7 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
   );
 }
 
-export default function Timeline({ events, onDecide, agentTasks, onResend }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void }) {
+export default function Timeline({ events, onDecide, agentTasks, onResend, compacto }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; compacto?: boolean }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
   const folded = useMemo(() => foldExpiredPermissions(events), [events]);
@@ -772,7 +772,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend }: { e
   };
   return (
     <div className="cc-timeline">
-      {turns.map((t, i) => <div key={t[0]?.id ?? i} className="cc-turn">{t.map(renderEvent)}</div>)}
+      {turns.map((t, i) => <div key={t[0]?.id ?? i} className="cc-turn">{(compacto ? compactarTurno(t) : t).map(renderEvent)}</div>)}
       {liveAgents.length > 0 && <SubagentRows tasks={liveAgents} />}
     </div>
   );
