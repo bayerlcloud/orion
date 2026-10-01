@@ -13,6 +13,7 @@ const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { day: '2-
 export default function PreviewPublico({ projectId, compacto = false }: { projectId: number; compacto?: boolean }) {
   const [e, setE] = useState<Estado | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [copiado, setCopiado] = useState(false);
   useEffect(() => {
     setE(null);
     api<Estado>(`/api/projects/${projectId}/preview-publico`).then(setE).catch(() => {});
@@ -35,6 +36,10 @@ export default function PreviewPublico({ projectId, compacto = false }: { projec
       </button>
       <span className="pv-info" title={dica}>
         {e.publico && <>público até {quando(e.ate!)} · </>}
+        <button type="button" className="pv-copy" title={copiado ? 'Copiado!' : 'Copiar endereço'}
+          onClick={() => { void navigator.clipboard?.writeText(`https://${e.host}`).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }); }}>
+          {copiado ? '✓' : '⧉'}
+        </button>
         <a href={`https://${e.host}`} target="_blank" rel="noreferrer">{e.host}</a>
       </span>
     </span>
