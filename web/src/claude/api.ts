@@ -207,7 +207,8 @@ export function matchEffort(effort: string | null | undefined): EffortChoice {
  */
 export type ModelAlias = 'default' | 'sonnet' | 'opus' | 'haiku' | 'fable';
 export const MODEL_LABEL: Record<ModelAlias, string> = { default: 'Padrão', sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku', fable: 'Fable' };
-export const MODEL_ORDER: ModelAlias[] = ['default', 'sonnet', 'opus', 'haiku', 'fable'];
+/** Ordem do seletor (Danilo, 01/10/2026): do mais leve ao mais forte, sem "Padrão" por enquanto. */
+export const MODEL_ORDER: ModelAlias[] = ['haiku', 'sonnet', 'opus', 'fable'];
 
 /**
  * Alias do menu que corresponde ao `model` resolvido de uma sessão (`system/init` grava o id

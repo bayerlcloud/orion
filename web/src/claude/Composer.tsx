@@ -541,12 +541,16 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             {onModel && <div className="cc-msec">
               <div className="cc-msec-head"><span className="cc-msec-title">Modelo</span></div>
               <div className="cc-seg" role="radiogroup" aria-label="Modelo">
-                {MODEL_ORDER.map(m => (
-                  <button key={m} type="button" role="radio" aria-checked={m === (model ?? 'default')}
-                    className={`cc-seg-btn ${m === (model ?? 'default') ? 'is-active' : ''}`} onClick={() => onModel(m)}>
+                {MODEL_ORDER.map(m => {
+                  // ponytail: sem override a sessão roda o padrão da conta Max, que hoje é o Opus.
+                  const on = m === (!model || model === 'default' ? 'opus' : model);
+                  return (
+                  <button key={m} type="button" role="radio" aria-checked={on}
+                    className={`cc-seg-btn ${on ? 'is-active' : ''}`} onClick={() => onModel(m)}>
                     {MODEL_LABEL[m]}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>}
             {onEffort && <div className="cc-msec">
