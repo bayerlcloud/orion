@@ -30,6 +30,8 @@ export type SessionHeader = {
   github?: { nome: string; login: string; email?: string; notes: string }[] | null;
   /** Contas Cloudflare da aba Tools (conector simples): nome, URL do proxy local, account id e o que vive em cada uma. */
   cloudflare?: { nome: string; url: string; account_id: string; account_name?: string; email?: string; notes: string }[] | null;
+  /** Evolution API (WhatsApp) como conector simples: URL do proxy local e servidor real. */
+  evolution?: { nome: string; url: string; servidor: string } | null;
   /** Cofre: Chrome compartilhado com perfil persistente (MCP `cofre`) e o painel web para login manual. */
   cofre?: { painel: string } | null;
 };
@@ -60,6 +62,9 @@ export function buildSystemAppend(h: SessionHeader): string {
   if (h.cloudflare?.length) {
     lines.push('', 'Contas Cloudflare conectadas (conector simples, não é MCP): chame a API v4 da Cloudflare com curl na URL da conta + caminho da API, SEM token; o Orion injeta a autenticação e devolve o JSON da Cloudflare. Ex.: curl <url>/accounts/<account>/pages/projects. Corpo em JSON com -H "Content-Type: application/json". Apagar zona ou projeto Pages inteiro é bloqueado.');
     for (const c of h.cloudflare) lines.push(`- ${c.nome}: ${c.url} (account ${c.account_id}${c.email?.trim() ? `, e-mail ${c.email.trim()}` : ''})${c.notes.trim() ? `: ${c.notes.trim()}` : ''}`);
+  }
+  if (h.evolution) {
+    lines.push('', `Evolution API (WhatsApp, ${h.evolution.servidor}) como conector simples, não é MCP: chame a API da Evolution v2 com curl em ${h.evolution.url}/<caminho>, SEM apikey; o Orion injeta a chave global. Ex.: curl ${h.evolution.url}/instance/fetchInstances; enviar texto: POST ${h.evolution.url}/message/sendText/<instância> com {"number":"55...","text":"..."}. Instâncias de clientes (Brandspace, TrackingMachine) vivem lá: não mexa em webhook nem reinicie instância de cliente sem pedido explícito. Apagar ou deslogar instância é bloqueado.`);
   }
 
   if (h.cofre) {

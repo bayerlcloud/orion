@@ -34,6 +34,7 @@ import { branchAtual } from '../tasks/git.js';
 import { slugPessoa } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
+import { evolutionConfig, evolutionParaHeader } from '../tools/evolution.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { cofreCdpUrl, cofreMcpServers, cofrePainelUrl, cofreParaHeader } from '../tools/cofre.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
@@ -193,7 +194,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
 
@@ -616,7 +617,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
