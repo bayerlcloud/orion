@@ -93,6 +93,8 @@ export type Ficha = {
     branch: string; remote: string | null; github: string | null; ultimo: { sha: string; quando: string; autor: string; msg: string } | null;
     upstream: string | null; ahead: number | null; behind: number | null; ultimo_push: string | null; sujos: number; commits_7d: number;
     worktrees: { path: string; branch: string }[];
+    /** Último push no GitHub (pushed_at da API), mais confiável que a data do commit do upstream local. */
+    github_push: string | null;
   };
   bancos: Banco[]; banco_fonte: string | null;
   arquitetura: { stack: string[]; resumo: string; fonte: string | null; atualizado: string | null; pastas: string[]; edge_functions: number };
@@ -103,6 +105,8 @@ export type Ficha = {
   ultimo_mexeu: { quem: string; quando: string; onde: string } | null;
   backup: { itens: { oque: string; quando: string | null; detalhe: string }[] };
   deploy: null | { onde: string; quando: string | null; estado: string; detalhe: string; dominios: string[] };
+  /** Onde o app roda de verdade (o "corpo") e em qual conta. */
+  corpo: null | { onde: string; conta: string | null; fonte: string };
   preview_url: string | null;
   prod: null | { url: string; status: number | null; ms: number | null; ip: string | null; servidor: string | null; ssl_expira: string | null; erro: string | null };
   env: { usadas: string[]; faltando: string[]; edge: string[]; definidas: number; fonte: string[] };
@@ -115,7 +119,7 @@ type Proj = { id: number; slug: string; name: string; path: string; meta: Ficha[
 
 // ---------- fontes externas (uma vez por coleta, não por projeto) ----------
 
-type Pages = { name: string; dominios: string[]; repo: string; quando: string | null; estado: string; commit: string; conta: string };
+type Pages = { name: string; dominios: string[]; repo: string; quando: string | null; estado: string; commit: string; conta: string; email: string };
 async function paginasCloudflare(pool: Pool): Promise<Pages[]> {
   const contas = await listarContasCloudflare(pool).catch(() => []);
   const out: Pages[] = [];
@@ -126,7 +130,7 @@ async function paginasCloudflare(pool: Pool): Promise<Pages[]> {
       for (const p of j.result ?? []) {
         const d = p.latest_deployment ?? {};
         out.push({ name: p.name, dominios: p.domains ?? [], repo: p.source?.config?.repo_name ?? '', quando: d.created_on ?? null,
-          estado: d.latest_stage?.status ?? '', commit: String(d.deployment_trigger?.metadata?.commit_hash ?? '').slice(0, 7), conta: c.label });
+          estado: d.latest_stage?.status ?? '', commit: String(d.deployment_trigger?.metadata?.commit_hash ?? '').slice(0, 7), conta: c.label, email: c.email });
       }
     } catch { /* conta fora do ar: segue sem */ }
   }));
@@ -134,6 +138,34 @@ async function paginasCloudflare(pool: Pool): Promise<Pages[]> {
 }
 
 /** Backups da c2 (Supabase self-hosted): último "backup c2 OK" do restic para o Drive e o último pg_dumpall local. */
+/** pushed_at de um repo do GitHub, com o token do conector do dono (Tools → GitHub). */
+async function githubPushedAt(repo: string, contas: { label: string; login: string; token: string }[]): Promise<string | null> {
+  const dono = repo.split('/')[0];
+  const conta = contas.find(c => c.label === dono) ?? contas.find(c => c.label === 'bayerlcloud');
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}`, { headers: { Authorization: `token ${conta?.token ?? ''}`, 'User-Agent': 'orion' }, signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    return ((await r.json()) as { pushed_at?: string }).pushed_at ?? null;
+  } catch { return null; }
+}
+
+const NOME_SERVIDOR: Record<string, string> = { c1: 'Contabo c1', c2: 'Contabo c2', c3: 'Contabo c3', hostinger: 'Hostinger' };
+
+/** Onde o app roda: Pages da Cloudflare (com o e-mail da conta), a fila do Orion, a linha "Corpo:" das notas, ou o servidor do DNS. */
+export function corpoDe(o: { pages: { conta: string; email: string } | null; ehOrion: boolean; notas?: string; servidor: string | null }): Ficha['corpo'] {
+  if (o.ehOrion) return { onde: 'Contabo c3', conta: null, fonte: 'fila de deploy do Orion' };
+  // A nota manual ganha quando diz que o corpo NÃO é Pages (ex.: Brandspace migrou para a c3 e o Pages velho continua lá).
+  const nota = o.notas?.match(/Corpo:\s*([^.]+(?:\.(?!\s)[^.]*)*)\./)?.[1]?.trim();
+  if (nota && !/pages/i.test(nota)) {
+    const srv = /\bc3\b/i.test(nota) ? 'Contabo c3' : /\bc1\b/i.test(nota) ? 'Contabo c1' : /\bc2\b/i.test(nota) ? 'Contabo c2' : /hostinger|coolify/i.test(nota) ? 'Hostinger' : nota;
+    return { onde: srv, conta: null, fonte: `notas: ${nota}` };
+  }
+  if (o.pages) return { onde: 'Cloudflare Pages', conta: o.pages.email || o.pages.conta, fonte: 'API da Cloudflare' };
+  if (o.servidor === 'Cloudflare') return { onde: 'atrás do proxy da Cloudflare (origem desconhecida)', conta: null, fonte: 'DNS da produção' };
+  if (o.servidor) return { onde: NOME_SERVIDOR[o.servidor] ?? o.servidor, conta: null, fonte: 'DNS da produção' };
+  return null;
+}
+
 async function backupsC2(): Promise<{ drive: string | null; dump: string | null }> {
   const key = path.join(os.homedir(), '.ssh/fleet_ed25519');
   const cmd = `grep "backup c2 OK" /root/backups/backup-drive.log | tail -1; ls -t --time-style=+%FT%T%z -l /opt/supabase/backups/*.sql.gz 2>/dev/null | head -1 | awk '{print $6}'`;
@@ -190,7 +222,7 @@ async function coletarGit(dir: string): Promise<Ficha['git']> {
   const gh = remote?.match(/github\.com[:/]([^/]+\/[^/.]+)/)?.[1] ?? null;
   return {
     branch, remote, github: gh, ultimo: sha ? { sha, quando, autor, msg } : null, upstream, ahead, behind, ultimo_push,
-    sujos: sujo.out ? sujo.out.split('\n').length : 0, commits_7d: Number(c7.out) || 0, worktrees: worktrees.slice(1),
+    sujos: sujo.out ? sujo.out.split('\n').length : 0, commits_7d: Number(c7.out) || 0, worktrees: worktrees.slice(1), github_push: null,
   };
 }
 
@@ -293,7 +325,7 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
        FROM tasks t LEFT JOIN users u ON u.id = t.assignee_id
       WHERE t.status NOT IN ('feito','arquivada') OR t.integration_status IN ('pendente','conflito','testes_falharam')
       ORDER BY t.updated_at`).catch(() => ({ rows: [] as any[] }));
-  const { rows: gh } = await pool.query('SELECT label, login FROM github_accounts').catch(() => ({ rows: [] as any[] }));
+  const { rows: gh } = await pool.query('SELECT label, login, token FROM github_accounts').catch(() => ({ rows: [] as any[] }));
   // Preview raiz (público) do projeto: a linha de previews sem pessoa; só projeto com package.json tem.
   const { rows: prev } = await pool.query('SELECT project_id, host FROM previews WHERE user_id IS NULL').catch(() => ({ rows: [] as any[] }));
 
@@ -303,6 +335,7 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
     const meta = p.meta ?? {};
     const vazio = { bancos: [], banco_fonte: null, arquitetura: { stack: [], resumo: '', fonte: null, atualizado: null, pastas: [], edge_functions: 0 }, env: { usadas: [], faltando: [], edge: [], definidas: 0, fonte: [] } };
     const [g, repo, locais] = await Promise.all([existe ? coletarGit(p.path) : null, existe ? coletarRepo(p.path, ehOrion) : vazio, backupsLocais(p.slug)]);
+    if (g?.github) g.github_push = await githubPushedAt(g.github, gh);
 
     let bancos: Banco[] = [];
     await Promise.all(repo.bancos.map(async b => {
@@ -347,12 +380,14 @@ export async function coletarProjetos(pool: Pool, repoDir: string): Promise<Fich
       ...(pg ? [`Cloudflare ${pg.conta}`] : []),
     ];
 
+    const corpo = corpoDe({ pages: pg ? { conta: pg.conta, email: pg.email } : null, ehOrion, notas: meta.notas, servidor: prod?.servidor ?? null });
+
     const base: Omit<Ficha, 'alertas'> = {
       id: p.id, slug: p.slug, name: p.name, path: p.path, existe, meta, git: g, ...repo, bancos,
       sessoes: sessoesP.slice(0, 6).map(s => ({ id: s.id, title: s.title, status: s.status, quem: s.quem, quando: new Date(s.updated_at).toISOString(), tokens: Number(s.tokens) || 0 })),
       sessoes_total: sessoesP.length,
       tokens: tok.filter(t => t.project_id === p.id && (t.t30 ?? 0) > 0).map(t => ({ quem: t.quem, t7: Number(t.t7) || 0, t30: Number(t.t30) || 0 })).sort((a, b) => b.t30 - a.t30),
-      tarefas, ultimo_mexeu, backup: { itens }, deploy, prod,
+      tarefas, ultimo_mexeu, backup: { itens }, deploy, corpo, prod,
       preview_url: (h => (h ? `https://${h}` : null))(prev.find(x => x.project_id === p.id)?.host), conectores, coletado: new Date().toISOString(),
     };
     if (meta.banco) base.banco_fonte = `manual: ${meta.banco}`;
