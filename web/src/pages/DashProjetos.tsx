@@ -12,7 +12,7 @@ type Ficha = {
   git: null | {
     branch: string; remote: string | null; github: string | null; ultimo: { sha: string; quando: string; autor: string; msg: string } | null;
     upstream: string | null; ahead: number | null; behind: number | null; ultimo_push: string | null; sujos: number; commits_7d: number;
-    worktrees: { path: string; branch: string }[];
+    worktrees: { path: string; branch: string }[]; github_push?: string | null;
   };
   bancos: { tipo: string; onde: string; ref: string; url: string; principal: boolean; mencoes: number }[]; banco_fonte: string | null;
   arquitetura: { stack: string[]; resumo: string; fonte: string | null; atualizado: string | null; pastas: string[]; edge_functions: number };
@@ -22,6 +22,7 @@ type Ficha = {
   ultimo_mexeu: { quem: string; quando: string; onde: string } | null;
   backup: { itens: { oque: string; quando: string | null; detalhe: string }[] };
   deploy: null | { onde: string; quando: string | null; estado: string; detalhe: string; dominios: string[] };
+  corpo?: null | { onde: string; conta: string | null; fonte: string };
   preview_url: string | null;
   prod: null | { url: string; status: number | null; ms: number | null; ip: string | null; servidor: string | null; ssl_expira: string | null; erro: string | null };
   env: { usadas: string[]; faltando: string[]; edge: string[]; definidas: number; fonte: string[] };
@@ -54,6 +55,7 @@ function Link({ url, rotulo, vazio }: { url: string | null; rotulo: string; vazi
 
 function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => void }) {
   const g = f.git, b = f.bancos.find(x => x.principal), bk = f.backup.itens.find(i => i.oque.startsWith('banco'));
+  const push = g?.github_push ?? g?.ultimo_push ?? null;
   return (
     <div className={`pj-card-wrap pj-${grau(f)}`}>
     <button className="pj-card" onClick={onOpen}>
@@ -62,13 +64,33 @@ function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => voi
         {f.prod && <span className={`pj-dot ${f.prod.erro || (f.prod.status ?? 0) >= 400 ? 'ruim' : 'ok'}`} title={f.prod.erro ?? `HTTP ${f.prod.status} em ${f.prod.ms} ms`} />}
       </div>
       <div className="pj-stack">{f.arquitetura.stack.slice(0, 5).map(s => <span key={s} className="tag off">{s}</span>)}</div>
+
+      <div className="pj-corpo" title={f.corpo ? `fonte: ${f.corpo.fonte}` : 'não deu para saber onde roda'}>
+        <span className="pj-rot">roda em</span>
+        <span className="pj-corpo-v">{f.corpo?.onde ?? '—'}</span>
+        {f.corpo?.conta && <span className="pj-corpo-conta">{f.corpo.conta}</span>}
+      </div>
+
+      <div className="pj-git">
+        <div className="pj-git-l1">
+          <span className="pj-rot">git</span>
+          <span className="pj-git-repo">{g ? (g.github ?? 'sem GitHub') : 'sem git'}</span>
+          {g && <span className="pj-branch mono">{g.branch}</span>}
+        </div>
+        {g && (
+          <div className="pj-git-l2">
+            <span title={g.ultimo ? `${g.ultimo.sha} ${g.ultimo.msg} (${data(g.ultimo.quando)})` : ''}>commit <b>{g.ultimo ? agoIso(g.ultimo.quando, clock) : '—'}</b></span>
+            <span title={push ? data(push) : 'nunca foi pro GitHub'}>push <b>{push ? agoIso(push, clock) : '—'}</b></span>
+          </div>
+        )}
+      </div>
+
       <dl className="pj-kv">
-        <dt>pasta</dt><dd className="mono">{f.path}</dd>
-        <dt>git</dt><dd>{g ? <>{g.github ?? 'sem GitHub'} · <span className="mono">{g.branch}</span></> : 'sem git'}</dd>
-        <dt>banco</dt><dd>{f.meta.banco ?? (b ? `${b.tipo} · ${b.onde}` : '—')}</dd>
         <dt>produção</dt><dd>{f.prod ? f.prod.url.replace(/^https?:\/\//, '') : '—'}</dd>
+        <dt>banco</dt><dd>{f.meta.banco ?? (b ? `${b.tipo} · ${b.onde}` : '—')}</dd>
         <dt>backup</dt><dd>{bk ? (bk.quando ? agoIso(bk.quando, clock) : 'não verificável') : '—'}</dd>
         <dt>mexeu</dt><dd>{f.ultimo_mexeu ? `${f.ultimo_mexeu.quem}, ${agoIso(f.ultimo_mexeu.quando, clock)}` : '—'}</dd>
+        <dt>pasta</dt><dd className="mono muted">{f.path}</dd>
       </dl>
       {f.alertas.length > 0 && <ul className="pj-alertas">{f.alertas.slice(0, 3).map(a => <li key={a.texto} className={a.nivel}>{a.texto}</li>)}{f.alertas.length > 3 && <li className="muted">+{f.alertas.length - 3}</li>}</ul>}
     </button>
@@ -111,7 +133,8 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
           <Bloco titulo="Onde está">
             <dl className="pj-kv">
               <dt>pasta</dt><dd className="mono">{f.path}{f.existe ? '' : ' (não existe)'}</dd>
-              <dt>servidor</dt><dd>c3 (217.76.55.249)</dd>
+              <dt>código</dt><dd>Contabo c3 (217.76.55.249)</dd>
+              <dt>roda em</dt><dd>{f.corpo ? <>{f.corpo.onde}{f.corpo.conta ? <> · <b>{f.corpo.conta}</b></> : ''} <span className="muted small">({f.corpo.fonte})</span></> : '—'}</dd>
               <dt>conectores</dt><dd>{f.conectores.length ? f.conectores.join(', ') : '—'}</dd>
             </dl>
           </Bloco>
@@ -122,7 +145,7 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
                 <dt>GitHub</dt><dd>{g.github ? <a href={`https://github.com/${g.github}`} target="_blank" rel="noreferrer">{g.github}</a> : (g.remote ?? 'sem espelho')}</dd>
                 <dt>branch</dt><dd className="mono">{g.branch}{g.upstream ? ` → ${g.upstream}` : ''}</dd>
                 <dt>último commit</dt><dd>{g.ultimo ? <><span className="mono">{g.ultimo.sha}</span> {g.ultimo.msg} <span className="muted">({g.ultimo.autor}, {data(g.ultimo.quando)})</span></> : '—'}</dd>
-                <dt>espelho</dt><dd>{g.ahead === null ? 'sem upstream' : `${g.ahead} à frente · ${g.behind} atrás`}{g.ultimo_push && <> · último push {agoIso(g.ultimo_push, clock)}</>}</dd>
+                <dt>espelho</dt><dd>{g.ahead === null ? 'sem upstream' : `${g.ahead} à frente · ${g.behind} atrás`}{(g.github_push ?? g.ultimo_push) && <> · último push {agoIso((g.github_push ?? g.ultimo_push)!, clock)}</>}</dd>
                 <dt>pasta principal</dt><dd>{g.sujos ? `${g.sujos} arquivo(s) sem commit` : 'limpa'} · {g.commits_7d} commits em 7 dias</dd>
                 <dt>worktrees</dt><dd>{g.worktrees.length ? g.worktrees.map(w => <div key={w.path} className="mono small">{w.branch || '(detached)'} <span className="muted">{w.path}</span></div>) : 'nenhum'}</dd>
               </dl>

@@ -11,7 +11,8 @@ type Kind = 'tool' | 'skill' | 'mcp';
 type ToolItem = { id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo'; link: string | null; details: string; tag: string | null; created_by_name: string | null };
 type Prov = 'github' | 'cloudflare';
 type Hostinger = { conectado: boolean; token_hint: string | null; mcps: string[] };
-type Tipo = Prov | 'hostinger' | Kind;
+type Evolution = { conectado: boolean; servidor: string | null; local: string | null; proxy: string; key_hint: string | null; versao: string | null; instancias: { nome: string; status: string }[] };
+type Tipo = Prov | 'hostinger' | 'evolution' | Kind;
 /** Linha do card: rótulo, valor inteiro (copiar/popup) e, se houver, versão curta para o card. */
 type Linha = [string, string, string?];
 type Card = { tipo: Tipo; id: number; label: string; sub: string; linhas: Linha[]; notas: string; detalhes?: string; icone: ReactNode; tag?: string | null; status?: 'ativo' | 'inativo'; autor?: string | null };
@@ -20,13 +21,14 @@ const TIPO: Record<Tipo, { titulo: string; badge: string; classe: string }> = {
   github: { titulo: 'GitHub', badge: 'MCP', classe: 'is-mcp' },
   cloudflare: { titulo: 'Cloudflare', badge: 'Conector', classe: 'is-conector' },
   hostinger: { titulo: 'Hostinger', badge: 'MCP', classe: 'is-mcp' },
+  evolution: { titulo: 'Evolution (WhatsApp)', badge: 'Conector', classe: 'is-conector' },
   mcp: { titulo: 'MCP', badge: 'MCP', classe: 'is-mcp' },
   tool: { titulo: 'Tool', badge: 'Tool', classe: 'is-tool' },
   skill: { titulo: 'Skill', badge: 'Skill', classe: 'is-skill' },
 };
 const API: Record<Prov, string> = { github: '/api/tools/github', cloudflare: '/api/tools/cloudflare' };
 const KINDS: Kind[] = ['mcp', 'tool', 'skill'];
-const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'hostinger', 'mcp', 'tool', 'skill'];
+const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'hostinger', 'evolution', 'mcp', 'tool', 'skill'];
 const ehConta = (t: Tipo): t is Prov => t === 'github' || t === 'cloudflare';
 
 const HOSTINGER_NOTAS = `Um token da API Hostinger vira 8 MCPs oficiais em toda sessão. Cada um tem search (acha a operação), execute e multi-execute: dentro da área, o Claude lê E altera tudo que a API permite.
@@ -42,6 +44,14 @@ const HOSTINGER_NOTAS = `Um token da API Hostinger vira 8 MCPs oficiais em toda 
 
 Atenção: billing, compra de domínio e ações de VPS mexem com dinheiro ou derrubam servidor. Confirmar antes.`;
 
+const EVOLUTION_NOTAS = `Conector simples, não é MCP: a sessão chama a API da Evolution v2 pelo proxy local, sem chave; o Orion injeta a apikey global (a mesma EVOLUTION_MASTER_KEY do Brandspace e do TrackingMachine). Só aceita chamada de dentro da c3.
+
+• Ler: instâncias, status de conexão, QR, contatos, chats, mensagens, webhooks.
+• Escrever: criar e conectar instância, enviar mensagens, configurar webhook e settings.
+• Bloqueado no conector: apagar e deslogar instância (DELETE instance/delete e instance/logout).
+
+Instâncias de clientes (Brandspace, TrackingMachine) vivem aqui: não mexer em webhook nem reiniciar instância de cliente sem pedido explícito. URL e chave ficam na tabela settings (evolution_url, evolution_api_key, evolution_local).`;
+
 const contaVazia = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
 const catVazio = () => ({ kind: 'mcp' as Kind, name: '', description: '', icon: '⚙️', link: '', details: '', tag: '' });
 type FormConta = { prov: Prov; id: number | null; v: ReturnType<typeof contaVazia> };
@@ -54,6 +64,7 @@ export default function ToolsConectores({ user }: { user: User }) {
   const [cf, setCf] = useState<Cloudflare[]>([]);
   const [cat, setCat] = useState<ToolItem[]>([]);
   const [host, setHost] = useState<Hostinger | null>(null);
+  const [evo, setEvo] = useState<Evolution | null>(null);
   const [formHost, setFormHost] = useState<string | null>(null);
   const [erro, setErro] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,6 +78,7 @@ export default function ToolsConectores({ user }: { user: User }) {
     try {
       const [g, c, t, h] = await Promise.all([api<{ contas: Github[] }>(API.github), api<{ contas: Cloudflare[] }>(API.cloudflare), api<{ tools: ToolItem[] }>('/api/tools'), api<Hostinger>('/api/tools/hostinger')]);
       setGh(g.contas); setCf(c.contas); setCat(t.tools); setHost(h); setErro('');
+      api<Evolution>('/api/tools/evolution').then(setEvo, () => setEvo(null));
     } catch (e: any) { setErro(e.message); }
   }
   useEffect(() => { void load(); }, []);
@@ -78,9 +90,13 @@ export default function ToolsConectores({ user }: { user: User }) {
       linhas: [['account', c.account_id], ['proxy', c.url, c.url.replace(/^https?:\/\/[^/]+/, '')], ['token', c.token_hint]] })),
     ...(host ? [{ tipo: 'hostinger' as const, id: 0, label: 'hostinger', sub: host.conectado ? `${host.mcps.length} MCPs em toda sessão` : 'sem token: nenhum MCP ativo', notas: 'DNS, domínios, VPS, hosting, WordPress, billing, e-commerce e e-mail marketing.', detalhes: HOSTINGER_NOTAS, icone: '🌐',
       linhas: [['tools', host.mcps.map(m => `mcp__${m}__*`).join('\n'), 'mcp__hostinger-*__*'], ['token', host.token_hint ?? 'nenhum']] as Linha[] }] : []),
+    ...(evo ? [{ tipo: 'evolution' as const, id: 0, label: evo.servidor?.replace(/^https?:\/\//, '') ?? 'evolution', icone: '💬', notas: 'API de WhatsApp da equipe. Toda sessão usa pelo proxy local, sem chave.', detalhes: EVOLUTION_NOTAS,
+      sub: evo.conectado ? `${evo.instancias.filter(i => i.status === 'open').length} de ${evo.instancias.length} instâncias conectadas${evo.versao ? ` · v${evo.versao}` : ''}` : 'fora do ar ou sem chave',
+      linhas: [['servidor', evo.servidor ?? 'nenhum'], ['local', evo.local ?? '?'], ['proxy', evo.proxy, evo.proxy.replace(/^https?:\/\/[^/]+/, '')], ['chave', evo.key_hint ?? 'nenhuma'],
+        ['instâncias', evo.instancias.map(i => `${i.nome}: ${i.status}`).join('\n') || 'nenhuma', `${evo.instancias.length}`]] as Linha[] }] : []),
     ...cat.map((t): Card => ({ tipo: t.kind, id: t.id, label: t.name, sub: '', notas: t.description, detalhes: t.details, tag: t.tag, icone: t.icon, status: t.status, autor: t.created_by_name,
       linhas: t.link ? [['link', t.link, t.link.replace(/^https?:\/\//, '')]] : [] })),
-  ], [gh, cf, cat, host]);
+  ], [gh, cf, cat, host, evo]);
   const contagem = useMemo(() => {
     const c: Record<string, number> = { todos: cards.length };
     for (const k of cards) c[k.tipo] = (c[k.tipo] ?? 0) + 1;

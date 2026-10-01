@@ -32,9 +32,13 @@ async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); whil
 function fakeQuery(opts: { askPermission?: boolean; fail?: boolean; slow?: number; commands?: any[]; commandsChanged?: any[]; liveControls?: boolean; result?: string } = {}): { fn: QueryFn; calls: any[]; liveCalls: any[] } {
   const calls: any[] = [];
   const liveCalls: any[] = [];
-  const fn: QueryFn = ({ prompt, options }) => {
-    calls.push({ prompt, options });
+  const fn: QueryFn = ({ prompt: entrada, options }) => {
+    const call: any = { prompt: undefined, options }; calls.push(call);
     async function* gen() {
+      // O runner sempre manda a entrada viva (streaming); o fake lê só a primeira mensagem.
+      let prompt: any = entrada;
+      if (typeof entrada !== 'string') for await (const msg of entrada) { prompt = msg.message.content; break; }
+      call.prompt = prompt;
       yield { type: 'system', subtype: 'init', model: 'claude-test', cwd: options?.cwd, session_id: options?.sessionId ?? options?.resume } as any;
       if (opts.commandsChanged) yield { type: 'system', subtype: 'commands_changed', commands: opts.commandsChanged } as any;
       yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'oi' } } } as any;
@@ -207,7 +211,29 @@ describe('Runner', () => {
     expect(m.events.some(e => e.type === 'permission_resolved' && e.payload.decision === 'timeout')).toBe(true);
   });
 
-  it('segundo prompt durante turno entra na fila e roda com resume', async () => {
+  it('segundo prompt durante turno entra no bolo: vai pela entrada viva do mesmo query()', async () => {
+    const m = memStore(); const recebidas: string[] = [];
+    let soltar!: () => void; const preso = new Promise<void>(r => { soltar = r; });
+    const fn: QueryFn = ({ prompt }) => (async function* () {
+      const it = (prompt as AsyncIterable<any>)[Symbol.asyncIterator]();
+      recebidas.push((await it.next()).value.message.content);
+      yield { type: 'system', subtype: 'init', model: 'x' } as any;
+      await preso; // turno trabalhando; a segunda mensagem chega aqui
+      recebidas.push((await it.next()).value.message.content);
+      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 2, result: 'ok', usage: { input_tokens: 1, output_tokens: 1 }, queued_turn_count: 0 } as any;
+      expect((await it.next()).done).toBe(true); // runner fechou a entrada depois do result
+    })() as any;
+    const r = new Runner({ queryFn: fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 'sb1', prompt: 'um', isNew: true });
+    await until(() => r.status('sb1') === 'running' && recebidas.length === 1);
+    r.startTurn({ ...base, sessionId: 'sb1', prompt: 'dois', isNew: false });
+    soltar();
+    await until(() => m.sessions.get('sb1')?.status === 'idle');
+    expect(recebidas).toEqual(['um', 'dois']);
+    expect(m.events.filter(e => e.type === 'user_prompt').map(e => e.payload.prompt)).toEqual(['um', 'dois']);
+  });
+
+  it('segundo prompt depois que a entrada fechou cai na fila e roda com resume', async () => {
     const m = memStore(); const q = fakeQuery({ slow: 40 });
     const r = new Runner({ queryFn: q.fn, store: m.store });
     r.startTurn({ ...base, sessionId: 's6', prompt: 'um', isNew: true });

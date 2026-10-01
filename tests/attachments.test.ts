@@ -65,7 +65,7 @@ describe('Runner com anexos', () => {
     let promptWasIterable = false;
     const fn: QueryFn = ({ prompt }) => {
       async function* gen() {
-        if (typeof prompt !== 'string') { promptWasIterable = true; for await (const msg of prompt) captured = msg; }
+        if (typeof prompt !== 'string') { promptWasIterable = true; for await (const msg of prompt) { captured = msg; break; } }
         yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 1 } as any;
       }
       return gen() as any;
@@ -90,18 +90,16 @@ describe('Runner com anexos', () => {
     expect(up?.payload.attachments).toEqual([{ kind: 'image', name: 'x.png', media_type: 'image/png', path: imgPath }]);
   });
 
-  it('sem anexos, o prompt passado ao SDK continua sendo string', async () => {
+  it('sem anexos, a mensagem vai ao SDK com o texto puro como conteúdo', async () => {
     let seen: any;
     const fn: QueryFn = ({ prompt }) => {
-      seen = prompt;
-      async function* gen() { yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1 } as any; }
+      async function* gen() { for await (const msg of prompt as AsyncIterable<any>) { seen = msg.message.content; break; } yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1 } as any; }
       return gen() as any;
     };
     const m = memStore();
     const r = new Runner({ queryFn: fn, store: m.store });
     r.startTurn({ ...base, sessionId: 'sb', isNew: true, prompt: '[D] só texto' });
     await until(() => m.sessions.get('sb')?.status === 'idle');
-    expect(typeof seen).toBe('string');
     expect(seen).toBe('[D] só texto');
     const up = m.events.find(e => e.type === 'user_prompt');
     expect(up?.payload.attachments).toBeUndefined();

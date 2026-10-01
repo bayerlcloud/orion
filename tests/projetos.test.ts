@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { quemMexeu, chavesEnv, classificarBancos, envUsadas, resumoDoc, semCredencial, servidorDoIp } from '../server/projetos/coletar.js';
+import { corpoDe, quemMexeu, chavesEnv, classificarBancos, envUsadas, resumoDoc, semCredencial, servidorDoIp } from '../server/projetos/coletar.js';
 
 describe('coletor de projetos', () => {
   it('classifica bancos e marca o do config.toml como principal', () => {
@@ -33,5 +33,15 @@ describe('coletor de projetos', () => {
   it('quem mexeu: só a pessoa da sessão, nada de git', () => {
     expect(quemMexeu({ quem: 'Laís Souza', quando: '2026-09-30T11:00:00Z', title: 't' })).toEqual({ quem: 'Laís Souza', quando: '2026-09-30T11:00:00Z', onde: 'sessão "t"' });
     expect(quemMexeu(null)).toBeNull();
+  });
+  it('acha o corpo: Pages com e-mail, nota manual que não é Pages, ou servidor do DNS', () => {
+    const pages = { conta: 'fisioexpert', email: 'fisioexpertapp@gmail.com' };
+    expect(corpoDe({ pages, ehOrion: false, notas: 'Corpo: Cloudflare Pages (projeto x). Porta: y.', servidor: 'Cloudflare' }))
+      .toMatchObject({ onde: 'Cloudflare Pages', conta: 'fisioexpertapp@gmail.com' });
+    expect(corpoDe({ pages, ehOrion: false, notas: 'Corpo: VPS c3 desde 01/10/2026 (systemd x). Porta: Cloudflare.', servidor: 'Cloudflare' })?.onde).toBe('Contabo c3');
+    expect(corpoDe({ pages: null, ehOrion: false, notas: 'Corpo: c3, portal em /srv/sites/abc (publicar com ./deploy.sh). Porta: z.', servidor: null })?.onde).toBe('Contabo c3');
+    expect(corpoDe({ pages: null, ehOrion: false, servidor: 'hostinger' })?.onde).toBe('Hostinger');
+    expect(corpoDe({ pages: null, ehOrion: true, servidor: null })?.onde).toBe('Contabo c3');
+    expect(corpoDe({ pages: null, ehOrion: false, servidor: null })).toBeNull();
   });
 });
