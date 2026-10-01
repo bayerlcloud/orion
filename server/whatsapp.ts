@@ -3,7 +3,7 @@ import type { Pool } from 'pg';
 /** Canal WhatsApp do Orion (fase 1 do gateway): uma instância da Evolution vinculada em Configurações,
  *  webhook dela apontando para /api/whatsapp/webhook/<segredo>, e tudo que entra ou sai gravado em wa_mensagens. */
 export const WA_KEYS = { instancia: 'whatsapp_instancia', segredo: 'whatsapp_webhook_segredo' } as const;
-export const WA_EVENTOS = ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'];
+export const WA_EVENTOS = ['MESSAGES_UPSERT', 'SEND_MESSAGE', 'CONNECTION_UPDATE'];
 
 export async function ensureWhatsappTable(pool: Pool): Promise<void> {
   await pool.query(`CREATE TABLE IF NOT EXISTS wa_mensagens (
@@ -14,9 +14,9 @@ export async function ensureWhatsappTable(pool: Pool): Promise<void> {
 
 export type MensagemWa = { instancia: string; direcao: 'entra' | 'sai'; remoto: string; nome: string; tipo: string; texto: string; msg_id: string | null; ts: Date };
 
-/** Lê um evento messages.upsert da Evolution v2. Outros eventos (ou mensagem sem chave) devolvem null. */
+/** Lê messages.upsert (recebida) ou send.message (enviada pela API) da Evolution v2. Outros eventos devolvem null. */
 export function lerEventoMensagem(ev: any): MensagemWa | null {
-  if (String(ev?.event ?? '').toLowerCase().replace('_', '.') !== 'messages.upsert') return null;
+  if (!['messages.upsert', 'send.message'].includes(String(ev?.event ?? '').toLowerCase().replace('_', '.'))) return null;
   const d = Array.isArray(ev.data) ? ev.data[0] : ev.data;
   const key = d?.key;
   if (!key?.remoteJid) return null;
