@@ -38,7 +38,7 @@ export default function WhatsappCard() {
   const a = s?.atual;
   return (
     <section className="cfg-box">
-      <h2>WhatsApp do Orion</h2>
+      <h2>Instância e mensagens</h2>
       <p>Uma instância da Evolution (<span className="mono">evo.bayerl.cloud</span>, contabo 01) ligada ao Orion: o webhook dela aponta para cá e tudo que entra e sai fica registrado.</p>
       {msg && <div className="cfg-test">{msg}</div>}
       <table><tbody>
