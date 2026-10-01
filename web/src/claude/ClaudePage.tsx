@@ -533,6 +533,8 @@ export default function ClaudePage() {
     try { await claudeApi.rename(id, title); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
   async function archiveSession(id: string, archived: boolean) {
+    // Arquivou: some das abas (pedido do Danilo 01/10/2026). Desarquivar não abre sozinho; quem abre é o clique.
+    if (archived) closeTab(id);
     setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
     try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }

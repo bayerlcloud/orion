@@ -334,7 +334,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                     {showArchived && (
                       <div className="cc-list">
                         {archivedList.map(s => (
-                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => pick(s.id)} onRename={onRename} onArchive={onArchive}
+                          <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => { onArchive(s.id, false); pick(s.id); }} onRename={onRename} onArchive={onArchive}
                             folders={folders} onMoveToGroup={onMoveToGroup} />
                         ))}
                       </div>
