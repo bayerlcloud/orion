@@ -629,11 +629,7 @@ export default function ClaudePage() {
                 { icon: <Pencil size={15} />, label: 'Renomear sessão', desc: 'Troca o nome que aparece na aba e na lista', disabled: !activeId || isDraft(activeId), onClick: rename },
                 { icon: <Power size={15} />, label: 'Parar o Claude', desc: 'Interrompe o que ele está fazendo agora', hidden: !running, danger: true, onClick: stop },
               ]}
-              configurar={[
-                { icon: <Wrench size={15} />, label: 'Skills e hooks', desc: 'Habilidades extras e ações automáticas ativas', disabled: !activeId, onClick: () => setSkillsHooksOpen(true) },
-                { icon: <Shield size={15} />, label: 'Regras de permissão', desc: 'O que ele faz sem pedir, o que pergunta e o que é bloqueado', onClick: () => setPermRulesOpen(true) },
-                { icon: <Puzzle size={15} />, label: 'Plugins', desc: 'Instalar, ligar e desligar pacotes do Claude Code', onClick: () => setMarketplaceOpen(true) },
-              ]} />
+/>
           </span>
         </div>
         {login && !login.logged_in && (
@@ -744,22 +740,6 @@ export default function ClaudePage() {
           tasks={agentTasks}
         />
       )}
-      {activeId && (
-        <SkillsHooksPanel
-          open={skillsHooksOpen}
-          onClose={() => setSkillsHooksOpen(false)}
-          projectId={activeProject?.id ?? null}
-          projectLabel={activeProject?.name}
-        />
-      )}
-      <PermissionRules
-        open={permRulesOpen}
-        onClose={() => setPermRulesOpen(false)}
-        projects={projects}
-        defaultProjectId={permRulesProjectId}
-        canEditUser={role === 'owner'}
-      />
-      <Marketplace open={marketplaceOpen} onClose={() => setMarketplaceOpen(false)} isOwner={role === 'owner'} />
       <BuildStyleDialog open={buildStyleOpen} onClose={() => setBuildStyleOpen(false)} existing={styles}
         canSwitchNow={!!activeId && !isDraft(activeId)}
         onSaved={(slug, switchNow) => { void refreshStyles(); if (switchNow) handleOutputStyle(slug); }} />

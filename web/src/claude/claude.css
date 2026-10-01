@@ -892,3 +892,6 @@
 
 .cc-smenu-preview { padding: 4px 8px 8px; }
 .cc-smenu-preview .pv-pub { display: flex; width: 100%; }
+
+/* Painéis do Claude embutidos em outra página (Configurações): só herdam o tema, sem o layout da tela do chat. */
+.cc.cc-embed { display: contents; }

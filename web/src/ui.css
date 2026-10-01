@@ -183,3 +183,7 @@ strong { color: var(--fg); }
 .pv-addr { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; color: var(--muted, #999); }
 .pv-addr a { color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-sub { font-size: 10.5px; color: var(--muted, #999); opacity: .8; }
+
+.cfg-claude-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 10px; }
+.cfg-claude-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.cfg-claude-card .cfg-actions { margin-top: auto; display: flex; gap: 8px; align-items: center; }
