@@ -83,6 +83,14 @@ Projetos com vite (fisioexpert, ralab, trackingmachine, brandspace, abcprimecred
 
 ## Parte 2: Integração automática a cada turno
 
+> **Atualização 01/10/2026 (Danilo): worktree por usuário.** Toda sessão de projeto nasce na worktree fixa da pessoa,
+> `<projeto>-worktrees/<pessoa>` (branch `usuario/<pessoa>`, saída da branch atual da raiz). O preview do usuário mostra
+> essa worktree; cada turno sobe para a raiz como abaixo. A base da integração é a branch em que a raiz está, não `main` fixo.
+> Raiz com mudança sem commit (ou fora de branch): a sessão fica na raiz, como antes, e a conversa mostra o motivo.
+> Duas sessões da mesma pessoa no projeto dividem a worktree; a conversa avisa quando a outra está rodando.
+> A pílula "Worktree" do compositor saiu. Deploy continua saindo da raiz pela fila; próxima leva: lista do que sobe,
+> por pessoa, com opção de publicar só as selecionadas (aplicadas sobre a versão em produção).
+
 > **Atualização 01/10/2026 (Danilo): worktree por usuário.** Cada pessoa tem uma worktree fixa por projeto,
 > `<projeto>-worktrees/<pessoa>`, na branch `usuario/<pessoa>`, saída da branch em que a raiz está. Toda sessão
 > nova da pessoa no projeto nasce nela (a pílula "Worktree" do compositor saiu), o preview do usuário mostra ela,
