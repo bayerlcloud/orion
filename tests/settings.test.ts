@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { looksLikeClaudeToken, maskToken, sdkEnv, hostingerMcpServers } from '../server/settings';
+import { looksLikeClaudeToken, maskToken, sdkEnv } from '../server/settings';
 
 describe('token do Claude', () => {
   it('aceita formato plausível e recusa lixo', () => {
@@ -19,23 +19,5 @@ describe('token do Claude', () => {
     const e = sdkEnv('sk-ant-teste')!;
     expect(e.CLAUDE_CODE_OAUTH_TOKEN).toBe('sk-ant-teste');
     expect(e.PATH).toBe(process.env.PATH);
-  });
-});
-
-describe('MCP da Hostinger', () => {
-  it('sem token não registra nenhum server', () => {
-    expect(hostingerMcpServers(null)).toBeUndefined();
-  });
-  it('com token registra um server stdio por vertical, todos com o mesmo token', () => {
-    const servers = hostingerMcpServers('tok-123')!;
-    const names = Object.keys(servers).sort();
-    expect(names).toEqual(['hostinger-billing', 'hostinger-dns', 'hostinger-domains', 'hostinger-ecommerce', 'hostinger-hosting', 'hostinger-reach', 'hostinger-vps-studio', 'hostinger-wordpress'].sort());
-    for (const cfg of Object.values(servers)) {
-      expect(cfg.type).toBe('stdio');
-      expect(cfg.command).toBe('npx');
-      expect(cfg.env.APITOKEN).toBe('tok-123');
-      expect(cfg.env.HOSTINGER_API_TOKEN).toBe('tok-123');
-    }
-    expect(servers['hostinger-vps-studio'].args).toContain('hostinger-vps-mcp');
   });
 });

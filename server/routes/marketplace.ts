@@ -14,7 +14,7 @@ import {
   CATALOGO_PLUGINS_DIR, fonteValida, instalarNoCatalogo, lerMarketplaces, lerPluginJson,
   nomeValido, runClaudePlugin,
 } from '../tools/marketplace.js';
-import { KEYS, getSetting, hostingerMcpServers } from '../settings.js';
+import { KEYS, getSetting } from '../settings.js';
 import { listarContasGithub, nomeMcpGithub } from '../tools/githubAccounts.js';
 import { cofreCdpUrl, cofrePainelUrl } from '../tools/cofre.js';
 
@@ -128,23 +128,17 @@ export async function marketplaceRoutes(app: FastifyInstance) {
   /**
    * Servidores MCP configurados nas sessões do Orion — a lista `mcpServerList` da extensão real,
    * montada do que o runner realmente injeta em toda sessão (server/routes/claude.ts:
-   * turnMcpServers): hostinger (com token em Configurações), um GitHub por conta da aba Tools, e o
-   * orion-memory (sempre, em processo). Cloudflare não é MCP (conector simples via proxy /conector). Nunca expõe token/URL com credencial.
+   * turnMcpServers): um GitHub por conta da aba Tools, e o
+   * orion-memory (sempre, em processo). Cloudflare, Hostinger, Coolify, n8n e Supabase não são MCP (conectores simples via proxy /conector). Nunca expõe token/URL com credencial.
    * Status é "configurado" — o estado vivo (connected/failed) só existe dentro de uma sessão real,
    * simplificação documentada em PARIDADE-marketplace.md.
    */
   app.get('/api/claude/marketplace/mcp', async () => {
     const servers: { nome: string; tipo: string; detalhe: string; origem: string; escopo: string }[] = [];
-    const host = hostingerMcpServers(await getSetting(app.pool, KEYS.hostingerToken));
-    if (host) {
-      for (const [nome, cfg] of Object.entries(host)) {
-        servers.push({ nome, tipo: 'stdio', detalhe: `${cfg.command} ${cfg.args.join(' ')}`, origem: 'Token da Hostinger em Configurações', escopo: 'todas as sessões' });
-      }
-    }
     for (const c of await listarContasGithub(app.pool)) {
       servers.push({ nome: nomeMcpGithub(c.label), tipo: 'http', detalhe: 'https://api.githubcopilot.com/mcp/ (token da conta, nunca exposto)', origem: `Conta GitHub "${c.label}" (${c.login}) na aba Tools`, escopo: 'todas as sessões' });
     }
-    if (cofreCdpUrl()) servers.push({ nome: 'cofre', tipo: 'stdio', detalhe: `Playwright MCP ligado ao Chrome compartilhado da c3 (CDP local); painel ${cofrePainelUrl()}`, origem: 'container cofre em /srv/browser', escopo: 'todas as sessões' });
+    if (cofreCdpUrl()) servers.push({ nome: 'cofre', tipo: 'http', detalhe: `Playwright MCP único (compartilhado por todas as sessões) ligado ao Chrome compartilhado da c3 (CDP local); painel ${cofrePainelUrl()}`, origem: 'container cofre em /srv/browser', escopo: 'todas as sessões' });
     servers.push({ nome: 'orion-memory', tipo: 'sdk', detalhe: 'servidor em processo do próprio Orion (server/claude/memoryTool.ts)', origem: 'memória do painel, sempre presente', escopo: 'todas as sessões' });
     return { servers };
   });
