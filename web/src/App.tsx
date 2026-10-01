@@ -7,6 +7,7 @@ import Placeholder from './pages/Placeholder';
 import ClaudePage from './claude/ClaudePage';
 import Drive from './pages/Drive';
 import Config from './pages/Config';
+import Whatsapp from './pages/Whatsapp';
 import Dash from './pages/Dash';
 import Arquivos from './pages/Arquivos';
 import Memoria from './pages/Memoria';
@@ -14,7 +15,7 @@ import Perfil from './pages/Perfil';
 import Tarefas from './pages/Tarefas';
 import Tools from './pages/Tools';
 import { Dialogos } from './dialogo';
-import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools } from './icons';
+import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
   // Claude primeiro: é a página que abre por padrão e onde a equipe passa o dia.
@@ -26,6 +27,7 @@ const MENU = [
   { to: '/drive', label: 'Drive', Icon: IcoDrive },
   { to: '/memoria', label: 'Memória', Icon: IcoMemoria },
   { to: '/spec', label: 'Spec', Icon: IcoSpec },
+  { to: '/whatsapp', label: 'WhatsApp', Icon: IcoWhatsapp, ownerOnly: true },
   { to: '/config', label: 'Configurações', Icon: IcoConfig, ownerOnly: true },
 ];
 
@@ -90,6 +92,7 @@ export default function App() {
     { path: '/drive', el: <Drive user={user} /> },
     { path: '/memoria', el: <Memoria user={user} /> },
     { path: '/spec', el: <Spec user={user} /> },
+    { path: '/whatsapp', el: <Whatsapp user={user} /> },
     { path: '/config', el: <Config user={user} /> },
   ];
   const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos');

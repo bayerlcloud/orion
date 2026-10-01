@@ -51,7 +51,7 @@ export default function WhatsappAppsCard() {
 
   return (
     <section className="cfg-box">
-      <h2>Apps do WhatsApp (gateway)</h2>
+      <h2>Conexões (SaaS no gateway)</h2>
       <p>Cada SaaS fala com <span className="mono">https://orion.bayerl.cloud/wa</span> como se fosse uma Evolution, com token próprio e um apelido: <b>alertas</b> envia para qualquer destino; <b>conversa</b> só para quem tem regra conversar. Regras de entrada: <b>ouvir</b> repassa sem permitir resposta; <b>conversar</b> repassa e permite resposta (um dono por contato). Contato sem regra fica só no Orion.</p>
       {s && <p className="muted small">Apelidos: {s.apelidos.map(a => <Fragment key={a.apelido}><span className="mono">{a.apelido}</span> → {a.instancia} </Fragment>)}</p>}
       {msg && <div className="cfg-test is-bad">{msg}</div>}
