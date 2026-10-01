@@ -7,3 +7,4 @@ dist/
 .superpowers/
 referencia/
 __pycache__/
+.playwright-mcp/

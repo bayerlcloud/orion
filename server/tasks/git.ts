@@ -164,6 +164,12 @@ export async function branchExiste(repo: string, branch: string): Promise<boolea
   return (await git(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])).code === 0;
 }
 
+/** Nada pendente na pasta, nem arquivo novo fora do .gitignore (a worktree só leva o que está commitado). */
+export async function semPendencias(repo: string): Promise<boolean> {
+  const st = await git(repo, ['status', '--porcelain']);
+  return st.code === 0 && st.stdout.trim() === '';
+}
+
 export async function raizLimpa(repo: string): Promise<boolean> {
   const st = await git(repo, ['status', '--porcelain', '--untracked-files=no']);
   return st.code === 0 && st.stdout.trim() === '';

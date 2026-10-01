@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { access } from 'node:fs/promises';
-import { addWorktreeExistente, branchAtual, branchExiste, createWorktree as gitCreateWorktree, raizLimpa } from '../tasks/git.js';
+import { addWorktreeExistente, branchAtual, branchExiste, createWorktree as gitCreateWorktree, semPendencias } from '../tasks/git.js';
 import { isSafeBranch } from '../tasks/util.js';
 
 // "Aba Claude" — criar/gerenciar git worktree direto pela UI do chat (ver PARIDADE.md seção 14).
@@ -85,7 +85,7 @@ export async function worktreeDoUsuario(projectPath: string, pessoa: string): Pr
   if (await access(path.join(target, '.git')).then(() => true, () => false)) return { ok: true, path: target, branch };
   const base = await branchAtual(projectPath);
   if (!base) return { ok: false, motivo: 'a pasta do projeto não é um repositório git numa branch' };
-  if (!(await raizLimpa(projectPath))) return { ok: false, motivo: `a raiz do projeto tem mudanças sem commit na branch ${base}` };
+  if (!(await semPendencias(projectPath))) return { ok: false, motivo: `a raiz do projeto tem mudanças ou arquivos novos sem commit na branch ${base}` };
   const r = (await branchExiste(projectPath, branch))
     ? await addWorktreeExistente(projectPath, branch, target)
     : await gitCreateWorktree(projectPath, branch, base, target);

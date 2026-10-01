@@ -89,7 +89,7 @@ describe('worktreeDoUsuario', () => {
     expect(a).toEqual({ ok: true, path: `${p}-worktrees/danilo`, branch: 'usuario/danilo' });
     expect(sh(`${p}-worktrees/danilo`, 'rev-parse', 'HEAD')).toBe(sh(p, 'rev-parse', 'feat/x'));
     expect(await worktreeDoUsuario(p, 'danilo')).toEqual(a);
-    await writeFile(path.join(p, 'a.txt'), '1'); sh(p, 'add', 'a.txt');
+    await writeFile(path.join(p, 'a.txt'), '1');
     const b = await worktreeDoUsuario(p, 'lais');
     expect(b.ok).toBe(false);
     expect(!b.ok && b.motivo).toContain('feat/x');
