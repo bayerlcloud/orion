@@ -29,11 +29,13 @@ describe('preview model', () => {
 });
 
 describe('temPreview', () => {
-  it('só projeto com package.json na pasta ganha preview', async () => {
+  it('só projeto com vite no package.json da pasta ganha preview', async () => {
     const { mkdtemp, writeFile } = await import('node:fs/promises'); const { tmpdir } = await import('node:os'); const path = await import('node:path');
     const d = await mkdtemp(path.join(tmpdir(), 'tp-'));
     expect(await temPreview(d, null)).toBe(false);
-    await writeFile(path.join(d, 'package.json'), '{}');
+    await writeFile(path.join(d, 'package.json'), '{"dependencies":{"express":"4"}}');
+    expect(await temPreview(d, null)).toBe(false);
+    await writeFile(path.join(d, 'package.json'), '{"devDependencies":{"vite":"5"}}');
     expect(await temPreview(d, null)).toBe(true);
     expect(await temPreview(d, 'apps/x')).toBe(false);
   });
