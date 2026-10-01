@@ -13,7 +13,7 @@ import PermissionRules from './PermissionRules';
 import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
 import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, SendArrow } from './icons';
-import PreviewPublico from '../PreviewPublico';
+import PreviewPublico, { prefetchPreviewPublico } from '../PreviewPublico';
 import SessionMenu from './SessionMenu';
 import { Pencil } from './icons';
 import './claude.css';
@@ -579,6 +579,8 @@ export default function ClaudePage() {
   // sessão ativa resolvido por slug, mesmo caminho que `activeProjectPath` já usa acima (sem coluna
   // `project_id` na resposta de `GET /api/claude/sessions`, que só devolve `project_slug`/`project_name`).
   const activeProject = active ? projects.find(p => p.slug === active.project_slug) : undefined;
+  // Deixa o estado do preview público pronto antes de abrir o menu ⋮.
+  useEffect(() => { if (activeProject) void prefetchPreviewPublico(activeProject.id); }, [activeProject?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Projeto pra pré-selecionar no editor de "Regras de permissão" ao abrir — sessão de verdade: o
   // projeto dela (via `project_slug`); aba rascunho: o projeto escolhido no seletor do compositor.
   // `undefined` quando nada resolve (ex.: nenhuma aba aberta) — o painel cai no 1º projeto da lista.
