@@ -65,20 +65,13 @@ export function rootPerigo(cmd: string): string | null {
 
 /**
  * Comandos que publicam o código da pasta atual (deploy de projeto, push direto na main remota).
- * Numa worktree eles publicariam a worktree e pulariam a raiz (incidente do FisioExpert, 01/10/2026).
+ * Numa worktree eles pulariam a raiz (incidente do FisioExpert, 01/10/2026): lá o único caminho é o
+ * MCP orion-publicar (server/integracao/publicarTool.ts).
  */
-const PUBLICACAO = /\bdeploy\.sh\b|\bwrangler\b[^;&|]*\bdeploy\b|\bsupabase\s+functions\s+deploy\b|\bvercel\b[^;&|]*--prod\b|\bnetlify\s+deploy\b|\bgit\s+push\b[^;&|]*:(refs\/heads\/)?(main|master)\b/;
+const PUBLICACAO = /(^|[;&|(`]\s*|\b(bash|sh|exec|timeout\s+\S+|nohup)\s+)(\S*\/)?deploy\.sh\b|\bwrangler\b[^;&|]*\bdeploy\b|\bsupabase\s+functions\s+deploy\b|\bvercel\b[^;&|]*--prod\b|\bnetlify\s+deploy\b|\bgit\s+push\b[^;&|]*:(refs\/heads\/)?(main|master)\b|\bgit\s+(-C\s+\S+\s+)?push\s+\S+\s+(main|master)\b|\/srv\/builds\/pedido\.json/;
 export function ehPublicacao(cmd: string): boolean { return PUBLICACAO.test(cmd); }
 
-/** Sessão numa worktree de projeto: `raiz` do projeto e `juntar`, que leva a worktree para a raiz já (null = ok, senão o motivo). */
-export type PublicarDaRaiz = { raiz: string; juntar: () => Promise<string | null> };
-
-const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** O comando começa entrando na raiz (`cd <raiz> && ...`, com ou sem aspas). */
-export function saiDaRaiz(cmd: string, raiz: string): boolean {
-  const r = escRe(raiz.replace(/\/+$/, ''));
-  return new RegExp(`^\\s*cd\\s+(['"]?)${r}/?\\1\\s*&&`).test(cmd);
-}
+const NA_WORKTREE = 'Publicação só pelas ferramentas do orion-publicar (publicar: sobe para a raiz; deploy: raiz, GitHub e produção). Nada foi executado.';
 
 function str(v: unknown): string { return typeof v === 'string' ? v : ''; }
 
@@ -137,8 +130,8 @@ async function textoBackup(backup: BackupFn | undefined, sql: string): Promise<s
 }
 
 /** `rootLiberado`: a sessão tem um "liberar root" humano dentro do prazo (store.rootLiberado). */
-/** `publicar`: sessão numa worktree; publicação só depois de juntar na raiz e só rodando da raiz, em qualquer modo. */
-export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<boolean>, publicar?: PublicarDaRaiz): HookCallback {
+/** `naWorktree`: sessão numa worktree de projeto; publicação na mão é recusada em qualquer modo (vai pelo orion-publicar). */
+export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<boolean>, naWorktree = false): HookCallback {
   return async (input) => {
     const i = input as PreToolUseHookInput;
     if (i.hook_event_name !== 'PreToolUse' || i.permission_mode === 'plan' || INTERATIVAS.has(i.tool_name)) return {};
@@ -147,15 +140,10 @@ export function makePolicyHook(backup?: BackupFn, rootLiberado?: () => Promise<b
       if (!perigo && rootLiberado && await rootLiberado()) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow' } };
       return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: `Ação sensível: executar como root${perigo ? ` (${perigo})` : ''}` } };
     }
-    const inp = (i.tool_input ?? {}) as Record<string, unknown>;
-    const cmd = i.tool_name === 'Bash' ? str(inp.command) : '';
-    // Publicar do Orion (pedido.json) constrói a main da raiz: basta juntar a worktree antes.
-    const pedidoOrion = /\/srv\/builds\/pedido\.json/.test(cmd) || str(inp.file_path) === '/srv/builds/pedido.json';
-    if (publicar && (pedidoOrion || (cmd && ehPublicacao(cmd)))) {
-      const negar = (motivo: string) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'deny' as const, permissionDecisionReason: motivo } });
-      const motivo = await publicar.juntar();
-      if (motivo) return negar(`Publicação recusada, nada foi publicado: ${motivo}.`);
-      if (!pedidoOrion && !saiDaRaiz(cmd, publicar.raiz)) return negar(`Publicação só sai da raiz do projeto, nunca da worktree. Sua mudança já foi juntada na raiz. Rode de novo exatamente assim: cd ${publicar.raiz} && ${cmd.trim()}`);
+    if (naWorktree) {
+      const inp = (i.tool_input ?? {}) as Record<string, unknown>;
+      if ((i.tool_name === 'Bash' && ehPublicacao(str(inp.command))) || str(inp.file_path) === '/srv/builds/pedido.json')
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NA_WORKTREE } };
     }
     const v = classify(i.tool_name, i.tool_input);
     if (v.always) {

@@ -29,6 +29,7 @@ import { KEYS, ensureSettingsTable, getSetting, hostingerMcpServers, sdkEnv } fr
 import { backupAntes, dbUrlKey } from '../dbBackup.js';
 import { FilaIntegracao } from '../integracao/fila.js';
 import { ganchosDaSessao } from '../integracao/turno.js';
+import { orionPublicarServer } from '../integracao/publicarTool.js';
 import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
 import { branchAtual } from '../tasks/git.js';
 import { slugPessoa } from '../preview/model.js';
@@ -188,12 +189,12 @@ export async function claudeRoutes(app: FastifyInstance) {
       `SELECT title FROM claude_sessions WHERE cwd = $1 AND id <> $2 AND status = 'running' LIMIT 3`, [s.cwd, s.id]);
     if (paralelas.length) runner.aviso(s.id, `Atenção: ${paralelas.map(p => `"${p.title}"`).join(', ')} está rodando agora na mesma pasta. As duas sessões mexem nos mesmos arquivos.`);
     const ganchos = ganchosDaSessao({
-      sessaoId: s.id, cwd: s.cwd, projeto: await projetoIntegracao(s.project_id ?? null), prompt: textoPrompt.replace(/^\[[^\]]+\]\s*/, ''), fila: filaIntegracao,
-      avisar: (texto) => { void startFor(s, userId, prefixPrompt('Orion', texto), mode, model, effort); },
+      cwd: s.cwd, projeto: await projetoIntegracao(s.project_id ?? null), prompt: textoPrompt.replace(/^\[[^\]]+\]\s*/, ''), fila: filaIntegracao,
+      pessoa: /^\[([^\]]+)\]/.exec(textoPrompt)?.[1] ?? s.creator,
       registrar: (texto) => { runner.aviso(s.id, texto); },
     });
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId), ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
@@ -611,12 +612,11 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (avisoPasta) runner.aviso(id, avisoPasta);
     const sessaoNova = { id, cwd, project_id: project.id, user_id: req.user!.id, project_name: project.name, rules: project.rules, creator: req.user!.name };
     const ganchos = ganchosDaSessao({
-      sessaoId: id, cwd, projeto: proj, prompt, fila: filaIntegracao,
-      avisar: (texto) => { void startFor(sessaoNova, req.user!.id, prefixPrompt('Orion', texto), mode, b.model || d.model || undefined, effort); },
+      cwd, projeto: proj, prompt, fila: filaIntegracao, pessoa: req.user!.name,
       registrar: (texto) => { runner.aviso(id, texto); },
     });
     runner.startTurn({
-      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: await turnMcpServers(id, project.id, req.user!.id), ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
+      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || undefined, effort: eff.effort, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
