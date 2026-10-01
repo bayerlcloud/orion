@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { getSetting, setSetting } from '../settings.js';
 import { evolutionConfig } from '../tools/evolution.js';
-import { WA_EVENTOS, WA_KEYS, ensureWhatsappTable, gravarMensagem, lerEventoMensagem } from '../whatsapp.js';
+import { WA_EVENTOS, WA_KEYS, ensureWhatsappTable, gravarMensagem } from '../whatsapp.js';
 
 const URL_PUBLICA = process.env.ORION_PUBLIC_URL ?? 'https://orion.bayerl.cloud';
 
@@ -28,17 +28,6 @@ export async function whatsappRoutes(app: FastifyInstance) {
     return s;
   };
   const urlWebhook = (s: string) => `${URL_PUBLICA}/api/whatsapp/webhook/${s}`;
-
-  // Público (a Evolution chama sem login); o segredo no caminho é a autenticação.
-  // ponytail: grava direto no Postgres; evento que chega durante o reinício de uma publicação se perde. Fila/serviço separado quando importar.
-  app.post<{ Params: { segredo: string } }>('/api/whatsapp/webhook/:segredo', async (req, reply) => {
-    const s = await getSetting(app.pool, WA_KEYS.segredo);
-    const a = Buffer.from(req.params.segredo), b = Buffer.from(s ?? '');
-    if (!s || a.length !== b.length || !timingSafeEqual(a, b)) return reply.code(404).send({ error: 'não encontrado' });
-    const m = lerEventoMensagem(req.body);
-    if (m) await gravarMensagem(app.pool, m, req.body);
-    return { ok: true };
-  });
 
   app.register(async (dono) => {
     dono.addHook('preHandler', async (req, reply) => {
