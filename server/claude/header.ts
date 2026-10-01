@@ -32,6 +32,8 @@ export type SessionHeader = {
   cloudflare?: { nome: string; url: string; account_id: string; account_name?: string; email?: string; notes: string }[] | null;
   /** Evolution API (WhatsApp) como conector simples: URL do proxy local e servidor real. */
   evolution?: { nome: string; url: string; servidor: string } | null;
+  /** WhatsApp do Orion pelo gateway orion-wa (o próprio Orion como app): URL do conector local. */
+  whatsapp?: { url: string } | null;
   /** Cofre: Chrome compartilhado com perfil persistente (MCP `cofre`) e o painel web para login manual. */
   cofre?: { painel: string } | null;
 };
@@ -65,6 +67,9 @@ export function buildSystemAppend(h: SessionHeader): string {
   }
   if (h.evolution) {
     lines.push('', `Evolution API (WhatsApp, ${h.evolution.servidor}) como conector simples, não é MCP: chame a API da Evolution v2 com curl em ${h.evolution.url}/<caminho>, SEM apikey; o Orion injeta a chave global. Ex.: curl ${h.evolution.url}/instance/fetchInstances; enviar texto: POST ${h.evolution.url}/message/sendText/<instância> com {"number":"55...","text":"..."}. Instâncias de clientes (Brandspace, TrackingMachine) vivem lá: não mexa em webhook nem reinicie instância de cliente sem pedido explícito. Apagar ou deslogar instância é bloqueado.`);
+  }
+  if (h.whatsapp) {
+    lines.push('', `WhatsApp do Orion (conector "whatsapp", passa pelo gateway com fila e limites): para avisar alguém ou um grupo, use POST ${h.whatsapp.url}/message/sendText/alertas com {"number":"55... ou <jid>@g.us","text":"..."}, SEM apikey. Grupos do número: GET ${h.whatsapp.url}/group/fetchAllGroups/alertas?getParticipants=false (demora ~25 s). Prefira este conector ao da Evolution para mandar mensagem; o da Evolution é para administrar instâncias.`);
   }
 
   if (h.cofre) {

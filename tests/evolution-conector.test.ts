@@ -19,3 +19,13 @@ describe('Evolution (conector simples)', () => {
     expect(buildSystemAppend({ projectName: 'Orion', projectPath: '/srv/orion', createdBy: 'Danilo' })).not.toContain('Evolution');
   });
 });
+
+describe('conector whatsapp (Orion como app do gateway)', () => {
+  it('só entra no cabeçalho com token, e aponta para o conector local', async () => {
+    const { whatsappParaHeader } = await import('../server/tools/evolution.js');
+    expect(whatsappParaHeader(null)).toBeNull();
+    const h = whatsappParaHeader('wa_x')!;
+    expect(h.url).toMatch(/\/conector\/whatsapp$/);
+    expect(buildSystemAppend({ projectName: 'Orion', projectPath: '/srv/orion', createdBy: 'Danilo', whatsapp: h })).toContain('/conector/whatsapp/message/sendText/alertas');
+  });
+});
