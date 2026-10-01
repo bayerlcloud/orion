@@ -195,7 +195,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       registrar: (texto) => { runner.aviso(s.id, texto); },
     });
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
@@ -208,10 +208,11 @@ export async function claudeRoutes(app: FastifyInstance) {
   // MCPs de toda sessão: um github por conta cadastrada na aba Tools + orion-memory (sempre).
   // Cloudflare, Hostinger, Coolify, n8n e Supabase não são MCP: são conectores simples (proxy local /conector/<nome>), só entram no header.
   // Cofre (Chrome compartilhado da c3) entra como MCP `cofre` quando COFRE_CDP_URL está no ambiente.
-  const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number) => ({
+  // userId = criador da sessão (escopo padrão da memória); autorId = quem mandou o turno (autor do que for salvo).
+  const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number, autorId: number) => ({
     ...githubMcpServers(await listarContasGithub(app.pool)),
     ...(cofreMcpServers(cofreCdpUrl()) ?? {}),
-    'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId }),
+    'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId, autorId }),
     'orion-root': orionRootServer(sessionId),
   });
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.taskBudgetTokens)) || undefined });
@@ -220,15 +221,22 @@ export async function claudeRoutes(app: FastifyInstance) {
   // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.
   async function memoriasPara(projectId: number | null, userId: number): Promise<{ regras: MemoriaRegra[]; decisoes: MemoriaDecisao[] }> {
     try {
+      // Só memória ativa (substituída sai do prompt). Teto por relevância = as mais recentes primeiro;
+      // o que passar do teto continua acessível pelo buscar da tool, e o corte vai para o log.
       const { rows } = await app.pool.query(
         `SELECT level, code, title, summary, body_md, scope_project_id, scope_user_id FROM memories
-          WHERE level IN (2, 3) AND (scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL))
+          WHERE level IN (2, 3) AND estado = 'ativa' AND (scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL))
           ORDER BY level ASC, updated_at DESC`, [projectId, userId]);
       const escopo = (r: any) => (r.scope_project_id ? 'projeto' : r.scope_user_id ? 'usuário' : 'universal') as MemoriaRegra['scope'];
+      const regras = rows.filter((r: any) => r.level === 2);
+      const decisoes = rows.filter((r: any) => r.level === 3);
+      if (regras.length > REGRAS_MAX || decisoes.length > DECISOES_MAX) {
+        app.log.warn(`memória: prompt cortou ${Math.max(0, regras.length - REGRAS_MAX)} regra(s) e ${Math.max(0, decisoes.length - DECISOES_MAX)} decisão(ões) (projeto ${projectId ?? 'neutro'}, usuário ${userId})`);
+      }
       return {
-        regras: rows.filter((r: any) => r.level === 2).slice(0, REGRAS_MAX)
+        regras: regras.slice(0, REGRAS_MAX)
           .map((r: any) => ({ title: r.title, body: r.body_md, scope: escopo(r) })),
-        decisoes: rows.filter((r: any) => r.level === 3).slice(0, DECISOES_MAX)
+        decisoes: decisoes.slice(0, DECISOES_MAX)
           .map((r: any) => ({ code: r.code, title: r.title, summary: r.summary })),
       };
     } catch { return { regras: [], decisoes: [] }; }
@@ -617,7 +625,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       registrar: (texto) => { runner.aviso(id, texto); },
     });
     runner.startTurn({
-      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'opus', effort: eff.effort, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
+      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'opus', effort: eff.effort, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };

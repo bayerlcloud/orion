@@ -41,7 +41,19 @@ export async function ensureMemoriesSchema(pool: Pool): Promise<void> {
     ALTER TABLE memories ADD COLUMN IF NOT EXISTS level INT;
     ALTER TABLE memories ADD COLUMN IF NOT EXISTS nota INT;
     ALTER TABLE memories ADD COLUMN IF NOT EXISTS last_decay_at TIMESTAMPTZ;
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS autor_user_id INT REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS sessao_origem TEXT;
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS origem TEXT NOT NULL DEFAULT 'painel';
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS corpo_anterior TEXT;
+    ALTER TABLE memories ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'ativa';
   `);
+  // Memória v3 (docs/plans/2026-10-01-memoria-v3.md): quem gerou, de onde veio, estado e desfazer.
+  // origem: painel | tool | extrator | import | curador | nivel1. estado: ativa | substituida
+  // (substituída sai da busca e do índice do prompt, fica no banco).
+  const { rowCount: temEstadoCk } = await pool.query(`SELECT 1 FROM pg_constraint WHERE conname = 'memories_estado_ck'`);
+  if (!temEstadoCk) {
+    await pool.query(`ALTER TABLE memories ADD CONSTRAINT memories_estado_ck CHECK (estado IN ('ativa','substituida'))`);
+  }
 
   const { rowCount: temStatus } = await pool.query(
     `SELECT 1 FROM information_schema.columns WHERE table_name = 'memories' AND column_name = 'status'`,

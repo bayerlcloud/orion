@@ -8,6 +8,7 @@ import { migrate } from '../server/migrations.js';
 import { collectInventory, saveSnapshot, SNAPSHOTS_GUARDADOS } from '../server/inventory.js';
 import { generateNivel1 } from '../server/nivel1/generate.js';
 import { decairMicrofatos } from '../server/memories/decay.js';
+import { ensureHistoricoTable, materializarTurnos } from '../server/memories/historico.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,6 +39,15 @@ async function main() {
       `${decay.mortas.length} morreram${decay.mortas.length ? ` (${decay.mortas.join(', ')})` : ''}`);
   } catch (e: any) {
     console.log('aviso decaimento nível 4:', e?.message ?? e);
+  }
+
+  // Histórico pesquisável (memória v3): materializa os turnos terminados desde a última vez, com embedding local.
+  try {
+    await ensureHistoricoTable(pool);
+    const n = await materializarTurnos((sql, params) => pool.query(sql, params as any[]));
+    console.log(`histórico: ${n} turno(s) novo(s)`);
+  } catch (e: any) {
+    console.log('aviso histórico:', e?.message ?? e);
   }
 
   await pool.end();

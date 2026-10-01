@@ -12,9 +12,11 @@ import { createPool } from '../db.js';
 import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
 import { ensureCuradoriaTable } from './proposals.js';
 import { curadoriaServer, precisaCuradoria, type CuradorStats } from './tools.js';
+import { extrairDoDia } from './extrator.js';
 
 const SYSTEM_PROMPT = [
   'Você é o curador da memória do painel Orion. Analise as memórias listadas pela tool listar (níveis 2 a 4).',
+  'Trabalhe projeto a projeto para caber no contexto: chame listar(projeto: <slug>) para cada projeto devolvido e depois listar(projeto: "universal"). Use ler(code) para ver o corpo completo de uma memória quando precisar comparar textos (fusão, reescrita, conflito).',
   'Ações, nesta ordem de prioridade:',
   '1. funda duplicatas claras de nível 4 com a tool fundir (só micro-fato com micro-fato; se os corpos se complementam, mande corpo_final unificado);',
   '2. proponha promoção (propor, tipo promocao) para toda memória nível 4 com nota 10;',
@@ -30,13 +32,22 @@ async function main() {
   const pool = createPool();
   await ensureSettingsTable(pool);
   await ensureCuradoriaTable(pool);
+  const env = sdkEnv(await getSetting(pool, KEYS.claudeToken));
+
+  // Extrator primeiro (memória v3): lê os turnos do dia e grava fatos; o curador cura em seguida.
+  try {
+    const ex = await extrairDoDia(pool, { ...(env ? { env } : {}), log: console.log });
+    console.log(`extrator: ${ex.projetos} projeto(s), ${ex.turnos} turno(s), ${ex.fatos} fato(s), ${ex.duplicadas} duplicada(s), ${ex.propostas} proposta(s), tokens ${ex.tokens.entrada} de entrada e ${ex.tokens.saida} de saída`);
+  } catch (e) {
+    console.log(`extrator falhou: ${(e as Error)?.message ?? e}`);
+  }
+
   if (!(await precisaCuradoria((sql, params) => pool.query(sql, params as any[])))) {
     console.log('curador: nenhuma memória nova ou alterada desde a última análise; nada a fazer');
     await pool.end();
     return;
   }
   const stats: CuradorStats = { listadas: 0, fundidas: 0, propostas: 0 };
-  const env = sdkEnv(await getSetting(pool, KEYS.claudeToken));
 
   let tokens = { entrada: 0, saida: 0 };
   let ok = false;

@@ -4,19 +4,17 @@ import { ROOT_LIBERADO_HORAS } from './policy.js';
 
 /** Persistência do runner no Postgres. Sequência por sessão calculada no INSERT. */
 export function pgStore(pool: Pool): Store {
-  // O SDK manda a lista inteira de comandos (`commands_changed`, ~350 KB) e um `init` a cada turno.
-  // Gravar todas as cópias chegou a 95% do banco (30/09/2026). Grava a lista só quando ela muda e o
-  // `init` só o primeiro de cada sessão (a tela só usa esse).
-  const lastCmds = new Map<string, string>();
+  // O SDK manda a lista inteira de comandos (`commands_changed`, ~150 KB) e um `init` a cada turno.
+  // Gravar todas as cópias chegou a 95% do banco (30/09/2026) e, mesmo gravando só quando muda,
+  // a lista virou 161 MB dos 288 MB da tabela (01/10/2026): a lista muda a cada skill descoberta.
+  // Ela nunca é lida do banco (vive em Runner.commandsFor), então não se grava. O `init` só o
+  // primeiro de cada sessão (a tela só usa esse).
   const hasInit = new Set<string>();
   return {
     async appendEvent(sessionId, type, payload) {
       const sub = type === 'system' ? (payload as { subtype?: string } | null)?.subtype : undefined;
-      if (sub === 'commands_changed') {
-        const key = JSON.stringify((payload as { commands?: unknown }).commands ?? null);
-        if (lastCmds.get(sessionId) === key) return;
-        lastCmds.set(sessionId, key);
-      } else if (sub === 'init') {
+      if (sub === 'commands_changed') return;
+      if (sub === 'init') {
         if (hasInit.has(sessionId)) return;
         hasInit.add(sessionId);
         const { rowCount } = await pool.query(`SELECT 1 FROM claude_events WHERE session_id = $1 AND type = 'system' AND payload->>'subtype' = 'init' LIMIT 1`, [sessionId]);

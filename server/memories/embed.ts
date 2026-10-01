@@ -85,3 +85,14 @@ export async function gravarEmbedding(query: EmbedQuery, id: number, titulo: str
     await query('UPDATE memories SET embedding = $2::vector WHERE id = $1', [id, vetorSql(v)]);
   } catch { /* a busca segue no full-text; o backfill cobre */ }
 }
+
+/**
+ * Reembeda uma memoria lendo o texto atual do banco: para quem muda o corpo sem ter titulo/resumo
+ * na mao (reescrita aprovada, fusao do curador, espelho do nivel 1, import). Mesmo best-effort.
+ */
+export async function reembedar(query: EmbedQuery, id: number): Promise<void> {
+  try {
+    const { rows } = await query('SELECT title, summary, body_md FROM memories WHERE id = $1', [id]);
+    if (rows[0]) await gravarEmbedding(query, id, rows[0].title ?? '', rows[0].summary ?? '', rows[0].body_md ?? '');
+  } catch { /* idem */ }
+}

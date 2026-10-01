@@ -66,6 +66,14 @@ describe('ganchosDaSessao', () => {
     expect(await raizTem('class="big"')).toBe(true);
     expect((await pub.publicar()).texto).toContain('nada novo');
   });
+  it('commit que falha na worktree é erro explícito, nunca "nada novo para subir"', async () => {
+    await edit(wtD, 0, '<h1 class="big">a</h1>');
+    g(wtD, 'config', 'commit.gpgsign', 'true'); g(wtD, 'config', 'gpg.program', '/bin/false');
+    const r = await ganchosDaSessao(opcoes(wtD))!.publicador.publicar();
+    expect(r.ok).toBe(false);
+    expect(r.texto).toContain('commit na worktree falhou');
+    expect(await raizTem('class="big"')).toBe(false);
+  });
   it('publicar com conflito volta para a sessão e não mexe na raiz', async () => {
     await edit(wtD, 0, '<h1>D</h1>');
     expect((await ganchosDaSessao(opcoes(wtD))!.publicador.publicar()).ok).toBe(true);

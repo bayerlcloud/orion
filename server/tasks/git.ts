@@ -124,17 +124,21 @@ export async function sincronizarComBase(worktree: string, baseBranch: string): 
 }
 
 /** Fim do turno: commita tudo o que mudou na worktree, com a primeira linha do pedido (até 72 letras). */
-export async function commitTurno(worktree: string, mensagem: string): Promise<{ commitou: boolean; branch: string | null; log: string }> {
+/** `sujo`: havia algo para commitar (commitou false com sujo true = o git falhou, e `log` diz por quê). */
+export async function commitTurno(worktree: string, mensagem: string): Promise<{ commitou: boolean; sujo: boolean; branch: string | null; log: string }> {
   const st = await git(worktree, ['status', '--porcelain']);
   const br = await git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = br.code === 0 ? br.stdout.trim() : null;
-  if (st.code !== 0 || !st.stdout.trim()) return { commitou: false, branch, log: `${st.stdout}${st.stderr}`.trim() };
+  if (st.code !== 0 || !st.stdout.trim()) return { commitou: false, sujo: false, branch, log: `${st.stdout}${st.stderr}`.trim() };
   const linha = (mensagem.split('\n').find(l => l.trim()) ?? 'turno').trim().slice(0, 72) || 'turno';
-  // node_modules nunca entra: na worktree ele é um symlink para o da raiz, e `node_modules/` no .gitignore não casa symlink.
-  const add = await git(worktree, ['add', '-A', '--', '.', ':(exclude)node_modules']);
-  if (add.code !== 0) return { commitou: false, branch, log: add.stderr };
+  // node_modules nunca entra: na worktree ele é um symlink para o da raiz, e `node_modules/` no .gitignore não casa
+  // symlink, daí o pathspec de exclusão. Mas se alguém já ignorou `node_modules` (ex.: .git/info/exclude, 01/10/2026),
+  // o `:(exclude)` em cima de caminho ignorado faz o git add abortar ("paths are ignored"): só exclui quando não está ignorado.
+  const ignorado = (await git(worktree, ['check-ignore', '-q', 'node_modules'])).code === 0;
+  const add = await git(worktree, ['add', '-A', '--', '.', ...(ignorado ? [] : [':(exclude)node_modules'])]);
+  if (add.code !== 0) return { commitou: false, sujo: true, branch, log: `${add.stdout}${add.stderr}`.trim() };
   const c = await git(worktree, ['commit', '-q', '-m', linha]);
-  return { commitou: c.code === 0, branch, log: `${c.stdout}${c.stderr}`.trim() };
+  return { commitou: c.code === 0, sujo: true, branch, log: `${c.stdout}${c.stderr}`.trim() };
 }
 
 /** Quantos commits a branch atual da worktree tem que a base ainda não tem (0 se der erro). */

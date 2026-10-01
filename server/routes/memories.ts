@@ -17,17 +17,20 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { claudeMemoryDir, parseFrontmatter, toMarkdown, isSafeMdName, donoPorNome, indiceMemory } from '../memories/markdown.js';
 import { gravarEmbedding } from '../memories/embed.js';
+import { ensureHistoricoTable } from '../memories/historico.js';
 
 // Colunas completas (leitor da direita) já com os nomes de projeto e usuário resolvidos.
 const FULL_SELECT = `
   SELECT m.id, m.code, m.title, m.summary, m.body_md, m.level, m.nota, m.rewritable,
          m.keywords, m.scope_project_id, m.scope_user_id,
          p.name AS project_name, u.name AS user_name,
+         m.estado, m.origem, m.autor_user_id, a.name AS autor_name, m.sessao_origem, m.corpo_anterior,
          m.created_at, m.updated_at, m.last_accessed_at, m.last_accessed_session, m.last_accessed_reason,
          m.last_analyzed_at, m.last_rewritten_at, m.last_decay_at
     FROM memories m
     LEFT JOIN projects p ON p.id = m.scope_project_id
-    LEFT JOIN users u ON u.id = m.scope_user_id`;
+    LEFT JOIN users u ON u.id = m.scope_user_id
+    LEFT JOIN users a ON a.id = m.autor_user_id`;
 
 // Ordem canônica da pirâmide: nível mais alto primeiro; dentro do 4, nota maior primeiro.
 const ORDER_BY = 'ORDER BY m.level ASC, m.nota DESC NULLS LAST, m.updated_at DESC';
@@ -93,6 +96,7 @@ export async function memoriesRoutes(app: FastifyInstance) {
     CREATE INDEX IF NOT EXISTS memories_updated_idx ON memories (updated_at DESC);
   `);
   await ensureMemoriesSchema(app.pool);
+  await ensureHistoricoTable(app.pool);
   await seedMemories(app.pool);
   // Perfis nível 2 por pessoa (idempotente): quem já tem memória nível 2 de escopo próprio é pulado.
   await seedPerfisNivel2(app.pool);
@@ -278,11 +282,13 @@ export async function memoriesRoutes(app: FastifyInstance) {
         const dono = parsed.type === 'user' ? donoPorNome(`${parsed.name} ${parsed.description} ${parsed.body}`, pessoas) : null;
         const scopeUser = dono;
         const scopeProject = parsed.type === 'project' || (parsed.type === 'user' && dono === null) ? pid : null;
-        await app.pool.query(
-          `INSERT INTO memories (code, title, summary, body_md, level, nota, rewritable, keywords, scope_project_id, scope_user_id, last_analyzed_at)
-           VALUES ($1,$2,$3,$4,$5,$6,true,'{}',$7,$8, now())
-           ON CONFLICT (code) DO UPDATE SET summary = EXCLUDED.summary, body_md = EXCLUDED.body_md, updated_at = now()`,
+        const { rows: [ins] } = await app.pool.query(
+          `INSERT INTO memories (code, title, summary, body_md, level, nota, rewritable, keywords, scope_project_id, scope_user_id, last_analyzed_at, origem)
+           VALUES ($1,$2,$3,$4,$5,$6,true,'{}',$7,$8, now(), 'import')
+           ON CONFLICT (code) DO UPDATE SET summary = EXCLUDED.summary, body_md = EXCLUDED.body_md, updated_at = now()
+           RETURNING id`,
           [code, title, summary, parsed.body, level, nota, scopeProject, scopeUser]);
+        if (ins?.id) void gravarEmbedding((sql, params) => app.pool.query(sql, params as any[]), ins.id, title, summary, parsed.body);
         n++; nomes.push(code);
       }
       return { importadas: n, dir: info.dir, memorias: nomes };

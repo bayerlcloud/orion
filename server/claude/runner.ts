@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { makePolicyHook, type BackupFn } from './policy.js';
+import { makeStopMemoriaHook, novoEstadoTurno, registrarToolUse, sessionStartMemoriaHook, type EstadoTurno } from './memoriaGatilhos.js';
 import { readFile } from 'node:fs/promises';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
@@ -190,6 +191,8 @@ type Live = {
   query: Query | null;
   /** Entrada viva do turno atual (null entre turnos); startTurn empurra aqui em vez de enfileirar. */
   entrada: Entrada | null;
+  /** Estado do turno para os gatilhos de memória (memoriaGatilhos.ts): textos humanos e se a tool de memória rodou. */
+  turno: EstadoTurno | null;
 };
 
 export class Runner {
@@ -198,7 +201,7 @@ export class Runner {
 
   private get(id: string): Live {
     let l = this.live.get(id);
-    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null, entrada: null }; this.live.set(id, l); }
+    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null, entrada: null, turno: null }; this.live.set(id, l); }
     return l;
   }
 
@@ -322,6 +325,7 @@ export class Runner {
     if (l.status === 'running' || l.status === 'waiting') {
       if (l.entrada && !l.entrada.fechado) {
         const { text, attachments } = normalizar(p.prompt);
+        l.turno?.textos.push(text);
         void this.ecoUsuario(p.sessionId, text, attachments);
         l.entrada.push(mensagemUsuario(p.sessionId, text, attachments).catch(() => mensagemUsuario(p.sessionId, `${text}\n\n[anexo não pôde ser lido]`, [])));
       } else l.queue.push(p);
@@ -423,13 +427,20 @@ export class Runner {
       return { action: 'accept', content };
     };
 
+    const turno = novoEstadoTurno(text);
+    l.turno = turno;
     const options: Options = {
       cwd: p.cwd,
       permissionMode: p.permissionMode,
       canUseTool,
       onElicitation,
       // Política padrão (policy.ts): comum roda direto, sensível vira o botão do canUseTool, em qualquer modo.
-      hooks: { PreToolUse: [{ hooks: [makePolicyHook(p.backupSql, this.deps.store.rootLiberado ? () => this.deps.store.rootLiberado!(id) : undefined, !!p.ganchos?.publicador)] }] },
+      // Gatilhos de memória (memoriaGatilhos.ts): Stop cobra a gravação pedida; SessionStart lembra após compactar.
+      hooks: {
+        PreToolUse: [{ hooks: [makePolicyHook(p.backupSql, this.deps.store.rootLiberado ? () => this.deps.store.rootLiberado!(id) : undefined, !!p.ganchos?.publicador)] }],
+        Stop: [{ hooks: [makeStopMemoriaHook(turno)] }],
+        SessionStart: [{ matcher: 'compact', hooks: [sessionStartMemoriaHook] }],
+      },
       abortController: abort,
       includePartialMessages: true,
       settingSources: ['user', 'project'],
@@ -457,6 +468,11 @@ export class Runner {
     // emite.
     let partialText = '', partialThinking = '';
     let sucesso = false, semTexto = false;
+    // Subagentes em background (tool Task com run_in_background) ainda vivos, pelo push
+    // `background_tasks_changed` do CLI. Enquanto houver um, a entrada NÃO fecha no result: fechar
+    // faz o CLI recusar toda ferramenta deles ("The user doesn't want to take this action right
+    // now") e o relatório se perde (visto em 30/09 na Andrômeda e em 01/10 na sessão de memória).
+    let tarefasFundo = 0;
     try {
       // Gancho de início (integração por turno: traz a base para a worktree). Erro só vira log.
       if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
@@ -501,6 +517,11 @@ export class Runner {
           l.commands = (m as any).commands;
           this.emit(id, { type: 'commands', commands: l.commands });
         }
+        if (m.type === 'system' && (m as { subtype?: string }).subtype === 'background_tasks_changed') {
+          const tasks = (m as { tasks?: unknown }).tasks;
+          tarefasFundo = Array.isArray(tasks) ? tasks.length : 0;
+        }
+        if (m.type === 'assistant') registrarToolUse(turno, (m as { message?: { content?: unknown } }).message?.content);
         await this.deps.store.appendEvent(id, m.type, m);
         this.emit(id, { type: 'message', message: m });
         // Mensagem completa: mesmo reset que o lado cliente faz em pushMessage() ao ver 'assistant'/
@@ -512,9 +533,15 @@ export class Runner {
           // Mensagem que entrou no bolo depois da última rodada vira mais um result no mesmo query(): soma.
           const t = resultTokens(m); tokens = { input: (tokens?.input ?? 0) + t.input, output: (tokens?.output ?? 0) + t.output }; turns += m.num_turns ?? 0;
           if (m.is_error) l.stderr.push(m.subtype);
-          // Nada mais na fila do CLI: fecha a entrada e o query() termina. O que já foi empurrado e o CLI
-          // ainda não viu sai mesmo assim (o canal entrega o resto antes de acabar) e gera outro result.
-          if (!((m as { queued_turn_count?: number }).queued_turn_count! > 0)) entrada.fechar();
+          // Nada mais na fila do CLI e nenhum subagente em background: fecha a entrada e o query()
+          // termina. O que já foi empurrado e o CLI ainda não viu sai mesmo assim (o canal entrega o
+          // resto antes de acabar) e gera outro result. Com subagente vivo, a entrada fica aberta: o
+          // CLI abre sozinho o turno da notificação quando ele termina e manda outro result, que
+          // chega aqui com `background_tasks_changed` já em zero e fecha.
+          // ponytail: subagente que nunca termina deixa a sessão em 'running' até o Stop do usuário.
+          const temFila = (m as { queued_turn_count?: number }).queued_turn_count! > 0;
+          if (!temFila && tarefasFundo === 0) entrada.fechar();
+          else if (!temFila) this.deps.log?.(`sessão ${id}: result com ${tarefasFundo} subagente(s) em background; entrada segue aberta`);
         }
       }
       await this.setStatus(id, ok ? 'idle' : 'error', { tokens, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
@@ -540,6 +567,7 @@ export class Runner {
     } finally {
       l.abort = null;
       l.query = null;
+      l.turno = null;
       l.entrada?.fechar(); l.entrada = null;
       for (const [pid, pend] of l.pending) { clearTimeout(pend.timer); l.pending.delete(pid); }
       // Gancho de fim (commit e fila de integração): roda também em turno interrompido ou com erro,

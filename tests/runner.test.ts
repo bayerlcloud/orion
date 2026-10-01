@@ -233,6 +233,28 @@ describe('Runner', () => {
     expect(m.events.filter(e => e.type === 'user_prompt').map(e => e.payload.prompt)).toEqual(['um', 'dois']);
   });
 
+  it('result com subagente em background não fecha a entrada; fecha no result final sem tarefa', async () => {
+    const m = memStore(); const fechadaApos: boolean[] = [];
+    const fn: QueryFn = ({ prompt }) => (async function* () {
+      const it = (prompt as AsyncIterable<any>)[Symbol.asyncIterator]();
+      await it.next();
+      yield { type: 'system', subtype: 'init', model: 'x' } as any;
+      yield { type: 'system', subtype: 'background_tasks_changed', tasks: [{ id: 't1' }] } as any;
+      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: 'lancei', usage: { input_tokens: 1, output_tokens: 1 }, queued_turn_count: 0 } as any;
+      fechadaApos.push((prompt as any).fechado); // subagente vivo: entrada aberta (senão o CLI recusa as tools dele)
+      yield { type: 'system', subtype: 'background_tasks_changed', tasks: [] } as any;
+      yield { type: 'system', subtype: 'task_notification', task_id: 't1', status: 'completed', summary: 'ok' } as any;
+      yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: 'relatório', usage: { input_tokens: 1, output_tokens: 1 }, queued_turn_count: 0 } as any;
+      fechadaApos.push((prompt as any).fechado); // sem tarefa: fechou
+      expect((await it.next()).done).toBe(true);
+    })() as any;
+    const r = new Runner({ queryFn: fn, store: m.store });
+    r.startTurn({ ...base, sessionId: 'sbg', prompt: 'pesquisa', isNew: true });
+    await until(() => m.sessions.get('sbg')?.status === 'idle');
+    expect(fechadaApos).toEqual([false, true]);
+    expect(m.events.filter(e => e.type === 'result').length).toBe(2);
+  });
+
   it('segundo prompt depois que a entrada fechou cai na fila e roda com resume', async () => {
     const m = memStore(); const q = fakeQuery({ slow: 40 });
     const r = new Runner({ queryFn: q.fn, store: m.store });

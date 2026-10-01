@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import type { Pool } from 'pg';
 import { criarProposta, type CurQuery, type TipoProposta } from './proposals.js';
+import { reembedar } from '../memories/embed.js';
 
 /** Contadores da rodada, para o log final no journal (run.ts). */
 export type CuradorStats = { listadas: number; fundidas: number; propostas: number };
@@ -44,18 +45,30 @@ export async function listarProjetos(q: CurQuery): Promise<ProjetoListado[]> {
  * Lista as memórias curáveis (níveis 2 a 4). Sem corpo por padrão, para caber no contexto.
  * Tudo que o curador lista conta como analisado: marca last_analyzed_at (visível no card da UI).
  */
-export async function listarMemorias(q: CurQuery, args: { com_corpo?: boolean }): Promise<MemoriaListada[]> {
+export async function listarMemorias(q: CurQuery, args: { com_corpo?: boolean; projeto?: string | null }): Promise<MemoriaListada[]> {
   const corpo = args.com_corpo ? ', m.body_md' : '';
+  // projeto: slug restringe ao projeto; 'universal' às sem escopo (mais as de pessoa); vazio lista tudo.
+  const projeto = args.projeto?.trim() || null;
+  const filtro = projeto === null ? ''
+    : projeto === 'universal' ? ' AND m.scope_project_id IS NULL'
+    : ' AND m.scope_project_id = (SELECT id FROM projects WHERE slug = $1)';
   const { rows } = await q(
     `SELECT m.id, m.code, m.level, m.nota, m.title, m.summary, m.keywords,
-            m.scope_project_id, m.scope_user_id, m.rewritable,
+            m.scope_project_id, m.scope_user_id, m.rewritable, m.estado, m.origem, m.autor_user_id,
             m.created_at, m.updated_at, m.last_accessed_at, m.last_rewritten_at${corpo}
        FROM memories m
-      WHERE m.level BETWEEN 2 AND 4
+      WHERE m.level BETWEEN 2 AND 4 AND m.estado = 'ativa'${filtro}
       ORDER BY m.level ASC, m.nota DESC NULLS LAST, m.id ASC`,
+    projeto !== null && projeto !== 'universal' ? [projeto] : undefined,
   );
-  await q('UPDATE memories SET last_analyzed_at = now() WHERE level BETWEEN 2 AND 4');
+  await q(`UPDATE memories SET last_analyzed_at = now() WHERE level BETWEEN 2 AND 4 AND id = ANY($1)`, [rows.map((r: any) => r.id)]);
   return rows as MemoriaListada[];
+}
+
+/** Corpo completo de uma memória, sob demanda (a listagem vem sem corpo para caber no contexto). */
+export async function lerMemoria(q: CurQuery, code: string): Promise<{ code: string; title: string; summary: string; body_md: string; level: number } | null> {
+  const { rows } = await q('SELECT code, title, summary, body_md, level FROM memories WHERE code = $1', [(code ?? '').trim()]);
+  return rows[0] ?? null;
 }
 
 /**
@@ -112,10 +125,11 @@ export async function fundirMicrofatos(
     const corpo = typeof args.corpo_final === 'string' && args.corpo_final.trim() ? args.corpo_final : null;
     await client.query(
       `UPDATE memories SET nota = $2, updated_at = now()
-              ${corpo !== null ? ', body_md = $3, last_rewritten_at = now()' : ''}
+              ${corpo !== null ? ', corpo_anterior = body_md, body_md = $3, last_rewritten_at = now()' : ''}
         WHERE id = $1`,
       corpo !== null ? [manter, nota, corpo] : [manter, nota],
     );
+    if (corpo !== null) await reembedar((sql, params) => client.query(sql, params as any[]), manter);
     await client.query('DELETE FROM memories WHERE id = $1', [remover]);
     // Auditoria: uma proposta já aprovada e aplicada, para a fusão aparecer no painel de curadoria.
     const payload = {
@@ -157,14 +171,28 @@ export function curadoriaServer(pool: Pool, stats: CuradorStats, log: (msg: stri
     tools: [
       tool(
         'listar',
-        'Lista as memórias dos níveis 2 a 4 (id, code, nível, nota, título, resumo, keywords, escopo, datas, rewritable) e os projetos existentes (id + slug, para reescopo). Por padrão sem o corpo; use com_corpo apenas quando precisar comparar textos.',
-        { com_corpo: z.boolean().optional().describe('true para incluir o body_md de cada memória') },
+        'Lista as memórias ativas dos níveis 2 a 4 (id, code, nível, nota, título, resumo, keywords, escopo, origem, datas, rewritable) e os projetos existentes (id + slug, para reescopo e para listar por projeto). Por padrão sem o corpo; use ler(code) para ver um corpo, ou com_corpo só em listas pequenas.',
+        {
+          com_corpo: z.boolean().optional().describe('true para incluir o body_md de cada memória (só em listas pequenas)'),
+          projeto: z.string().optional().describe('slug do projeto para listar só ele, ou "universal" para as sem projeto'),
+        },
         async (a) => {
           try {
             const memorias = await listarMemorias(q, a);
             const projetos = await listarProjetos(q);
-            stats.listadas = memorias.length;
+            stats.listadas += memorias.length;
             return texto({ total: memorias.length, projetos, memorias });
+          } catch (e) { return erro(e); }
+        },
+      ),
+      tool(
+        'ler',
+        'Devolve o corpo completo de uma memória pelo code (para comparar textos antes de fundir, reescrever ou marcar conflito).',
+        { code: z.string().describe('code da memória, como veio em listar') },
+        async (a) => {
+          try {
+            const m = await lerMemoria(q, a.code);
+            return m ? texto(m) : erro(new Error(`memória ${a.code} não existe`));
           } catch (e) { return erro(e); }
         },
       ),
