@@ -42,7 +42,7 @@ export const Wrench = ({ size, className }: P) => <svg {...base(size)} className
  * pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
 /** Globo: interruptor "preview público" do projeto (endereço raiz abre sem login quando ligado). */
 export const Globe = ({ size, className }: P) => <svg {...base(size)} className={className}><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.8 1.7 2.7 3.7 2.7 6S9.8 12.3 8 14c-1.8-1.7-2.7-3.7-2.7-6S6.2 3.7 8 2z" /></svg>;
-/** Olho: botão Preview da barra da sessão (abre o preview ao vivo da pasta da sessão numa nova janela). */
+/** Olho: botão Preview da barra da sessão (abre o preview do usuário na pasta da sessão numa nova janela). */
 export const Eye = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" /><circle cx="8" cy="8" r="2" /></svg>;
 export const Shield = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 2l5 2v4c0 3.3-2.1 5.5-5 6.5C5.1 13.5 3 11.3 3 8V4l5-2z" /><path d="M6 8l1.4 1.4L10.5 6" /></svg>;
 /** Pasta — "Nova pasta"/pastas nomeadas na lateral de sessões (ver Sidebar.tsx, PARIDADE.md item 12 da seção 13: `newGroupButton`/`newGroupIcon` da extensão real). Sem equivalente pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
