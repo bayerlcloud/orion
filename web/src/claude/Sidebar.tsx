@@ -92,6 +92,8 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   }
   return (
     <div key={groupKey}>
+      {/* Sem agrupar: lista direta, sem o cabeçalho "Sem grupo". */}
+      {groupKey !== 'all' && (
       <div className={`cc-group-head ${collapsible ? 'cc-clickable' : ''}`} onClick={collapsible && !editingName ? onToggle : undefined}>
         <Chevron size={11} className={`cc-chev ${collapsed ? '' : 'is-open'}`} />
         {editingName ? (
@@ -109,6 +111,7 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
           </span>
         )}
       </div>
+      )}
       {!collapsed && (
         <div className="cc-list">
           {sessions.map(s => {
@@ -155,7 +158,10 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   const [soMinhas, setSoMinhas] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [projectFilter, setProjectFilter] = useState('');
-  const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  // Agrupar por projeto (padrão) ou sem agrupar; lembrado no navegador.
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => localStorage.getItem('orion.groupBy') === 'none' ? 'none' : 'project');
+  useEffect(() => { localStorage.setItem('orion.groupBy', groupBy); }, [groupBy]);
+  const [viewOpen, setViewOpen] = useState(false);
   // Ordem das sessões abertas na lista: por última atividade ou igual às abas (lembrada no navegador).
   const [openOrder, setOpenOrder] = useState<'recent' | 'tabs'>(() => localStorage.getItem('orion.openOrder') === 'tabs' ? 'tabs' : 'recent');
   useEffect(() => { localStorage.setItem('orion.openOrder', openOrder); }, [openOrder]);
@@ -264,56 +270,48 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
         {open && (
           <>
             <button className="cc-new" onClick={() => { setDrawer(false); onNew(); }}><Plus size={13} /> Nova sessão</button>
-            {/* Linhas de controle iguais à lateral real: [funil ⌄ (agrupar/filtrar)] [⚡ Ativas · N] e [🔍] [+ Novo grupo]. */}
-            <div className="cc-filter-row">
-              <span className="cc-funnel" title="Agrupar sessões">
-                <Filter size={12} />
-                <select className="cc-funnel-select" value={groupBy} onChange={e => setGroupBy(e.target.value as GroupBy)} aria-label="Agrupar sessões">
-                  <option value="none">Sem agrupar</option>
-                  <option value="project">Por projeto</option>
-                  <option value="recency">Por data</option>
-                  <option value="folder">Por pasta</option>
-                </select>
-                <Chevron size={10} className="cc-chev-down" />
-              </span>
-              <button className={`cc-active ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Mostrar só as sessões que eu criei" disabled={meId === undefined}>
-                Minhas
-              </button>
-              <button className={`cc-active ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Mostrar só as ativas">
-                <Bolt size={11} /> Ativas · {activeCount}
-              </button>
-              <button className="cc-active" onClick={() => setOpenOrder(o => o === 'tabs' ? 'recent' : 'tabs')}
-                title={openOrder === 'tabs' ? 'Abertas na ordem das abas (arraste para reordenar). Clique para ordenar por última atividade.' : 'Abertas por última atividade. Clique para usar a ordem das abas.'}>
-                {openOrder === 'tabs' ? 'Ordem das abas' : 'Recentes'}
-              </button>
-            </div>
-            <div className="cc-filter-row">
-              <button className={`cc-search-toggle ${searchOpen || q ? 'is-on' : ''}`} onClick={() => setSearchOpen(o => !o)} title="Buscar sessão"><Search size={12} /></button>
-              <button className="cc-new cc-new-group" onClick={() => { setGroupBy('folder'); setCreatingFolder(true); setNewFolderName(''); }}><Plus size={12} /> Novo grupo</button>
-            </div>
-            {(searchOpen || q) && (
+            {/* Linha única de filtros (01/10/2026): busca, projeto, filtros em pílula (Minhas, Ativas) e,
+                à direita, o menu ⇅ com o modo de ver (ordenar e agrupar). Sem pastas manuais: o projeto já é o grupo. */}
+            {searchOpen ? (
               <div className="cc-search">
                 <Search size={12} className="cc-search-icon" />
-                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…" onKeyDown={e => { if (e.key === 'Escape') { setQ(''); setSearchOpen(false); } }} />
-                {q && <button className="cc-search-clear" onClick={() => setQ('')} title="Limpar"><X size={11} /></button>}
+                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…"
+                  onKeyDown={e => { if (e.key === 'Escape') { setQ(''); setSearchOpen(false); } }}
+                  onBlur={() => { if (!q) setSearchOpen(false); }} />
+                <button className="cc-search-clear" onClick={() => { setQ(''); setSearchOpen(false); }} title="Fechar busca"><X size={11} /></button>
               </div>
-            )}
-            {projectOptions.length > 1 && (
-              <div className="cc-project-row">
-                <select className="cc-select cc-mini-select" value={projectFilter} onChange={e => setProjectFilter(e.target.value)} title="Filtrar por projeto">
-                  <option value="">Todos os projetos</option>
-                  {projectOptions.map(([slug, label]) => <option key={slug} value={slug}>{label}</option>)}
-                </select>
+            ) : (
+              <div className="cc-fbar">
+                <button className={`cc-fbtn ${q ? 'is-on' : ''}`} onClick={() => setSearchOpen(true)} title="Buscar sessão"><Search size={13} /></button>
+                {projectOptions.length > 1 && (
+                  <label className={`cc-fproj ${projectFilter ? 'is-on' : ''}`} title="Filtrar por projeto">
+                    <span>{projectFilter ? (projectOptions.find(([slug]) => slug === projectFilter)?.[1] ?? projectFilter) : 'Todos'}</span>
+                    <Chevron size={9} className="cc-chev-down" />
+                    <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)} aria-label="Filtrar por projeto">
+                      <option value="">Todos os projetos</option>
+                      {projectOptions.map(([slug, label]) => <option key={slug} value={slug}>{label}</option>)}
+                    </select>
+                  </label>
+                )}
+                <button className={`cc-fchip ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Só as sessões que eu criei" disabled={meId === undefined}>Minhas</button>
+                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as que estão rodando ou esperando você"><Bolt size={10} /> {activeCount}</button>
+                <span className="cc-fview">
+                  <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar e agrupar">⇅</button>
+                  {viewOpen && (
+                    <>
+                      <div className="cc-menu-backdrop" onClick={() => setViewOpen(false)} />
+                      <div className="cc-fview-pop" role="menu">
+                        <div className="cc-smenu-title">Ordenar abertas</div>
+                        <button className={openOrder === 'recent' ? 'is-on' : ''} onClick={() => { setOpenOrder('recent'); setViewOpen(false); }}>Recentes</button>
+                        <button className={openOrder === 'tabs' ? 'is-on' : ''} onClick={() => { setOpenOrder('tabs'); setViewOpen(false); }}>Ordem das abas</button>
+                        <div className="cc-smenu-title">Agrupar</div>
+                        <button className={groupBy === 'project' ? 'is-on' : ''} onClick={() => { setGroupBy('project'); setViewOpen(false); }}>Por projeto</button>
+                        <button className={groupBy === 'none' ? 'is-on' : ''} onClick={() => { setGroupBy('none'); setViewOpen(false); }}>Sem agrupar</button>
+                      </div>
+                    </>
+                  )}
+                </span>
               </div>
-            )}
-            {groupBy === 'folder' && (
-              creatingFolder ? (
-                <div className="cc-item cc-new-folder-row">
-                  <input className="cc-item-edit" autoFocus placeholder="Nome da pasta" value={newFolderName}
-                    onChange={e => setNewFolderName(e.target.value)} onBlur={() => (newFolderName.trim() ? commitNewFolder() : setCreatingFolder(false))}
-                    onKeyDown={e => { if (e.key === 'Enter') commitNewFolder(); if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); } }} />
-                </div>
-              ) : null
             )}
             {loading ? (
               // Estado de carregamento inicial (localSessionsLoaded=false na extensão real) — antes
