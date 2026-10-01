@@ -149,15 +149,6 @@ strong { color: var(--fg); }
 }
 
 /* Interruptor do preview público (PreviewPublico.tsx) */
-.pv-pub { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; white-space: nowrap; min-width: 0; }
-.pv-switch { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 3px; border: 1px solid var(--line, #444); border-radius: 999px; background: transparent; color: var(--muted, #999); font-size: 11px; cursor: pointer; }
-.pv-switch .pv-knob { width: 10px; height: 10px; border-radius: 50%; background: currentColor; opacity: .6; }
-.pv-switch.on { color: var(--ok, #3fb950); border-color: var(--ok, #3fb950); }
-.pv-switch.on .pv-knob { opacity: 1; }
-.pv-pub:not(.is-compacto) .pv-info { max-width: 280px; }
-.pv-info { color: var(--muted, #999); overflow: hidden; text-overflow: ellipsis; }
-.pv-info a { color: inherit; }
-.pv-pub.is-compacto { padding: 5px 10px; border-top: 1px solid var(--line); width: 100%; box-sizing: border-box; }
 
 /* Janelas do Orion (dialogo.tsx): substituem confirm/alert/prompt do navegador */
 .dlg-bg { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -176,3 +167,19 @@ strong { color: var(--fg); }
 /* Botão de copiar o endereço do preview (PreviewPublico). */
 .pv-copy { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line, #444); border-radius: 5px; background: transparent; color: var(--muted, #999); font-size: 12px; cursor: pointer; }
 .pv-copy:hover { color: var(--fg, #ddd); }
+
+/* Preview público (PreviewPublico.tsx): linha com interruptor e endereço, e embaixo o texto pequeno. */
+.pv-pub { display: inline-flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; }
+.pv-pub.is-compacto { padding: 6px 10px; border-top: 1px solid var(--line); width: 100%; box-sizing: border-box; }
+.pv-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pv-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: none; color: var(--muted, #999); font: inherit; cursor: pointer; flex-shrink: 0; }
+.pv-toggle:disabled { opacity: .5; cursor: default; }
+.pv-track { position: relative; width: 28px; height: 16px; border-radius: 999px; background: color-mix(in srgb, var(--muted, #999) 35%, transparent); transition: background-color .18s; }
+.pv-thumb { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #0006; transition: transform .18s; }
+.pv-toggle.on { color: var(--ok, #3fb950); }
+.pv-toggle.on .pv-track { background: var(--ok, #3fb950); }
+.pv-toggle.on .pv-thumb { transform: translateX(12px); }
+.pv-lbl { font-weight: 500; }
+.pv-addr { display: inline-flex; align-items: center; gap: 6px; min-width: 0; margin-left: auto; color: var(--muted, #999); }
+.pv-addr a { color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-sub { font-size: 10.5px; color: var(--muted, #999); opacity: .8; }

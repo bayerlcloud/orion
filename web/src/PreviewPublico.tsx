@@ -31,17 +31,21 @@ export default function PreviewPublico({ projectId, compacto = false }: { projec
   const dica = e.publico ? `${e.host} abre sem login até ${quando(e.ate!)}. Clique para desligar.` : `${e.host} pede login do Orion. Clique para ligar por 48 h.`;
   return (
     <span className={`pv-pub ${compacto ? 'is-compacto' : ''}`} onClick={ev => ev.stopPropagation()}>
-      <button type="button" role="switch" aria-checked={e.publico} className={`pv-switch ${e.publico ? 'on' : ''}`} disabled={ocupado} onClick={alternar} title={dica}>
-        <span className="pv-knob" />{e.publico ? 'Ligado' : 'Desligado'}
-      </button>
-      <span className="pv-info" title={dica}>
-        {e.publico && <>público até {quando(e.ate!)} · </>}
-        <button type="button" className="pv-copy" title={copiado ? 'Copiado!' : 'Copiar endereço'}
-          onClick={() => { void navigator.clipboard?.writeText(`https://${e.host}`).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }); }}>
-          {copiado ? '✓' : '⧉'}
+      <span className="pv-row">
+        {/* Interruptor (trilho + bolinha) com o rótulo ao lado. */}
+        <button type="button" role="switch" aria-checked={e.publico} className={`pv-toggle ${e.publico ? 'on' : ''}`} disabled={ocupado} onClick={alternar} title={dica}>
+          <span className="pv-track"><span className="pv-thumb" /></span>
+          <span className="pv-lbl">{e.publico ? 'Público' : 'Privado'}</span>
         </button>
-        <a href={`https://${e.host}`} target="_blank" rel="noreferrer">{e.host}</a>
+        <span className="pv-addr">
+          <button type="button" className="pv-copy" title={copiado ? 'Copiado!' : 'Copiar endereço'}
+            onClick={() => { void navigator.clipboard?.writeText(`https://${e.host}`).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }); }}>
+            {copiado ? '✓' : '⧉'}
+          </button>
+          <a href={`https://${e.host}`} target="_blank" rel="noreferrer" title={dica}>{e.host}</a>
+        </span>
       </span>
+      <span className="pv-sub">{e.publico ? `Abre sem login até ${quando(e.ate!)}` : 'Pede login do Orion · ligar libera por 48 h'}</span>
     </span>
   );
 }
