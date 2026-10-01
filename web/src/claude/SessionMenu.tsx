@@ -12,8 +12,15 @@ export default function SessionMenu({ sessao, configurar, topo }: { sessao: Item
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
-    const fora = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    // Janela de confirmação aberta por cima (ex.: ligar o preview público): cliques e Esc nela não
+    // fecham o menu, para a pessoa já copiar o endereço depois de confirmar.
+    const dialogoAberto = () => !!document.querySelector('.dlg-bg');
+    const fora = (e: MouseEvent) => {
+      const alvo = e.target as Element | null;
+      if (ref.current?.contains(alvo) || alvo?.closest?.('.dlg-bg') || dialogoAberto()) return;
+      setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dialogoAberto()) { e.stopPropagation(); setOpen(false); } };
     document.addEventListener('mousedown', fora);
     document.addEventListener('keydown', esc, true);
     return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc, true); };
