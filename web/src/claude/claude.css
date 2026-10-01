@@ -802,6 +802,23 @@
 
 /* Menu "Selecione um estilo de saída" (Composer) + assistente "Construir um estilo personalizado". */
 .cc-menu-styles { min-width: 240px; }
+/* Menu Modelo/Esforço/Estilo: seções com divisória, modelo em botões segmentados, esforço só no slider (largura total). */
+.cc-menu-model { width: 300px; max-width: calc(100vw - 24px); padding: 6px; gap: 0; }
+.cc-msec { display: grid; gap: 6px; padding: 6px 4px 8px; }
+.cc-msec + .cc-msec { border-top: 1px solid var(--cc-line); padding-top: 8px; }
+.cc-msec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cc-msec-head .cc-menu-title { padding: 0 4px; }
+.cc-msec-value { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--cc-orange); padding-right: 4px; }
+.cc-msec-value.is-ultracode { color: var(--cc-ultracode); }
+.cc-seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.cc-seg-btn { flex: 1 1 auto; padding: 5px 8px; border-radius: 6px; font-size: 12px; color: var(--cc-fg2); background: color-mix(in srgb, var(--cc-fg) 6%, transparent); border: 1px solid transparent; transition: background .12s, color .12s, border-color .12s; }
+.cc-seg-btn:hover { color: var(--cc-fg); background: var(--cc-hover); }
+.cc-seg-btn.is-active { color: var(--cc-fg); background: color-mix(in srgb, var(--cc-orange) 16%, transparent); border-color: color-mix(in srgb, var(--cc-orange) 55%, transparent); }
+.cc-menu-model .cc-effort-toggle { --track-width: 100%; --track-height: 20px; --thumb-size: 16px; margin: 0 4px; width: calc(100% - 8px); }
+.cc-effort-toggle:focus-visible { outline: 2px solid color-mix(in srgb, var(--cc-orange) 60%, transparent); outline-offset: 2px; }
+.cc-effort-scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--cc-fg2); padding: 0 4px; }
+.cc-effort-scale .is-ultracode { color: var(--cc-ultracode); }
+.cc-menu-model .cc-style-build { border-top: none; margin-top: 0; }
 .cc-style-empty { color: var(--cc-fg2); font-size: 12px; padding: 6px 8px; }
 .cc-style-build { border-top: 1px solid var(--cc-line); border-radius: 0 0 5px 5px; margin-top: 2px; }
 .cc-style-build .cc-menu-item-name { color: var(--cc-orange); }

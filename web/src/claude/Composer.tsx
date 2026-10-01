@@ -103,6 +103,13 @@ function EffortSlider({ effort, onSelect, onSelectUltracode }: { effort: EffortC
   function up() { drag.current = null; }
   return (
     <button type="button" className="cc-effort-toggle" title="Clique ou arraste para definir o esforço"
+      role="slider" aria-label="Esforço" aria-valuemin={0} aria-valuemax={total - 1} aria-valuenow={idx} aria-valuetext={effortPillLabel(effort)}
+      onKeyDown={e => {
+        const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        pick(Math.max(0, Math.min(total - 1, idx + d)));
+      }}
       onMouseDown={e => e.preventDefault()} onPointerDown={down} onPointerMove={move}
       onPointerUp={up} onPointerCancel={up} onLostPointerCapture={up} onClick={e => e.stopPropagation()}>
       <div className={`cc-effort-fill ${effort === 'ultracode' ? 'is-ultracode' : ''}`} style={{ width: fillWidth }} />
@@ -566,34 +573,30 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
             <span className="cc-model-pill-label">{prettyModel(modelLabel)}</span>
             {onEffort && <> <span className="cc-model-pill-effort">{effortPillLabel(effort ?? 'medium')}</span></>}
           </button>
-          <Menu open={menu === 'model'} onClose={() => setMenu('')} className="cc-menu-up">
-            {onModel && <>
-              <div className="cc-menu-title">Modelo</div>
-              {MODEL_ORDER.map(m => (
-                <button key={m} className={`cc-menu-item ${m === (model ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onModel(m); setMenu(''); }}>
-                  <span className="cc-menu-item-name">{MODEL_LABEL[m]}</span>
-                </button>
-              ))}
-            </>}
-            {onEffort && <>
-              <div className="cc-menu-title">Esforço</div>
-              <div className="cc-effort-row">
-                <span className="cc-effort-row-label" title={effort === 'ultracode' ? ULTRACODE_MENU_LABEL : undefined}>
-                  <Bolt size={11} /> <span className="cc-effort-inline">({effort === 'ultracode' ? ULTRACODE_MENU_LABEL : EFFORT_LABEL[effort ?? 'medium']})</span>
-                </span>
-                <EffortSlider effort={effort ?? 'medium'} onSelect={ef => onEffort(ef)} onSelectUltracode={() => onEffort('ultracode')} />
+          <Menu open={menu === 'model'} onClose={() => setMenu('')} className="cc-menu-up cc-menu-model">
+            {onModel && <div className="cc-msec">
+              <div className="cc-msec-head"><span className="cc-menu-title">Modelo</span></div>
+              <div className="cc-seg" role="radiogroup" aria-label="Modelo">
+                {MODEL_ORDER.map(m => (
+                  <button key={m} type="button" role="radio" aria-checked={m === (model ?? 'default')}
+                    className={`cc-seg-btn ${m === (model ?? 'default') ? 'is-active' : ''}`} onClick={() => onModel(m)}>
+                    {MODEL_LABEL[m]}
+                  </button>
+                ))}
               </div>
-              {EFFORT_ORDER.map(ef => (
-                <button key={ef} className={`cc-menu-item ${ef === effort ? 'is-active' : ''}`} role="menuitem" onClick={() => { onEffort(ef); setMenu(''); }}>
-                  <span className="cc-menu-item-name">{EFFORT_LABEL[ef]}</span>
-                </button>
-              ))}
-              <button className={`cc-menu-item ${effort === 'ultracode' ? 'is-active' : ''}`} role="menuitem" onClick={() => { onEffort('ultracode'); setMenu(''); }}>
-                <span className="cc-menu-item-name">{ULTRACODE_MENU_LABEL}</span>
-              </button>
-            </>}
-            {onOutputStyle && <>
-              <div className="cc-menu-title">Estilo de saída</div>
+            </div>}
+            {onEffort && <div className="cc-msec">
+              <div className="cc-msec-head">
+                <span className="cc-menu-title">Esforço</span>
+                <span className={`cc-msec-value ${effort === 'ultracode' ? 'is-ultracode' : ''}`} title={effort === 'ultracode' ? ULTRACODE_MENU_LABEL : undefined}>
+                  <Bolt size={11} /> {effortPillLabel(effort ?? 'medium')}
+                </span>
+              </div>
+              <EffortSlider effort={effort ?? 'medium'} onSelect={ef => onEffort(ef)} onSelectUltracode={() => onEffort('ultracode')} />
+              <div className="cc-effort-scale" aria-hidden="true"><span>{EFFORT_LABEL.low}</span><span className="is-ultracode">Ultracode</span></div>
+            </div>}
+            {onOutputStyle && <div className="cc-msec">
+              <div className="cc-msec-head"><span className="cc-menu-title">Estilo de saída</span></div>
               {(outputStyles ?? []).length === 0 && <div className="cc-style-empty">Nenhum estilo de saída disponível</div>}
               {(outputStyles ?? []).map(st => (
                 <button key={st.nome} className={`cc-menu-item ${st.nome === (outputStyle ?? 'default') ? 'is-active' : ''}`} role="menuitem" onClick={() => { onOutputStyle(st.nome); setMenu(''); }}>
@@ -603,10 +606,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
               ))}
               {onBuildStyle && (
                 <button className="cc-menu-item cc-style-build" role="menuitem" onClick={() => { onBuildStyle(); setMenu(''); }}>
-                  <span className="cc-menu-item-name">Construir um estilo personalizado</span>
+                  <span className="cc-menu-item-name">+ Construir um estilo personalizado</span>
                 </button>
               )}
-            </>}
+            </div>}
           </Menu>
         </div>
         <span className="cc-spacer" />
