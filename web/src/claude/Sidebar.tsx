@@ -65,7 +65,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
             {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         )}
-        <button className="cc-item-act" title="Renomear" onClick={() => { setDraft(s.title); setEditing(true); }}><Pencil size={12} /></button>
+        {!s.archived && <button className="cc-item-act" title="Renomear" onClick={() => { setDraft(s.title); setEditing(true); }}><Pencil size={12} /></button>}
         {s.archived ? (
           <>
             <button className="cc-item-act" title="Restaurar" onClick={() => onArchive(s.id, false)}><Restore size={12} /></button>
