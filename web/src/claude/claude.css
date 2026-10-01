@@ -62,7 +62,7 @@
    mesmo padrão de .cc-item-actions/.cc-item-act já usado por sessão (renomear/arquivar). */
 .cc-group-actions { display: none; align-items: center; gap: 2px; flex-shrink: 0; }
 .cc-group-head:hover .cc-group-actions { display: flex; }
-.cc-list { display: grid; gap: 2px; }
+.cc-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .cc-empty { color: var(--cc-fg2); padding: 10px 8px; font-size: 12px; }
 /* "Carregando sessões…" — espelha disconnectedState/reconnectSpinner da extensão real (mostrado no
    lugar da lista enquanto localSessionsLoaded é falso), em vez de pular direto pra "Nenhuma sessão". */
@@ -71,7 +71,7 @@
 .cc-item:hover { background: var(--cc-hover); }
 .cc-item.is-active { background: var(--cc-active); }
 .cc-item.is-active .cc-item-name { font-weight: 600; }
-.cc-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; }
+.cc-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; padding: 0; }
 .cc-item-edit { flex: 1; min-width: 0; background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-orange); border-radius: 4px; padding: 1px 5px; font: inherit; outline: none; }
 .cc-item-time { color: var(--cc-fg2); font-size: 12px; flex-shrink: 0; }
 .cc-item-actions { display: none; align-items: center; gap: 2px; flex-shrink: 0; }
