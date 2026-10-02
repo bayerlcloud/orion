@@ -675,18 +675,19 @@ export default function ClaudePage() {
           janela do editor — não existe equivalente numa página web só de chat): o caminho completo já
           aparece na barra de status embaixo (`.cc-status`), então o banner aqui é só informativo.
         */}
-        {active && activeWorktreeName && (
-          <div className="cc-worktree-banner">
-            <span className="cc-worktree-banner-left">
-              <GitBranch size={14} /> Esta sessão está no worktree <span className="cc-worktree-banner-name">{activeWorktreeName}</span>
-            </span>
-          </div>
-        )}
         {/* `.cc-chat` = `.chatContainer_07S1Yg` real: âncora `position:relative` pras duas camadas
             absolutas por cima da área que rola (`.cc-fade`/`.cc-float` abaixo) — ver claude.css e
             PARIDADE.md "Layout flutuante do composer". */}
         <div className="cc-chat">
           <div className="cc-scroll" ref={scrollRef}>
+            {/* Dentro do .cc-scroll (pedido do Danilo 02/10/2026): rola junto e some com a conversa, não fica fixo. */}
+            {active && activeWorktreeName && (
+              <div className="cc-worktree-banner">
+                <span className="cc-worktree-banner-left">
+                  <GitBranch size={14} /> Esta sessão está no worktree <span className="cc-worktree-banner-name">{activeWorktreeName}</span>
+                </span>
+              </div>
+            )}
             {!activeId && (
               <div className="cc-empty-state">
                 <div className="cc-brand-big">✳ Claude Code</div>

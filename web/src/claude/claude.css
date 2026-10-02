@@ -518,7 +518,7 @@
    Banner no topo do corpo da sessão — espelha `worktreeBanner_aqhumA` da extensão real: neutro (não
    é aviso/erro, por isso NÃO reaproveita `.cc-banner`, que é sempre amarelo/vermelho aqui), pill com
    o nome no mesmo estilo de badge que o resto da tela já usa. */
-.cc-worktree-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 18px 0; padding: 6px 6px 6px 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-panel); font-size: 12px; color: var(--cc-fg2); }
+.cc-worktree-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; padding: 6px 6px 6px 12px; border: 1px solid var(--cc-line); border-radius: 8px; background: var(--cc-panel); font-size: 12px; color: var(--cc-fg2); }
 .cc-worktree-banner-left { display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .cc-worktree-banner-name { border-radius: 4px; background: color-mix(in srgb, var(--cc-fg) 10%, transparent); color: var(--cc-fg); padding: 2px 8px; font-size: .95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* .cc-head/.cc-head-meta removidos (29/09/2026): a barra de título entre as abas e o chat saiu — a extensão real não a tem (ver PARIDADE-seletor.md). */
