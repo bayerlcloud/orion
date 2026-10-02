@@ -102,4 +102,9 @@ describe('commitTurno nunca leva node_modules', () => {
     expect((await commitTurno(wtD, 'x')).commitou).toBe(true);
     expect(g(wtD, 'ls-tree', '-r', '--name-only', 'HEAD')).not.toContain('node_modules');
   });
+  it('só o symlink node_modules não conta como sujo (publicar não trava)', async () => {
+    const { symlink } = await import('node:fs/promises');
+    await symlink(repo, path.join(wtD, 'node_modules'));
+    expect(await commitTurno(wtD, 'x')).toMatchObject({ commitou: false, sujo: false });
+  });
 });
