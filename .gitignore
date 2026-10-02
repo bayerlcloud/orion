@@ -1,4 +1,5 @@
-node_modules/
+# sem barra: na worktree node_modules é symlink pro da raiz, e "node_modules/" não casa symlink (publicar via "nothing to commit", 01/10/2026)
+node_modules
 dist/
 .env
 .env.*

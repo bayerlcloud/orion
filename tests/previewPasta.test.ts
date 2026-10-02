@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, lstat, readdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, writeFile, readFile, lstat, readdir, readlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { prepararPasta, escreverEnv, liberarCache, soSemPermissao } from '../server/preview/pasta';
+import { prepararPasta, escreverEnv, liberarCache, ligarEnv, soSemPermissao } from '../server/preview/pasta';
 
 async function projeto(pkg: string) {
   const base = await mkdtemp(path.join(tmpdir(), 'pv-'));
   const raiz = path.join(base, 'raiz'); const wt = path.join(base, 'wt');
   await mkdir(path.join(raiz, 'node_modules'), { recursive: true }); await mkdir(wt);
   await writeFile(path.join(raiz, 'package.json'), '{"name":"a"}'); await writeFile(path.join(wt, 'package.json'), pkg);
+  await writeFile(path.join(raiz, '.env'), 'SEGREDO=1\n');
+  execFileSync('git', ['init', '-q', wt]); await writeFile(path.join(wt, '.gitignore'), '.env\n');
   return { base, raiz, wt };
 }
 
@@ -18,6 +21,7 @@ describe('prepararPasta', () => {
     const { raiz, wt } = await projeto('{"name":"a"}');
     expect(await prepararPasta(wt, raiz)).toBe('symlink');
     expect((await lstat(path.join(wt, 'node_modules'))).isSymbolicLink()).toBe(true);
+    expect(await readlink(path.join(wt, '.env'))).toBe(path.join(raiz, '.env'));
     expect(await prepararPasta(wt, raiz)).toBe('ja-tem');
   });
   it('package.json diferente roda npm ci, sem symlink', async () => {
@@ -109,5 +113,27 @@ describe('app em subpasta (monorepo)', () => {
       ['-R', '-m', 'u:preview:rwX,d:u:preview:rwX', path.join(base, 'apps', 'portal', 'node_modules', '.vite-temp')],
       ['-m', 'u:preview:rwx', path.join(base, 'apps', 'portal')],
     ]);
+  });
+});
+
+describe('ligarEnv', () => {
+  it('worktree sem .env aponta para o da raiz; sem .gitignore que ignore .env, não (entraria no commit do turno)', async () => {
+    const { raiz, wt } = await projeto('{"name":"a"}');
+    await writeFile(path.join(wt, '.gitignore'), '');
+    expect(await ligarEnv(wt, raiz)).toBe(false);
+    expect(await lstat(path.join(wt, '.env')).catch(() => null)).toBeNull();
+    await writeFile(path.join(wt, '.gitignore'), '.env\n');
+    expect(await ligarEnv(wt, raiz)).toBe(true);
+    expect(await readlink(path.join(wt, '.env'))).toBe(path.join(raiz, '.env'));
+    expect(await ligarEnv(wt, raiz)).toBe(false);
+    expect(execFileSync('git', ['status', '--short'], { cwd: wt, encoding: 'utf8' })).not.toContain('.env');
+  });
+  it('raiz sem .env ou worktree que já tem .env próprio: não mexe', async () => {
+    const { raiz, wt } = await projeto('{"name":"a"}');
+    await writeFile(path.join(wt, '.env'), 'PROPRIO=1');
+    expect(await ligarEnv(wt, raiz)).toBe(false);
+    expect(await readFile(path.join(wt, '.env'), 'utf8')).toBe('PROPRIO=1');
+    const { wt: wt2 } = await projeto('{"name":"a"}');
+    expect(await ligarEnv(wt2, path.join(raiz, 'nao-existe'))).toBe(false);
   });
 });

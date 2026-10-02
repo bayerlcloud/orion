@@ -206,6 +206,10 @@ export function matchEffort(effort: string | null | undefined): EffortChoice {
  * não existe Query nenhuma pra perguntar (ver PARIDADE.md, seção 5).
  */
 export type ModelAlias = 'default' | 'sonnet' | 'opus' | 'haiku' | 'fable';
+/** Padrão de toda sessão nova (Danilo, 01/10/2026): Opus Médio. Aba rascunho SEMPRE volta pra cá
+ * (ver ClaudePage.tsx): o estado do seletor é um só por página, e sem o reset o modelo/esforço da
+ * última sessão aberta (ex.: Fable Ultracode) vazava pra sessão nova de quem clicava em "Nova". */
+export const NOVA_SESSAO = { model: 'opus' as ModelAlias, effort: 'medium' as EffortChoice, outputStyle: 'default' };
 export const MODEL_LABEL: Record<ModelAlias, string> = { default: 'Padrão', sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku', fable: 'Fable' };
 /** Ordem do seletor (Danilo, 01/10/2026): do mais leve ao mais forte, sem "Padrão" por enquanto. */
 export const MODEL_ORDER: ModelAlias[] = ['haiku', 'sonnet', 'opus', 'fable'];
