@@ -129,7 +129,10 @@ export async function commitTurno(worktree: string, mensagem: string): Promise<{
   const st = await git(worktree, ['status', '--porcelain']);
   const br = await git(worktree, ['rev-parse', '--abbrev-ref', 'HEAD']);
   const branch = br.code === 0 ? br.stdout.trim() : null;
-  if (st.code !== 0 || !st.stdout.trim()) return { commitou: false, sujo: false, branch, log: `${st.stdout}${st.stderr}`.trim() };
+  // Só o symlink node_modules não rastreado não é mudança (02/10/2026: contava como sujo, o commit falhava
+  // com "nothing to commit" e o publicar travava em toda worktree).
+  const mudancas = st.stdout.split('\n').filter(l => l.trim() && l.slice(3).replace(/\/$/, '') !== 'node_modules');
+  if (st.code !== 0 || !mudancas.length) return { commitou: false, sujo: false, branch, log: `${st.stdout}${st.stderr}`.trim() };
   const linha = (mensagem.split('\n').find(l => l.trim()) ?? 'turno').trim().slice(0, 72) || 'turno';
   // node_modules nunca entra: na worktree ele é um symlink para o da raiz, e `node_modules/` no .gitignore não casa
   // symlink, daí o pathspec de exclusão. Mas se alguém já ignorou `node_modules` (ex.: .git/info/exclude, 01/10/2026),
