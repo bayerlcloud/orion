@@ -194,10 +194,11 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   // Dentro de cada grupo: as abertas em aba primeiro, depois as fechadas (por última atividade).
   // As abertas seguem a ordem escolhida no botão: última atividade ou a mesma ordem das abas.
   const tabIndex = new Map(tabOrder.map((id, i) => [id, i] as const));
-  // Botão ⚡ (pedido do Danilo, 02/10/2026): filtra as sessões abertas em aba para este usuário, não mais as rodando.
-  const openCount = sessions.filter(s => tabIndex.has(s.id)).length;
+  // Botão ⚡ (pedido do Danilo, 02/10/2026): filtra toda sessão com bolinha (aberta para este usuário, rodando ou esperando).
+  const temBolinha = (s: SessionSummary) => s.open || tabIndex.has(s.id) || s.status === 'running' || s.status === 'waiting';
+  const openCount = sessions.filter(temBolinha).length;
   const filter = { term: q, project: projectFilter || undefined, userId: soMinhas ? meId : undefined };
-  const soAbertas = (list: SessionSummary[]) => activeOnly ? list.filter(s => tabIndex.has(s.id)) : list;
+  const soAbertas = (list: SessionSummary[]) => activeOnly ? list.filter(temBolinha) : list;
   const localList = soAbertas(filterSessions(sessions.filter(s => !s.archived), filter));
   const archivedList = soAbertas(filterSessions(sessions.filter(s => s.archived), filter));
   const openFirst = (list: SessionSummary[]) => {
@@ -299,7 +300,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                   </label>
                 )}
                 <button className={`cc-fchip ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Só as sessões que eu criei" disabled={meId === undefined}>Minhas</button>
-                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as sessões abertas em aba"><Bolt size={10} /> {openCount}</button>
+                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as sessões abertas (com bolinha)"><Bolt size={10} /> {openCount}</button>
                 <span className="cc-fview">
                   <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar as abertas">⇅</button>
                   {viewOpen && (
