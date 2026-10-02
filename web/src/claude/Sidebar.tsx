@@ -191,14 +191,15 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
     setCreatingFolder(false);
   }
 
-  const isActive = (s: SessionSummary) => s.status === 'running' || s.status === 'waiting';
-  const activeCount = sessions.filter(isActive).length;
-  const filter = { term: q, project: projectFilter || undefined, activeOnly, userId: soMinhas ? meId : undefined };
-  const localList = filterSessions(sessions.filter(s => !s.archived), filter);
-  const archivedList = filterSessions(sessions.filter(s => s.archived), filter);
   // Dentro de cada grupo: as abertas em aba primeiro, depois as fechadas (por última atividade).
   // As abertas seguem a ordem escolhida no botão: última atividade ou a mesma ordem das abas.
   const tabIndex = new Map(tabOrder.map((id, i) => [id, i] as const));
+  // Botão ⚡ (pedido do Danilo, 02/10/2026): filtra as sessões abertas em aba para este usuário, não mais as rodando.
+  const openCount = sessions.filter(s => tabIndex.has(s.id)).length;
+  const filter = { term: q, project: projectFilter || undefined, userId: soMinhas ? meId : undefined };
+  const soAbertas = (list: SessionSummary[]) => activeOnly ? list.filter(s => tabIndex.has(s.id)) : list;
+  const localList = soAbertas(filterSessions(sessions.filter(s => !s.archived), filter));
+  const archivedList = soAbertas(filterSessions(sessions.filter(s => s.archived), filter));
   const openFirst = (list: SessionSummary[]) => {
     const abertas = list.filter(s => tabIndex.has(s.id));
     const fechadas = list.filter(s => !tabIndex.has(s.id));
@@ -298,7 +299,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                   </label>
                 )}
                 <button className={`cc-fchip ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Só as sessões que eu criei" disabled={meId === undefined}>Minhas</button>
-                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as que estão rodando ou esperando você"><Bolt size={10} /> {activeCount}</button>
+                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as sessões abertas em aba"><Bolt size={10} /> {openCount}</button>
                 <span className="cc-fview">
                   <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar as abertas">⇅</button>
                   {viewOpen && (
