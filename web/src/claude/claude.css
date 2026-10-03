@@ -441,7 +441,8 @@
 .cc-attach:hover .cc-attach-x, .cc-attach-x:focus-visible { opacity: 1; }
 .cc-attach-status { color: var(--cc-orange); }
 .cc-user-text { white-space: pre-wrap; }
-.cc-user-attach { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.cc-user-attach { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.cc-user-wrap.is-clickable { cursor: pointer; }
 
 /* ===== popup de imagem (Lightbox) ===== */
 /* Replica o "preview overlay" real da extensão (webview/index.js v2.1.282, componente AI0/yw) —

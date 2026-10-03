@@ -505,7 +505,8 @@ export function PermissionDock({ event, onDecide }: { event?: Extract<ConvEvent,
  */
 /**
  * Texto da mensagem do usuário — `qH0` real com `maxHeight:60`: mais alto que 60px fica recolhido com
- * esmaecimento e um botão "Mostrar mais" no canto (visível no hover/foco); aberto, "Mostrar menos".
+ * esmaecimento e um botão "Mostrar mais" no canto (visível no hover/foco); clicar em qualquer ponto do
+ * bloco recolhido também abre (pedido do Danilo, 03/10/2026). Aberto, "Mostrar menos".
  */
 function UserText({ text }: { text: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -515,7 +516,7 @@ function UserText({ text }: { text: string }) {
   const clipped = tall && !open;
   return (
     <div className="cc-user-expandable">
-      <div className="cc-user-wrap">
+      <div className={`cc-user-wrap ${clipped ? 'is-clickable' : ''}`} onClick={clipped ? () => { if (!window.getSelection()?.toString()) setOpen(true); } : undefined}>
         <div ref={ref} className={`cc-user-text ${clipped ? 'is-collapsed' : ''}`} style={clipped ? { maxHeight: 60 } : undefined}>
           {text}
           {clipped && <div className="cc-user-fade" />}
@@ -755,8 +756,8 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
                 {m && <UserAvatar name={m[1]} />}
                 <div className="cc-user-body">
                   {m && <UserName name={m[1]} />}
-                  {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
                   {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
+                  {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
                 </div>
               </div>
             </div>
