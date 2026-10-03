@@ -60,7 +60,12 @@ Regra de toda onda: código vem pela skill `migrar` (um slug por pasta), `.env` 
 3. `agentic` (+ redis), `sirius-brain`, `scraping-service`/`pdf-service`/`searxng-service`: só por demanda.
 4. `metodo-central`, `bayerlsaas`: por demanda.
 
+### Feito em 03/10/2026: Orion v1 e SilverBullet removidos
+- Arquivo antes de apagar: `/srv/migracao/code-server/arquivo/orion-v1-2026-10-03.tgz` e `silverbullet-notes-2026-10-03.tgz`.
+- c1: `pm2 delete orion`, pasta `workspace/orion` e `orion-knowledge.js` apagados, cron removido, blocos `notas`, `orion` e `orion-antigo` fora do Caddy, container e imagem do SilverBullet removidos, `/opt/stack/notes` esvaziado (a pasta fica porque o code-server ainda monta `./notes`; a linha sai no próximo recreate do code-server).
+- c3: repasse `/webhook/evolution*` para o v1 removido do Caddy (nenhuma instância usava). DNS `notas` e `orion-antigo` apagados.
+- Notas: `Orion/` e `Global/` em `docs/notas-c1/`; as dos outros projetos esperam em `/srv/migracao/code-server/notas-sb/` para a sessão de cada projeto.
+
 ### Limpeza na c1 depois das ondas
 - Cron `refresh-cookies-cron.sh` ainda grava cookies do YouTube no academix da c1, mas o academix vivo está na c3: mover o cron para cá ou apontar para a c3.
-- Cron `orion-knowledge.js` (a cada 30 min) é do Orion v1: desligar quando o v1 sair.
 - 138 processos órfãos `mcp-server-ssh` no code-server somando ~8 GB de RSS (swap da c1 em 4,7 GB): matar libera a máquina já.

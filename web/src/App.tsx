@@ -15,6 +15,7 @@ import Perfil from './pages/Perfil';
 import Tarefas from './pages/Tarefas';
 import Tools from './pages/Tools';
 import { Dialogos } from './dialogo';
+import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
@@ -64,6 +65,7 @@ export default function App() {
   const loc = useLocation();
   // Página do menu em que a pessoa está ('/claude', '/dash'…) e as que já foram abertas (ficam montadas).
   const page = '/' + (loc.pathname.split('/')[1] ?? '');
+  const [painel, togglePainel] = useOrionPanel();
   const [visited, setVisited] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     // Atalhos de teclado das páginas escondidas checam isto para não agir fora da própria página.
@@ -98,7 +100,7 @@ export default function App() {
   const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos');
   const dash = loc.pathname.startsWith('/dash');
   return (
-    <div className="shell">
+    <div className={`shell ${painel ? 'has-orion' : ''}`}>
       <aside className="rail">
         <nav className="rail-nav">
           {MENU.filter(m => !m.ownerOnly || user.role === 'owner').map(m => (
@@ -128,6 +130,10 @@ export default function App() {
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
+      <OrionPanel user={user} />
+      <button className={`orion-toggle ${painel ? 'is-open' : ''}`} onClick={togglePainel} title={painel ? 'Fechar o Orion' : 'Abrir o Orion'} aria-label="Painel do Orion">
+        <IcoPainelDireito open={painel} />
+      </button>
       <Dialogos />
     </div>
   );
