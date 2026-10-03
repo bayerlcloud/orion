@@ -109,9 +109,9 @@ describe('fastModeFrom / fastMode em LiveState', () => {
   });
 });
 
-describe('sessão nova nasce Opus Médio (Danilo, 01/10/2026)', () => {
+describe('sessão nova nasce Sonnet Médio (Danilo, 04/10/2026)', () => {
   it('NOVA_SESSAO é o padrão do sistema', () => {
-    expect(NOVA_SESSAO).toEqual({ model: 'opus', effort: 'medium', outputStyle: 'default' });
+    expect(NOVA_SESSAO).toEqual({ model: 'sonnet', effort: 'medium', outputStyle: 'default' });
   });
   it('aba rascunho reseta o seletor pro padrão (senão o modelo/esforço da última sessão aberta vaza pra sessão nova)', () => {
     const src = readFileSync(new URL('../web/src/claude/ClaudePage.tsx', import.meta.url), 'utf8');

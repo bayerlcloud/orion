@@ -591,7 +591,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
     // Valor de fio (pode ser 'ultracode') — persistido como está; traduzido pro SDK logo abaixo.
-    // Padrão do sistema (Danilo, 01/10/2026): toda sessão nasce Opus Médio.
+    // Padrão do sistema (Danilo, 04/10/2026): toda sessão nasce Sonnet Médio.
     const effort = EFFORTS.has(b.effort ?? '') ? b.effort : 'medium';
     const eff = resolveUltracode(effort);
     const attachments = await sanitizeAttachments(b.attachments);
@@ -614,7 +614,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const id = randomUUID();
     await app.pool.query(
       `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
-      [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || 'opus', mode, effort]);
+      [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || 'sonnet', mode, effort]);
     // Troca o título provisório (1ª linha do prompt) por um curto do Haiku; só se ninguém renomeou antes.
     void getSetting(app.pool, KEYS.claudeToken).then(tk => tituloCurto(prompt, tk)).then(async t => { if (t)
       await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1 AND title = $3', [id, t, titleFromPrompt(prompt)]); }).catch(() => {});
@@ -625,7 +625,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       registrar: (texto) => { runner.aviso(id, texto); },
     });
     runner.startTurn({
-      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'opus', effort: eff.effort, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
+      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, env: await turnEnv(), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
       systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
