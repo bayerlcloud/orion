@@ -252,7 +252,9 @@ export default function ClaudePage() {
   // troca o cursor ainda está sobre a mesma aba e ela voltaria pro lugar (efeito pingue-pongue).
   function dragOverTabLive(targetId: string, e: React.DragEvent<HTMLElement>) {
     const from = dragTabRef.current;
-    if (!from || from === targetId || Date.now() - lastSwapRef.current < 180) return;
+    if (!from) return;
+    setDragOverTab(targetId); // linha azul: marca a aba sob o cursor, mesmo sem trocar ainda
+    if (from === targetId || Date.now() - lastSwapRef.current < 180) return;
     const r = e.currentTarget.getBoundingClientRect(), mid = r.left + r.width / 2;
     const ids = tabs.map(x => x.id);
     if (ids.indexOf(from) < ids.indexOf(targetId) ? e.clientX < mid : e.clientX > mid) return;
