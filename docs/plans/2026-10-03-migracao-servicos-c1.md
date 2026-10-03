@@ -1,4 +1,37 @@
-# Plano: trazer os serviços soltos da c1 para a c3
+# Plano: desligar a c1 e trazer para a c3 só o que presta
+
+> 03/10/2026, decisão do Danilo: a c1 (86.48.28.10) vai ser apagada inteira em poucos dias.
+> Rede de segurança: backup frio completo em `/srv/migracao/c1-backup-frio/` (dumps do Postgres da
+> Evolution e do BayerlPress, volumes de n8n/Evolution/uploads/Caddy, /opt, /root, cron e o
+> config do code-server sem caches). Arquivos chmod 600: contém /config/.secrets.
+
+## Triagem da máquina inteira
+
+### Precisa migrar antes do desligamento (vivo, alguém usa)
+| Item | Domínio | Destino | Cuidado |
+|---|---|---|---|
+| Evolution API + Postgres (2,4 GB) + Redis | evo.bayerl.cloud | c3 (docker compose) | instâncias de clientes (5 TM, 3 Brandspace, Orion); levar dump + volume de instâncias, testar se as sessões voltam sem QR, DNS por último |
+| BayerlPress CMS + Postgres + uploads | cms.bayerl.cloud | c3 | site do Dr. Alexandre (Laís); dump do banco |
+| Sites estáticos de `landing-pages` | bayerl.cloud (apex), studio, buenas, mundomaker, pages, seo | c3 Caddy file_server | rsync simples; apex é a LP institucional |
+| seo-engine (processo) | seo.bayerl.cloud/painel-api | c3 systemd | onda 1 abaixo |
+| tonavez | tonavez.bayerl.cloud | c3 systemd | confirmar se ainda é usado |
+| `/config/.secrets` (57 chaves) | n/a | c3, arquivo root 600 fora de repo | env dos serviços acima |
+| cron de cookies do YouTube (academix) | n/a | c3, usando o cofre | o academix já roda na c3 |
+
+### A confirmar com o Danilo
+- livekit (livekit.bayerl.cloud responde 200): quem usa?
+- container litellm da c1 (o gateway oficial é o da c2): alguém aponta para ele?
+- Código parado com valor possível: bayerl-tracker(+edge), bayerl-heat, dc-sync, agentic, sirius-brain, scraping/pdf/searxng-service, metodo-central, bayerlsaas, bayerlpress-sites, seo, seo-painel. Vira projeto na c3 ou fica só no backup frio.
+
+### Morre com a c1 (fica só no backup frio)
+n8n (1 workflow "WhatsApp Hub - Envio", sem execuções), code-server e previews dev (code, dev, brandspace-prod, wt01, bayerlstudio, ralab), chromium-shared e playwright-mcp (o cofre da c3 substitui), hermes (502), claude-proxy, bayerl-copilot, cron de backup da própria c1.
+
+### Fim
+Apagar os A records da c1 na Hostinger: @, agentic, bayerlstudio, brandspace-prod, buenas, claude-proxy, cms, code, dev, evo, hermes, livekit, mundomaker, pages, ralab, seo, sirius-brain, studio, tonavez, workflow, wt01 (os migrados passam a apontar para a c3).
+
+---
+
+# Anexo: levantamento dos serviços soltos (início do dia)
 
 Levantamento feito em 03/10/2026 (workspace do code-server, PM2, cron do host, Caddy da c1, portas vivas).
 
