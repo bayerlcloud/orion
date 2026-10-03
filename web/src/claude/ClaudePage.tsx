@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
@@ -243,11 +243,32 @@ export default function ClaudePage() {
   // ui-state pelo efeito de salvar acima, então sincroniza entre guias e dispositivos.
   const dragTabRef = useRef<string | null>(null);
   const [dragOverTab, setDragOverTab] = useState<string | null>(null);
-  function dropTab(targetId: string) {
+  // A troca já aconteceu no arraste (dragOverTabLive); soltar só encerra.
+  function dropTab() { dragTabRef.current = null; setDragOverTab(null); }
+  // Arraste ao vivo: passar por cima de outra aba já troca as duas de lugar, e as abas deslizam
+  // (FLIP de 150ms). A pausa evita a troca "quicar" enquanto a animação ainda está andando.
+  const lastSwapRef = useRef(0);
+  // Só troca depois que o cursor passa do meio da aba alvo, no sentido do arraste: senão, logo após a
+  // troca o cursor ainda está sobre a mesma aba e ela voltaria pro lugar (efeito pingue-pongue).
+  function dragOverTabLive(targetId: string, e: React.DragEvent<HTMLElement>) {
     const from = dragTabRef.current;
-    dragTabRef.current = null; setDragOverTab(null);
-    if (from) moveTab(from, targetId);
+    if (!from || from === targetId || Date.now() - lastSwapRef.current < 180) return;
+    const r = e.currentTarget.getBoundingClientRect(), mid = r.left + r.width / 2;
+    const ids = tabs.map(x => x.id);
+    if (ids.indexOf(from) < ids.indexOf(targetId) ? e.clientX < mid : e.clientX > mid) return;
+    lastSwapRef.current = Date.now();
+    moveTab(from, targetId);
   }
+  const tabPosRef = useRef(new Map<string, number>());
+  useLayoutEffect(() => {
+    const next = new Map<string, number>();
+    document.querySelectorAll<HTMLElement>('.cc-tab[data-tab-id]').forEach(el => {
+      const id = el.dataset.tabId!, x = el.getBoundingClientRect().left, prev = tabPosRef.current.get(id);
+      next.set(id, x);
+      if (prev !== undefined && prev !== x) el.animate([{ transform: `translateX(${prev - x}px)` }, { transform: 'none' }], { duration: 150, easing: 'ease-out' });
+    });
+    tabPosRef.current = next;
+  }, [tabs]);
   // Move a aba `from` para a posição de `targetId` (usado pelo arraste nas abas e na lista lateral).
   function moveTab(from: string, targetId: string) {
     if (from === targetId) return;
@@ -619,9 +640,9 @@ export default function ClaudePage() {
               <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''} ${dragOverTab === t.id ? 'is-drop' : ''}`} onClick={() => setActiveId(t.id)} title={tip}
                 draggable
                 onDragStart={e => { dragTabRef.current = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-orion-tab', t.id); }}
-                onDragOver={e => { if (!dragTabRef.current) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTab !== t.id) setDragOverTab(t.id); }}
+                onDragOver={e => { if (!dragTabRef.current) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; dragOverTabLive(t.id, e); }}
                 onDragLeave={() => setDragOverTab(d => d === t.id ? null : d)}
-                onDrop={e => { e.preventDefault(); dropTab(t.id); }}
+                onDrop={e => { e.preventDefault(); dropTab(); }}
                 onDragEnd={() => { dragTabRef.current = null; setDragOverTab(null); }}>
                 {/* Foto de quem criou a sessão no lugar do asterisco do Claude; aba rascunho é minha. */}
                 {s ? <Avatar id={s.user_id} name={s.user_name} />
