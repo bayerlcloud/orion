@@ -178,7 +178,7 @@
 /* mensagem do assistente — message_07S1Yg + timelineMessage_07S1Yg */
 .cc-msg { --pt: 8px; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--pt) 0 8px 30px; color: var(--cc-fg); user-select: text; }
 .cc-msg > * { max-width: 100%; }
-.cc-msg:has(.cc-actions) { padding-bottom: 0; }
+.cc-msg:has(.cc-msg-actions) { padding-bottom: 0; }
 .cc-user-row + .cc-msg, .cc-msg:first-child { --pt: 0px; }
 .cc-msg::before { content: ""; position: absolute; left: 9px; top: calc(var(--pt) + 7px); width: 7px; height: 7px; border-radius: 50%; background: var(--cc-fg2); z-index: 1; }
 .cc-msg::after { content: ""; position: absolute; left: 12px; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--cc-fg) 22%, transparent); }
@@ -194,17 +194,18 @@
 @keyframes cc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 @keyframes cc-spin { to { transform: rotate(360deg); } }
 .cc-system { color: var(--cc-fg2); font-size: 12px; }
-/* assistantActions_07S1Yg: linha própria de 16px; copyResponseButton 20x20, aparece no hover da mensagem */
-.cc-actions { display: flex; align-items: center; gap: 2px; height: 16px; }
+/* Ouvir + Copiar juntos, no canto superior direito do bloco (pedido do Danilo, 03/10/2026: o botão de
+   copiar ficava numa linha própria abaixo do texto, "gambiarra" — agora no mesmo nível do ouvir). */
+.cc-msg-actions { position: absolute; top: var(--pt); right: 0; display: flex; align-items: center; gap: 4px; z-index: 2; }
 .cc-copy { display: flex; justify-content: center; align-items: center; color: var(--cc-fg2); background: none; border: 0; border-radius: 4px; padding: 2px; cursor: pointer; }
-.cc-copy-response { width: 20px; height: 20px; opacity: 0; transition: none; }
+.cc-copy-response { min-width: 24px; height: 24px; background: var(--cc-bg); }
 .cc-copy-response:hover { color: var(--cc-fg); background: var(--cc-bg2); }
-.cc-msg:hover .cc-copy-response, .cc-copy-response:focus { opacity: 1; }
-.cc-ouvir { position: absolute; top: var(--pt); right: 0; display: flex; align-items: center; gap: 2px; z-index: 2; }
+.cc-ouvir { display: flex; align-items: center; gap: 2px; }
 .cc-ouvir button { display: flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 4px; color: var(--cc-fg2); background: var(--cc-bg); border: 0; border-radius: 4px; cursor: pointer; font-size: 11px; font-variant-numeric: tabular-nums; }
 .cc-ouvir button:hover { color: var(--cc-fg); background: var(--cc-bg2); }
 .cc-ouvir.is-on button { color: var(--cc-fg); }
-@media (hover: hover) { .cc-ouvir:not(.is-on) { opacity: 0; } .cc-msg:hover .cc-ouvir { opacity: 1; } }
+/* O grupo some no hover, exceto quando o Ouvir já está tocando/pausado (is-on) ou o copiar está com foco. */
+@media (hover: hover) { .cc-msg-actions:not(:has(.is-on)):not(:has(:focus)) { opacity: 0; } .cc-msg:hover .cc-msg-actions { opacity: 1; } }
 .cc-interrupted { color: var(--cc-fg2); width: 100%; font-style: italic; }
 
 /* thinking — thinkingV2_aHyQPQ */
