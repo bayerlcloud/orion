@@ -552,7 +552,7 @@ function UserAvatar({ name }: { name: string }) {
     <div className="cc-user-avatar" title={name} aria-hidden="true">
       {failed
         ? <span>{name.charAt(0).toUpperCase()}</span>
-        : <img src={`/api/profile/avatar/by-name/${encodeURIComponent(name)}`} alt="" loading="lazy" onError={() => setFailed(true)} />}
+        : <img src={`/api/profile/avatar/by-name/${encodeURIComponent(name)}`} alt="" onError={() => setFailed(true)} />}
     </div>
   );
 }

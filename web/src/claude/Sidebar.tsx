@@ -17,7 +17,7 @@ export function Avatar({ id, name }: { id: number; name: string }) {
   const [falhou, setFalhou] = useState(false);
   return (
     <span className="cc-item-avatar" title={`Criada por ${name}`}>
-      {falhou ? (name.trim()[0] ?? '?').toUpperCase() : <img src={`/api/profile/avatar/${id}`} alt="" loading="lazy" onError={() => setFalhou(true)} />}
+      {falhou ? (name.trim()[0] ?? '?').toUpperCase() : <img src={`/api/profile/avatar/${id}`} alt="" onError={() => setFalhou(true)} />}
     </span>
   );
 }
