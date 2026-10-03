@@ -66,15 +66,20 @@ function Thinking({ e }: { e: Extract<ConvEvent, { kind: 'thinking' }> }) {
 }
 
 /**
- * Mensagem de texto do assistente — `message_07S1Yg` real: Markdown e, terminada a mensagem, uma
- * linha própria de 16px (`assistantActions`) com o botão "Copiar resposta" de 20px revelado no hover.
+ * Mensagem de texto do assistente. Ouvir e Copiar ficam juntos no canto superior direito do bloco,
+ * revelados no hover (antes "Copiar" era uma linha própria abaixo do texto, separada do ouvir — pedido
+ * do Danilo, 03/10/2026, achava "gambiarra").
  */
 function AssistantText({ e }: { e: Extract<ConvEvent, { kind: 'text' }> }) {
   return (
     <>
-      {!e.streaming && e.text && <Ouvir id={e.id} text={e.text} />}
+      {!e.streaming && e.text && (
+        <div className="cc-msg-actions">
+          <Ouvir id={e.id} text={e.text} />
+          <CopyButton text={e.text} title="Copiar resposta" className="cc-copy-response" />
+        </div>
+      )}
       <Md text={e.text} />
-      {!e.streaming && e.text && <div className="cc-actions"><CopyButton text={e.text} title="Copiar resposta" className="cc-copy-response" /></div>}
       {e.interrupted && <div className="cc-interrupted">{e.interrupted}</div>}
     </>
   );
