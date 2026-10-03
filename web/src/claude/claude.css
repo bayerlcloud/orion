@@ -102,7 +102,9 @@
 .cc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; }
 .cc-tabs { display: flex; align-items: stretch; border-bottom: 1px solid var(--cc-line); background: var(--cc-panel); }
 /* Só as abas rolam; o menu de ações fica fixo à direita. Barra de rolagem: regra global em ui.css. */
-.cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; }
+.cc-tabs-scroll { display: flex; align-items: stretch; flex: 1; min-width: 0; min-height: 36px; overflow-x: auto; scrollbar-width: none; }
+/* Altura fixa da barra (36px, igual ao botão do Orion), com ou sem abas; a rolagem das abas não engorda a barra. */
+.cc-tabs-scroll::-webkit-scrollbar { display: none; }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
 .cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
 .cc-tab.is-drop { box-shadow: inset 2px 0 0 var(--cc-orange); } /* aba sob o arraste: marca onde a outra vai cair */
@@ -478,7 +480,7 @@
   .cc-side-toggle { display: inline-flex; align-items: center; justify-content: center; position: absolute; z-index: 5; top: 0; left: 0; width: 40px; height: 40px; color: var(--cc-fg2); border-right: 1px solid var(--cc-line) !important; background: var(--cc-panel) !important; }
   /* Abas numa linha (com espaço pro botão da gaveta), ações na linha de baixo com alvos de 36px. */
   .cc-tabs { flex-wrap: wrap; }
-  .cc-tabs-scroll { flex-basis: 100%; padding-left: 40px; }
+  .cc-tabs-scroll { flex-basis: 100%; padding-left: 40px; min-height: 40px; }
   .cc-tab { height: 40px; max-width: 70vw; }
   .cc-tab-x { opacity: 1; padding: 6px; }
   .cc-tab-actions { flex: 1 1 100%; justify-content: space-between; gap: 0; padding: 0 4px; border-top: 1px solid var(--cc-line); }
