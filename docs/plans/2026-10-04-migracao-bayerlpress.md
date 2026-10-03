@@ -70,6 +70,26 @@ Migrar o BayerlPress não puxa essas outras peças: elas seguem no plano geral, 
   `bayerlstudio`, `bayerlcloud`, `buenas` (tem domínio próprio, conferir DNS do
   `buenascarnes.com.br` à parte).
 
+## Feito em 04/10/2026
+
+- Projeto fundido em `/srv/projects/bayerlpress` (um repositório só, slug `bayerlpress` no painel):
+  motor na raiz (`packages/*`), sites em `sites/*` (cada um segue autossuficiente, fora do
+  workspace pnpm do motor, porque usam bun/zero-dep próprios). Histórico git do bayerlpress-sites
+  foi descartado (era raso); o commit de fusão registra a origem.
+- Banco restaurado num Postgres próprio na c3 (`bayerlpress-db`, volume `bayerlpress_db`, porta
+  só em 127.0.0.1:55433). Dump fresco tirado da c1 antes de restaurar; 7 tenants, 55 posts batendo.
+- `.env` em `/srv/projects/bayerlpress/.env` (chmod 600, fora do git): `DATABASE_URL`,
+  `JWT_SECRET`, `BING_WEBMASTER_API_KEY`.
+- Motor como `bayerlpress.service` (systemd, porta 3333, `MemoryMax=512M`), mesmo padrão do `agentic`.
+- Bloco `cms.bayerl.cloud` no Caddy da c3; testado local antes de virar DNS; DNS trocado (tirado
+  o A record antigo da c1, deixado só o da c3); certificado emitido; `/api/<tenant>/posts` responde
+  com dado real (confirmado com `dralexandre` e `bayerlstudio`).
+- **Não migrado ainda:** os sites de `sites/*` continuam buildando e publicando a partir da c1
+  (fase 4 do plano). Como eles falam com `cms.bayerl.cloud` pelo nome, já estão lendo do motor
+  novo na c3 sem precisar mexer neles.
+- Container e banco antigos ficam ligados na c1 por alguns dias, sem nada apontando mais para eles,
+  como rede de segurança. Apagar depois de confirmar uma semana estável.
+
 ## Fora do escopo deste plano
 - `mundomaker-leads`, `bayerl-heat`, `bayerl-tracker(+edge)`: já tratados no plano geral da c1,
   não dependem do BayerlPress.
