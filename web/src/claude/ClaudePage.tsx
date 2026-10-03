@@ -243,6 +243,15 @@ export default function ClaudePage() {
   // ui-state pelo efeito de salvar acima, então sincroniza entre guias e dispositivos.
   const dragTabRef = useRef<string | null>(null);
   const [dragOverTab, setDragOverTab] = useState<string | null>(null);
+  // Arrastando pra frente (índice maior), a aba entra DEPOIS da alvo — o tracinho precisa aparecer do
+  // lado direito dela pra combinar (senão parecia que ia entrar antes da última, mesmo indo pro fim).
+  const [dragAfter, setDragAfter] = useState(false);
+  function dragOverTabAt(targetId: string) {
+    if (dragOverTab !== targetId) setDragOverTab(targetId);
+    const from = dragTabRef.current;
+    const after = !!from && tabs.findIndex(t => t.id === from) < tabs.findIndex(t => t.id === targetId);
+    setDragAfter(after);
+  }
   function dropTab(targetId: string) {
     const from = dragTabRef.current;
     dragTabRef.current = null; setDragOverTab(null);
@@ -616,10 +625,10 @@ export default function ClaudePage() {
             // mostrava (ver PARIDADE-seletor.md; a extensão real não tem barra entre as abas e o chat).
             const tip = s ? [s.title, s.project_name, s.user_name].filter(Boolean).join(' · ') : label;
             return (
-              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''} ${dragOverTab === t.id ? 'is-drop' : ''}`} onClick={() => setActiveId(t.id)} title={tip}
+              <div key={t.id} data-tab-id={t.id} className={`cc-tab ${t.id === activeId ? 'is-active' : ''} ${dragOverTab === t.id ? (dragAfter ? 'is-drop-after' : 'is-drop-before') : ''}`} onClick={() => setActiveId(t.id)} title={tip}
                 draggable
                 onDragStart={e => { dragTabRef.current = t.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/x-orion-tab', t.id); }}
-                onDragOver={e => { if (!dragTabRef.current) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverTab !== t.id) setDragOverTab(t.id); }}
+                onDragOver={e => { if (!dragTabRef.current) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; dragOverTabAt(t.id); }}
                 onDragLeave={() => setDragOverTab(d => d === t.id ? null : d)}
                 onDrop={e => { e.preventDefault(); dropTab(t.id); }}
                 onDragEnd={() => { dragTabRef.current = null; setDragOverTab(null); }}>
