@@ -12,6 +12,9 @@ import {
 /** Limite do avatar: 5 MB. */
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
+/** Cache do avatar: fresco 5 min, depois usa o do cache e revalida em segundo plano por até 30 dias. */
+const AVATAR_CACHE = 'private, max-age=300, stale-while-revalidate=2592000';
+
 /** Onde ficam os avatares em disco: <AVATAR_DIR>/<user_id>.<ext> (padrão /srv/avatars). */
 export function avatarDir(): string {
   return path.resolve(process.env.AVATAR_DIR ?? '/srv/avatars');
@@ -166,7 +169,7 @@ export async function profileRoutes(app: FastifyInstance) {
     const { rows } = await app.pool.query<{ id: number }>(
       'SELECT id FROM users WHERE lower(name) = lower($1) AND avatar_ext IS NOT NULL ORDER BY id LIMIT 1', [req.params.name]);
     if (!rows[0]) return reply.code(404).send({ error: 'sem foto' });
-    reply.header('Cache-Control', 'private, max-age=60');
+    reply.header('Cache-Control', AVATAR_CACHE);
     return reply.redirect(`/api/profile/avatar/${rows[0].id}`);
   });
 
@@ -179,9 +182,14 @@ export async function profileRoutes(app: FastifyInstance) {
     const file = avatarPath(id, row.avatar_ext);
     const st = await stat(file).catch(() => null);
     if (!st) return reply.code(404).send({ error: 'sem foto' });
+    // ETag + stale-while-revalidate: o navegador mostra a foto do cache na hora e confere em segundo
+    // plano (304 se não mudou). Antes era max-age=60 sem ETag: passado 1 min, baixava tudo de novo.
+    const etag = `"${Math.floor(st.mtimeMs)}-${st.size}"`;
+    reply.header('ETag', etag);
+    reply.header('Cache-Control', AVATAR_CACHE);
+    if (req.headers['if-none-match'] === etag) return reply.code(304).send();
     reply.header('Content-Length', st.size);
     reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('Cache-Control', 'private, max-age=60');
     reply.type(mimeForExt(row.avatar_ext));
     return reply.send(createReadStream(file));
   });
