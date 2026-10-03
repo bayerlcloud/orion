@@ -16,7 +16,7 @@ import Tarefas from './pages/Tarefas';
 import Tools from './pages/Tools';
 import { Dialogos } from './dialogo';
 import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
-import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
+import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
   // Claude primeiro: é a página que abre por padrão e onde a equipe passa o dia.
@@ -29,6 +29,7 @@ const MENU = [
   { to: '/memoria', label: 'Memória', Icon: IcoMemoria },
   { to: '/spec', label: 'Spec', Icon: IcoSpec },
   { to: '/whatsapp', label: 'WhatsApp', Icon: IcoWhatsapp, ownerOnly: true },
+  { to: '/senhas', label: 'Senhas', Icon: IcoSenhas, ownerOnly: true },
   { to: '/config', label: 'Configurações', Icon: IcoConfig, ownerOnly: true },
 ];
 
@@ -95,9 +96,11 @@ export default function App() {
     { path: '/memoria', el: <Memoria user={user} /> },
     { path: '/spec', el: <Spec user={user} /> },
     { path: '/whatsapp', el: <Whatsapp user={user} /> },
+    // Cofre de senhas: o Vaultwarden (container na c3) servido em /senhas/ pelo Caddy, embutido aqui.
+    { path: '/senhas', el: user.role === 'owner' ? <iframe src="/senhas/" title="Senhas" style={{ border: 0, width: '100%', height: '100%' }} /> : null },
     { path: '/config', el: <Config user={user} /> },
   ];
-  const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos');
+  const wide = loc.pathname.startsWith('/claude') || loc.pathname.startsWith('/arquivos') || loc.pathname.startsWith('/senhas');
   const dash = loc.pathname.startsWith('/dash');
   return (
     <div className={`shell ${painel ? 'has-orion' : ''}`}>

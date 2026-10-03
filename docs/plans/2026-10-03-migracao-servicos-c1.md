@@ -1,9 +1,19 @@
-# Plano: desligar a c1 e trazer para a c3 só o que presta
+# Plano: trazer da c1 para a c3 só o que presta
 
-> 03/10/2026, decisão do Danilo: a c1 (86.48.28.10) vai ser apagada inteira em poucos dias.
-> Rede de segurança: backup frio completo em `/srv/migracao/c1-backup-frio/` (dumps do Postgres da
-> Evolution e do BayerlPress, volumes de n8n/Evolution/uploads/Caddy, /opt, /root, cron e o
-> config do code-server sem caches). Arquivos chmod 600: contém /config/.secrets.
+> 03/10/2026: Danilo cogitou apagar a c1 (86.48.28.10) inteira em poucos dias; em 04/10/2026
+> decidiu manter a c1 no ar e migrar um projeto por vez, sem revolução. A triagem abaixo
+> continua valendo como mapa do que existe lá e para onde cada coisa vai, só sem prazo.
+> Rede de segurança já feita: backup frio em `/srv/migracao/c1-backup-frio/` (dumps do Postgres da
+> Evolution e do BayerlPress, volumes de n8n/Evolution/uploads/Caddy, /opt, /root, cron). O
+> config do code-server (~17 GB) ficou pela metade quando o Orion reiniciou no meio do turno;
+> refazer antes de desligar a c1 de verdade. Arquivos chmod 600: contém /config/.secrets.
+>
+> Arquitetura decidida em 04/10/2026 (nível 3, "Arquitetura de servidores por papel"): c3 só
+> para o Orion; uma VPS nova "clientes" substitui a c1 para Evolution, livekit, CMS e sites
+> estáticos; c2 continua com Supabase self-hosted; Hostinger/Coolify para apps em produção.
+> Ordem recomendada de migração: 1) SEO, 2) BayerlPress, 3) sites estáticos, 4) livekit
+> (depende da VPS de clientes), 5) Evolution (crítico, depende do TM passar a guardar as
+> próprias mensagens), 6) família tracking por demanda.
 
 ## Triagem da máquina inteira
 
@@ -21,7 +31,7 @@
 ### A confirmar com o Danilo
 - livekit (livekit.bayerl.cloud responde 200): quem usa?
 - container litellm da c1 (o gateway oficial é o da c2): alguém aponta para ele?
-- Código parado com valor possível: bayerl-tracker(+edge), bayerl-heat, dc-sync, agentic, sirius-brain, scraping/pdf/searxng-service, metodo-central, bayerlsaas, bayerlpress-sites, seo, seo-painel. Vira projeto na c3 ou fica só no backup frio.
+- Código parado com valor possível: bayerl-tracker(+edge), bayerl-heat, dc-sync, sirius-brain, scraping/pdf/searxng-service, metodo-central, bayerlsaas, bayerlpress-sites, seo, seo-painel. Vira projeto na c3 ou fica só no backup frio.
 
 ### Morre com a c1 (fica só no backup frio)
 n8n (1 workflow "WhatsApp Hub - Envio", sem execuções), code-server e previews dev (code, dev, brandspace-prod, wt01, bayerlstudio, ralab), chromium-shared e playwright-mcp (o cofre da c3 substitui), hermes (502), claude-proxy, bayerl-copilot, cron de backup da própria c1.
@@ -90,8 +100,11 @@ Regra de toda onda: código vem pela skill `migrar` (um slug por pasta), `.env` 
 ### Onda 3: plataforma
 1. `bayerlpress` + `bayerlpress-sites` (cms.bayerl.cloud, container + Postgres + cron de backup): maior risco, precisa dump do banco e janela.
 2. `tonavez` (vivo, 211 MB): trazer e subir como unit; DNS por último.
-3. `agentic` (+ redis), `sirius-brain`, `scraping-service`/`pdf-service`/`searxng-service`: só por demanda.
+3. `sirius-brain`, `scraping-service`/`pdf-service`/`searxng-service`: só por demanda.
 4. `metodo-central`, `bayerlsaas`: por demanda.
+
+### Feito em 03-04/10/2026: agentic migrado
+`agentic` já está em `/srv/projects/agentic`, registrado no painel (slug `agentic`), migração concluída em outra sessão. Falta só confirmar na c1 se o processo e o Redis (`agentic-redis`) podem ser desligados e tirar o bloco `agentic.bayerl.cloud` do Caddy/DNS da c1 quando o novo estiver validado.
 
 ### Feito em 03/10/2026: Orion v1 e SilverBullet removidos
 - Arquivo antes de apagar: `/srv/migracao/code-server/arquivo/orion-v1-2026-10-03.tgz` e `silverbullet-notes-2026-10-03.tgz`.
