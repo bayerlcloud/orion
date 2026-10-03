@@ -43,7 +43,7 @@ export function renderMapa(): string {
 | Nome (como a equipe chama) | IP | Papel |
 |---|---|---|
 | contabo 03 = c3 (VOCÊ ESTÁ AQUI) | 217.76.55.249 | Orion (orion.bayerl.cloud), 6 vCPU/12 GB, Ubuntu 24.04 |
-| contabo 01 = c1 | 86.48.28.10 | code-server, SilverBullet, n8n, Evolution, Caddy (code/notas/workflow/evo/pages.bayerl.cloud) |
+| contabo 01 = c1 | 86.48.28.10 | code-server, n8n, Evolution, Caddy (code/workflow/evo/pages.bayerl.cloud) |
 | contabo 02 = c2 | 212.47.70.170 | Supabase self-hosted, litellm (RAM apertada, swap alto) |
 | hosting = hostinger | 72.61.135.82 | Coolify + ~66 containers (disco 73%) |
 
