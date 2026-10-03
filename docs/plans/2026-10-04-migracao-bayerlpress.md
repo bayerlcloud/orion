@@ -95,3 +95,28 @@ Migrar o BayerlPress não puxa essas outras peças: elas seguem no plano geral, 
   não dependem do BayerlPress.
 - `seo` / `seo-painel` / `seo-engine`: onda própria (onda 1 do plano geral), sem relação de
   código com o CMS.
+
+## Feito em 04/10/2026 (parte 2): os 5 sites e os soltos da c1
+
+- **Sites soltos sem ligação com nada** (demo, brunomalvese, pipeline-ux, analise,
+  bayerlpress-guia, brainstorm, ralab-docs, zest-deck, mais `dl` e `mm-fotos` que nem site eram):
+  apagados da c1. Backup só local, na própria c1, em
+  `/root/backups/sites-soltos-apagados/sites-soltos-20261004.tgz` (não veio para a c3, por pedido
+  do Danilo).
+- **Os 5 sites do BayerlPress agora rodam na c3**, build publicado em `/srv/sites/`:
+  - `bayerlcloud` → builda para `/srv/sites/bayerlcloud-apex` (prod, `bayerl.cloud`+`www`) e
+    `/srv/sites/bayerlcloud-studio` (preview, `studio.bayerl.cloud`), mesmo par que existia na c1.
+  - `bayerlstudio` → `/srv/sites/bayerlstudio` (`bayerlstudio.bayerl.cloud`). Antes era só um Vite
+    dev server via pm2 na c1; agora é build estático de verdade, mesmo padrão dos outros.
+  - `buenas` → `/srv/sites/buenas` (`buenas.bayerl.cloud`). O domínio próprio
+    `buenascarnes.com.br` **continua apontando para outro IP (191.252.83.190), fora do nosso
+    controle de DNS**; não mexi nele, fica para o Danilo confirmar onde esse domínio é gerenciado.
+  - `dralexandre` e `malvese` → `/srv/sites/pages/{dralexandre,malveseadvogados}`, atrás de um
+    bloco `pages.bayerl.cloud` na c3 igual ao da c1.
+  - DNS trocado (A record antigo da c1 substituído pelo da c3) para `@`, `studio`, `bayerlstudio`,
+    `buenas` e `pages`; TXT/MX do domínio raiz (verificação Google, SPF, e-mail) preservados.
+  - Build local feito com pnpm (motor) e npm (sites); achei e documentei um obstáculo: `NODE_ENV=production`
+    fixo no ambiente da c3 faz o `npm install` pular `devDependencies` (TypeScript, Vite ficam de fora);
+    contornado com `env -u NODE_ENV` nos installs/builds.
+- **Containers e DNS antigos da c1** (bayerlpress + bayerlpress-db) continuam de pé por enquanto,
+  como rede de segurança, mas sem nada mais apontando para eles.
