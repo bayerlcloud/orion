@@ -703,7 +703,13 @@ export default function ClaudePage() {
                 </span>
               </div>
             )}
-            {!activeId && (
+            {/* F5: antes das sessões/abas voltarem do servidor, `activeId` começa null — sem este
+                `sessionsLoading`, a tela "nenhuma sessão" pisca ali por um instante antes da aba de
+                verdade abrir, parecendo bug (achado pelo Danilo, 04/10/2026). Mesmo "pontinho"
+                pulsando de `carregandoSessao`, só que cobrindo a tela toda enquanto não se sabe
+                ainda se tem aba pra restaurar. */}
+            {!activeId && sessionsLoading && <div className="cc-loading" role="status" aria-label="Carregando"><span /><span /><span /></div>}
+            {!activeId && !sessionsLoading && (
               <div className="cc-empty-state">
                 <div className="cc-brand-big">✳ Claude Code</div>
                 <p>Escolha uma sessão à esquerda ou clique em <b>Nova sessão</b>.</p>
