@@ -504,7 +504,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
       <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste}
-        placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
+        // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
+        // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
+        // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
+        placeholder={micRecording || micBusy ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
       {/* Onde o ditado vai nascer (gravando ou já transcrevendo): asterisco pulsando no lugar do
           cursor de quando a gravação começou; some assim que o texto final chega e toma o lugar. */}
       {(micRecording || micBusy) && micMarker && <span className="cc-mic-marker" style={{ top: micMarker.top, left: micMarker.left }} aria-hidden="true">✳</span>}

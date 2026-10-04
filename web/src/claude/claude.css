@@ -919,7 +919,9 @@
 /* Marcador de onde o ditado nasce: asterisco pulsando no campo, na posição do cursor de quando a
    gravação começou (não acompanha o cursor depois, pra não complicar — ver startMic em Composer.tsx).
    Fica até o texto final chegar e tomar o lugar dele (gravando e transcrevendo, ver render). */
-.cc-mic-marker { position: absolute; pointer-events: none; color: var(--cc-fg2); animation: cc-pulse 1.1s ease-in-out infinite; }
+/* Maior que o texto do campo (18px vs ~13-14px) e na cor do Claude: sem isso, renderizava mas
+   praticamente invisível, do mesmo tamanho/cor apagada do placeholder por cima dele. */
+.cc-mic-marker { position: absolute; pointer-events: none; color: var(--claude); font-size: 18px; line-height: 1; animation: cc-pulse 1.1s ease-in-out infinite; }
 
 /* Lista lateral no modo "ordem das abas": sessões abertas arrastáveis para reordenar as abas. */
 .cc-item-drag { cursor: grab; }
