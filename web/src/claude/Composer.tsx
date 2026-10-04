@@ -269,7 +269,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Nó real do marcador de ditado inserido no campo (ver insertMarkerEl acima) — guardado pra tirar
   // de lá na hora certa, qualquer caminho que a gravação termine (sucesso, erro, cancelada).
   const micMarkerElRef = useRef<HTMLSpanElement | null>(null);
-  const removeMarkerEl = useCallback(() => { micMarkerElRef.current?.remove(); micMarkerElRef.current = null; }, []);
+  // true do instante em que o marcador entra até ele sair: avisa o PlainInput pra não resincronizar
+  // o DOM com o `value` do React nesse meio-tempo (ver prop `freeze`), senão o próprio efeito dele
+  // apaga o marcador quase no mesmo instante em que nasce (achado pelo Danilo, 04/10/2026).
+  const [micDictating, setMicDictating] = useState(false);
+  const removeMarkerEl = useCallback(() => { micMarkerElRef.current?.remove(); micMarkerElRef.current = null; setMicDictating(false); }, []);
   // Negação permanente de permissão (equivalente a `speechToTextMicDenied` real) — desabilita o botão
   // até o usuário mudar a permissão no navegador; diferente de um erro passageiro.
   const [micDenied, setMicDenied] = useState(false);
@@ -383,7 +387,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const value = text;
     const cur = el?.getSelection() ?? { start: value.length, end: value.length };
     micBaseRef.current = { before: value.slice(0, cur.start), after: value.slice(cur.end), final: '' };
-    if (el?.el) micMarkerElRef.current = insertMarkerEl(el.el, cur.start);
+    if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, cur.start); setMicDictating(true); }
     setMicError(undefined);
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
@@ -513,11 +517,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       <Lightbox images={images} index={preview} onClose={closePreview} />
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
-      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste}
+      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating}
         // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
         // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
         // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
-        placeholder={micRecording || micBusy ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
+        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
         (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).
