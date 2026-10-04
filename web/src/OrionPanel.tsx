@@ -17,9 +17,9 @@ const KEY = 'orion:painel-direito';
 // sem esse evento, cada instância teria seu próprio `open` e um botão não saberia que o outro mudou.
 const EVENTO = 'orion:painel-direito-toggle';
 
-export function IcoPainelDireito({ open }: { open: boolean }) {
+export function IcoPainelDireito({ open, size = 18 }: { open: boolean; size?: number }) {
   return (
-    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="16" rx="3" />
       {open && <path d="M15 4h3a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3h-3z" fill="currentColor" stroke="none" />}
       <path d="M15 4v16" />
