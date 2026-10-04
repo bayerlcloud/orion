@@ -25,23 +25,31 @@ const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
  * Posição (em px, relativa a `relativeTo`) do caractere `pos` dentro do texto de `root` — usado para
  * plantar o marcador de ditado exatamente onde o cursor está, sem mexer na seleção de verdade (ao
  * contrário de `placeCaret` do PlainInput.tsx, que move o cursor; aqui é só medição).
+ *
+ * Achado pelo Danilo (04/10/2026): o marcador nunca aparecia porque o caso mais comum — apertar o
+ * microfone com o campo ainda VAZIO (sem digitar nada antes) — não tem nenhum nó de texto pra medir;
+ * a versão anterior tentava um Range vazio dentro do próprio elemento e, sem glyph pra reportar, o
+ * navegador devolve um retângulo sem posição confiável, que o código então rejeitava (`return null`)
+ * e o marcador nunca nascia. Agora, sem texto nenhum, usa a própria caixa do campo (onde o texto vai
+ * nascer de qualquer jeito) em vez de medir um Range que não tem nada pra medir.
  */
-function caretPixelPos(root: HTMLElement, pos: number, relativeTo: HTMLElement): { top: number; left: number } | null {
+function caretPixelPos(root: HTMLElement, pos: number, relativeTo: HTMLElement): { top: number; left: number } {
   const base = relativeTo.getBoundingClientRect();
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let left = pos;
-  let node = walker.nextNode();
-  const range = document.createRange();
-  while (node) {
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const len = node.textContent?.length ?? 0;
-    if (left <= len) { range.setStart(node, left); range.collapse(true); break; }
-    left -= len;
-    node = walker.nextNode();
+    if (left > len) { left -= len; continue; }
+    const range = document.createRange();
+    range.setStart(node, left);
+    range.collapse(true);
+    const r = range.getClientRects()[0] ?? range.getBoundingClientRect();
+    if (r.width || r.height || r.top || r.left) return { top: r.top - base.top, left: r.left - base.left };
+    break; // Range mediu (0,0,0,0): cai no fallback da caixa do campo, abaixo.
   }
-  if (!node) { range.selectNodeContents(root); range.collapse(false); } // campo vazio ou cursor no fim
-  const r = range.getClientRects()[0] ?? range.getBoundingClientRect();
-  if (!r || (!r.width && !r.height && !r.top && !r.left)) return null;
-  return { top: r.top - base.top, left: r.left - base.left };
+  const rr = root.getBoundingClientRect();
+  const cs = getComputedStyle(root);
+  return { top: rr.top - base.top + parseFloat(cs.paddingTop || '0'), left: rr.left - base.left + parseFloat(cs.paddingLeft || '0') };
 }
 
 /** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */
