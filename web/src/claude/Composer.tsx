@@ -21,6 +21,29 @@ const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
   { cmd: '/cost', desc: 'Mostra o uso de tokens da sessão' },
 ];
 
+/**
+ * Posição (em px, relativa a `relativeTo`) do caractere `pos` dentro do texto de `root` — usado para
+ * plantar o marcador de ditado exatamente onde o cursor está, sem mexer na seleção de verdade (ao
+ * contrário de `placeCaret` do PlainInput.tsx, que move o cursor; aqui é só medição).
+ */
+function caretPixelPos(root: HTMLElement, pos: number, relativeTo: HTMLElement): { top: number; left: number } | null {
+  const base = relativeTo.getBoundingClientRect();
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let left = pos;
+  let node = walker.nextNode();
+  const range = document.createRange();
+  while (node) {
+    const len = node.textContent?.length ?? 0;
+    if (left <= len) { range.setStart(node, left); range.collapse(true); break; }
+    left -= len;
+    node = walker.nextNode();
+  }
+  if (!node) { range.selectNodeContents(root); range.collapse(false); } // campo vazio ou cursor no fim
+  const r = range.getClientRects()[0] ?? range.getBoundingClientRect();
+  if (!r || (!r.width && !r.height && !r.top && !r.left)) return null;
+  return { top: r.top - base.top, left: r.left - base.left };
+}
+
 /** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */
 type Pending = { id: string; file?: File; name: string; isImage: boolean; url?: string; uploaded?: Attachment };
 
@@ -224,6 +247,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const [micBusy, setMicBusy] = useState(false);
   const [micRecording, setMicRecording] = useState(false);
   const [micError, setMicError] = useState<string>();
+  // Asterisco pulsando no campo, marcando onde o ditado vai nascer (pedido do Danilo, 04/10/2026):
+  // posição calculada 1x, ao começar a gravar, e fixa até o texto final chegar — não acompanha o
+  // cursor se a pessoa digitar em outro lugar enquanto grava (mesma limitação do ditado em si).
+  const [micMarker, setMicMarker] = useState<{ top: number; left: number } | null>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   // Negação permanente de permissão (equivalente a `speechToTextMicDenied` real) — desabilita o botão
   // até o usuário mudar a permissão no navegador; diferente de um erro passageiro.
   const [micDenied, setMicDenied] = useState(false);
@@ -337,6 +365,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const value = text;
     const cur = el?.getSelection() ?? { start: value.length, end: value.length };
     micBaseRef.current = { before: value.slice(0, cur.start), after: value.slice(cur.end), final: '' };
+    if (el?.el && composerRef.current) setMicMarker(caretPixelPos(el.el, cur.start, composerRef.current));
     setMicError(undefined);
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
@@ -354,7 +383,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
     rec.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      if (entry.cancelled) { finish(); return; }
+      if (entry.cancelled) { setMicMarker(null); finish(); return; }
       micPendingRef.current = entry.done;
       const type = rec.mimeType || mime || 'audio/webm';
       const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
@@ -386,7 +415,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
         }
       } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
-      finally { setMicBusy(false); micPendingRef.current = null; finish(); }
+      finally { setMicBusy(false); setMicMarker(null); micPendingRef.current = null; finish(); }
     };
     micRecorderRef.current = entry;
     rec.start();
@@ -449,7 +478,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const canSend = !sending && (!!text.trim() || attachments.length > 0 || micRecording || micBusy) && !worktreeNameError;
 
   return (
-    <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`} data-permission-mode={mode}
+    <div ref={composerRef} className={`cc-composer ${dragOver ? 'is-dragover' : ''}`} data-permission-mode={mode}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
       onDrop={onDrop}
@@ -468,6 +497,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
       <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste}
         placeholder={dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
+      {/* Onde o ditado vai nascer (gravando ou já transcrevendo): asterisco pulsando no lugar do
+          cursor de quando a gravação começou; some assim que o texto final chega e toma o lugar. */}
+      {(micRecording || micBusy) && micMarker && <span className="cc-mic-marker" style={{ top: micMarker.top, left: micMarker.left }} aria-hidden="true">✳</span>}
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
         (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).
@@ -478,7 +510,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         <div className="cc-mic-wrap">
           <button type="button" className={`cc-mic ${micRecording ? 'is-recording' : ''} ${micBusy ? 'is-busy' : ''}`} disabled={micDenied || micBusy} onClick={toggleMic}
             aria-label={micError ? `Erro de ditado: ${micError}` : micDenied ? 'Acesso ao microfone negado' : micRecording ? 'Parar gravação' : 'Ditado por voz'}>
-            <Mic size={14} className="cc-mic-icon" />
+            {micBusy ? <span className="cc-spinner cc-mic-icon" /> : <Mic size={14} className="cc-mic-icon" />}
           </button>
           <span className={`cc-mic-tooltip ${micError ? 'is-error' : ''}`} aria-hidden="true">
             {micError
