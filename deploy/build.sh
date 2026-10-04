@@ -123,6 +123,20 @@ done
 systemctl enable --now orion-root.path || echo "ATENÇÃO: orion-root.path não subiu"
 systemctl enable --now orion-wa || echo "ATENÇÃO: orion-wa não subiu"
 
+etapa 'espelho no GitHub'
+# bayerlcloud/orion é só espelho; token vem das settings na hora, nunca grava credencial em disco.
+GH_TOKEN=$(docker exec orion-postgres psql -U orion orion -Atc "select value from settings where key='github_token'" 2>/dev/null || true)
+if [ -n "$GH_TOKEN" ]; then
+  if $G push "https://x-access-token:${GH_TOKEN}@github.com/bayerlcloud/orion.git" "$SHA:refs/heads/main" --force \
+      2>&1 | sed "s/x-access-token:[^@]*@/x-access-token:***@/"; then
+    echo "espelhado: $B_SHA no bayerlcloud/orion"
+  else
+    echo "ATENÇÃO: push pro GitHub falhou, deploy continua (espelho não é bloqueante)"
+  fi
+else
+  echo "ATENÇÃO: github_token não encontrado nas settings, pulei o espelho"
+fi
+
 etapa 'limpeza'
 # Mantém os 3 builds mais novos; nunca apaga o que está no ar nem o anterior. Logs e .json ficam (histórico).
 for d in $(ls -dt "$BUILDS"/*/ 2>/dev/null | tail -n +4); do
