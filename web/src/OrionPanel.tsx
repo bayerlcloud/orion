@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { User } from './api';
 
 /**
@@ -11,6 +11,11 @@ import type { User } from './api';
 type Msg = { from: 'me' | 'orion'; text: string };
 
 const KEY = 'orion:painel-direito';
+// Evento global de alternar: o botão do canto (App.tsx, todas as páginas) e o botão dentro da barra
+// de abas do Claude (ClaudePage.tsx — pedido do Danilo, 04/10/2026: trocar os dois de lugar, ⋮ pro
+// canto e este botão pra dentro da barra) chamam `useOrionPanel()` cada um na sua própria instância;
+// sem esse evento, cada instância teria seu próprio `open` e um botão não saberia que o outro mudou.
+const EVENTO = 'orion:painel-direito-toggle';
 
 export function IcoPainelDireito({ open }: { open: boolean }) {
   return (
@@ -25,7 +30,13 @@ export function IcoPainelDireito({ open }: { open: boolean }) {
 export function useOrionPanel() {
   const [open, setOpen] = useState(() => localStorage.getItem(KEY) === '1');
   useEffect(() => { localStorage.setItem(KEY, open ? '1' : '0'); }, [open]);
-  return [open, () => setOpen(o => !o)] as const;
+  useEffect(() => {
+    const h = () => setOpen(o => !o);
+    window.addEventListener(EVENTO, h);
+    return () => window.removeEventListener(EVENTO, h);
+  }, []);
+  const toggle = useCallback(() => window.dispatchEvent(new Event(EVENTO)), []);
+  return [open, toggle] as const;
 }
 
 export function OrionPanel({ user }: { user: User }) {

@@ -134,9 +134,14 @@ export default function App() {
         </Routes>
       </main>
       <OrionPanel user={user} />
-      <button className={`orion-toggle ${painel ? 'is-open' : ''}`} onClick={togglePainel} title={painel ? 'Fechar o Orion' : 'Abrir o Orion'} aria-label="Painel do Orion">
-        <IcoPainelDireito open={painel} />
-      </button>
+      {/* No Claude (pedido do Danilo, 04/10/2026): este botão troca de lugar com o ⋮ da barra de
+          abas — vira item normal da barra (ClaudePage.tsx), e o ⋮ assume este canto fixo. Nas
+          demais páginas, sem barra de abas, o canto continua sendo deste botão. */}
+      {!loc.pathname.startsWith('/claude') && (
+        <button className={`orion-toggle ${painel ? 'is-open' : ''}`} onClick={togglePainel} title={painel ? 'Fechar o Orion' : 'Abrir o Orion'} aria-label="Painel do Orion">
+          <IcoPainelDireito open={painel} />
+        </button>
+      )}
       <Dialogos />
     </div>
   );
