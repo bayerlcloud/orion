@@ -203,5 +203,8 @@ strong { color: var(--fg); }
 .orion-msg { white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
 .orion-msg.is-me { align-self: flex-end; max-width: 85%; background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
 .orion-msg.is-orion { color: var(--fg); }
+.orion-msg.is-tool { font-size: 12px; color: var(--fg2); }
+.orion-msg.is-erro { color: #e5484d; }
+.orion-panel-contexto { padding: 4px 14px; font-size: 11px; color: var(--fg2); border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .orion-panel-input { padding: 10px; border-top: 1px solid var(--line); }
 .orion-panel-input textarea { width: 100%; resize: none; display: block; }

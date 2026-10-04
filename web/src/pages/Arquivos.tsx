@@ -10,6 +10,7 @@ import { GIT_LABEL, IMAGE_EXT, baseName, extOf, isUnder, keyOf, type GitStatus, 
 import { formatBytes } from './driveUtils';
 import './arquivos.css';
 import { confirmar } from '../dialogo';
+import { setOpenFile } from '../openFile';
 
 // CodeMirror só entra no bundle quando um arquivo de texto abre.
 const Editor = lazy(() => import('../files/Editor'));
@@ -176,6 +177,11 @@ export default function Arquivos(_props: { user: User }) {
   // ---------- render ----------
 
   const current = files.find(f => f.key === active) ?? null;
+  // Copilot do OrionPanel: sabe qual arquivo está aberto aqui (ver openFile.ts).
+  useEffect(() => {
+    setOpenFile(current ? { rootId: current.rootId, rel: current.rel, name: current.name } : null);
+    return () => setOpenFile(null);
+  }, [current?.key]);
   const statusRootId = current?.rootId ?? selection?.rootId ?? null;
   const statusRel = current?.rel ?? selection?.rel ?? '';
   const statusRoot = roots.find(r => r.id === statusRootId);

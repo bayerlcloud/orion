@@ -131,3 +131,41 @@ Regra de toda onda: código vem pela skill `migrar` (um slug por pasta), `.env` 
 ### Limpeza na c1 depois das ondas
 - Cron `refresh-cookies-cron.sh` ainda grava cookies do YouTube no academix da c1, mas o academix vivo está na c3: mover o cron para cá ou apontar para a c3.
 - 138 processos órfãos `mcp-server-ssh` no code-server somando ~8 GB de RSS (swap da c1 em 4,7 GB): matar libera a máquina já.
+
+### Onda 1 (SEO) concluída em 04/10/2026
+- `seo-engine`: serviço systemd na c3 (porta 3620, `.env` trazido), código já estava no painel.
+  Tinha 1 arquivo não commitado na c1, mas já estava coberto pela "foto da raiz" anterior.
+- `searxng-service`: container `seo-searxng` na c3 (127.0.0.1:8081), config trazida; o seo-engine
+  usava para a função de GEO, não dava pra matar sem substituir.
+- `seo` e `seo-painel`: trazidos como projetos próprios (slugs `seo`, `seo-painel`), zero mudanças
+  não commitadas na c1. Builds publicados em `/srv/sites/seo` e `/srv/sites/seo-painel`.
+- Bloco `seo.bayerl.cloud` replicado no Caddy da c3 (`/painel-api/*` -> seo-engine local,
+  `/painel/*` -> dist do seo-painel, resto -> dist do seo). DNS trocado, testado com tráfego real
+  antes e depois de desligar a c1 (health check, site e painel, todos 200).
+- c1: processo PM2 `seo-engine` parado, container `searxng` removido, as 4 pastas apagadas
+  (backup em `/srv/migracao/code-server/arquivo/{seo,seo-painel,seo-engine,searxng-service}-2026-10-04.tgz`).
+
+### Lote `.vscode / notes / tools / vps-backup / wp-old` limpo em 04/10/2026
+- `.vscode`, `wp-old`: lixo/vazio, apagados sem backup.
+- `notes`: já estava vazia desde a remoção do SilverBullet.
+- `tools/InstaAnalyser`: ferramenta de verdade (análise de Instagram via Apify), trazida como
+  projeto próprio `instaanalyser`. Pasta `tools` apagada da c1 com backup.
+- `vps-backup`: era só o código-fonte de dev; o cron real usa `/root/vps-backup` no host,
+  independente e intocado. Pasta da c1 apagada com backup.
+
+### code-server apagado em 04/10/2026
+- Container `stack-code-server-1` parado e removido. Workspace estava essencialmente vazio
+  (3 zips antigos, 1 nota de UI obsoleta, pasta `notes` vazia) — backup em
+  `/srv/migracao/code-server/arquivo/workspace-residual-2026-10-04.tgz`.
+- Volumes `stack_codeserver_config` (27 GB, quase tudo cache/extensões, conteúdo real já
+  extraído ao longo da migração) e `codeserver_config` (órfão, vazio) removidos.
+  **Disco da c1 caiu de 82% para 55%.**
+- Caddy: blocos `dev.bayerl.cloud`/`code.bayerl.cloud` (a própria IDE) e `wt01.bayerl.cloud`
+  (já não tinha nada escutando) removidos. DNS `dev`, `code`, `wt01`, `brandspace-prod` apagados.
+- Sobraram ~12 referências a `code-server:PORTA` no Caddyfile da c1, todas órfãs (domínio já
+  migrado pro DNS da c3, ou processo já morto) — inofensivas, ficam pra uma limpeza fina depois.
+- **`mundomaker.bayerl.cloud` continua no ar**: a landing `/encontro/*` é servida direto pelo
+  Caddy a partir de `/srv/pages`, nunca dependeu do container do code-server. Só os endpoints
+  dinâmicos `/mundomaker/api` e `/admin` (já mortos desde a remoção do `mundomaker-leads`) ficaram
+  ainda mais mortos.
+- Testado depois de apagar: mundomaker, buenas, cms, ralab e seo, todos no ar normal.
