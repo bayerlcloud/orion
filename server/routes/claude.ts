@@ -23,6 +23,7 @@ import { tituloCurto } from '../claude/titulo.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { orionRootServer } from '../claude/rootTool.js';
+import { orionSenhasServer } from '../claude/senhasTool.js';
 import { composicaoPara } from '../tools/skillPrefs.js';
 import { estiloConhecido } from '../tools/outputStyles.js';
 import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
@@ -209,12 +210,17 @@ export async function claudeRoutes(app: FastifyInstance) {
   // Cloudflare, Hostinger, Coolify, n8n e Supabase não são MCP: são conectores simples (proxy local /conector/<nome>), só entram no header.
   // Cofre (Chrome compartilhado da c3) entra como MCP `cofre` quando COFRE_CDP_URL está no ambiente.
   // userId = criador da sessão (escopo padrão da memória); autorId = quem mandou o turno (autor do que for salvo).
-  const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number, autorId: number) => ({
-    ...githubMcpServers(await listarContasGithub(app.pool)),
-    ...(cofreMcpServers(cofreCdpUrl()) ?? {}),
-    'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId, autorId }),
-    'orion-root': orionRootServer(sessionId),
-  });
+  const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number, autorId: number) => {
+    // orion-senhas: cofre PESSOAL do Danilo (Vaultwarden) — só entra quando quem mandou o turno é owner.
+    const { rows: autorRows } = await app.pool.query('SELECT role FROM users WHERE id = $1', [autorId]);
+    return {
+      ...githubMcpServers(await listarContasGithub(app.pool)),
+      ...(cofreMcpServers(cofreCdpUrl()) ?? {}),
+      'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId, autorId }),
+      'orion-root': orionRootServer(sessionId),
+      ...(autorRows[0]?.role === 'owner' ? { 'orion-senhas': orionSenhasServer() } : {}),
+    };
+  };
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.taskBudgetTokens)) || undefined });
 
   // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
