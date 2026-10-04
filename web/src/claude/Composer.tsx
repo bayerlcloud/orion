@@ -21,35 +21,46 @@ const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
   { cmd: '/cost', desc: 'Mostra o uso de tokens da sessão' },
 ];
 
+// Caractere do marcador de ditado — um só lugar pra não desencontrar entre inserir e procurar.
+const MIC_MARKER = '✳';
+
 /**
- * Posição (em px, relativa a `relativeTo`) do caractere `pos` dentro do texto de `root` — usado para
- * plantar o marcador de ditado exatamente onde o cursor está, sem mexer na seleção de verdade (ao
- * contrário de `placeCaret` do PlainInput.tsx, que move o cursor; aqui é só medição).
+ * Planta o marcador de ditado como um elemento de VERDADE no meio do texto, no ponto exato do
+ * cursor — não um overlay por cima calculado em pixels. Pedido do Danilo (04/10/2026): a versão em
+ * overlay (posição medida e desenhada por cima) não ocupava o espaço de um caractere nem empurrava
+ * o texto, e um tamanho de fonte fixo não acompanharia se o campo mudasse de fonte um dia. Inserido
+ * assim, no fluxo real do texto, resolve os dois: empurra o que vem depois dele, e por estar DENTRO
+ * do campo herda o `font-size` do campo pela cascata normal do CSS (`.cc-mic-marker` não define o
+ * próprio tamanho).
  *
- * Achado pelo Danilo (04/10/2026): o marcador nunca aparecia porque o caso mais comum — apertar o
- * microfone com o campo ainda VAZIO (sem digitar nada antes) — não tem nenhum nó de texto pra medir;
- * a versão anterior tentava um Range vazio dentro do próprio elemento e, sem glyph pra reportar, o
- * navegador devolve um retângulo sem posição confiável, que o código então rejeitava (`return null`)
- * e o marcador nunca nascia. Agora, sem texto nenhum, usa a própria caixa do campo (onde o texto vai
- * nascer de qualquer jeito) em vez de medir um Range que não tem nada pra medir.
+ * `contentEditable="false"` marca o span como uma "ilha" não editável dentro do campo (que é
+ * `plaintext-only`) — mesma técnica usada por menções/chips em editores de texto; o navegador trata
+ * como uma unidade só (seta do teclado pula ele inteiro, não entra dentro). Como a inserção é
+ * manipulação direta do DOM (não uma edição de verdade), não dispara `onInput`/`onChange` — o
+ * `value` controlado do React nem sabe que ele existe, então não vaza pro rascunho nem pro autosave.
+ * Ele só desaparece quando: (a) `removeMarkerEl` tira ele (fim da gravação/transcrição, todo
+ * caminho — ver startMic/onstop), ou (b) a pessoa digita alguma coisa enquanto grava — nesse caso o
+ * `useLayoutEffect` do PlainInput reescreve `root.textContent = value` no primeiro texto digitado
+ * (porque `value` mudou) e isso apaga QUALQUER filho, inclusive o marcador, de uma vez.
+ * ponytail: sem pulsar palavra por palavra (a transcrição é em lote, não ao vivo — ver decisão
+ * salva na memória do projeto, 04/10/2026); o ✳ só pulsa de opacidade (`cc-pulse`), parado no lugar.
  */
-function caretPixelPos(root: HTMLElement, pos: number, relativeTo: HTMLElement): { top: number; left: number } {
-  const base = relativeTo.getBoundingClientRect();
+function insertMarkerEl(root: HTMLElement, pos: number): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = 'cc-mic-marker';
+  span.textContent = MIC_MARKER;
+  span.contentEditable = 'false';
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let left = pos;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const len = node.textContent?.length ?? 0;
     if (left > len) { left -= len; continue; }
-    const range = document.createRange();
-    range.setStart(node, left);
-    range.collapse(true);
-    const r = range.getClientRects()[0] ?? range.getBoundingClientRect();
-    if (r.width || r.height || r.top || r.left) return { top: r.top - base.top, left: r.left - base.left };
-    break; // Range mediu (0,0,0,0): cai no fallback da caixa do campo, abaixo.
+    const depois = (node as Text).splitText(left);
+    node.parentNode!.insertBefore(span, depois);
+    return span;
   }
-  const rr = root.getBoundingClientRect();
-  const cs = getComputedStyle(root);
-  return { top: rr.top - base.top + parseFloat(cs.paddingTop || '0'), left: rr.left - base.left + parseFloat(cs.paddingLeft || '0') };
+  root.appendChild(span); // campo vazio, ou posição no fim: só anexa.
+  return span;
 }
 
 /** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */
@@ -255,11 +266,14 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const [micBusy, setMicBusy] = useState(false);
   const [micRecording, setMicRecording] = useState(false);
   const [micError, setMicError] = useState<string>();
-  // Asterisco pulsando no campo, marcando onde o ditado vai nascer (pedido do Danilo, 04/10/2026):
-  // posição calculada 1x, ao começar a gravar, e fixa até o texto final chegar — não acompanha o
-  // cursor se a pessoa digitar em outro lugar enquanto grava (mesma limitação do ditado em si).
-  const [micMarker, setMicMarker] = useState<{ top: number; left: number } | null>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
+  // Nó real do marcador de ditado inserido no campo (ver insertMarkerEl acima) — guardado pra tirar
+  // de lá na hora certa, qualquer caminho que a gravação termine (sucesso, erro, cancelada).
+  const micMarkerElRef = useRef<HTMLSpanElement | null>(null);
+  // true do instante em que o marcador entra até ele sair: avisa o PlainInput pra não resincronizar
+  // o DOM com o `value` do React nesse meio-tempo (ver prop `freeze`), senão o próprio efeito dele
+  // apaga o marcador quase no mesmo instante em que nasce (achado pelo Danilo, 04/10/2026).
+  const [micDictating, setMicDictating] = useState(false);
+  const removeMarkerEl = useCallback(() => { micMarkerElRef.current?.remove(); micMarkerElRef.current = null; setMicDictating(false); }, []);
   // Negação permanente de permissão (equivalente a `speechToTextMicDenied` real) — desabilita o botão
   // até o usuário mudar a permissão no navegador; diferente de um erro passageiro.
   const [micDenied, setMicDenied] = useState(false);
@@ -373,7 +387,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const value = text;
     const cur = el?.getSelection() ?? { start: value.length, end: value.length };
     micBaseRef.current = { before: value.slice(0, cur.start), after: value.slice(cur.end), final: '' };
-    if (el?.el && composerRef.current) setMicMarker(caretPixelPos(el.el, cur.start, composerRef.current));
+    if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, cur.start); setMicDictating(true); }
     setMicError(undefined);
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
@@ -391,7 +405,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
     rec.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
-      if (entry.cancelled) { setMicMarker(null); finish(); return; }
+      if (entry.cancelled) { removeMarkerEl(); finish(); return; }
       micPendingRef.current = entry.done;
       const type = rec.mimeType || mime || 'audio/webm';
       const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
@@ -423,7 +437,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
         }
       } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
-      finally { setMicBusy(false); setMicMarker(null); micPendingRef.current = null; finish(); }
+      finally { setMicBusy(false); removeMarkerEl(); micPendingRef.current = null; finish(); }
     };
     micRecorderRef.current = entry;
     rec.start();
@@ -486,7 +500,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const canSend = !sending && (!!text.trim() || attachments.length > 0 || micRecording || micBusy) && !worktreeNameError;
 
   return (
-    <div ref={composerRef} className={`cc-composer ${dragOver ? 'is-dragover' : ''}`} data-permission-mode={mode}
+    <div className={`cc-composer ${dragOver ? 'is-dragover' : ''}`} data-permission-mode={mode}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={e => { e.preventDefault(); setDragOver(false); }}
       onDrop={onDrop}
@@ -503,14 +517,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       <Lightbox images={images} index={preview} onClose={closePreview} />
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
-      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste}
+      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating}
         // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
         // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
         // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
-        placeholder={micRecording || micBusy ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
-      {/* Onde o ditado vai nascer (gravando ou já transcrevendo): asterisco pulsando no lugar do
-          cursor de quando a gravação começou; some assim que o texto final chega e toma o lugar. */}
-      {(micRecording || micBusy) && micMarker && <span className="cc-mic-marker" style={{ top: micMarker.top, left: micMarker.left }} aria-hidden="true">✳</span>}
+        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
         (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).

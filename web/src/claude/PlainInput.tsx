@@ -45,9 +45,17 @@ type Props = {
   onPaste?: (e: ClipboardEvent<HTMLDivElement>) => void;
   placeholder?: string;
   className?: string;
+  /**
+   * Alguém meteu algo no DOM por fora do React (ex.: o marcador de ditado do Composer — ver
+   * `insertMarkerEl`) e esse `value` por enquanto não reflete isso: `true` pausa o efeito abaixo,
+   * senão ele vê `root.textContent !== value` (o marcador sobrando) e reescreve o campo, apagando
+   * o que foi inserido por fora (achado pelo Danilo, 04/10/2026 — o marcador nascia e morria no
+   * mesmo instante, antes de qualquer screenshot conseguir pegar).
+   */
+  freeze?: boolean;
 };
 
-const PlainInput = forwardRef<PlainInputHandle, Props>(function PlainInput({ value, onChange, onKeyDown, onPaste, placeholder, className }, ref) {
+const PlainInput = forwardRef<PlainInputHandle, Props>(function PlainInput({ value, onChange, onKeyDown, onPaste, placeholder, className, freeze }, ref) {
   const el = useRef<HTMLDivElement>(null);
   useImperativeHandle(ref, () => ({
     get el() { return el.current; },
@@ -65,11 +73,12 @@ const PlainInput = forwardRef<PlainInputHandle, Props>(function PlainInput({ val
   // Valor vindo de fora (envio limpa, histórico, ditado, comando "/"): reescreve o conteúdo e põe o
   // cursor no fim. Digitação normal não passa por aqui (o DOM já tem o mesmo texto).
   useLayoutEffect(() => {
+    if (freeze) return;
     const root = el.current;
     if (!root || (root.textContent ?? '') === value) return;
     root.textContent = value;
     if (document.activeElement === root) placeCaret(root, value.length);
-  }, [value]);
+  }, [value, freeze]);
 
   return (
     <div className={`cc-input-wrap ${className ?? ''}`}>
