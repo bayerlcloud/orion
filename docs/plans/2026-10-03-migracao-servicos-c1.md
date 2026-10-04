@@ -72,6 +72,12 @@ Serviços com rota no Caddy mas SEM processo (502 ou mortos):
 | sirius-brain | memória multi-tenant / cérebro (PM2 stopped) | 3200 | stopped |
 | scraping-service, pdf-service | browser-as-a-service + proxy de PDF | n/a | sem processo |
 
+### Removido em 04/10/2026
+- `sirius-brain`: superado pelo `brandspace-sirius` na c3 (porta 3200), já ativo. A pasta já não existia mais na c1 (removida em migração anterior do Sirius para o Brandspace); só restava o processo PM2 parado, o bloco `sirius-brain.bayerl.cloud` no Caddy e o DNS, todos removidos.
+- `claude-proxy`: removido junto com hermes e bayerl-copilot, mesma rodada desta sessão.
+- `bayerl-tracker`, `bayerl-tracker-edge`, `bayerl-heat`: apagados por decisão do Danilo, sem migrar (não valiam o esforço). Pastas removidas da c1, backup local em `/srv/migracao/code-server/arquivo/bayerl-tracker-edge-heat-2026-10-04.tgz` (inclui os dados reais: leads do Malvese e eventos do heat do MundoMaker). Bloco `/px/*` tirado do apex `bayerl.cloud` e `/hm/*` tirado do `mundomaker.bayerl.cloud` no Caddy da c1; `mundomaker-leads` e `dc-sync` seguem de pé, decisão à parte.
+- `academix-worker`: pasta movida (convenção, não apagada) para `/root/migrado-c3/academix-worker` na c1; já roda 100% na c3 dentro do Brandspace (`brandspace-academix.service`).
+
 Já resolvidos: academix-worker roda na c3 (`brandspace-academix.service`, DNS na c3); seo-engine (só o código).
 
 ## Não migra como projeto

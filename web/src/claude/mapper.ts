@@ -602,13 +602,28 @@ export function formatAskAnswer(questions: { header?: string; question: string }
  */
 /**
  * Modo compacto da timeline (menu ⋮ > "Só pergunta e resposta"): esconde os passos do turno
- * (ferramentas e pensamento) e deixa só a mensagem da pessoa, a última resposta em texto e o que é
+ * (ferramentas e pensamento) e deixa só a mensagem da pessoa, a resposta em texto e o que é
  * aviso/erro. Texto intermediário ("vou olhar X…") some junto: só a resposta final interessa.
+ *
+ * Achado pelo Danilo (04/10/2026): com mensagem enfileirada (compositor ainda rodando quando a
+ * próxima é mandada), os dois pedidos ficam no MESMO turno (nenhum `result` nem `user` novo separa
+ * um do outro — ver `turns` em Timeline.tsx, que só abre turno novo em `kind: 'user'`) e o Claude
+ * responde cada um com seu próprio texto final, sem ferramenta entre eles. A versão antiga ("só o
+ * último texto do turno") achava que o primeiro era narração e sumia com ele. Agora só considera
+ * narração o texto seguido de ferramenta/pensamento ANTES do próximo texto; texto seguido direto de
+ * outro texto (sem passo no meio) é uma resposta final por si, e os dois ficam.
  */
 export function compactarTurno(turn: ConvEvent[]): ConvEvent[] {
-  let ultimoTexto = -1;
-  turn.forEach((e, i) => { if (e.kind === 'text') ultimoTexto = i; });
-  return turn.filter((e, i) => e.kind === 'text' ? i === ultimoTexto : e.kind !== 'tool' && e.kind !== 'thinking');
+  const narracao = new Set<number>();
+  turn.forEach((e, i) => {
+    if (e.kind !== 'text') return;
+    for (let j = i + 1; j < turn.length; j++) {
+      const f = turn[j];
+      if (f.kind === 'text') break;
+      if (f.kind === 'tool' || f.kind === 'thinking') { narracao.add(i); break; }
+    }
+  });
+  return turn.filter((e, i) => e.kind === 'text' ? !narracao.has(i) : e.kind !== 'tool' && e.kind !== 'thinking');
 }
 
 export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
