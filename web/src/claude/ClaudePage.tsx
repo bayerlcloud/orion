@@ -647,11 +647,11 @@ export default function ClaudePage() {
           })}
           </div>
           <span className="cc-tab-actions">
-            <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
-            <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
+            <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={14} /></button>
+            <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={14} /></button>
             {/* Trocado de lugar com o ⋮ (pedido do Danilo, 04/10/2026): este botão entra na barra,
                 o ⋮ vai pro canto fixo onde ele estava (ver cc-smenu-corner em claude.css/App.tsx). */}
-            <button className={`cc-icon ${painelOpen ? 'is-on' : ''}`} title={painelOpen ? 'Fechar o Orion' : 'Abrir o Orion'} onClick={togglePainel}><IcoPainelDireito open={painelOpen} /></button>
+            <button className={`cc-icon ${painelOpen ? 'is-on' : ''}`} title={painelOpen ? 'Fechar o Orion' : 'Abrir o Orion'} onClick={togglePainel}><IcoPainelDireito open={painelOpen} size={14} /></button>
             {/* Tudo o mais fica no menu ⋮ (preview do usuário, agentes, renomear, parar, skills, permissões, plugins). */}
             <SessionMenu
               corner
