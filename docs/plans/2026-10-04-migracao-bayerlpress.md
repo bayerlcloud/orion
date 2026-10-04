@@ -109,8 +109,9 @@ Migrar o BayerlPress não puxa essas outras peças: elas seguem no plano geral, 
   - `bayerlstudio` → `/srv/sites/bayerlstudio` (`bayerlstudio.bayerl.cloud`). Antes era só um Vite
     dev server via pm2 na c1; agora é build estático de verdade, mesmo padrão dos outros.
   - `buenas` → `/srv/sites/buenas` (`buenas.bayerl.cloud`). O domínio próprio
-    `buenascarnes.com.br` **continua apontando para outro IP (191.252.83.190), fora do nosso
-    controle de DNS**; não mexi nele, fica para o Danilo confirmar onde esse domínio é gerenciado.
+    `buenascarnes.com.br` (IP 191.252.83.190) é hospedagem direta do cliente na Hostinger deles,
+    fora do nosso controle de DNS, de propósito. `buenas.bayerl.cloud` é só a nossa cópia de
+    backup/staging, não o site ao vivo do cliente.
   - `dralexandre` e `malvese` → `/srv/sites/pages/{dralexandre,malveseadvogados}`, atrás de um
     bloco `pages.bayerl.cloud` na c3 igual ao da c1.
   - DNS trocado (A record antigo da c1 substituído pelo da c3) para `@`, `studio`, `bayerlstudio`,
