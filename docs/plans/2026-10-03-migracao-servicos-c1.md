@@ -72,6 +72,10 @@ Serviços com rota no Caddy mas SEM processo (502 ou mortos):
 | sirius-brain | memória multi-tenant / cérebro (PM2 stopped) | 3200 | stopped |
 | scraping-service, pdf-service | browser-as-a-service + proxy de PDF | n/a | sem processo |
 
+### Removido em 04/10/2026
+- `sirius-brain`: superado pelo `brandspace-sirius` na c3 (porta 3200), já ativo. A pasta já não existia mais na c1 (removida em migração anterior do Sirius para o Brandspace); só restava o processo PM2 parado, o bloco `sirius-brain.bayerl.cloud` no Caddy e o DNS, todos removidos.
+- `claude-proxy`: removido junto com hermes e bayerl-copilot, mesma rodada desta sessão.
+
 Já resolvidos: academix-worker roda na c3 (`brandspace-academix.service`, DNS na c3); seo-engine (só o código).
 
 ## Não migra como projeto
