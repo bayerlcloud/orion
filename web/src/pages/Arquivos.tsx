@@ -272,6 +272,12 @@ export default function Arquivos(_props: { user: User }) {
         {statusCode && <span className={`arq-git-${statusCode.code === '!' ? 'conflict' : statusCode.code}`}>{statusCode.code} · {GIT_LABEL[statusCode.code]}{statusCode.staged ? ' (staged)' : ''}</span>}
         {statusGit && !statusGit.repo && <span>sem git</span>}
         {current?.kind === 'text' && <span className={current.dirty ? 'is-dirty' : ''}>{current.dirty ? 'alterado' : `${current.content.split('\n').length} linhas · ${formatBytes(current.size)}`}</span>}
+        {current?.kind === 'text' && (
+          <button type="button" className="arq-save-btn" disabled={!current.dirty}
+            onClick={() => void save(current.key, editor.current?.getDoc() ?? current.content)}>
+            Salvar
+          </button>
+        )}
         <span>{saved ? `salvo há ${Math.max(0, Math.round((Date.now() - saved) / 1000))}s` : ''}</span>
       </footer>
 

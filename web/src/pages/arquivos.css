@@ -123,6 +123,9 @@
 .arq-status > span:last-child { border-right: 0; margin-left: auto; }
 .arq-status .arq-status-path { font-family: var(--mono); font-size: 11px; color: var(--fg); min-width: 0; }
 .arq-status .is-dirty { color: var(--git-modified); }
+.arq-save-btn { padding: 0 10px; height: 100%; border-right: 1px solid var(--line); color: var(--fg); }
+.arq-save-btn:hover:not(:disabled) { background: var(--hover); }
+.arq-save-btn:disabled { color: var(--fg2); cursor: default; }
 
 /* aviso */
 .arq-toast { position: fixed; right: 16px; bottom: 34px; z-index: 60; background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 4px; padding: 6px 12px; font-size: 12px; box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 70%, transparent); max-width: 60vw; }
