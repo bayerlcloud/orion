@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { User } from './api';
+import { claudeApi } from './claude/api';
+import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './claude/live';
+import { getOpenFile, subscribeOpenFile } from './openFile';
 
 /**
- * Painel lateral direito "Orion": chat com o agente do sistema, uma sessão contínua por colaborador.
- * Por enquanto só a UI (pedido do Danilo, 03/10/2026); o motor entra depois. As mensagens vivem só
- * na memória da página.
+ * Painel lateral direito "Orion": copilot com sessão Claude real (Agent SDK, tools Edit/Write
+ * inclusas). Uma sessão contínua por colaborador, guardada no localStorage — se a pessoa tem um
+ * arquivo aberto na aba Arquivos (ver openFile.ts), ele vai como contexto no início da mensagem e a
+ * sessão nasce no projeto desse arquivo (mesma worktree por usuário de qualquer sessão do /claude).
+ * Sem seletor de modo/modelo aqui de propósito: isso já existe em detalhe na página /claude; este
+ * painel é o atalho rápido, sempre em modo "aceita edição" (pedido do Danilo, 04/10/2026).
  */
-// ponytail: sem motor ainda; ligar a POST /api/orion-chat quando o agente existir.
-
-type Msg = { from: 'me' | 'orion'; text: string };
-
 const KEY = 'orion:painel-direito';
+const SESSAO_KEY = 'orion:painel-direito-sessao';
 // Evento global de alternar: o botão do canto (App.tsx, todas as páginas) e o botão dentro da barra
 // de abas do Claude (ClaudePage.tsx — pedido do Danilo, 04/10/2026: trocar os dois de lugar, ⋮ pro
 // canto e este botão pra dentro da barra) chamam `useOrionPanel()` cada um na sua própria instância;
@@ -41,30 +44,88 @@ export function useOrionPanel() {
 
 export function OrionPanel({ user }: { user: User }) {
   const nome = (user.name || user.email).split(' ')[0];
-  const [msgs, setMsgs] = useState<Msg[]>([
-    { from: 'orion', text: `Oi, ${nome}. Eu sou o Orion. Posso tirar dúvidas sobre o sistema, agendar tarefas e falar com o Claude por você.` },
-  ]);
+  const openFile = useSyncExternalStore(subscribeOpenFile, getOpenFile);
+  const [sessionId, setSessionId] = useState<string | null>(() => localStorage.getItem(SESSAO_KEY));
+  const [live, setLive] = useState<LiveState>(emptyLive());
   const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [msgs]);
+  const esRef = useRef<EventSource | null>(null);
 
-  function send() {
+  const events = toConvEvents(live);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [events.length, live.partialText]);
+
+  // Liga o stream da sessão contínua: ao montar (sessão já existe de uma visita anterior) e a cada
+  // troca de id (sessão nova criada pelo primeiro envio). Mesmo padrão de ClaudePage.tsx: buffer
+  // enquanto carrega o histórico, pra não perder eventos que cheguem nesse meio-tempo.
+  useEffect(() => {
+    esRef.current?.close(); esRef.current = null;
+    if (!sessionId) return;
+    let alive = true;
+    let buffer: any[] | null = [];
+    const es = new EventSource(`/api/claude/sessions/${sessionId}/stream`);
+    es.onmessage = (m) => {
+      try {
+        const ev = JSON.parse(m.data);
+        if (buffer) { buffer.push(ev); return; }
+        setLive(l => applyLive(l, ev));
+      } catch { /* ignora */ }
+    };
+    es.onopen = () => {
+      buffer = buffer ?? [];
+      claudeApi.get(sessionId).then(r => {
+        if (!alive) return;
+        const pending = buffer ?? []; buffer = null;
+        setLive(pending.reduce((st, ev) => applyLive(st, ev), fromRows(r.events, r.session.status, r.pending)));
+      }).catch(() => { buffer = null; });
+    };
+    esRef.current = es;
+    return () => { alive = false; es.close(); };
+  }, [sessionId]);
+
+  async function send() {
     const t = text.trim();
-    if (!t) return;
-    setText('');
-    setMsgs(m => [...m, { from: 'me', text: t }, { from: 'orion', text: 'Ainda estou sem motor: por enquanto só a tela existe.' }]);
+    if (!t || sending) return;
+    setText(''); setErro(null); setSending(true);
+    const prompt = openFile ? `[arquivo aberto no editor: ${openFile.rel}]\n\n${t}` : t;
+    try {
+      if (!sessionId) {
+        const r = await claudeApi.create({ project_id: openFile?.rootId ?? null, prompt, permission_mode: 'acceptEdits' });
+        localStorage.setItem(SESSAO_KEY, r.id);
+        setSessionId(r.id);
+      } else {
+        await claudeApi.send(sessionId, { prompt, permission_mode: 'acceptEdits' });
+      }
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
     <aside className="orion-panel">
       <header className="orion-panel-head">Orion</header>
       <div className="orion-panel-msgs">
-        {msgs.map((m, i) => <div key={i} className={`orion-msg is-${m.from}`}>{m.text}</div>)}
+        {!events.length && !live.messages.length && (
+          <div className="orion-msg is-orion">Oi, {nome}. Eu sou o Orion. Posso tirar dúvidas, editar o arquivo que você tiver aberto na aba Arquivos, ou falar com o Claude por você.</div>
+        )}
+        {events.map(e => {
+          if (e.kind === 'user') return <div key={e.id} className="orion-msg is-me">{e.text}</div>;
+          if (e.kind === 'text') return <div key={e.id} className="orion-msg is-orion">{e.text}</div>;
+          if (e.kind === 'tool') return <div key={e.id} className="orion-msg is-tool">{e.label}</div>;
+          if (e.kind === 'busy') return <div key={e.id} className="orion-msg is-tool">pensando…</div>;
+          if (e.kind === 'result' && !e.ok) return <div key={e.id} className="orion-msg is-erro">{e.error ?? 'erro'}</div>;
+          return null;
+        })}
+        {erro && <div className="orion-msg is-erro">{erro}</div>}
         <div ref={endRef} />
       </div>
+      {openFile && <div className="orion-panel-contexto">arquivo aberto: {openFile.rel}</div>}
       <div className="orion-panel-input">
         <textarea rows={2} placeholder="Pergunte ao Orion…" value={text} onChange={e => setText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} />
       </div>
     </aside>
   );
