@@ -152,3 +152,20 @@ Regra de toda onda: código vem pela skill `migrar` (um slug por pasta), `.env` 
   projeto próprio `instaanalyser`. Pasta `tools` apagada da c1 com backup.
 - `vps-backup`: era só o código-fonte de dev; o cron real usa `/root/vps-backup` no host,
   independente e intocado. Pasta da c1 apagada com backup.
+
+### code-server apagado em 04/10/2026
+- Container `stack-code-server-1` parado e removido. Workspace estava essencialmente vazio
+  (3 zips antigos, 1 nota de UI obsoleta, pasta `notes` vazia) — backup em
+  `/srv/migracao/code-server/arquivo/workspace-residual-2026-10-04.tgz`.
+- Volumes `stack_codeserver_config` (27 GB, quase tudo cache/extensões, conteúdo real já
+  extraído ao longo da migração) e `codeserver_config` (órfão, vazio) removidos.
+  **Disco da c1 caiu de 82% para 55%.**
+- Caddy: blocos `dev.bayerl.cloud`/`code.bayerl.cloud` (a própria IDE) e `wt01.bayerl.cloud`
+  (já não tinha nada escutando) removidos. DNS `dev`, `code`, `wt01`, `brandspace-prod` apagados.
+- Sobraram ~12 referências a `code-server:PORTA` no Caddyfile da c1, todas órfãs (domínio já
+  migrado pro DNS da c3, ou processo já morto) — inofensivas, ficam pra uma limpeza fina depois.
+- **`mundomaker.bayerl.cloud` continua no ar**: a landing `/encontro/*` é servida direto pelo
+  Caddy a partir de `/srv/pages`, nunca dependeu do container do code-server. Só os endpoints
+  dinâmicos `/mundomaker/api` e `/admin` (já mortos desde a remoção do `mundomaker-leads`) ficaram
+  ainda mais mortos.
+- Testado depois de apagar: mundomaker, buenas, cms, ralab e seo, todos no ar normal.
