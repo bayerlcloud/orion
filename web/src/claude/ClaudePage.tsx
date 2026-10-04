@@ -18,6 +18,7 @@ import SessionMenu from './SessionMenu';
 import { Pencil } from './icons';
 import './claude.css';
 import { confirmar, perguntar } from '../dialogo';
+import { IcoPainelDireito, useOrionPanel } from '../OrionPanel';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
@@ -69,6 +70,7 @@ export default function ClaudePage() {
   useEffect(() => { document.body.dataset.claudeSide = sideHidden ? 'hidden' : 'shown'; return () => { delete document.body.dataset.claudeSide; }; }, [sideHidden]);
   // Modo compacto (menu ⋮): esconde ferramentas e pensamento, só pergunta e resposta final. Lembra no navegador.
   const [compacto, setCompacto] = useState(() => localStorage.getItem('orion.claudeCompacto') === '1');
+  const [painelOpen, togglePainel] = useOrionPanel();
   const toggleCompacto = () => setCompacto(c => { localStorage.setItem('orion.claudeCompacto', c ? '0' : '1'); return !c; });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [live, setLive] = useState<Record<string, LiveState>>({});
@@ -647,8 +649,12 @@ export default function ClaudePage() {
           <span className="cc-tab-actions">
             <button className="cc-icon" title="Aba anterior" disabled={tabs.length < 2} onClick={() => stepTab(-1)}><ArrowLeft size={13} /></button>
             <button className="cc-icon" title="Próxima aba" disabled={tabs.length < 2} onClick={() => stepTab(1)}><ArrowRight size={13} /></button>
+            {/* Trocado de lugar com o ⋮ (pedido do Danilo, 04/10/2026): este botão entra na barra,
+                o ⋮ vai pro canto fixo onde ele estava (ver cc-smenu-corner em claude.css/App.tsx). */}
+            <button className={`cc-icon ${painelOpen ? 'is-on' : ''}`} title={painelOpen ? 'Fechar o Orion' : 'Abrir o Orion'} onClick={togglePainel}><IcoPainelDireito open={painelOpen} /></button>
             {/* Tudo o mais fica no menu ⋮ (preview do usuário, agentes, renomear, parar, skills, permissões, plugins). */}
             <SessionMenu
+              corner
               topo={activeProject ? <PreviewPublico projectId={activeProject.id} /> : undefined}
               sessao={[
                 { icon: <Eye size={15} />, label: 'Preview do usuário', desc: 'Seu endereço pessoal, mostrando a sua worktree neste projeto', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },

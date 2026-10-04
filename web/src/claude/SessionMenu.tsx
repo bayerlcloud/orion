@@ -7,7 +7,7 @@ type Item = { icon: ReactNode; label: string; desc: string; onClick: () => void;
  * Menu "⋮" da barra das abas: junta num lugar só as ações da sessão e as configurações do Claude
  * (antes eram 8 ícones soltos na barra). Fecha com Esc, clique fora ou ao escolher.
  */
-export default function SessionMenu({ sessao, topo }: { sessao: Item[]; topo?: ReactNode }) {
+export default function SessionMenu({ sessao, topo, corner }: { sessao: Item[]; topo?: ReactNode; corner?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function SessionMenu({ sessao, topo }: { sessao: Item[]; topo?: R
     </button>
   );
   return (
-    <span className="cc-smenu" ref={ref}>
+    <span className={`cc-smenu ${corner ? 'cc-smenu-corner' : ''}`} ref={ref}>
       <button type="button" className={`cc-icon ${open ? 'is-on' : ''}`} title="Mais ações" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}><Dots size={14} /></button>
       {open && (
         <div className="cc-smenu-pop" role="menu">
