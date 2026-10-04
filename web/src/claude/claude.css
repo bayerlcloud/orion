@@ -914,8 +914,12 @@
 .cc-jump-icon { transform: rotate(180deg); width: 18px; height: 18px; }
 @media (max-width: 800px) { .cc-jump { width: 36px; height: 36px; } }
 
-/* Ditado: transcrevendo no servidor (entre parar a gravação e o texto chegar). */
-.cc-mic.is-busy .cc-mic-icon { animation: cc-pulse 1s ease-in-out infinite; }
+/* Ditado: transcrevendo no servidor (entre parar a gravação e o texto chegar) — o próprio ícone do
+   microfone vira um spinner (`.cc-spinner`, pedido do Danilo, 04/10/2026), não só pulsa como gravando. */
+/* Marcador de onde o ditado nasce: asterisco pulsando no campo, na posição do cursor de quando a
+   gravação começou (não acompanha o cursor depois, pra não complicar — ver startMic em Composer.tsx).
+   Fica até o texto final chegar e tomar o lugar dele (gravando e transcrevendo, ver render). */
+.cc-mic-marker { position: absolute; pointer-events: none; color: var(--cc-fg2); animation: cc-pulse 1.1s ease-in-out infinite; }
 
 /* Lista lateral no modo "ordem das abas": sessões abertas arrastáveis para reordenar as abas. */
 .cc-item-drag { cursor: grab; }
