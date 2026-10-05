@@ -13,7 +13,7 @@ export type ApiSession = {
    * de UMA sessão (`SELECT s.*`), não na listagem; ver PARIDADE-marketplace.md. */
   output_style?: string | null;
 };
-export type Project = { id: number; slug: string; name: string; path: string; rules: string | null };
+export type Project = { id: number; slug: string; name: string; path: string; rules: string | null; temPreview: boolean; productionUrl: string | null };
 /** Pasta nomeada manual de sessões (`GET /api/claude/session-groups`) — ver PARIDADE.md item 12 da seção 13. */
 export type ApiSessionGroup = { id: string; name: string; created_at: string };
 export type Mode = 'acceptEdits' | 'default' | 'plan' | 'auto';
