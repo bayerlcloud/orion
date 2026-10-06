@@ -547,8 +547,22 @@ function useDisplayName(name: string): string {
   return full;
 }
 
-function UserName({ name }: { name: string }) {
-  return <div className="cc-user-name">{useDisplayName(name)}</div>;
+function UserName({ name, when }: { name: string; when?: number }) {
+  return (
+    <div className="cc-user-name">
+      {useDisplayName(name)}
+      {when !== undefined && <span className="cc-user-when">{formatQuando(when)}</span>}
+    </div>
+  );
+}
+
+/** Data + hora de envio, pt-BR: "06/10 17:15" (ano só se diferente do atual). */
+function formatQuando(when: number): string {
+  const d = new Date(when);
+  const comAno = d.getFullYear() !== new Date().getFullYear();
+  const data = d.toLocaleDateString('pt-BR', comAno ? { day: '2-digit', month: '2-digit', year: 'numeric' } : { day: '2-digit', month: '2-digit' });
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `${data} ${hora}`;
 }
 
 function UserAvatar({ name }: { name: string }) {
@@ -760,7 +774,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
                 {m && <UserAvatar name={m[1]} />}
                 <div className="cc-user-body">
-                  {m && <UserName name={m[1]} />}
+                  {m && <UserName name={m[1]} when={e.when} />}
                   {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
                   {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
                 </div>

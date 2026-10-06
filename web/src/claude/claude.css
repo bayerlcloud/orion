@@ -160,6 +160,7 @@
 .cc-user-avatar { position: relative; width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cc-user-name { font-size: 12px; font-weight: 600; color: var(--cc-fg); line-height: 22px; }
+.cc-user-when { margin-left: 6px; font-size: 10px; font-weight: 400; color: var(--cc-fg2); }
 /* Card da mensagem do usuário: largura toda, fundo mais escuro que a tela e avatar dentro (pedido do
    Danilo em 30/09/2026). Grid: avatar numa coluna, nome e texto na outra, alinhados. */
 .cc-user { --user-bg: color-mix(in srgb, var(--cc-bg) 78%, #000); display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 10px; position: relative; width: 100%; min-width: 0; border: 1px solid color-mix(in srgb, var(--cc-line) 70%, transparent); background: var(--user-bg); border-radius: 10px; padding: 10px 12px 14px; white-space: pre-wrap; word-break: break-word; overflow: hidden; user-select: text; box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 3%, transparent); }
