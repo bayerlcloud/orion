@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { makePolicyHook, type BackupFn } from './policy.js';
+import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { makeStopMemoriaHook, novoEstadoTurno, registrarToolUse, sessionStartMemoriaHook, type EstadoTurno } from './memoriaGatilhos.js';
 import { readFile } from 'node:fs/promises';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
@@ -139,6 +140,8 @@ export type TurnParams = {
   backupSql?: BackupFn;
   /** Integração por turno (server/integracao/turno.ts): antes do SDK e no fim do turno (ok = terminou sem erro). */
   ganchos?: { antes?: () => Promise<void>; depois?: (ok: boolean) => Promise<void>; publicador?: unknown };
+  /** Piloto Laya (layaHook.ts), montado em routes/claude.ts (precisa de app.pool, que o Runner não tem). Ausente = sem triagem. */
+  layaHook?: HookCallback;
 };
 
 /**
@@ -440,6 +443,7 @@ export class Runner {
         PreToolUse: [{ hooks: [makePolicyHook(p.backupSql, this.deps.store.rootLiberado ? () => this.deps.store.rootLiberado!(id) : undefined, !!p.ganchos?.publicador)] }],
         Stop: [{ hooks: [makeStopMemoriaHook(turno)] }],
         SessionStart: [{ matcher: 'compact', hooks: [sessionStartMemoriaHook] }],
+        ...(p.layaHook ? { UserPromptSubmit: [{ hooks: [p.layaHook] }] } : {}),
       },
       abortController: abort,
       includePartialMessages: true,
