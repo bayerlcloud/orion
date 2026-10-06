@@ -33,7 +33,7 @@ import { ganchosDaSessao } from '../integracao/turno.js';
 import { orionPublicarServer } from '../integracao/publicarTool.js';
 import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
 import { branchAtual } from '../tasks/git.js';
-import { slugPessoa } from '../preview/model.js';
+import { slugPessoa, temPreview } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
 import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
@@ -293,8 +293,11 @@ export async function claudeRoutes(app: FastifyInstance) {
   });
 
   app.get('/api/claude/projects', async () => {
-    const { rows } = await app.pool.query('SELECT id, slug, name, path, rules FROM projects ORDER BY id');
-    return { projects: rows };
+    const { rows } = await app.pool.query<{ id: number; slug: string; name: string; path: string; rules: string | null; sub: string | null; production_url: string | null }>(
+      "SELECT id, slug, name, path, rules, meta->>'preview_dir' AS sub, meta->>'production_url' AS production_url FROM projects ORDER BY id");
+    const projects = await Promise.all(rows.map(async ({ sub, production_url, ...r }) =>
+      ({ ...r, temPreview: await temPreview(r.path, sub), productionUrl: production_url })));
+    return { projects };
   });
 
   // Skills/hooks do projeto e regras de permissão: restauradas em 01/10/2026 (sumiram sem querer no commit 690b817).

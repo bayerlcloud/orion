@@ -657,7 +657,9 @@ export default function ClaudePage() {
               corner
               topo={activeProject ? <PreviewPublico projectId={activeProject.id} /> : undefined}
               sessao={[
-                { icon: <Eye size={15} />, label: 'Preview do usuário', desc: 'Seu endereço pessoal, mostrando a sua worktree neste projeto', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
+                activeProject && !activeProject.temPreview
+                  ? { icon: <Eye size={15} />, label: 'Ver produção', desc: 'Projeto estático, sem preview ao vivo', hidden: !activeProject.productionUrl, onClick: () => window.open(activeProject.productionUrl!, '_blank') }
+                  : { icon: <Eye size={15} />, label: 'Preview do usuário', desc: 'Seu endereço pessoal, mostrando a sua worktree neste projeto', disabled: !activeId || isDraft(activeId), onClick: () => window.open(`/api/preview/open?session=${encodeURIComponent(activeId!)}`, '_blank') },
                 { icon: <Filter size={15} />, label: compacto ? 'Mostrar os passos' : 'Só pergunta e resposta', desc: compacto ? 'Volta a mostrar ferramentas (Bash, Edit…) e pensamento' : 'Esconde ferramentas e pensamento; fica só sua mensagem e a resposta final', onClick: toggleCompacto },
                 { icon: <AgentMapIcon size={15} />, label: 'Mapa de agentes', desc: 'Subagentes desta sessão, tempo e tokens', disabled: !activeId, onClick: () => setAgentMapOpen(true) },
                 { icon: <Pencil size={15} />, label: 'Renomear sessão', desc: 'Troca o nome que aparece na aba e na lista', disabled: !activeId || isDraft(activeId), onClick: rename },
