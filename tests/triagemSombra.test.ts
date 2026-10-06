@@ -31,6 +31,7 @@ describe('gravarTriagemSombra', () => {
     });
     const ins = calls.find((c) => c.sql.includes('INSERT INTO triagem_sombra'))!;
     expect(ins.sql).not.toMatch(/prompt/i);
-    expect(ins.params).toEqual(['s1', ts, 180, { injecao: { label: 'nao', confidence: 0.9 } }, null, null]);
+    // jsonb: stringify explícito (convenção do repo, ver server/claude/store.ts appendEvent)
+    expect(ins.params).toEqual(['s1', ts, 180, JSON.stringify({ injecao: { label: 'nao', confidence: 0.9 } }), null, null]);
   });
 });

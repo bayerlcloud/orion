@@ -32,6 +32,6 @@ export type TriagemSombraRow = {
 export async function gravarTriagemSombra(pool: Pool, row: TriagemSombraRow): Promise<void> {
   await pool.query(
     'INSERT INTO triagem_sombra (sessao_id, ts, latencia_ms, respostas, modelo_usado, esforco_usado) VALUES ($1, $2, $3, $4, $5, $6)',
-    [row.sessaoId, row.ts, row.latenciaMs, row.respostas, row.modeloUsado, row.esforcoUsado],
+    [row.sessaoId, row.ts, row.latenciaMs, JSON.stringify(row.respostas), row.modeloUsado, row.esforcoUsado],
   );
 }
