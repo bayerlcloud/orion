@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { looksLikeClaudeToken, maskToken, sdkEnv } from '../server/settings';
+import type { Pool } from 'pg';
+import { KEYS, getSetting, looksLikeClaudeToken, maskToken, sdkEnv } from '../server/settings';
+
+describe('KEYS.layaAtivo', () => {
+  it('lê a chave de liga/desliga do piloto Laya sem deploy', async () => {
+    const pool = { query: async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain('SELECT value FROM settings WHERE key = $1');
+      expect(params).toEqual([KEYS.layaAtivo]);
+      return { rows: [{ value: '1' }], rowCount: 1 };
+    } } as unknown as Pool;
+    expect(KEYS.layaAtivo).toBe('laya_ativo');
+    expect(await getSetting(pool, KEYS.layaAtivo)).toBe('1');
+  });
+});
 
 describe('token do Claude', () => {
   it('aceita formato plausível e recusa lixo', () => {
