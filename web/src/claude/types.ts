@@ -23,7 +23,8 @@ export type AskQuestion = { header?: string; question: string; multiSelect?: boo
 export type UserAttachment = { kind: 'image' | 'file'; name: string; media_type?: string; path?: string };
 
 export type ConvEvent =
-  | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[] }
+  /** `when`: `_when` real da mensagem (ver reduceSdkMessages), pra mostrar data/hora de envio. */
+  | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[]; when?: number }
   /**
    * `interrupted`: rótulo amigável ("Interrompido"/"Ferramenta interrompida") quando este texto é o
    * que restou de uma resposta cortada por um stop manual (botão Parar) — distinto de erro: renderiza

@@ -113,9 +113,10 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
     if (m.type === 'user') {
       const c = m.message.content;
       const attachments = m.message.attachments;
-      if (typeof c === 'string') { if (c.trim() || attachments?.length) out.push({ id: nid(), kind: 'user', text: c, attachments }); continue; }
+      const when = typeof mWhen === 'number' ? mWhen : undefined;
+      if (typeof c === 'string') { if (c.trim() || attachments?.length) out.push({ id: nid(), kind: 'user', text: c, attachments, when }); continue; }
       for (const b of c) {
-        if (b.type === 'text' && b.text.trim()) out.push({ id: nid(), kind: 'user', text: b.text, attachments });
+        if (b.type === 'text' && b.text.trim()) out.push({ id: nid(), kind: 'user', text: b.text, attachments, when });
         else if (b.type === 'tool_result') {
           const idx = toolIndex.get(b.tool_use_id);
           if (idx === undefined) continue;
