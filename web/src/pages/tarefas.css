@@ -204,6 +204,11 @@
   color: var(--fg);
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
+.tk-chip.is-proj {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  font-weight: 600;
+}
 
 /* ===== selos de integração ===== */
 .tk-badge {
