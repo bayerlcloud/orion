@@ -220,7 +220,7 @@ export function curadoriaServer(pool: Pool, stats: CuradorStats, log: (msg: stri
           tipo: z.enum(['promocao', 'reescrita', 'delecao', 'conflito', 'reescopo']).describe('tipo da proposta'),
           memoria_ids: z.array(z.number().int()).describe('ids das memórias envolvidas'),
           texto: z.string().optional().describe('texto proposto (obrigatório na reescrita)'),
-          resumo: z.string().optional().describe('na reescrita: resumo novo de até 500 caracteres, coerente com o texto'),
+          resumo: z.string().optional().describe('na reescrita: resumo novo de até 500 caracteres, coerente com o texto. Desenvolva: contexto, o que mudou e por que importa, não uma frase telegráfica.'),
           escopo_novo: z
             .object({
               scope_project_id: z.number().int().positive().optional().describe('id do projeto dono da memória'),

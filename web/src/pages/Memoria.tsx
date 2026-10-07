@@ -369,7 +369,6 @@ export default function Memoria({ user }: { user: User }) {
                         {curExpandida === m.id && (
                           <div className="mem-cur-resumo">
                             <p className="small">{curResumo[m.id] ?? 'carregando…'}</p>
-                            <button className="link small" onClick={() => abrir(m.id, true)}>abrir memória completa</button>
                           </div>
                         )}
                       </div>
