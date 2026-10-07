@@ -240,6 +240,8 @@ export default function DashProjetos({ clock }: { clock: number }) {
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
+  const [minimizado, setMinimizado] = useState(() => localStorage.getItem('dash-projetos-min') === '1');
+  useEffect(() => { localStorage.setItem('dash-projetos-min', minimizado ? '1' : '0'); }, [minimizado]);
 
   async function carregar(refresh = false) {
     setCarregando(true);
@@ -254,16 +256,18 @@ export default function DashProjetos({ clock }: { clock: number }) {
   return (
     <section>
       <h2>
-        <span>Projetos</span>
+        <button className="pj-min" onClick={() => setMinimizado(m => !m)} title={minimizado ? 'expandir' : 'minimizar'}>
+          <span className={`pj-min-seta${minimizado ? ' fechado' : ''}`}>▾</span> Projetos
+        </button>
         <span className="muted">
           {dados ? `${lista.length} projetos · coletado ${agoIso(dados.coletado, clock)} · ` : ''}
           <button className="pj-refresh" onClick={() => void carregar(true)} disabled={carregando}>{carregando ? 'coletando…' : 'atualizar'}</button>
         </span>
       </h2>
-      {erro && <div className="dash-erro">{erro}</div>}
-      {!dados ? <div className="vazio">{carregando ? 'coletando git, bancos, backups e produção…' : '—'}</div> : (
+      {!minimizado && erro && <div className="dash-erro">{erro}</div>}
+      {!minimizado && (!dados ? <div className="vazio">{carregando ? 'coletando git, bancos, backups e produção…' : '—'}</div> : (
         <div className="pj-cards">{lista.map(x => <Card key={x.id} f={x} clock={clock} onOpen={() => setAberto(x.id)} />)}</div>
-      )}
+      ))}
       {f && <Detalhe key={f.id} f={f} clock={clock} onClose={() => setAberto(null)} onSaved={() => void carregar(true)} />}
     </section>
   );
