@@ -81,6 +81,7 @@ function DiffView({ diff }: { diff: string }) {
 export default function Tarefas({ user }: { user: User }) {
   const [meta, setMeta] = useState<Meta>({ projects: [], users: [] });
   const [projectId, setProjectId] = useState<number | null>(null);
+  const [verTodas, setVerTodas] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showArquivadas, setShowArquivadas] = useState(false);
   const [erro, setErro] = useState('');
@@ -112,13 +113,13 @@ export default function Tarefas({ user }: { user: User }) {
       .catch((e: any) => setErro(e.message));
   }, []);
 
-  async function loadTasks(pid: number | null) {
-    if (!pid) {
+  async function loadTasks(pid: number | null, todas: boolean) {
+    if (!todas && !pid) {
       setTasks([]);
       return;
     }
     try {
-      const r = await api<{ tasks: Task[] }>(`/api/tasks?project_id=${pid}`);
+      const r = await api<{ tasks: Task[] }>(todas ? '/api/tasks' : `/api/tasks?project_id=${pid}`);
       setTasks(r.tasks);
     } catch (e: any) {
       setErro(e.message);
@@ -126,9 +127,9 @@ export default function Tarefas({ user }: { user: User }) {
   }
 
   useEffect(() => {
-    loadTasks(projectId);
+    loadTasks(projectId, verTodas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, verTodas]);
 
   function flash(kind: 'ok' | 'bad', text: string) {
     setToast({ kind, text });
@@ -152,7 +153,7 @@ export default function Tarefas({ user }: { user: User }) {
       setNGoal('');
       setNAssignee('');
       setNovaOpen(false);
-      await loadTasks(projectId);
+      await loadTasks(projectId, verTodas);
       flash('ok', 'Tarefa criada.');
     } catch (e: any) {
       flash('bad', e.message);
@@ -167,7 +168,7 @@ export default function Tarefas({ user }: { user: User }) {
         method: 'PATCH',
         body: JSON.stringify(body),
       });
-      await loadTasks(projectId);
+      await loadTasks(projectId, verTodas);
       if (r.warning) flash('bad', r.warning);
       return r.task;
     } catch (e: any) {
@@ -191,7 +192,7 @@ export default function Tarefas({ user }: { user: User }) {
     setIntegrating(true);
     try {
       const r = await api<{ task: Task; integration_status: string }>(`/api/tasks/${id}/integrate`, { method: 'POST' });
-      await loadTasks(projectId);
+      await loadTasks(projectId, verTodas);
       const info = INTEG[r.integration_status as Exclude<IntegrationStatus, null>];
       flash(r.integration_status === 'integrada' ? 'ok' : 'bad', `Integração: ${info?.label ?? r.integration_status}`);
     } catch (e: any) {
@@ -217,7 +218,7 @@ export default function Tarefas({ user }: { user: User }) {
     try {
       await api(`/api/tasks/${id}`, { method: 'DELETE' });
       setSelId(null);
-      await loadTasks(projectId);
+      await loadTasks(projectId, verTodas);
       flash('ok', 'Tarefa excluída.');
     } catch (e: any) {
       flash('bad', e.message);
@@ -239,17 +240,22 @@ export default function Tarefas({ user }: { user: User }) {
         <h1>Tarefas</h1>
         <select
           className="tk-proj"
-          value={projectId ?? ''}
-          onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : null)}
+          value={verTodas ? 'todas' : projectId ?? ''}
+          onChange={(e) => {
+            if (e.target.value === 'todas') { setVerTodas(true); return; }
+            setVerTodas(false);
+            setProjectId(e.target.value ? Number(e.target.value) : null);
+          }}
         >
           {meta.projects.length === 0 && <option value="">sem projetos</option>}
+          <option value="todas">Todas as tarefas ativas</option>
           {meta.projects.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
           ))}
         </select>
-        <button className="tk-btn tk-primary" onClick={() => setNovaOpen((o) => !o)} disabled={!projectId}>
+        <button className="tk-btn tk-primary" onClick={() => setNovaOpen((o) => !o)} disabled={!projectId || verTodas}>
           + Nova tarefa
         </button>
         <label className="tk-toggle">
@@ -322,6 +328,7 @@ export default function Tarefas({ user }: { user: User }) {
                     <div className="tk-card-title">{t.title}</div>
                     {t.goal && <div className="tk-card-goal">{truncate(t.goal, 90)}</div>}
                     <div className="tk-card-foot">
+                      {verTodas && <span className="tk-chip is-proj">{t.project_name}</span>}
                       {t.assignee_name && <span className="tk-chip">{t.assignee_name}</span>}
                       {t.branch && <span className="tk-chip is-branch mono">{t.branch}</span>}
                       <IntegBadge s={t.integration_status} />
