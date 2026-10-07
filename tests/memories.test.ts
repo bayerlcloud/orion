@@ -85,24 +85,24 @@ describe('normalizeNota', () => {
 });
 
 describe('normalizeSummary', () => {
-  it('aceita até 144 caracteres', () => {
-    expect(normalizeSummary('a'.repeat(SUMMARY_MAX))).toHaveLength(144);
+  it(`aceita até ${SUMMARY_MAX} caracteres`, () => {
+    expect(normalizeSummary('a'.repeat(SUMMARY_MAX))).toHaveLength(SUMMARY_MAX);
     expect(normalizeSummary('')).toBe('');
     expect(normalizeSummary(undefined)).toBe('');
   });
-  it('recusa acima de 144', () => {
-    expect(() => normalizeSummary('a'.repeat(145))).toThrow(ValidationError);
+  it(`recusa acima de ${SUMMARY_MAX}`, () => {
+    expect(() => normalizeSummary('a'.repeat(SUMMARY_MAX + 1))).toThrow(ValidationError);
   });
 });
 
 describe('truncateSummary (versão tolerante da tool)', () => {
   it('mantém o que cabe', () => {
-    expect(truncateSummary('a'.repeat(144))).toHaveLength(144);
+    expect(truncateSummary('a'.repeat(SUMMARY_MAX))).toHaveLength(SUMMARY_MAX);
     expect(truncateSummary('curto')).toBe('curto');
   });
-  it('corta em 144 em vez de recusar', () => {
-    const t = truncateSummary('a'.repeat(200));
-    expect(t).toHaveLength(144);
+  it(`corta em ${SUMMARY_MAX} em vez de recusar`, () => {
+    const t = truncateSummary('a'.repeat(SUMMARY_MAX + 200));
+    expect(t).toHaveLength(SUMMARY_MAX);
     expect(t.endsWith('…')).toBe(true);
   });
 });

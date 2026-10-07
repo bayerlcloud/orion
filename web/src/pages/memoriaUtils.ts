@@ -3,7 +3,7 @@
 
 export type Level = 0 | 1 | 2 | 3 | 4;
 
-export const SUMMARY_MAX = 144;
+export const SUMMARY_MAX = 500;
 export const MAX_KEYWORDS = 4;
 export const NOTA_MIN = 1;
 export const NOTA_MAX = 10;
