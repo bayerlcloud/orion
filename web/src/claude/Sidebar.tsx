@@ -54,14 +54,16 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
             if (!txt) return;
             const overflow = txt.scrollWidth - btn.clientWidth;
             if (overflow > 0) {
-              txt.style.textOverflow = 'clip';
+              btn.style.textOverflow = 'clip';
               txt.style.transitionDuration = `${Math.max(0.4, overflow / 40)}s`;
               txt.style.transform = `translateX(-${overflow}px)`;
             }
           }}
           onMouseLeave={e => {
-            const txt = e.currentTarget.querySelector<HTMLElement>('.cc-item-name-text');
-            if (txt) { txt.style.transform = ''; txt.style.textOverflow = ''; }
+            const btn = e.currentTarget;
+            const txt = btn.querySelector<HTMLElement>('.cc-item-name-text');
+            btn.style.textOverflow = '';
+            if (txt) txt.style.transform = '';
           }}
         >
           <span className="cc-item-name-text">{s.title}</span>
