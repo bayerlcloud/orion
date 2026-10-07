@@ -19,7 +19,7 @@ export const WRITE_EVERY_MS = 60_000;
 export const HOST_LABEL = 'c3';
 export const HOST_IP = '217.76.55.249';
 
-type Log = { info: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void };
+export type Log = { info: (obj: unknown, msg?: string) => void; warn: (obj: unknown, msg?: string) => void };
 export type SamplerOptions = { procRoot?: string; tickMs?: number; log?: Log; label?: string; ip?: string; exec?: boolean };
 
 type Prev = { at: number; cpu: P.CpuTimes | null; disk: P.DiskCounters | null; net: P.NetCounters | null; procs: Map<number, P.PidStat> };
@@ -118,10 +118,7 @@ export class Sampler {
 
   private async ensureTable(): Promise<void> {
     if (!this.pool || this.tableOk) return;
-    this.tableOk = await ensureDashSamplesTable(this.pool);
-    if (!this.tableOk) {
-      this.log.warn({ }, 'dash: não criou dash_samples (segue só em memória)');
-    }
+    this.tableOk = await ensureDashSamplesTable(this.pool, this.log);
   }
 
   /** Só os contadores, para a primeira amostra já ter deltas. */
@@ -297,7 +294,7 @@ export class Sampler {
     try {
       await this.ensureTable();
       if (!this.tableOk) return;
-      await insertDashSample(this.pool, this.opts.label ?? HOST_LABEL, agg);
+      await insertDashSample(this.pool, this.opts.label ?? HOST_LABEL, agg, this.log);
     } catch (e) {
       this.log.warn({ err: String(e) }, 'dash: não gravou dash_samples');
     }
