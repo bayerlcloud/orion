@@ -131,14 +131,23 @@ export default function Dash() {
   }
 
   async function loadNow() {
+    const reqHost = hostRef.current;
     try {
-      const r = await api<Now>(`/api/dash/now?host=${hostRef.current}`);
+      const r = await api<Now>(`/api/dash/now?host=${reqHost}`);
+      if (hostRef.current !== reqHost) return; // host trocou antes da resposta chegar: descarta (não mistura dados)
       if (Array.isArray(r.series)) setSeries(r.series.slice(-RING));
       if (r.sample) { setNow(r.sample); setUpdatedAt(Date.now()); }
       setErro('');
-    } catch (e) { setErro((e as Error).message); }
+    } catch (e) { if (hostRef.current === reqHost) setErro((e as Error).message); }
   }
-  async function loadHist() { try { setHist(await api<History>(`/api/dash/history?hours=24&host=${hostRef.current}`)); } catch { /* fica sem histórico */ } }
+  async function loadHist() {
+    const reqHost = hostRef.current;
+    try {
+      const r = await api<History>(`/api/dash/history?hours=24&host=${reqHost}`);
+      if (hostRef.current !== reqHost) return; // idem: resposta tardia de host antigo, descarta
+      setHist(r);
+    } catch { /* fica sem histórico */ }
+  }
   async function loadSessions() { try { const r = await api<{ sessions: Session[] }>('/api/claude/sessions'); setSessions(Array.isArray(r.sessions) ? r.sessions : []); } catch { setSessions(s => s ?? []); } }
   async function loadActivity() { try { const r = await api<{ users: UserActivity[] }>('/api/dash/user-activity'); setActivity(Array.isArray(r.users) ? r.users : []); } catch { setActivity(a => a ?? []); } }
 

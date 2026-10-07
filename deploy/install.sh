@@ -15,6 +15,8 @@ fi
 install -m 644 deploy/orion-central.service /etc/systemd/system/orion-central.service
 install -m 644 deploy/orion-inventory.service /etc/systemd/system/orion-inventory.service
 install -m 644 deploy/orion-inventory.timer /etc/systemd/system/orion-inventory.timer
+install -m 644 deploy/orion-vps-remote.service /etc/systemd/system/orion-vps-remote.service
+install -m 644 deploy/orion-vps-remote.timer /etc/systemd/system/orion-vps-remote.timer
 install -m 644 deploy/orion-curador.service /etc/systemd/system/orion-curador.service
 install -m 644 deploy/orion-curador.timer /etc/systemd/system/orion-curador.timer
 install -m 644 deploy/orion-deploy.service /etc/systemd/system/orion-deploy.service
@@ -25,6 +27,8 @@ systemctl enable --now orion-central
 systemctl restart orion-central
 # Inventário: timer de hora em hora + uma coleta agora, para a aba "Instalado" já sair atualizada.
 systemctl enable --now orion-inventory.timer
+# Métricas remotas (c1, c2, hostinger): timer de 15 em 15 min.
+systemctl enable --now orion-vps-remote.timer
 # Curador da memória: uma rodada por dia (03:10 UTC), sem coleta inicial (gasta tokens).
 systemctl enable --now orion-curador.timer
 systemctl enable --now orion-deploy.path
