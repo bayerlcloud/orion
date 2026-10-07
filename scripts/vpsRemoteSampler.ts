@@ -34,6 +34,7 @@ async function enviarAlertaWhatsapp(texto: string): Promise<void> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ number: 'alertas@g.us', text: texto }),
+      signal: AbortSignal.timeout(5_000),
     });
   } catch (e: any) {
     console.log('aviso: falha ao enviar alerta por whatsapp:', e?.message ?? e);
