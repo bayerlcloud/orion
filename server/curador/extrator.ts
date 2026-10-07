@@ -120,7 +120,7 @@ export function extratorServer(q: MemQuery, ctx: { projetoId: number; ownerId: n
         {
           titulo: z.string().describe('Título curto'),
           corpo: z.string().describe('1 a 3 linhas, começando por quem e quando'),
-          resumo: z.string().optional().describe('Até 500 caracteres'),
+          resumo: z.string().optional().describe('Até 500 caracteres. Desenvolva: contexto, o que mudou e por que importa, não uma frase telegráfica.'),
           keywords: z.array(z.string()).optional().describe('Até 4'),
           autor_nome: z.string().optional().describe('Nome de quem falou (como aparece na transcrição)'),
           decisao: z.boolean().optional().describe('true só para decisão fechada explicitamente'),
