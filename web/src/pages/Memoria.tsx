@@ -138,6 +138,8 @@ export default function Memoria({ user }: { user: User }) {
   const [syncProj, setSyncProj] = useState<number | null>(null);
   const [curadoria, setCuradoria] = useState<Curadoria>({ pendentes: [], decididas: [] });
   const [curErro, setCurErro] = useState<{ id: number; msg: string } | null>(null);
+  const [curExpandida, setCurExpandida] = useState<number | null>(null);
+  const [curResumo, setCurResumo] = useState<Record<number, string>>({});
   const readerRef = useRef<HTMLDivElement>(null);
 
   async function loadCuradoria() {
@@ -189,6 +191,18 @@ export default function Memoria({ user }: { user: User }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, nivelFilter, scopeFilter]);
+
+  async function ampliarResumo(id: number) {
+    if (curExpandida === id) { setCurExpandida(null); return; }
+    setCurExpandida(id);
+    if (curResumo[id] != null) return;
+    try {
+      const r = await api<{ memory: Memory }>(`/api/memories/${id}`);
+      setCurResumo((m) => ({ ...m, [id]: r.memory.summary || '(sem resumo)' }));
+    } catch (e: any) {
+      setCurResumo((m) => ({ ...m, [id]: `erro ao carregar: ${e.message}` }));
+    }
+  }
 
   async function abrir(id: number, scroll = false) {
     setErro('');
@@ -344,14 +358,21 @@ export default function Memoria({ user }: { user: User }) {
                 {(p.payload.memorias?.length ?? 0) > 0 && (
                   <div className="mem-kw-line">
                     {p.payload.memorias!.map((m) => (
-                      <button
-                        key={m.id}
-                        className="mem-kw mem-cur-mem"
-                        onClick={() => abrir(m.id, true)}
-                        title={`abrir ${m.code}`}
-                      >
-                        {m.title} · nível {m.level}{m.nota != null ? ` · nota ${m.nota}` : ''}
-                      </button>
+                      <div key={m.id} className="mem-cur-mem-wrap">
+                        <button
+                          className="mem-kw mem-cur-mem"
+                          onClick={() => ampliarResumo(m.id)}
+                          title={`ampliar resumo de ${m.code}`}
+                        >
+                          {m.title} · nível {m.level}{m.nota != null ? ` · nota ${m.nota}` : ''}
+                        </button>
+                        {curExpandida === m.id && (
+                          <div className="mem-cur-resumo">
+                            <p className="small">{curResumo[m.id] ?? 'carregando…'}</p>
+                            <button className="link small" onClick={() => abrir(m.id, true)}>abrir memória completa</button>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
