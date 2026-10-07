@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import type { Pool } from 'pg';
 import * as P from './parse.js';
 import { aggregateMinute, toPoint } from './series.js';
+import { ensureDashSamplesTable, insertDashSample } from './schema.js';
 import type { ProcRow, Sample, SeriesPoint } from './types.js';
 
 const execFile = promisify(execFileCb);
@@ -117,11 +118,9 @@ export class Sampler {
 
   private async ensureTable(): Promise<void> {
     if (!this.pool || this.tableOk) return;
-    try {
-      await this.pool.query('CREATE TABLE IF NOT EXISTS dash_samples (ts timestamptz primary key default now(), data jsonb not null)');
-      this.tableOk = true;
-    } catch (e) {
-      this.log.warn({ err: String(e) }, 'dash: não criou dash_samples (segue só em memória)');
+    this.tableOk = await ensureDashSamplesTable(this.pool);
+    if (!this.tableOk) {
+      this.log.warn({ }, 'dash: não criou dash_samples (segue só em memória)');
     }
   }
 
@@ -298,8 +297,7 @@ export class Sampler {
     try {
       await this.ensureTable();
       if (!this.tableOk) return;
-      await this.pool.query('INSERT INTO dash_samples (ts, data) VALUES (now(), $1::jsonb) ON CONFLICT (ts) DO NOTHING', [JSON.stringify(agg)]);
-      await this.pool.query("DELETE FROM dash_samples WHERE ts < now() - interval '7 days'");
+      await insertDashSample(this.pool, this.opts.label ?? HOST_LABEL, agg);
     } catch (e) {
       this.log.warn({ err: String(e) }, 'dash: não gravou dash_samples');
     }
