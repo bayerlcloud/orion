@@ -56,6 +56,10 @@
 .dash-table .tag.solid { background: var(--fg); color: var(--bg); }
 .dash-table .tag.off { border-color: var(--muted); }
 
+.dash-hosttabs { display: flex; gap: 6px; margin-bottom: -16px; }
+.dash-hosttab { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 3px 10px; }
+.dash-hosttab.ativo { background: var(--fg); color: var(--bg); }
+
 .dash-rodape { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
 
 @media (max-width: 700px) {

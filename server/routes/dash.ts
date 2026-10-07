@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { coletarProjetos, type Ficha } from '../projetos/coletar.js';
 import { HOST_IP, HOST_LABEL, RING_SIZE, Sampler, TICK_MS } from '../dash/sampler.js';
+import { REMOTE_HOSTS } from '../dash/remoteHosts.js';
 
 const STAT_KEYS = ['cpu', 'iowait', 'load1', 'mem_used_pct', 'disk_util'] as const;
 
@@ -8,6 +9,12 @@ function clampInt(v: unknown, dflt: number, min: number, max: number): number {
   const x = Math.floor(Number(v));
   if (!Number.isFinite(x)) return dflt;
   return Math.max(min, Math.min(max, x));
+}
+
+// Valida ?host= contra c3 (sampler local) + REMOTE_HOSTS (Task 3); desconhecido/ausente cai pra c3.
+export function hostValido(h: unknown): string {
+  const hosts = ['c3', ...REMOTE_HOSTS.map(x => x.label)];
+  return typeof h === 'string' && hosts.includes(h) ? h : 'c3';
 }
 
 export async function dashRoutes(app: FastifyInstance) {
@@ -19,23 +26,29 @@ export async function dashRoutes(app: FastifyInstance) {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
   });
 
-  app.get<{ Querystring: { n?: string } }>('/api/dash/now', async (req) => {
+  app.get<{ Querystring: { n?: string; host?: string } }>('/api/dash/now', async (req) => {
     const n = clampInt(req.query.n, RING_SIZE, 1, RING_SIZE);
+    const host = hostValido(req.query.host);
+    if (host !== 'c3') {
+      const ip = REMOTE_HOSTS.find(x => x.label === host)?.ip ?? null;
+      return { host: { label: host, ip }, tick_ms: null, sample: null, series: [] };
+    }
     return { host: { label: HOST_LABEL, ip: HOST_IP }, tick_ms: TICK_MS, sample: sampler.latest(), series: sampler.series(n) };
   });
 
-  app.get<{ Querystring: { hours?: string } }>('/api/dash/history', async (req) => {
+  app.get<{ Querystring: { hours?: string; host?: string } }>('/api/dash/history', async (req) => {
     const hours = clampInt(req.query.hours, 24, 1, 24 * 7);
+    const host = hostValido(req.query.host);
     const empty = { hours, rows: [] as Record<string, unknown>[], stats: {} as Record<string, { max_24h: number | null; avg_7d: number | null }>, minutes_7d: 0 };
     try {
       const { rows } = await app.pool.query(
-        `SELECT ts, data FROM dash_samples WHERE ts > now() - $1::int * interval '1 hour' ORDER BY ts`, [hours]);
+        `SELECT ts, data FROM dash_samples WHERE host = $2 AND ts > now() - $1::int * interval '1 hour' ORDER BY ts`, [hours, host]);
       const sel = STAT_KEYS.map(k =>
         `max((data->>'${k}_max')::float) FILTER (WHERE ts > now() - interval '24 hours') AS ${k}_max_24h,
          max((data->>'${k}')::float)     FILTER (WHERE ts > now() - interval '24 hours') AS ${k}_avgmax_24h,
          avg((data->>'${k}')::float) AS ${k}_avg_7d`).join(',\n');
       const { rows: st } = await app.pool.query(
-        `SELECT count(*)::int AS minutes_7d, ${sel} FROM dash_samples WHERE ts > now() - interval '7 days'`);
+        `SELECT count(*)::int AS minutes_7d, ${sel} FROM dash_samples WHERE host = $1 AND ts > now() - interval '7 days'`, [host]);
       const s = st[0] ?? {};
       const stats: Record<string, { max_24h: number | null; avg_7d: number | null }> = {};
       for (const k of STAT_KEYS) {

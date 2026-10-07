@@ -1,0 +1,14 @@
+[Unit]
+Description=Orion – coleta remota de métricas das VPS (c1, c2, hostinger)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=danilo
+WorkingDirectory=/srv/orion-live
+Environment=ORION_REPO=/srv/orion
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion-live/dist/scripts/vpsRemoteSampler.js
+TimeoutStartSec=60
+Nice=10

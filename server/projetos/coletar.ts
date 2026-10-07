@@ -7,6 +7,7 @@ import tls from 'node:tls';
 import type { Pool } from 'pg';
 import { lerStatus } from '../deploy/estado.js';
 import { listarContasCloudflare } from '../tools/cloudflareAccounts.js';
+import { runSsh } from '../ssh.js';
 
 // Ficha de cada projeto para a seção Projetos do Dash. Tudo é lido na hora (git, arquivos do repo,
 // Cloudflare, SSH na c2) e cacheado pela rota; nada é gravado, a não ser o `meta` manual do projeto.
@@ -167,9 +168,8 @@ export function corpoDe(o: { pages: { conta: string; email: string } | null; ehO
 }
 
 async function backupsC2(): Promise<{ drive: string | null; dump: string | null }> {
-  const key = path.join(os.homedir(), '.ssh/fleet_ed25519');
   const cmd = `grep "backup c2 OK" /root/backups/backup-drive.log | tail -1; ls -t --time-style=+%FT%T%z -l /opt/supabase/backups/*.sql.gz 2>/dev/null | head -1 | awk '{print $6}'`;
-  const r = await run('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', '-i', key, 'root@212.47.70.170', cmd], '/', 15_000);
+  const r = await runSsh('212.47.70.170', cmd, 15_000);
   const [l1 = '', l2 = ''] = r.out.split('\n');
   const m = l1.match(/\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]/);
   return { drive: m ? new Date(m[1].replace(' ', 'T') + '+02:00').toISOString() : null, dump: l2 ? new Date(l2.replace(/(\d\d)(\d\d)$/, '$1:$2')).toISOString() : null };

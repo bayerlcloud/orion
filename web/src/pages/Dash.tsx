@@ -34,6 +34,15 @@ type Session = { id: string; user_id?: number; title?: string; status?: string; 
 const RING = 360;
 const LABEL = 'c3', IP = '217.76.55.249';
 
+type HostKey = 'c3' | 'c1' | 'c2' | 'hostinger';
+// Espelha server/dash/remoteHosts.ts (c3 é o sampler local, os outros vêm da coleta remota a cada 15 min).
+const HOSTS: { key: HostKey; label: string; ip: string }[] = [
+  { key: 'c3', label: LABEL, ip: IP },
+  { key: 'c1', label: 'c1', ip: '86.48.28.10' },
+  { key: 'c2', label: 'c2', ip: '212.47.70.170' },
+  { key: 'hostinger', label: 'hostinger', ip: '72.61.135.82' },
+];
+
 function num(v: unknown): number | null { return typeof v === 'number' && Number.isFinite(v) ? v : (typeof v === 'string' && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null); }
 
 function Spark({ values, minMax, max, className = 'card-spark', h = 38 }: { values: (number | null)[]; minMax?: number; max?: number; className?: string; h?: number }) {
@@ -98,10 +107,14 @@ export default function Dash() {
   const [live, setLive] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [clock, setClock] = useState(Date.now());
+  const [host, setHost] = useState<HostKey>('c3');
   const liveRef = useRef(false);
+  const hostRef = useRef<HostKey>('c3');
+  useEffect(() => { hostRef.current = host; }, [host]);
 
   function pushSample(s: Sample | null | undefined) {
-    if (!s) return;
+    // O stream SSE só existe para c3; se a pessoa estiver vendo outro host, ignora (não mistura amostras).
+    if (!s || hostRef.current !== 'c3') return;
     setNow(s);
     setUpdatedAt(Date.now());
     const t = typeof s.t === 'number' ? s.t : Date.now();
@@ -119,24 +132,34 @@ export default function Dash() {
 
   async function loadNow() {
     try {
-      const r = await api<Now>('/api/dash/now');
+      const r = await api<Now>(`/api/dash/now?host=${hostRef.current}`);
       if (Array.isArray(r.series)) setSeries(r.series.slice(-RING));
       if (r.sample) { setNow(r.sample); setUpdatedAt(Date.now()); }
       setErro('');
     } catch (e) { setErro((e as Error).message); }
   }
-  async function loadHist() { try { setHist(await api<History>('/api/dash/history?hours=24')); } catch { /* fica sem histórico */ } }
+  async function loadHist() { try { setHist(await api<History>(`/api/dash/history?hours=24&host=${hostRef.current}`)); } catch { /* fica sem histórico */ } }
   async function loadSessions() { try { const r = await api<{ sessions: Session[] }>('/api/claude/sessions'); setSessions(Array.isArray(r.sessions) ? r.sessions : []); } catch { setSessions(s => s ?? []); } }
   async function loadActivity() { try { const r = await api<{ users: UserActivity[] }>('/api/dash/user-activity'); setActivity(Array.isArray(r.users) ? r.users : []); } catch { setActivity(a => a ?? []); } }
 
+  // Troca de host: zera série/histórico (não mistura sparkline de hosts diferentes) e busca de novo.
+  // Também cobre a carga inicial (host começa em 'c3').
   useEffect(() => {
-    void loadNow(); void loadHist(); void loadSessions(); void loadActivity();
+    setSeries([]); setHist(null); setNow(null);
+    void loadNow(); void loadHist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [host]);
+
+  useEffect(() => {
+    void loadSessions(); void loadActivity();
     api<{ user: { id: number; name: string; email: string } }>('/api/me').then(r => setMe(r.user)).catch(() => {});
     const hb = setInterval(() => setClock(Date.now()), 1000);
     const histTimer = setInterval(loadHist, 5 * 60_000);
     const sessTimer = setInterval(loadSessions, 30_000);
     const activityTimer = setInterval(loadActivity, 60_000);
-    const pollTimer = setInterval(() => { if (!liveRef.current) void loadNow(); }, 15_000);
+    // Hosts remotos só ganham amostra nova a cada 15 min (timer do servidor); reusar o poll de 15s é
+    // inofensivo (a maioria das respostas repete) e mais simples que criar um segundo timer só pra eles.
+    const pollTimer = setInterval(() => { if (!liveRef.current || hostRef.current !== 'c3') void loadNow(); }, 15_000);
 
     let es: EventSource | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
@@ -170,7 +193,20 @@ export default function Dash() {
 
   const col = (k: string) => series.map(p => num(p[k]));
   const st = hist?.stats ?? {};
-  const s = now;
+  const hostMeta = HOSTS.find(h => h.key === host) ?? HOSTS[0];
+  const effectiveLive = live && host === 'c3';
+  // c1/c2/hostinger não têm sampler ao vivo: /api/dash/now devolve sample: null pra eles (server/routes/dash.ts).
+  // O que existe é a coleta remota de 15 em 15 min (scripts/vpsRemoteSampler.ts), que só aparece em
+  // /api/dash/history; por isso, pra host remoto, usamos a última linha do histórico como "amostra atual".
+  const lastRemoteRow = host !== 'c3' ? (hist?.rows?.[(hist.rows?.length ?? 0) - 1] as (Record<string, unknown> & { ts: string }) | undefined) : undefined;
+  const remoteSample: Sample | null = lastRemoteRow ? {
+    ts: lastRemoteRow.ts,
+    mem: { pct: num(lastRemoteRow.mem_used_pct) ?? undefined, swap_pct: num(lastRemoteRow.swap_pct) ?? undefined },
+    disk: { fs: { pct: num(lastRemoteRow.fs_pct) ?? undefined } },
+    docker: Array.isArray(lastRemoteRow.docker) ? lastRemoteRow.docker as Sample['docker'] : null,
+    errors: Array.isArray(lastRemoteRow.errors) ? lastRemoteRow.errors as string[] : undefined,
+  } : null;
+  const s = host === 'c3' ? now : remoteSample;
   const vcpus = s?.host?.vcpus ?? null;
   const load1 = s?.load?.l1 ?? null;
   const fs = s?.disk?.fs ?? null;
@@ -193,7 +229,7 @@ export default function Dash() {
     <div className="dash">
       <div className="dash-head">
         <h1><IcoDash size={22} className="dash-h1-ico" /> Dash</h1>
-        <span className={`dash-live${live ? '' : ' off'}`}>{live ? 'ao vivo' : 'polling 15 s'}</span>
+        <span className={`dash-live${effectiveLive ? '' : ' off'}`}>{effectiveLive ? 'ao vivo' : 'polling 15 s'}</span>
         <span className="muted small">{updatedAt ? `atualizado ${ago(clock - updatedAt)}` : 'aguardando a primeira amostra…'}</span>
         {s?.errors && s.errors.length > 0 && <span className="muted small">sondas com falha: {s.errors.join(', ')}</span>}
       </div>
@@ -235,10 +271,19 @@ export default function Dash() {
 
       <DashProjetos clock={clock} />
 
+      <div className="dash-hosttabs" role="tablist" aria-label="VPS">
+        {HOSTS.map(h => (
+          <button key={h.key} type="button" role="tab" aria-selected={host === h.key}
+            className={`dash-hosttab${host === h.key ? ' ativo' : ''}`} onClick={() => setHost(h.key)}>
+            {h.label}
+          </button>
+        ))}
+      </div>
+
       <section>
         <h2>
-          <span>Nossa VPS · {s?.host?.label ?? LABEL} · {s?.host?.ip ?? IP}</span>
-          <span className="muted">sparklines: {spanLabel} · amostra a cada 10 s</span>
+          <span>Nossa VPS · {hostMeta.label} · {hostMeta.ip}</span>
+          <span className="muted">{host === 'c3' ? `sparklines: ${spanLabel} · amostra a cada 10 s` : 'coleta remota a cada 15 min · sem sparkline de 10 s'}</span>
         </h2>
         <div className="dash-facts">
           <span><b>host</b> {s?.host?.hostname ?? '—'}</span>
