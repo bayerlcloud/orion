@@ -201,8 +201,8 @@ export default function Dash() {
   const lastRemoteRow = host !== 'c3' ? (hist?.rows?.[(hist.rows?.length ?? 0) - 1] as (Record<string, unknown> & { ts: string }) | undefined) : undefined;
   const remoteSample: Sample | null = lastRemoteRow ? {
     ts: lastRemoteRow.ts,
-    mem: { pct: num(lastRemoteRow.mem_used_pct), swap_pct: num(lastRemoteRow.swap_pct) },
-    disk: { fs: { pct: num(lastRemoteRow.fs_pct) } },
+    mem: { pct: num(lastRemoteRow.mem_used_pct) ?? undefined, swap_pct: num(lastRemoteRow.swap_pct) ?? undefined },
+    disk: { fs: { pct: num(lastRemoteRow.fs_pct) ?? undefined } },
     docker: Array.isArray(lastRemoteRow.docker) ? lastRemoteRow.docker as Sample['docker'] : null,
     errors: Array.isArray(lastRemoteRow.errors) ? lastRemoteRow.errors as string[] : undefined,
   } : null;
