@@ -6,7 +6,7 @@
 export const LEVELS = [0, 1, 2, 3, 4] as const;
 export type Level = (typeof LEVELS)[number];
 
-export const SUMMARY_MAX = 144;
+export const SUMMARY_MAX = 500;
 export const MAX_KEYWORDS = 4;
 export const NOTA_MIN = 1;
 export const NOTA_MAX = 10;
@@ -87,7 +87,7 @@ export function normalizeNota(level: number, v: unknown): number | null {
   return null;
 }
 
-/** Garante string e o limite de 144 caracteres do resumo (erro quando passa). */
+/** Garante string e o limite de SUMMARY_MAX caracteres do resumo (erro quando passa). */
 export function normalizeSummary(v: unknown): string {
   const s = typeof v === 'string' ? v : v == null ? '' : String(v);
   if (s.length > SUMMARY_MAX) {
@@ -96,7 +96,7 @@ export function normalizeSummary(v: unknown): string {
   return s;
 }
 
-/** Versão tolerante do resumo (tool orion-memory): corta em 144 em vez de recusar. */
+/** Versão tolerante do resumo (tool orion-memory): corta em SUMMARY_MAX em vez de recusar. */
 export function truncateSummary(v: unknown): string {
   const s = typeof v === 'string' ? v : v == null ? '' : String(v);
   return s.length > SUMMARY_MAX ? `${s.slice(0, SUMMARY_MAX - 1).trimEnd()}…` : s;
