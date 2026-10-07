@@ -880,11 +880,11 @@
 @media (prefers-reduced-motion: reduce) { .cc-loading span { animation: none; opacity: .6; } }
 
 /* Tela de escolha do projeto numa sessão nova: lista simples no centro do chat, Neutro por último. */
-.cc-pick-project { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 12vh auto 0; max-width: 360px; }
-.cc-pick-list { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.cc-pick-project { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 12vh auto 0; max-width: 640px; }
+.cc-pick-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; width: 100%; }
 .cc-pick-list button { text-align: left; padding: 9px 12px; border-radius: 6px; border: 1px solid var(--cc-line); background: var(--cc-bg2); color: var(--cc-fg); font: inherit; cursor: pointer; }
 .cc-pick-list button:hover { background: var(--cc-hover); }
-.cc-pick-list .is-neutro { margin-top: 8px; display: flex; justify-content: space-between; align-items: baseline; }
+.cc-pick-list .is-neutro { grid-column: 1 / -1; margin-top: 8px; display: flex; justify-content: space-between; align-items: baseline; }
 .cc-pick-list .is-neutro span { color: var(--cc-fg2); font-size: 12px; }
 
 /* Lista de sessões: selo do projeto (padrão único pra todos) e fotinho de quem criou. */
