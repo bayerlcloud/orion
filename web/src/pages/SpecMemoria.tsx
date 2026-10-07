@@ -68,7 +68,7 @@ function DiagramaDoisSistemas() {
       <rect x="450" y="10" width="340" height="175" rx="6" style={caixa} />
       <text x="464" y="34" style={tTitulo}>Lado B — tabela memories</text>
       <text x="464" y="52" style={tMono}>Postgres do painel</text>
-      <text x="464" y="76" style={tTexto}>· code, title, summary (144), body_md</text>
+      <text x="464" y="76" style={tTexto}>· code, title, summary (500), body_md</text>
       <text x="464" y="93" style={tTexto}>· level 0 a 4; nota 1 a 10 só no nível 4</text>
       <text x="464" y="110" style={tTexto}>· escopo, keywords, rewritable, rastreio</text>
       <text x="464" y="127" style={tTexto}>· embedding vector(384) (pgvector)</text>
@@ -203,7 +203,7 @@ export default function SpecMemoria() {
           <tr>
             <th>formato</th>
             <td>.md com frontmatter <code>name</code>, <code>description</code>, <code>type</code> (user | project | reference | feedback)</td>
-            <td><code>code</code>, <code>title</code>, <code>summary</code> (máx 144), <code>body_md</code>, <code>level</code> 0 a 4, <code>nota</code> 1 a 10 (só nível 4), <code>rewritable</code>, até 4 keywords, escopo universal/projeto/usuário, <code>embedding</code> vector(384)</td>
+            <td><code>code</code>, <code>title</code>, <code>summary</code> (máx 500), <code>body_md</code>, <code>level</code> 0 a 4, <code>nota</code> 1 a 10 (só nível 4), <code>rewritable</code>, até 4 keywords, escopo universal/projeto/usuário, <code>embedding</code> vector(384)</td>
           </tr>
           <tr>
             <th>como chega ao Claude</th>

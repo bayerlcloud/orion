@@ -551,7 +551,7 @@ export default function Memoria({ user }: { user: User }) {
                   rows={2}
                   value={draft.summary}
                   onChange={(e) => patch({ summary: e.target.value })}
-                  placeholder="Um resumo curto (até 144 caracteres)."
+                  placeholder="Um resumo curto (até 500 caracteres)."
                   disabled={!editavel}
                 />
               </label>

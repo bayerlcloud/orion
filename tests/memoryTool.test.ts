@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { atualizarMemoria, buscarMemorias, salvarMemoria, type MemQuery, type MemoryToolCtx } from '../server/claude/memoryTool.js';
 import type { Embedder } from '../server/memories/embed.js';
+import { SUMMARY_MAX } from '../server/memories/util.js';
 
 const ctx: MemoryToolCtx = { sessionId: 'sess-1', projectId: 1, userId: 1 };
 
@@ -228,14 +229,14 @@ describe('salvar', () => {
     expect(insert.params?.[8]).toBe(9);
   });
 
-  it('nível 3 nasce sem nota; resumo estoura 144 e é cortado; keywords passam de 4 e sobram 4', async () => {
+  it(`nível 3 nasce sem nota; resumo estoura ${SUMMARY_MAX} e é cortado; keywords passam de 4 e sobram 4`, async () => {
     const { q, calls } = fakeQuery((sql) => {
       if (sql.includes('WHERE code = $1')) return { rows: [], rowCount: 0 };
       return undefined;
     });
     const r = await salvarMemoria(q, ctx, {
       titulo: 'Painel único', corpo: 'c', nivel: 3,
-      resumo: 'a'.repeat(200),
+      resumo: 'a'.repeat(SUMMARY_MAX + 200),
       keywords: ['a', 'b', 'c', 'd', 'e'],
       escopo_projeto_id: 1,
     });
@@ -243,7 +244,7 @@ describe('salvar', () => {
     expect(r.nota).toBeNull();
     const insert = calls.find((c) => c.sql.includes('INSERT INTO memories'))!;
     const [, , resumo, , nivel, nota, keywords, escopoProjeto] = insert.params as any[];
-    expect(String(resumo)).toHaveLength(144);
+    expect(String(resumo)).toHaveLength(SUMMARY_MAX);
     expect(nivel).toBe(3);
     expect(nota).toBeNull();
     expect(keywords).toEqual(['a', 'b', 'c', 'd']);

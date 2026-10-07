@@ -413,7 +413,7 @@ export function orionMemoryServer(pool: Pool, ctx: MemoryToolCtx): McpSdkServerC
           titulo: z.string().describe('Título curto da memória'),
           corpo: z.string().describe('Corpo em markdown; micro-fato: 1 a 3 linhas'),
           nivel: z.number().int().min(2).max(4).optional().describe('2 regra, 3 decisão, 4 micro-fato (padrão 4)'),
-          resumo: z.string().optional().describe('Resumo de até 144 caracteres (é cortado se passar)'),
+          resumo: z.string().optional().describe('Resumo de até 500 caracteres (é cortado se passar)'),
           keywords: z.array(z.string()).optional().describe('Até 4 palavras-chave'),
           escopo: z.enum(['projeto', 'plataforma', 'pessoa']).optional().describe('projeto (padrão: o desta sessão), plataforma (vale para o painel inteiro e todos os projetos) ou pessoa (sobre o criador da sessão)'),
           escopo_projeto_id: z.number().int().optional().describe('id de OUTRO projeto, quando a memória não é do projeto desta sessão'),
@@ -434,7 +434,7 @@ export function orionMemoryServer(pool: Pool, ctx: MemoryToolCtx): McpSdkServerC
         {
           code: z.string().describe('code da memória (do buscar)'),
           titulo: z.string().optional(),
-          resumo: z.string().optional().describe('Até 144 caracteres'),
+          resumo: z.string().optional().describe('Até 500 caracteres'),
           corpo: z.string().optional().describe('Corpo novo completo em markdown (substitui o atual)'),
           keywords: z.array(z.string()).optional().describe('Até 4 palavras-chave (substitui as atuais)'),
           estado: z.enum(['ativa', 'substituida']).optional().describe('substituida = aposentar; ativa = reativar'),

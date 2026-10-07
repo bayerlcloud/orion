@@ -87,7 +87,7 @@ export function normalizeNota(level: number, v: unknown): number | null {
   return null;
 }
 
-/** Garante string e o limite de 144 caracteres do resumo (erro quando passa). */
+/** Garante string e o limite de SUMMARY_MAX caracteres do resumo (erro quando passa). */
 export function normalizeSummary(v: unknown): string {
   const s = typeof v === 'string' ? v : v == null ? '' : String(v);
   if (s.length > SUMMARY_MAX) {
@@ -96,7 +96,7 @@ export function normalizeSummary(v: unknown): string {
   return s;
 }
 
-/** Versão tolerante do resumo (tool orion-memory): corta em 144 em vez de recusar. */
+/** Versão tolerante do resumo (tool orion-memory): corta em SUMMARY_MAX em vez de recusar. */
 export function truncateSummary(v: unknown): string {
   const s = typeof v === 'string' ? v : v == null ? '' : String(v);
   return s.length > SUMMARY_MAX ? `${s.slice(0, SUMMARY_MAX - 1).trimEnd()}…` : s;
