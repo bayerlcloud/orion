@@ -278,8 +278,6 @@ export default function Dash() {
         </div>
       </section>
 
-      <DashProjetos clock={clock} />
-
       <div className="dash-hosttabs" role="tablist" aria-label="VPS">
         {HOSTS.map(h => (
           <button key={h.key} type="button" role="tab" aria-selected={host === h.key}
@@ -341,6 +339,36 @@ export default function Dash() {
         )}
       </section>
 
+      <DashProjetos clock={clock} />
+
+      <section>
+        <h2><span>Processos</span><span className="muted">{s?.procs?.count ?? '—'} processos · top 8 · CPU em % de um núcleo</span></h2>
+        <div className="dash-two">
+          {([['por CPU', topCpu], ['por memória (RSS)', topMem]] as [string, ProcRow[]][]).map(([titulo, rows]) => (
+            <div className="dash-bloco" key={titulo}>
+              <h3><span>{titulo}</span></h3>
+              {rows.length === 0 ? <div className="vazio">{s ? 'nada acima de zero nesta amostra' : 'aguardando amostra'}</div> : (
+                <table className="dash-table">
+                  <thead><tr><th className="num">pid</th><th>comando</th><th>usuário</th><th className="num">cpu</th><th className="num">rss</th><th className="num">thr</th></tr></thead>
+                  <tbody>
+                    {rows.map((p, i) => (
+                      <tr key={p.pid ?? i}>
+                        <td className="num">{p.pid ?? '—'}</td>
+                        <td className="nome" title={p.name}>{p.name ?? '—'}</td>
+                        <td>{p.user ?? '—'}</td>
+                        <td className="num">{p.cpu === null || p.cpu === undefined ? '—' : fmtPct(p.cpu, 1)}</td>
+                        <td className="num">{fmtBytes(p.rss)}</td>
+                        <td className="num">{p.threads ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section>
         <h2><span>Serviços</span><span className="muted">{units ? `${units.length} unidades` : 'systemd indisponível'} · {docker ? `${docker.length} containers` : 'docker indisponível'}</span></h2>
         <div className="dash-two">
@@ -376,34 +404,6 @@ export default function Dash() {
               </table>
             )}
           </div>
-        </div>
-      </section>
-
-      <section>
-        <h2><span>Processos</span><span className="muted">{s?.procs?.count ?? '—'} processos · top 8 · CPU em % de um núcleo</span></h2>
-        <div className="dash-two">
-          {([['por CPU', topCpu], ['por memória (RSS)', topMem]] as [string, ProcRow[]][]).map(([titulo, rows]) => (
-            <div className="dash-bloco" key={titulo}>
-              <h3><span>{titulo}</span></h3>
-              {rows.length === 0 ? <div className="vazio">{s ? 'nada acima de zero nesta amostra' : 'aguardando amostra'}</div> : (
-                <table className="dash-table">
-                  <thead><tr><th className="num">pid</th><th>comando</th><th>usuário</th><th className="num">cpu</th><th className="num">rss</th><th className="num">thr</th></tr></thead>
-                  <tbody>
-                    {rows.map((p, i) => (
-                      <tr key={p.pid ?? i}>
-                        <td className="num">{p.pid ?? '—'}</td>
-                        <td className="nome" title={p.name}>{p.name ?? '—'}</td>
-                        <td>{p.user ?? '—'}</td>
-                        <td className="num">{p.cpu === null || p.cpu === undefined ? '—' : fmtPct(p.cpu, 1)}</td>
-                        <td className="num">{fmtBytes(p.rss)}</td>
-                        <td className="num">{p.threads ?? '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          ))}
         </div>
       </section>
 
