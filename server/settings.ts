@@ -21,6 +21,8 @@ export const KEYS = {
   defaultModel: 'claude_default_model',
   taskBudgetTokens: 'claude_task_budget_tokens',
   hostingerToken: 'hostinger_api_token',
+  /** Piloto Laya (docs/plans/2026-10-07-piloto-laya-triagem.md): liga/desliga o hook de triagem sem deploy. */
+  layaAtivo: 'laya_ativo',
 } as const;
 
 /** Token de `claude setup-token`: começa com sk-ant- e é longo. Só validação de forma. */
