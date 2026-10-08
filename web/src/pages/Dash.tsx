@@ -89,6 +89,27 @@ function Wide({ title, right, rows, k, minMax, max, fmt }: { title: string; righ
   );
 }
 
+function useSecaoMin(key: string) {
+  const [min, setMin] = useState(() => { try { return localStorage.getItem(`dash-min-${key}`) === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem(`dash-min-${key}`, min ? '1' : '0'); } catch { /* sem storage */ } }, [min, key]);
+  return [min, setMin] as const;
+}
+
+function Secao({ k, titulo, meta, children }: { k: string; titulo: ReactNode; meta?: ReactNode; children: ReactNode }) {
+  const [min, setMin] = useSecaoMin(k);
+  return (
+    <section>
+      <h2>
+        <button className="pj-min" onClick={() => setMin(m => !m)} title={min ? 'expandir' : 'minimizar'}>
+          <span className={`pj-min-seta${min ? ' fechado' : ''}`}>▾</span> {titulo}
+        </button>
+        {meta && <span className="muted">{meta}</span>}
+      </h2>
+      {!min && children}
+    </section>
+  );
+}
+
 function sessionTag(status?: string): string {
   const s = (status ?? '').toLowerCase();
   if (s === 'running' || s === 'streaming') return 'solid';
@@ -287,11 +308,8 @@ export default function Dash() {
         ))}
       </div>
 
-      <section>
-        <h2>
-          <span>Nossa VPS · {hostMeta.label} · {hostMeta.ip}</span>
-          <span className="muted">{host === 'c3' ? `sparklines: ${spanLabel} · amostra a cada 10 s` : 'coleta remota a cada 15 min · sem sparkline de 10 s'}</span>
-        </h2>
+      <Secao k="uso" titulo={`Nossa VPS · ${hostMeta.label} · ${hostMeta.ip}`}
+        meta={host === 'c3' ? `sparklines: ${spanLabel} · amostra a cada 10 s` : 'coleta remota a cada 15 min · sem sparkline de 10 s'}>
         <div className="dash-facts">
           <span><b>host</b> {s?.host?.hostname ?? '—'}</span>
           <span><b>kernel</b> {s?.host?.kernel ?? '—'}</span>
@@ -337,12 +355,11 @@ export default function Dash() {
             <Wide title="Disco util · 24 h" rows={hist.rows} k="disk_util" max={100} fmt={v => fmtPct(v, 0)} />
           </div>
         )}
-      </section>
+      </Secao>
 
       <DashProjetos clock={clock} />
 
-      <section>
-        <h2><span>Processos</span><span className="muted">{s?.procs?.count ?? '—'} processos · top 8 · CPU em % de um núcleo</span></h2>
+      <Secao k="processos" titulo="Processos" meta={`${s?.procs?.count ?? '—'} processos · top 8 · CPU em % de um núcleo`}>
         <div className="dash-two">
           {([['por CPU', topCpu], ['por memória (RSS)', topMem]] as [string, ProcRow[]][]).map(([titulo, rows]) => (
             <div className="dash-bloco" key={titulo}>
@@ -367,10 +384,9 @@ export default function Dash() {
             </div>
           ))}
         </div>
-      </section>
+      </Secao>
 
-      <section>
-        <h2><span>Serviços</span><span className="muted">{units ? `${units.length} unidades` : 'systemd indisponível'} · {docker ? `${docker.length} containers` : 'docker indisponível'}</span></h2>
+      <Secao k="servicos" titulo="Serviços" meta={`${units ? `${units.length} unidades` : 'systemd indisponível'} · ${docker ? `${docker.length} containers` : 'docker indisponível'}`}>
         <div className="dash-two">
           <div className="dash-bloco">
             <h3><span>systemd</span><span className="muted">{units ? `${units.filter(u => unitStatus(u.active, u.sub).failed).length} failed` : ''}</span></h3>
@@ -405,10 +421,9 @@ export default function Dash() {
             )}
           </div>
         </div>
-      </section>
+      </Secao>
 
-      <section>
-        <h2><span>Sessões do Claude</span><span className="muted">{sessions === null ? 'carregando…' : `${activeSessions.length} ativas · ${sessions.length} no total`}</span></h2>
+      <Secao k="sessoes" titulo="Sessões do Claude" meta={sessions === null ? 'carregando…' : `${activeSessions.length} ativas · ${sessions.length} no total`}>
         <div className="dash-bloco">
           {sessions === null ? <div className="vazio">carregando…</div> : recent.length === 0 ? <div className="vazio">nenhuma sessão ainda</div> : (
             <table className="dash-table">
@@ -434,7 +449,7 @@ export default function Dash() {
             </table>
           )}
         </div>
-      </section>
+      </Secao>
 
       <div className="dash-rodape">
         <span>histórico: {hist ? `${hist.rows?.length ?? 0} min nas últimas 24 h · ${hist.minutes_7d ?? 0} min em 7 dias` : 'indisponível'}</span>
