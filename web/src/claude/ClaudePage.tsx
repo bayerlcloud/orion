@@ -657,9 +657,9 @@ export default function ClaudePage() {
                 o ⋮ vai pro canto fixo onde ele estava (ver cc-smenu-corner em claude.css/App.tsx). */}
             <button className={`cc-icon ${painelOpen ? 'is-on' : ''}`} title={painelOpen ? 'Fechar o Orion' : 'Abrir o Orion'} onClick={togglePainel}><IcoPainelDireito open={painelOpen} size={14} /></button>
             {/* Olhinho (pedido do Danilo, 09/10/2026): sessão privada, só quem criou e o admin veem.
-                Canto superior direito, fixo, ao lado do menu ⋮ (mesma faixa cc-smenu-corner). */}
+                Fica na própria barra de abas, junto dos outros botões (não encavala o ⋮/painel). */}
             {active && !isDraft(activeId!) && (active.user_id === meId || role === 'owner') && (
-              <button type="button" className="cc-icon cc-eye-corner" onClick={() => togglePrivate(active.id, !active.private)}
+              <button type="button" className="cc-icon" onClick={() => togglePrivate(active.id, !active.private)}
                 title={active.private ? 'Sessão privada: só você (e o admin) veem. Clique para tornar pública.' : 'Tornar esta sessão privada: só você (e o admin) vão vê-la na lista'}>
                 {active.private ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
