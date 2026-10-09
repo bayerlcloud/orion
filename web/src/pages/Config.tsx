@@ -12,6 +12,7 @@ type Settings = {
 };
 type LoginSnap = { state: 'idle' | 'starting' | 'awaiting_code' | 'exchanging' | 'done' | 'error'; url: string | null; error: string | null; output_tail: string };
 type TestResult = { ok: boolean; model: string; reply: string; ms: number; error: string | null; via: string };
+type Pessoa = { id: number; name: string; email: string; role: 'owner' | 'member'; sessions_private_default: boolean };
 
 export default function Config({ user }: { user: User }) {
   const [s, setS] = useState<Settings | null>(null);
@@ -24,6 +25,7 @@ export default function Config({ user }: { user: User }) {
   const [budget, setBudget] = useState<number | null>(null);
   const [login, setLogin] = useState<LoginSnap | null>(null);
   const [code, setCode] = useState('');
+  const [pessoas, setPessoas] = useState<Pessoa[] | null>(null);
 
   async function load() {
     try {
@@ -31,13 +33,21 @@ export default function Config({ user }: { user: User }) {
       setS(r); setMode(r.defaults.permission_mode); setModel(r.defaults.model); setBudget(r.defaults.task_budget_tokens);
     } catch (e: any) { setMsg(e.message); }
   }
+  async function loadPessoas() {
+    try { const r = await api<{ users: Pessoa[] }>('/api/users'); setPessoas(r.users); } catch { /* ignora */ }
+  }
+  async function togglePrivacidade(id: number, v: boolean) {
+    setPessoas(ps => ps ? ps.map(p => p.id === id ? { ...p, sessions_private_default: v } : p) : ps);
+    try { await api(`/api/users/${id}/sessions-private-default`, { method: 'PUT', body: JSON.stringify({ sessions_private_default: v }) }); }
+    catch (e: any) { setMsg(e.message); await loadPessoas(); }
+  }
   async function loadLoginFlow() {
     try {
       const r = await api<LoginSnap>('/api/settings/claude-login');
       if (r.state === 'awaiting_code' || r.state === 'exchanging' || r.state === 'starting') { setLogin(r); }
     } catch { /* sem fluxo */ }
   }
-  useEffect(() => { void load(); void loadLoginFlow(); }, []);
+  useEffect(() => { void load(); void loadLoginFlow(); void loadPessoas(); }, []);
 
   if (user.role !== 'owner') return <div><h1>Configurações</h1><p className="muted">Só o admin vê esta página.</p></div>;
 
@@ -150,6 +160,23 @@ export default function Config({ user }: { user: User }) {
         <div className="cfg-actions"><button className="btn-primary" onClick={saveDefaults} disabled={busy}>Salvar padrões</button></div>
         <p className="muted small">O modo que pula permissões está bloqueado na c3 por configuração gerenciada e não aparece aqui de propósito.</p>
       </section>
+
+      {pessoas && pessoas.some(p => p.role !== 'owner') && (
+        <section className="cfg-box">
+          <h2>Privacidade das sessões</h2>
+          <p>Ligado: as sessões novas dessa pessoa nascem privadas (só ela e você veem). Ela ainda pode abrir o olhinho em cada sessão pra deixar pública, e você sempre vê tudo.</p>
+          <table><tbody>
+            {pessoas.filter(p => p.role !== 'owner').map(p => (
+              <tr key={p.id}><th>{p.name}</th><td>
+                <label className="cfg-check">
+                  <input type="checkbox" checked={p.sessions_private_default} onChange={e => void togglePrivacidade(p.id, e.target.checked)} />
+                  sessões privadas por padrão
+                </label>
+              </td></tr>
+            ))}
+          </tbody></table>
+        </section>
+      )}
 
       {s && s.meta.length > 0 && (
         <section className="cfg-box">

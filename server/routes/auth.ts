@@ -38,9 +38,20 @@ export async function authRoutes(app: FastifyInstance) {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
     if (req.user.role !== 'owner') return reply.code(403).send({ error: 'só o admin' });
     const { rows } = await app.pool.query(
-      `SELECT u.id, u.name, u.email, u.role, u.linux_user, u.created_at,
+      `SELECT u.id, u.name, u.email, u.role, u.linux_user, u.created_at, u.sessions_private_default,
               (SELECT max(ts) FROM logins l WHERE l.user_id = u.id) AS ultimo_login
          FROM users u ORDER BY u.id`);
     return { users: rows };
+  });
+
+  // Sessões que essa pessoa criar já nascem privadas (olhinho fechado) — pedido do Danilo
+  // (09/10/2026): tudo que o Gustavo fizer, só o Danilo vê.
+  app.put<{ Params: { id: string }; Body: { sessions_private_default?: boolean } }>('/api/users/:id/sessions-private-default', async (req, reply) => {
+    if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
+    if (req.user.role !== 'owner') return reply.code(403).send({ error: 'só o admin' });
+    const v = !!req.body?.sessions_private_default;
+    const { rowCount } = await app.pool.query('UPDATE users SET sessions_private_default = $2 WHERE id = $1', [req.params.id, v]);
+    if (!rowCount) return reply.code(404).send({ error: 'usuário não existe' });
+    return { ok: true, sessions_private_default: v };
   });
 }

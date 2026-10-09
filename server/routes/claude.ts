@@ -443,14 +443,26 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.get('/api/claude/sessions', async () => {
+  app.get('/api/claude/sessions', async (req) => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.group_id, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.group_id, s.private, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
-    const sessions = rows.map(r => ({ ...r, status: runner.status(r.id) === 'idle' && r.status === 'error' ? 'error' : runner.status(r.id), pending: runner.pendingPermissions(r.id).length }));
+    // Sessão privada: só quem criou e o owner (admin) veem; some da lista pros outros (pedido do
+    // Danilo, 09/10/2026 — ex.: tudo que o Gustavo fizer, só o Danilo vê).
+    const visiveis = rows.filter(r => !r.private || r.user_id === req.user!.id || req.user!.role === 'owner');
+    const sessions = visiveis.map(r => ({ ...r, status: runner.status(r.id) === 'idle' && r.status === 'error' ? 'error' : runner.status(r.id), pending: runner.pendingPermissions(r.id).length }));
     return { sessions };
+  });
+
+  app.post<{ Params: { id: string }; Body: { private?: boolean } }>('/api/claude/sessions/:id/private', async (req, reply) => {
+    const { rows } = await app.pool.query('SELECT user_id FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
+    if (rows[0].user_id !== req.user!.id && req.user!.role !== 'owner') return reply.code(403).send({ error: 'só quem criou ou o admin' });
+    const priv = !!req.body?.private;
+    await app.pool.query('UPDATE claude_sessions SET private = $2 WHERE id = $1', [req.params.id, priv]);
+    return { ok: true, private: priv };
   });
 
   // Já busca o uso real ao subir, pra primeira tela depois de um deploy não esperar ~1s.
@@ -624,9 +636,12 @@ export async function claudeRoutes(app: FastifyInstance) {
       else avisoPasta = `Sessão na raiz do projeto, sem worktree própria: ${wt.motivo}. Mudanças aqui valem direto para todo mundo.`;
     }
     const id = randomUUID();
+    // Sessões novas já nascem privadas se a pessoa tem esse padrão ligado (config do admin — ex.:
+    // tudo que o Gustavo fizer, só o Danilo vê).
+    const { rows: priv } = await app.pool.query('SELECT sessions_private_default FROM users WHERE id = $1', [req.user!.id]);
     await app.pool.query(
-      `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running')`,
-      [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || 'sonnet', mode, effort]);
+      `INSERT INTO claude_sessions (id, user_id, project_id, title, cwd, model, permission_mode, effort, status, private) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'running', $9)`,
+      [id, req.user!.id, project.id, titleFromPrompt(prompt), cwd, b.model || d.model || 'sonnet', mode, effort, !!priv[0]?.sessions_private_default]);
     // Troca o título provisório (1ª linha do prompt) por um curto do Haiku; só se ninguém renomeou antes.
     void getSetting(app.pool, KEYS.claudeToken).then(tk => tituloCurto(prompt, tk)).then(async t => { if (t)
       await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1 AND title = $3', [id, t, titleFromPrompt(prompt)]); }).catch(() => {});

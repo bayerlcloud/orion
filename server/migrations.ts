@@ -260,6 +260,16 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     id: '017_claude_drafts_attachments',
     sql: `ALTER TABLE claude_drafts ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;`,
   },
+  {
+    // Sessão privada (pedido do Danilo, 09/10/2026): olhinho na sessão esconde ela de todo mundo
+    // menos de quem criou e do owner. `sessions_private_default` em users: sessões novas dessa
+    // pessoa já nascem privadas (ex.: tudo que o Gustavo faz só o Danilo vê).
+    id: '018_claude_sessions_private',
+    sql: `
+      ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS private BOOLEAN NOT NULL DEFAULT false;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_private_default BOOLEAN NOT NULL DEFAULT false;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
