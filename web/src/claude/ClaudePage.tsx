@@ -722,7 +722,7 @@ export default function ClaudePage() {
               <div className="cc-pick-project">
                 <p className="cc-muted">Em qual projeto é esta sessão?</p>
                 <div className="cc-pick-list">
-                  {projects.map(p => <button key={p.id} type="button" onClick={() => escolherProjeto(p.id)}>{p.name}</button>)}
+                  {[...projects].sort((a, b) => a.slug === 'orion' ? -1 : b.slug === 'orion' ? 1 : a.name.localeCompare(b.name, 'pt-BR')).map(p => <button key={p.id} type="button" onClick={() => escolherProjeto(p.id)}>{p.name}</button>)}
                   <button type="button" className="is-neutro" onClick={() => escolherProjeto(null)}>Neutro<span>sem projeto, perguntas gerais</span></button>
                 </div>
               </div>
