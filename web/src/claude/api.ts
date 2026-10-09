@@ -5,7 +5,7 @@ import type { HookListing, SkillEntry } from './types';
 
 export type ApiSession = {
   id: string; title: string; status: 'running' | 'waiting' | 'idle' | 'error'; input_tokens: number | string; output_tokens: number | string; turns: number; model: string | null;
-  permission_mode: string; effort: string | null; cwd: string; last_error: string | null; archived?: boolean; created_at: string; updated_at: string;
+  permission_mode: string; effort: string | null; cwd: string; last_error: string | null; archived?: boolean; private?: boolean; created_at: string; updated_at: string;
   user_id: number; user_name: string; project_slug: string | null; project_name: string | null; pending: number;
   /** Pasta nomeada manual desta sessão (`claude_sessions.group_id`) — `null` quando está solta ("Sem pasta"). Ver PARIDADE.md item 12 da seção 13. */
   group_id: string | null;
@@ -91,6 +91,7 @@ export const claudeApi = {
   stop: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/stop`, { method: 'POST' }),
   rename: (id: string, title: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/rename`, { method: 'POST', body: JSON.stringify({ title }) }),
   archive: (id: string, archived: boolean) => api<{ ok: true; archived: boolean }>(`/api/claude/sessions/${id}/archive`, { method: 'POST', body: JSON.stringify({ archived }) }),
+  private: (id: string, priv: boolean) => api<{ ok: true; private: boolean }>(`/api/claude/sessions/${id}/private`, { method: 'POST', body: JSON.stringify({ private: priv }) }),
   remove: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}`, { method: 'DELETE' }),
   /**
    * Painel de skills + lista de hooks (PARIDADE.md seção 13, itens 10/11; `SkillsHooksPanel.tsx`).

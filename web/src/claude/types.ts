@@ -163,6 +163,8 @@ export type SessionGroupInfo = { id: string; name: string; createdAt: number };
 
 export type SessionSummary = {
   id: string; title: string; status: SessionStatus; updatedAt: number; open?: boolean; group?: string; project?: string; projectName?: string; archived?: boolean;
+  /** Sessão privada (`claude_sessions.private`): só quem criou e o owner veem. Olhinho na sessão. */
+  private?: boolean;
   /** Quem criou a sessão: avatar na lista e filtro "Minhas". */
   userId?: number; userName?: string;
   /** Nome do worktree desta sessão (derivado do `cwd`, ver `sessionWorktreeName` em mapper.ts) — `undefined` quando a sessão roda na raiz do projeto, sem worktree. Alimenta a pill em Sidebar.tsx. */

@@ -12,7 +12,7 @@ import SkillsHooksPanel from './SkillsHooksPanel';
 import PermissionRules from './PermissionRules';
 import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, Filter, SendArrow } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, EyeOff, Filter, SendArrow } from './icons';
 import PreviewPublico, { prefetchPreviewPublico } from '../PreviewPublico';
 import SessionMenu from './SessionMenu';
 import { Pencil } from './icons';
@@ -35,7 +35,7 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
   const projectPath = projects.find(p => p.slug === s.project_slug)?.path;
   return {
-    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived, userId: s.user_id, userName: s.user_name,
+    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived, private: !!s.private, userId: s.user_id, userName: s.user_name,
     worktreeName: sessionWorktreeName(s.cwd, projectPath) ?? undefined,
     groupId: s.group_id,
   };
@@ -559,6 +559,10 @@ export default function ClaudePage() {
     setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
     try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
+  async function togglePrivate(id: string, priv: boolean) {
+    setSessions(ss => ss.map(s => s.id === id ? { ...s, private: priv } : s));
+    try { await claudeApi.private(id, priv); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
+  }
   async function deleteSession(id: string) {
     const s = sessions.find(x => x.id === id);
     if (!(await confirmar(`Excluir "${s?.title ?? 'sessão'}" definitivamente? A conversa some e não dá para desfazer.`, { perigo: true }))) return;
@@ -652,6 +656,14 @@ export default function ClaudePage() {
             {/* Trocado de lugar com o ⋮ (pedido do Danilo, 04/10/2026): este botão entra na barra,
                 o ⋮ vai pro canto fixo onde ele estava (ver cc-smenu-corner em claude.css/App.tsx). */}
             <button className={`cc-icon ${painelOpen ? 'is-on' : ''}`} title={painelOpen ? 'Fechar o Orion' : 'Abrir o Orion'} onClick={togglePainel}><IcoPainelDireito open={painelOpen} size={14} /></button>
+            {/* Olhinho (pedido do Danilo, 09/10/2026): sessão privada, só quem criou e o admin veem.
+                Canto superior direito, fixo, ao lado do menu ⋮ (mesma faixa cc-smenu-corner). */}
+            {active && !isDraft(activeId!) && (active.user_id === meId || role === 'owner') && (
+              <button type="button" className="cc-icon cc-eye-corner" onClick={() => togglePrivate(active.id, !active.private)}
+                title={active.private ? 'Sessão privada: só você (e o admin) veem. Clique para tornar pública.' : 'Tornar esta sessão privada: só você (e o admin) vão vê-la na lista'}>
+                {active.private ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            )}
             {/* Tudo o mais fica no menu ⋮ (preview do usuário, agentes, renomear, parar, skills, permissões, plugins). */}
             <SessionMenu
               corner
