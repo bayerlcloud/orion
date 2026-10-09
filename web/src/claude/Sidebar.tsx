@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
-import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restore, Trash } from './icons';
+import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restore, Trash, EyeOff } from './icons';
 
 /**
  * Sentinela usado pelo `<select>` "Mover para pasta" de cada sessão pra representar "solta, sem
@@ -40,6 +40,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
       {(s.open || s.status === 'running' || s.status === 'waiting') ? <span className={`cc-dot is-${s.status}`} /> : <span className="cc-dot is-none" aria-hidden="true" />}
       {s.userId !== undefined && <Avatar id={s.userId} name={s.userName ?? ''} />}
       <span className="cc-item-project" title={`Projeto: ${s.projectName ?? 'Neutro'}`}>{s.projectName ?? 'Neutro'}</span>
+      {s.private && <span className="cc-item-private" title="Sessão privada: só quem criou e o admin veem"><EyeOff size={11} /></span>}
       {editing ? (
         <input className="cc-item-edit" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }} />
