@@ -1,15 +1,16 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, type User } from '../api';
-import { IcoCloudflare, IcoGithub } from '../icons';
+import { IcoCloudflare, IcoGithub, IcoGoogleCloud } from '../icons';
 import ToolsNotas, { copiar } from './ToolsNotas';
 import ToolsContaModal from './ToolsContaModal';
 import { confirmar } from '../dialogo';
 
 type Github = { id: number; label: string; login: string; email: string; notes: string; mcp: string; token_hint: string };
 type Cloudflare = { id: number; label: string; account_id: string; account_name: string; email: string; notes: string; nome: string; url: string; token_hint: string };
+type GoogleCloud = { id: number; label: string; project_id: string; client_email: string; email: string; notes: string; nome: string; url: string; sa_hint: string };
 type Kind = 'tool' | 'skill' | 'mcp';
 type ToolItem = { id: number; kind: Kind; name: string; description: string; icon: string; status: 'ativo' | 'inativo'; link: string | null; details: string; tag: string | null; created_by_name: string | null };
-type Prov = 'github' | 'cloudflare';
+type Prov = 'github' | 'cloudflare' | 'google-cloud';
 type Hostinger = { conectado: boolean; token_hint: string | null };
 type Evolution = { conectado: boolean; servidor: string | null; local: string | null; proxy: string; key_hint: string | null; versao: string | null; instancias: { nome: string; status: string }[] };
 type Tipo = Prov | 'hostinger' | 'evolution' | Kind;
@@ -20,16 +21,17 @@ type Card = { tipo: Tipo; id: number; label: string; sub: string; linhas: Linha[
 const TIPO: Record<Tipo, { titulo: string; badge: string; classe: string }> = {
   github: { titulo: 'GitHub', badge: 'MCP', classe: 'is-mcp' },
   cloudflare: { titulo: 'Cloudflare', badge: 'Conector', classe: 'is-conector' },
+  'google-cloud': { titulo: 'Google Cloud', badge: 'Conector', classe: 'is-conector' },
   hostinger: { titulo: 'Hostinger', badge: 'MCP', classe: 'is-mcp' },
   evolution: { titulo: 'Evolution (WhatsApp)', badge: 'Conector', classe: 'is-conector' },
   mcp: { titulo: 'MCP', badge: 'MCP', classe: 'is-mcp' },
   tool: { titulo: 'Tool', badge: 'Tool', classe: 'is-tool' },
   skill: { titulo: 'Skill', badge: 'Skill', classe: 'is-skill' },
 };
-const API: Record<Prov, string> = { github: '/api/tools/github', cloudflare: '/api/tools/cloudflare' };
+const API: Record<Prov, string> = { github: '/api/tools/github', cloudflare: '/api/tools/cloudflare', 'google-cloud': '/api/tools/google-cloud' };
 const KINDS: Kind[] = ['mcp', 'tool', 'skill'];
-const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'hostinger', 'evolution', 'mcp', 'tool', 'skill'];
-const ehConta = (t: Tipo): t is Prov => t === 'github' || t === 'cloudflare';
+const FILTROS: (Tipo | 'todos')[] = ['todos', 'github', 'cloudflare', 'google-cloud', 'hostinger', 'evolution', 'mcp', 'tool', 'skill'];
+const ehConta = (t: Tipo): t is Prov => t === 'github' || t === 'cloudflare' || t === 'google-cloud';
 
 const HOSTINGER_NOTAS = `O token da API Hostinger vira o conector simples "hostinger" (proxy local, sem processo por sessão). A sessão chama http://127.0.0.1:3000/conector/hostinger/<caminho> com curl e o Orion injeta o token. Antes eram 8 MCPs por sessão (~1,4 GB de RAM em cada uma).
 
@@ -47,7 +49,7 @@ const EVOLUTION_NOTAS = `Conector simples, não é MCP: a sessão chama a API da
 
 Instâncias de clientes (Brandspace, TrackingMachine) vivem aqui: não mexer em webhook nem reiniciar instância de cliente sem pedido explícito. URL e chave ficam na tabela settings (evolution_url, evolution_api_key, evolution_local).`;
 
-const contaVazia = () => ({ label: '', account_id: '', token: '', email: '', notes: '' });
+const contaVazia = () => ({ label: '', account_id: '', token: '', sa_json: '', email: '', notes: '' });
 const catVazio = () => ({ kind: 'mcp' as Kind, name: '', description: '', icon: '⚙️', link: '', details: '', tag: '' });
 type FormConta = { prov: Prov; id: number | null; v: ReturnType<typeof contaVazia> };
 type FormCat = { id: number | null; v: ReturnType<typeof catVazio> };
@@ -57,6 +59,7 @@ type FormCat = { id: number | null; v: ReturnType<typeof catVazio> };
 export default function ToolsConectores({ user }: { user: User }) {
   const [gh, setGh] = useState<Github[]>([]);
   const [cf, setCf] = useState<Cloudflare[]>([]);
+  const [gcp, setGcp] = useState<GoogleCloud[]>([]);
   const [cat, setCat] = useState<ToolItem[]>([]);
   const [host, setHost] = useState<Hostinger | null>(null);
   const [evo, setEvo] = useState<Evolution | null>(null);
@@ -71,8 +74,8 @@ export default function ToolsConectores({ user }: { user: User }) {
 
   async function load() {
     try {
-      const [g, c, t, h] = await Promise.all([api<{ contas: Github[] }>(API.github), api<{ contas: Cloudflare[] }>(API.cloudflare), api<{ tools: ToolItem[] }>('/api/tools'), api<Hostinger>('/api/tools/hostinger')]);
-      setGh(g.contas); setCf(c.contas); setCat(t.tools); setHost(h); setErro('');
+      const [g, c, gc, t, h] = await Promise.all([api<{ contas: Github[] }>(API.github), api<{ contas: Cloudflare[] }>(API.cloudflare), api<{ contas: GoogleCloud[] }>(API['google-cloud']), api<{ tools: ToolItem[] }>('/api/tools'), api<Hostinger>('/api/tools/hostinger')]);
+      setGh(g.contas); setCf(c.contas); setGcp(gc.contas); setCat(t.tools); setHost(h); setErro('');
       api<Evolution>('/api/tools/evolution').then(setEvo, () => setEvo(null));
     } catch (e: any) { setErro(e.message); }
   }
@@ -83,6 +86,8 @@ export default function ToolsConectores({ user }: { user: User }) {
       linhas: [['tools', `mcp__${c.mcp}__*`], ['token', c.token_hint]] })),
     ...cf.map((c): Card => ({ tipo: 'cloudflare', id: c.id, label: c.label, sub: c.email || c.account_name, notas: c.notes, icone: <IcoCloudflare />,
       linhas: [['account', c.account_id], ['proxy', c.url, c.url.replace(/^https?:\/\/[^/]+/, '')], ['token', c.token_hint]] })),
+    ...gcp.map((c): Card => ({ tipo: 'google-cloud', id: c.id, label: c.label, sub: c.email || c.client_email, notas: c.notes, icone: <IcoGoogleCloud />,
+      linhas: [['projeto', c.project_id || '—'], ['proxy', c.url, c.url.replace(/^https?:\/\/[^/]+/, '')], ['service account', c.sa_hint]] })),
     ...(host ? [{ tipo: 'hostinger' as const, id: 0, label: 'hostinger', sub: host.conectado ? 'conector simples em /conector/hostinger' : 'sem token: conector inativo', notas: 'DNS, domínios, VPS, hosting, WordPress, billing, e-commerce e e-mail marketing.', detalhes: HOSTINGER_NOTAS, icone: '🌐',
       linhas: [['proxy', 'http://127.0.0.1:3000/conector/hostinger/<caminho da API>', 'curl sem token'], ['token', host.token_hint ?? 'nenhum']] as Linha[] }] : []),
     ...(evo ? [{ tipo: 'evolution' as const, id: 0, label: evo.servidor?.replace(/^https?:\/\//, '') ?? 'evolution', icone: '💬', notas: 'API de WhatsApp da equipe. Toda sessão usa pelo proxy local, sem chave.', detalhes: EVOLUTION_NOTAS,
@@ -91,7 +96,7 @@ export default function ToolsConectores({ user }: { user: User }) {
         ['instâncias', evo.instancias.map(i => `${i.nome}: ${i.status}`).join('\n') || 'nenhuma', `${evo.instancias.length}`]] as Linha[] }] : []),
     ...cat.map((t): Card => ({ tipo: t.kind, id: t.id, label: t.name, sub: '', notas: t.description, detalhes: t.details, tag: t.tag, icone: t.icon, status: t.status, autor: t.created_by_name,
       linhas: t.link ? [['link', t.link, t.link.replace(/^https?:\/\//, '')]] : [] })),
-  ], [gh, cf, cat, host, evo]);
+  ], [gh, cf, gcp, cat, host, evo]);
   const contagem = useMemo(() => {
     const c: Record<string, number> = { todos: cards.length };
     for (const k of cards) c[k.tipo] = (c[k.tipo] ?? 0) + 1;
@@ -103,10 +108,10 @@ export default function ToolsConectores({ user }: { user: User }) {
   function novaConta(prov: Prov) { setFormCat(null); setFormConta({ prov, id: null, v: contaVazia() }); }
   function editarConta(c: Card) {
     if (!ehConta(c.tipo)) return;
-    const orig = c.tipo === 'github' ? gh.find(x => x.id === c.id) : cf.find(x => x.id === c.id);
+    const orig = c.tipo === 'github' ? gh.find(x => x.id === c.id) : c.tipo === 'cloudflare' ? cf.find(x => x.id === c.id) : gcp.find(x => x.id === c.id);
     if (!orig) return;
     setOpen(null); setFormCat(null);
-    setFormConta({ prov: c.tipo, id: c.id, v: { label: orig.label, account_id: (orig as Cloudflare).account_id ?? '', token: '', email: orig.email, notes: orig.notes } });
+    setFormConta({ prov: c.tipo, id: c.id, v: { label: orig.label, account_id: (orig as Cloudflare).account_id ?? '', token: '', sa_json: '', email: orig.email, notes: orig.notes } });
   }
   async function salvarConta() {
     if (!formConta) return;
@@ -114,12 +119,15 @@ export default function ToolsConectores({ user }: { user: User }) {
     setBusy(true); setErro('');
     try {
       if (id) await api(`${API[prov]}/${id}`, { method: 'PUT', body: JSON.stringify({ label: v.label, email: v.email, notes: v.notes }) });
-      else await api(API[prov], { method: 'POST', body: JSON.stringify(prov === 'github' ? { label: v.label, token: v.token, email: v.email, notes: v.notes } : v) });
+      else await api(API[prov], { method: 'POST', body: JSON.stringify(prov === 'github' ? { label: v.label, token: v.token, email: v.email, notes: v.notes } : prov === 'google-cloud' ? { label: v.label, sa_json: v.sa_json, email: v.email, notes: v.notes } : v) });
       setFormConta(null); await load();
     } catch (e: any) { setErro(e.message); } finally { setBusy(false); }
   }
   const setC = (k: keyof ReturnType<typeof contaVazia>, val: string) => setFormConta(f => f && ({ ...f, v: { ...f.v, [k]: val } }));
-  const podeSalvarConta = formConta && formConta.v.label.trim() && (formConta.id || (formConta.v.token.trim() && (formConta.prov === 'github' || formConta.v.account_id.trim())));
+  const podeSalvarConta = formConta && formConta.v.label.trim() && (formConta.id || (
+    formConta.prov === 'github' ? formConta.v.token.trim()
+    : formConta.prov === 'google-cloud' ? formConta.v.sa_json.trim()
+    : formConta.v.token.trim() && formConta.v.account_id.trim()));
 
   // ---- catálogo manual ----
   function novoCat() { setFormConta(null); setFormCat({ id: null, v: catVazio() }); }
@@ -173,11 +181,13 @@ export default function ToolsConectores({ user }: { user: User }) {
         <span className="tls-spacer" />
         {admin && <button className="btn-primary" onClick={() => novaConta('github')}>+ GitHub</button>}
         {admin && <button className="btn-primary" onClick={() => novaConta('cloudflare')}>+ Cloudflare</button>}
+        {admin && <button className="btn-primary" onClick={() => novaConta('google-cloud')}>+ Google Cloud</button>}
         <button className="btn-primary" onClick={novoCat}>+ Outro</button>
       </div>
       <p className="muted small">
         <b>GitHub</b>: cada conta vira um MCP oficial em toda sessão (repos, issues, PRs, código).
         <b> Cloudflare</b>: conector simples, o Claude chama a API (Pages, DNS, Workers, R2, D1…) por um proxy local do Orion que injeta o token; o token nunca entra na sessão.
+        <b> Google Cloud</b>: conector simples, mesma ideia da Cloudflare, mas com chave de service account (JSON); o Orion assina o acesso e injeta o Bearer, a chave nunca entra na sessão.
         <b> Hostinger</b>: um token vira os MCPs oficiais (DNS, domínios, VPS, hosting, WordPress, billing).
         <b> Outros</b>: MCPs, tools e skills anotados à mão (o que é, permissões, link); o Claude também pode cadastrar via API.
       </p>
@@ -193,7 +203,7 @@ export default function ToolsConectores({ user }: { user: User }) {
         <div className="tls-form">
           <div className="tls-sec-head"><h2 style={{ fontSize: 14 }}>{formConta.id ? 'Editar' : 'Nova'} conta {TIPO[formConta.prov].titulo}</h2></div>
           <div className="tls-form-grid">
-            <label className="tls-form-name">nome ({formConta.prov === 'github' ? 'as tools ficam mcp__github-<nome>__*' : 'o proxy fica em /conector/cloudflare-<nome>/'})
+            <label className="tls-form-name">nome ({formConta.prov === 'github' ? 'as tools ficam mcp__github-<nome>__*' : `o proxy fica em /conector/${formConta.prov === 'cloudflare' ? 'cloudflare' : 'gcp'}-<nome>/`})
               <input value={formConta.v.label} onChange={e => setC('label', e.target.value)} placeholder={formConta.prov === 'github' ? 'ex.: bayerlcloud' : 'ex.: fisioexpert'} autoFocus />
             </label>
             <label>e-mail de login
@@ -205,14 +215,19 @@ export default function ToolsConectores({ user }: { user: User }) {
               <input value={formConta.v.account_id} onChange={e => setC('account_id', e.target.value)} placeholder="8df20ec9…" autoComplete="off" />
             </label>
           )}
-          {!formConta.id && (
+          {!formConta.id && formConta.prov !== 'google-cloud' && (
             <label>{formConta.prov === 'github' ? 'token pessoal (PAT)' : 'token de API'}
               <input type="password" value={formConta.v.token} onChange={e => setC('token', e.target.value)} placeholder={formConta.prov === 'github' ? 'ghp_… ou github_pat_…' : 'cfat_… ou cfut_…'} autoComplete="off" />
             </label>
           )}
+          {!formConta.id && formConta.prov === 'google-cloud' && (
+            <label>chave da service account (JSON completo, baixado no IAM do Google Cloud)
+              <textarea value={formConta.v.sa_json} onChange={e => setC('sa_json', e.target.value)} rows={8} placeholder='{"type": "service_account", "project_id": "...", "client_email": "...", "private_key": "..."}' autoComplete="off" />
+            </label>
+          )}
           <label>o que tem nessa conta (entra no prompt de toda sessão)
             <textarea value={formConta.v.notes} onChange={e => setC('notes', e.target.value)} rows={4}
-              placeholder={formConta.prov === 'github' ? 'ex.: dona dos repos bayerlcloud/branspace, fisioexpert…' : 'ex.: Pages fisio.bayerl.cloud, bucket R2 dos uploads…'} />
+              placeholder={formConta.prov === 'github' ? 'ex.: dona dos repos bayerlcloud/branspace, fisioexpert…' : formConta.prov === 'cloudflare' ? 'ex.: Pages fisio.bayerl.cloud, bucket R2 dos uploads…' : 'ex.: Owner na organização inteira, Workspace…'} />
           </label>
           <div className="tls-form-actions">
             <button className="btn-primary" onClick={salvarConta} disabled={busy || !podeSalvarConta}>{busy ? 'Validando…' : formConta.id ? 'Salvar' : 'Conectar'}</button>
@@ -270,7 +285,7 @@ export default function ToolsConectores({ user }: { user: User }) {
       )}
 
       {visiveis.length === 0 ? (
-        <div className="tls-empty">Nada aqui ainda.{admin && <> Clique em <b>+ GitHub</b>, <b>+ Cloudflare</b> ou <b>+ Outro</b>.</>}</div>
+        <div className="tls-empty">Nada aqui ainda.{admin && <> Clique em <b>+ GitHub</b>, <b>+ Cloudflare</b>, <b>+ Google Cloud</b> ou <b>+ Outro</b>.</>}</div>
       ) : (
         <div className="tls-grid">
           {visiveis.map(c => { const T = TIPO[c.tipo]; return (

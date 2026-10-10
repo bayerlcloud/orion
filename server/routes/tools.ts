@@ -7,6 +7,7 @@ import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type Ski
 import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
 import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
 import { cloudflareContaDe, ensureCloudflareAccountsTable, listarContasCloudflare, looksLikeCloudflareAccountId, looksLikeCloudflareToken, maskCloudflareToken, nomeConectorCloudflare, urlDoConector, type CloudflareAccount } from '../tools/cloudflareAccounts.js';
+import { ensureGoogleCloudAccountsTable, googleCloudContaDe, listarContasGoogleCloud, maskServiceAccountJson, nomeConectorGoogleCloud, parseServiceAccountJson, urlDoConectorGcp, type GoogleCloudAccount } from '../tools/googleCloudAccounts.js';
 
 import { evolutionResumo } from '../tools/evolution.js';
 
@@ -147,6 +148,7 @@ export async function toolsRoutes(app: FastifyInstance) {
   // ---------- contas GitHub (cada uma vira um MCP em toda sessão; token nunca sai daqui) ----------
   await ensureGithubAccountsTable(app.pool);
   await ensureCloudflareAccountsTable(app.pool);
+  await ensureGoogleCloudAccountsTable(app.pool);
   const contaPublica = (c: GithubAccount) => ({ id: c.id, label: c.label, login: c.login, email: c.email, notes: c.notes, mcp: nomeMcpGithub(c.label), token_hint: maskGithubToken(c.token) });
   const soAdmin = (req: any, reply: any) => req.user!.role !== 'owner' ? reply.code(403).send({ error: 'só o admin' }) : null;
 
@@ -242,6 +244,47 @@ export async function toolsRoutes(app: FastifyInstance) {
     const id = intParam(req.params.id);
     if (!id) return reply.code(400).send({ error: 'id inválido' });
     const del = await app.pool.query('DELETE FROM cloudflare_accounts WHERE id = $1', [id]);
+    if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
+    return { ok: true };
+  });
+
+  // ---------- contas Google Cloud (conector simples; service account, no desenho das contas Cloudflare) ----------
+  const gcpPublica = (c: GoogleCloudAccount) => ({ id: c.id, label: c.label, project_id: c.project_id, client_email: c.client_email, email: c.email, notes: c.notes, nome: nomeConectorGoogleCloud(c.label), url: urlDoConectorGcp(nomeConectorGoogleCloud(c.label)), sa_hint: maskServiceAccountJson(c.sa_json) });
+
+  app.get('/api/tools/google-cloud', async () => ({ contas: (await listarContasGoogleCloud(app.pool)).map(gcpPublica) }));
+
+  app.post<{ Body: { label?: string; sa_json?: string; email?: string; notes?: string } }>('/api/tools/google-cloud', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const label = (req.body?.label ?? '').trim(); const saJson = (req.body?.sa_json ?? '').trim();
+    const notes = (req.body?.notes ?? '').trim(); const email = (req.body?.email ?? '').trim();
+    if (!label) return reply.code(400).send({ error: 'nome é obrigatório' });
+    const sa = parseServiceAccountJson(saJson);
+    if (!sa) return reply.code(400).send({ error: 'isso não parece uma chave de service account do Google (JSON com type, client_email e private_key)' });
+    const conferida = await googleCloudContaDe(saJson);
+    if (!conferida) return reply.code(400).send({ error: 'o Google recusou essa chave de service account' });
+    const { rows } = await app.pool.query(
+      `INSERT INTO google_cloud_accounts (label, project_id, client_email, sa_json, notes, email, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (label) DO UPDATE SET project_id = EXCLUDED.project_id, client_email = EXCLUDED.client_email, sa_json = EXCLUDED.sa_json, notes = EXCLUDED.notes, email = EXCLUDED.email, updated_at = now()
+       RETURNING id, label, project_id, client_email, email, sa_json, notes`, [label, conferida.project_id, conferida.client_email, saJson, notes, email, req.user!.id]);
+    return reply.code(201).send({ conta: gcpPublica(rows[0]) });
+  });
+
+  app.put<{ Params: { id: string }; Body: { label?: string; email?: string; notes?: string } }>('/api/tools/google-cloud/:id', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const id = intParam(req.params.id);
+    if (!id) return reply.code(400).send({ error: 'id inválido' });
+    const { rows } = await app.pool.query(
+      `UPDATE google_cloud_accounts SET label = COALESCE(NULLIF($2::text, ''), label), notes = COALESCE($3::text, notes), email = COALESCE($4::text, email), updated_at = now()
+        WHERE id = $1 RETURNING id, label, project_id, client_email, email, sa_json, notes`, [id, (req.body?.label ?? '').trim(), req.body?.notes === undefined ? null : req.body.notes.trim(), req.body?.email === undefined ? null : req.body.email.trim()]);
+    if (!rows[0]) return reply.code(404).send({ error: 'não encontrada' });
+    return { conta: gcpPublica(rows[0]) };
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/tools/google-cloud/:id', async (req, reply) => {
+    if (soAdmin(req, reply)) return;
+    const id = intParam(req.params.id);
+    if (!id) return reply.code(400).send({ error: 'id inválido' });
+    const del = await app.pool.query('DELETE FROM google_cloud_accounts WHERE id = $1', [id]);
     if (!del.rowCount) return reply.code(404).send({ error: 'não encontrada' });
     return { ok: true };
   });
