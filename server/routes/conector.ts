@@ -3,6 +3,7 @@ import { bloqueadoNaEvolution, evolutionConfig, NOME_CONECTOR_EVOLUTION, NOME_CO
 import { getSetting } from '../settings.js';
 import { bloqueadoNoHttp, listarConectoresHttp } from '../tools/conectoresHttp.js';
 import { bloqueadoNoConector, contaDoConector, ehPedidoLocal, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
+import { bloqueadoNoConectorGcp, contaDoConectorGcp, googleAccessTokenDe, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
 
@@ -38,6 +39,14 @@ export async function conectorRoutes(app: FastifyInstance) {
       if (http) {
         if (bloqueadoNoHttp(http, req.method, req.params['*'])) return reply.code(403).send({ error: `essa operação é bloqueada no conector ${http.nome}; faça no painel do serviço` });
         return repassar(`${http.base.replace(/\/+$/, '')}/${req.params['*']}${qs}`, { [http.header]: http.valor });
+      }
+      const gcp = contaDoConectorGcp(req.params.nome, await listarContasGoogleCloud(app.pool));
+      if (gcp) {
+        const caminhoGcp = req.params['*'];
+        if (bloqueadoNoConectorGcp(req.method, caminhoGcp)) return reply.code(403).send({ error: 'apagar projeto ou organização inteira é bloqueado no conector; faça no console do Google Cloud' });
+        const token = await googleAccessTokenDe(gcp);
+        if (!token) return reply.code(502).send({ error: 'o Google recusou a credencial dessa conta' });
+        return repassar(`https://${caminhoGcp}${qs}`, { Authorization: `Bearer ${token}` });
       }
       const conta = contaDoConector(req.params.nome, await listarContasCloudflare(app.pool));
       if (!conta) return reply.code(404).send({ error: `conector ${req.params.nome} não existe; veja a aba Tools › Conectores` });

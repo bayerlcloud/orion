@@ -7,6 +7,7 @@ import { ATIVACAO_LABEL, CATALOGO_DIR, chaveDe, raizesPadrao, scanTudo, type Ski
 import { TODOS, ehDoCatalogo, ensureSkillPrefsTable, estadoDe, gravarPref, invalidarCatalogo, lerPrefs } from '../tools/skillPrefs.js';
 import { ensureGithubAccountsTable, githubLoginDe, listarContasGithub, looksLikeGithubToken, maskGithubToken, nomeMcpGithub, type GithubAccount } from '../tools/githubAccounts.js';
 import { cloudflareContaDe, ensureCloudflareAccountsTable, listarContasCloudflare, looksLikeCloudflareAccountId, looksLikeCloudflareToken, maskCloudflareToken, nomeConectorCloudflare, urlDoConector, type CloudflareAccount } from '../tools/cloudflareAccounts.js';
+import { ensureGoogleCloudAccountsTable, googleCloudContaDe, listarContasGoogleCloud, maskServiceAccountJson, nomeConectorGoogleCloud, parseServiceAccountJson, urlDoConectorGcp, type GoogleCloudAccount } from '../tools/googleCloudAccounts.js';
 
 import { evolutionResumo } from '../tools/evolution.js';
 
@@ -147,6 +148,7 @@ export async function toolsRoutes(app: FastifyInstance) {
   // ---------- contas GitHub (cada uma vira um MCP em toda sessão; token nunca sai daqui) ----------
   await ensureGithubAccountsTable(app.pool);
   await ensureCloudflareAccountsTable(app.pool);
+  await ensureGoogleCloudAccountsTable(app.pool);
   const contaPublica = (c: GithubAccount) => ({ id: c.id, label: c.label, login: c.login, email: c.email, notes: c.notes, mcp: nomeMcpGithub(c.label), token_hint: maskGithubToken(c.token) });
   const soAdmin = (req: any, reply: any) => req.user!.role !== 'owner' ? reply.code(403).send({ error: 'só o admin' }) : null;
 
