@@ -382,7 +382,8 @@
 .cc-input-placeholder { position: absolute; top: 0; left: 0; right: 36px; padding: 10px 0 10px 14px; line-height: 1.5; color: var(--cc-fg2); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cc-composer-foot { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 5px; border-top: .5px solid var(--cc-line); color: var(--cc-fg2); }
 /* footerButton_gGYT1w (V2): 26px de altura, ícone 26px, raio 5, sem fundo */
-.cc-foot-btn { display: inline-flex; align-items: center; gap: 0; height: 26px; min-width: 26px; padding: 0 8px 0 0; border-radius: 5px; color: var(--cc-fg); font-size: .85em; white-space: nowrap; }
+.cc-foot-btn { display: inline-flex; align-items: center; gap: 0; height: 26px; min-width: 26px; padding: 0; border-radius: 5px; color: var(--cc-fg); font-size: .85em; white-space: nowrap; }
+.cc-foot-btn:has(> span) { padding: 0 8px 0 0; }
 .cc-foot-btn > svg { width: 26px; height: 26px; padding: 3px; flex-shrink: 0; }
 .cc-foot-btn > span { line-height: 26px; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 .cc-foot-btn:hover:not(.is-static) { background: var(--cc-hover); }
