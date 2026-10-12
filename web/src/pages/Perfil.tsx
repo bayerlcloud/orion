@@ -9,7 +9,7 @@ type Profile = {
   email: string;
   phone: string | null;
   role: 'owner' | 'member' | string;
-  theme: 'dark' | 'light';
+  theme: 'dark' | 'light' | 'system';
   has_avatar: boolean;
   avatar_url: string | null;
 };
@@ -23,7 +23,7 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
   const [nome, setNome] = useState('');
   const [sobrenome, setSobrenome] = useState('');
   const [telefone, setTelefone] = useState('');
-  const [tema, setTema] = useState<'dark' | 'light'>('dark');
+  const [tema, setTema] = useState<'dark' | 'light' | 'system'>('dark');
   const [notaDados, setNotaDados] = useState<Nota>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -44,7 +44,7 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     setNome(r.name ?? '');
     setSobrenome(r.surname ?? '');
     setTelefone(r.phone ?? '');
-    setTema(r.theme === 'light' ? 'light' : 'dark');
+    setTema(r.theme === 'light' || r.theme === 'system' ? r.theme : 'dark');
   }
 
   async function carregar() {
@@ -117,9 +117,12 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     } finally { setEnviandoFoto(false); }
   }
 
-  function trocarTema(valor: 'dark' | 'light') {
+  function trocarTema(valor: 'dark' | 'light' | 'system') {
     setTema(valor);
-    document.documentElement.setAttribute('data-theme', valor);
+    const resolvido = valor === 'system'
+      ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : valor;
+    document.documentElement.setAttribute('data-theme', resolvido);
     try { localStorage.setItem('orion-theme', valor); } catch { /* modo privado */ }
     setNotaDados(null);
     api<Profile>('/api/profile', { method: 'PUT', body: JSON.stringify({ theme: valor }) })
@@ -204,6 +207,8 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
             aria-pressed={tema === 'dark'} onClick={() => trocarTema('dark')}>Escuro</button>
           <button type="button" className={`perfil-tema-btn ${tema === 'light' ? 'active' : ''}`}
             aria-pressed={tema === 'light'} onClick={() => trocarTema('light')}>Claro</button>
+          <button type="button" className={`perfil-tema-btn ${tema === 'system' ? 'active' : ''}`}
+            aria-pressed={tema === 'system'} onClick={() => trocarTema('system')}>Sistema</button>
         </div>
       </section>
     </div>
