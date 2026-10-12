@@ -390,7 +390,7 @@
 .cc-foot-btn.is-static { cursor: default; color: var(--cc-fg2); }
 .cc-mode-btn { color: var(--cc-fg); }
 /* modelPill_gGYT1w: pílula única "Modelo Esforço" */
-.cc-model-pill { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 6px; padding: 0 8px; min-height: 18px; line-height: 18px; border-radius: 9999px; background: color-mix(in srgb, var(--cc-fg) 14%, transparent); color: var(--cc-fg); font-size: .85em; font-weight: 400; white-space: nowrap; }
+.cc-model-pill { display: inline-flex; align-items: center; flex-shrink: 0; margin-left: 6px; height: 26px; padding: 0 8px; border-radius: 5px; background: color-mix(in srgb, var(--cc-fg) 14%, transparent); color: var(--cc-fg); font-size: .85em; font-weight: 400; white-space: nowrap; }
 .cc-model-pill:hover { background: color-mix(in srgb, var(--cc-fg) 18%, transparent); }
 .cc-model-pill-effort { color: var(--cc-fg2); margin-left: 4px; }
 .cc-icon { display: inline-flex; padding: 5px; border-radius: 5px; color: var(--cc-fg2); }
