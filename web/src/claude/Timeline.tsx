@@ -5,6 +5,7 @@ import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDif
 import { Chevron, Copy, Check, Image, File } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { type LightboxImage } from './Lightbox';
+import { parseInline, parseMd } from './rich';
 import Ouvir from './Ouvir';
 import { api } from '../api';
 import perigoJson from '../../../deploy/root-perigo.json';
@@ -541,7 +542,7 @@ function UserText({ text }: { text: string }) {
     <div className="cc-user-expandable">
       <div className={`cc-user-wrap ${clipped ? 'is-clickable' : ''}`} onClick={clipped ? () => { if (!window.getSelection()?.toString()) setOpen(true); } : undefined}>
         <div ref={ref} className={`cc-user-text ${clipped ? 'is-collapsed' : ''}`} style={clipped ? { maxHeight: 60 } : undefined}>
-          {text}
+          <UserMd text={text} />
           {clipped && <div className="cc-user-fade" />}
         </div>
         {clipped && <div className="cc-user-more"><button type="button" className="cc-user-expand" onClick={() => setOpen(true)}>Mostrar mais</button></div>}
@@ -549,6 +550,30 @@ function UserText({ text }: { text: string }) {
       {open && tall && <div className="cc-user-more is-open"><button type="button" className="cc-user-expand" onClick={() => setOpen(false)}>Mostrar menos</button></div>}
     </div>
   );
+}
+
+/** Markdown leve do prompt (negrito, itálico, listas, links), montado com elementos React: nada de HTML cru. */
+function UserMd({ text }: { text: string }) {
+  const inline = (s: string) => parseInline(s).map((i, k) =>
+    i.kind === 'b' ? <b key={k}>{i.text}</b> : i.kind === 'i' ? <i key={k}>{i.text}</i>
+      : i.kind === 'a' ? <a key={k} href={i.href} target="_blank" rel="noopener noreferrer">{i.text}</a>
+        : <React.Fragment key={k}>{i.text.split(/(https?:\/\/[^\s)]+)/).map((p, j) => j % 2 ? <a key={j} href={p} target="_blank" rel="noopener noreferrer">{p}</a> : p)}</React.Fragment>);
+  const raw = text.split('\n');
+  const lines = parseMd(text);
+  const item = (k: number) => raw[k].replace(/^([-*•]|\d+[.)]) /, '');
+  const out: React.ReactNode[] = [];
+  for (let k = 0; k < lines.length;) {
+    const kind = lines[k].list;
+    if (kind) {
+      const items: React.ReactNode[] = [];
+      for (; k < lines.length && lines[k].list === kind; k++) items.push(<li key={k}>{inline(item(k))}</li>);
+      out.push(kind === 'ul' ? <ul key={`l${k}`}>{items}</ul> : <ol key={`l${k}`}>{items}</ol>);
+      continue;
+    }
+    out.push(<React.Fragment key={k}>{inline(raw[k])}{k < lines.length - 1 && !lines[k + 1].list ? '\n' : ''}</React.Fragment>);
+    k++;
+  }
+  return <>{out}</>;
 }
 
 /** Foto de quem escreveu (rota por nome); sem foto, cai na inicial. */

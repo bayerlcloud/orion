@@ -1023,3 +1023,6 @@
 .cc-tool-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
 .cc-tool-image { padding: 0; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-bg2); overflow: hidden; cursor: zoom-in; }
 .cc-tool-image img { display: block; max-width: 220px; max-height: 140px; object-fit: contain; }
+.cc-user-text ul, .cc-user-text ol { margin: 2px 0; padding-left: 1.4em; white-space: normal; }
+.cc-user-text li { white-space: pre-wrap; }
+.cc-user-text a { color: #4a9eff; text-decoration: underline; }

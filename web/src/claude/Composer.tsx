@@ -68,6 +68,10 @@ function insertMarkerEl(root: HTMLElement, pos: number): HTMLSpanElement {
 type Pending = { id: string; file?: File; name: string; isImage: boolean; url?: string; uploaded?: Attachment };
 
 let uid = 0;
+let pasteSeq = 0;
+// ponytail: limites fixos; viram ajuste se alguém reclamar.
+const LONG_PASTE_CHARS = 2000;
+const LONG_PASTE_LINES = 30;
 function toPending(file: File): Pending {
   const isImage = (file.type || '').startsWith('image/');
   return { id: `att-${++uid}`, file, name: file.name || 'arquivo', isImage, url: isImage ? URL.createObjectURL(file) : undefined };
@@ -368,7 +372,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   }
   function onPaste(e: ClipboardEvent<HTMLDivElement>) {
     const files = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'));
-    if (files.length) { e.preventDefault(); addFiles(files); }
+    if (files.length) { e.preventDefault(); addFiles(files); return; }
+    // Texto longo colado vira anexo .txt em vez de inundar o campo.
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (text.length > LONG_PASTE_CHARS || text.split('\n').length > LONG_PASTE_LINES) {
+      e.preventDefault();
+      addFiles([new window.File([text], `texto-colado-${++pasteSeq}.txt`, { type: 'text/plain' })]);
+    }
   }
   function onDrop(e: DragEvent<HTMLDivElement>) { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer?.files); }
   function pickSlash(cmd: string) { setText(cmd + ' '); setMenu(''); ta.current?.focus(); }
