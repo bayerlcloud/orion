@@ -7,6 +7,7 @@ import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
 import Lightbox, { type LightboxImage } from './Lightbox';
 import PlainInput, { type PlainInputHandle } from './PlainInput';
+import { promptFromMd, serializeMd } from './rich';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -33,8 +34,8 @@ const MIC_MARKER = '✳';
  * do campo herda o `font-size` do campo pela cascata normal do CSS (`.cc-mic-marker` não define o
  * próprio tamanho).
  *
- * `contentEditable="false"` marca o span como uma "ilha" não editável dentro do campo (que é
- * `plaintext-only`) — mesma técnica usada por menções/chips em editores de texto; o navegador trata
+ * `contentEditable="false"` marca o span como uma "ilha" não editável dentro do campo (área
+ * editável) — mesma técnica usada por menções/chips em editores de texto; o navegador trata
  * como uma unidade só (seta do teclado pula ele inteiro, não entra dentro). Como a inserção é
  * manipulação direta do DOM (não uma edição de verdade), não dispara `onInput`/`onChange` — o
  * `value` controlado do React nem sabe que ele existe, então não vaza pro rascunho nem pro autosave.
@@ -142,7 +143,7 @@ export function prettyModel(label: string): string {
   return `${nome} ${m[2]}${m[3] ? '.' + m[3] : ''}`;
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle, suggestion }: {
   onSend: (text: string, files: File[], uploaded?: Attachment[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
@@ -180,6 +181,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
    * estilo); `onBuildStyle` abre o assistente "Construir um estilo personalizado".
    */
   outputStyles?: OutputStyleInfo[]; outputStyle?: string; onOutputStyle?: (nome: string) => void; onBuildStyle?: () => void;
+  /** Próximo prompt previsto pelo SDK (`prompt_suggestion`): aparece como placeholder e entra com Tab. */
+  suggestion?: string | null;
 }) {
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree' | 'style'>('');
@@ -282,7 +285,6 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Texto antes/depois do cursor no INÍCIO da gravação, mais o texto final já acumulado nesta
   // gravação — `composeDictationText` sempre recalcula a partir daqui, nunca do valor atual do campo
   // (ver limitação documentada em mapper.ts: digitar durante o ditado pode ser sobrescrito).
-  const micBaseRef = useRef<{ before: string; after: string; final: string } | null>(null);
 
   // Trocou de sessão: sai de um ciclo em andamento (o histórico agora é de outra conversa).
   useEffect(() => { setCycle({ index: -1, saved: '' }); }, [sessionId]);
@@ -322,7 +324,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       stopMic();
       await pending;
     }
-    const t = textRef.current.trim();
+    const t = promptFromMd(textRef.current).trim();
     if (sending || (!t && attachments.length === 0)) return;
     const files = attachments.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
     const pre = uploadedOf(attachments);
@@ -339,6 +341,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     // Digitou "/" gravando: para a gravação (vai abrir o menu de comandos).
     if (e.key === '/' && micRecorderRef.current) stopMic();
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); return; }
+    if (e.key === 'Tab' && !e.shiftKey && !text && showSuggestion) { e.preventDefault(); setText(suggestion!); return; }
     // Recall de mensagens: só quando não há menu aberto (evita brigar com a navegação de um popover)
     // e o cursor está colado no início (ArrowUp) ou no fim (ArrowDown) de TODO o texto — não só da
     // linha atual. É a mesma checagem de posição do cursor da extensão real (`cycleMessage`/`Cq0` no
@@ -348,7 +351,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       const dir: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
       const sel = el.getSelection();
       const atStart = sel.start === 0 && sel.end === 0;
-      const atEnd = sel.start === text.length && sel.end === text.length;
+      const atEnd = sel.start === sel.total && sel.end === sel.total;
       if ((dir === -1 && atStart) || (dir === 1 && atEnd)) {
         const r = cycleMessageIndex(dir, cycle, history, text);
         if (r) {
@@ -384,10 +387,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   async function startMic() {
     if (!micSupported || micDenied || micBusy) return;
     const el = ta.current;
-    const value = text;
-    const cur = el?.getSelection() ?? { start: value.length, end: value.length };
-    micBaseRef.current = { before: value.slice(0, cur.start), after: value.slice(cur.end), final: '' };
-    if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, cur.start); setMicDictating(true); }
+    if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, el.getSelection().start); setMicDictating(true); }
     setMicError(undefined);
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
@@ -421,20 +421,22 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           }
           return;
         }
-        // Insere no texto ATUAL, na posição atual do cursor: se a pessoa digitou algo enquanto
-        // transcrevia, nada se perde (antes o texto de quando começou a gravar sobrescrevia).
-        const now = textRef.current;
-        const base = micBaseRef.current;
-        let before = base?.before ?? now, after = base?.after ?? '';
-        if (!base || now !== base.before + base.after) {
-          const sel = ta.current?.getSelection() ?? { start: now.length, end: now.length };
-          before = now.slice(0, sel.start); after = now.slice(sel.end);
-        }
-        if (r.text) {
+        // Insere onde está o marcador, no texto ATUAL (o que foi digitado enquanto transcrevia fica).
+        const root = ta.current?.el, marker = micMarkerElRef.current;
+        if (r.text && root && marker?.isConnected) {
+          const around = (start: boolean) => { const rg = document.createRange(); rg.selectNodeContents(root); if (start) rg.setEndBefore(marker); else rg.setStartAfter(marker); return rg.toString(); };
+          const before = around(true), after = around(false);
           const composed = composeDictationText(before, after, r.text, '');
+          marker.replaceWith(document.createTextNode(composed.value.slice(before.length, composed.value.length - after.length)));
+          micMarkerElRef.current = null;
+          const value = serializeMd(root);
+          textRef.current = value;
+          setText(value);
+          setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
+        } else if (r.text) {
+          const composed = composeDictationText(textRef.current, '', r.text, '');
           textRef.current = composed.value;
           setText(composed.value);
-          setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
         }
       } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
       finally { setMicBusy(false); removeMarkerEl(); micPendingRef.current = null; finish(); }
@@ -497,6 +499,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // aqui (diferente da extensão) vazio é um valor válido — "sem worktree, sessão normal".
   const worktreeNameError = worktreeName ? validateWorktreeName(worktreeName) : null;
   const images: LightboxImage[] = attachments.filter(a => a.url).map(a => ({ src: a.url!, alt: a.name }));
+  const showSuggestion = !!suggestion && !running && !micDictating && !dragOver;
   const canSend = !sending && (!!text.trim() || attachments.length > 0 || micRecording || micBusy) && !worktreeNameError;
 
   return (
@@ -517,11 +520,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       <Lightbox images={images} index={preview} onClose={closePreview} />
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
-      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating}
+      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating} placeholderTab={showSuggestion}
         // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
         // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
         // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
-        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
+        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : showSuggestion ? suggestion! : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
         (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).

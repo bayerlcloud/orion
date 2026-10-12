@@ -380,6 +380,13 @@
 .cc-input-wrap { position: relative; }
 .cc-input { width: 100%; color: var(--cc-fg); font: inherit; outline: none; padding: 10px 36px 10px 14px; line-height: 1.5; min-height: 3em; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; -webkit-user-select: text; user-select: text; }
 .cc-input-placeholder { position: absolute; top: 0; left: 0; right: 36px; padding: 10px 0 10px 14px; line-height: 1.5; color: var(--cc-fg2); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cc-input-tab { margin-left: 8px; padding: 0 5px; border: 1px solid var(--cc-line); border-radius: 4px; font: inherit; font-size: .8em; color: var(--cc-fg2); }
+.cc-input b, .cc-input strong { font-weight: 600; }
+.cc-input a { color: #4a9eff; text-decoration: underline; cursor: text; }
+.cc-input ul, .cc-input ol { margin: 0; padding-left: 1.4em; }
+.cc-format-bar { position: absolute; z-index: 20; transform: translate(-50%, calc(-100% - 6px)); display: flex; gap: 2px; padding: 3px; background: var(--cc-panel); border: 1px solid var(--cc-line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.cc-format-bar button { min-width: 26px; height: 24px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: var(--cc-fg); font-size: 12px; cursor: pointer; }
+.cc-format-bar button:hover { background: var(--cc-bg2); }
 .cc-composer-foot { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 5px; border-top: .5px solid var(--cc-line); color: var(--cc-fg2); }
 /* footerButton_gGYT1w (V2): 26px de altura, ícone 26px, raio 5, sem fundo */
 .cc-foot-btn { display: inline-flex; align-items: center; gap: 0; height: 26px; min-width: 26px; padding: 0; border-radius: 5px; color: var(--cc-fg); font-size: .85em; white-space: nowrap; }
@@ -1013,3 +1020,6 @@
 .cc-fview-pop button { text-align: left; padding: 6px 8px; border-radius: 6px; color: var(--cc-fg); font-size: 12.5px; }
 .cc-fview-pop button:hover { background: var(--cc-hover); }
 .cc-fview-pop button.is-on::after { content: " ✓"; color: var(--cc-orange); }
+.cc-tool-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.cc-tool-image { padding: 0; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-bg2); overflow: hidden; cursor: zoom-in; }
+.cc-tool-image img { display: block; max-width: 220px; max-height: 140px; object-fit: contain; }

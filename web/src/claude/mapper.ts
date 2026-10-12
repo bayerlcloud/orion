@@ -55,7 +55,14 @@ export function describeTool(name: string, input: unknown): { label: string; des
 
 function resultText(content: SdkContentBlock & { type: 'tool_result' }): string {
   if (typeof content.content === 'string') return content.content;
-  return (content.content ?? []).map(b => b.text).join('\n');
+  return (content.content ?? []).flatMap(b => b.type === 'text' ? [b.text] : []).join('\n');
+}
+
+function resultImages(content: SdkContentBlock & { type: 'tool_result' }): string[] | undefined {
+  if (typeof content.content === 'string') return undefined;
+  const imgs = (content.content ?? []).flatMap(b => b.type === 'image' && b.source?.type === 'base64' && b.source.data && /^image\/[\w.+-]+$/.test(b.source.media_type ?? '')
+    ? [`data:${b.source.media_type};base64,${b.source.data}`] : []);
+  return imgs.length ? imgs : undefined;
 }
 
 /** Reduz a lista de mensagens do SDK ao modelo de eventos da tela. Pura e idempotente. */
@@ -123,7 +130,7 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
           const ev = out[idx];
           if (ev.kind !== 'tool') continue;
           const status: ToolStatus = b.is_error ? 'failure' : 'success';
-          out[idx] = { ...ev, output: resultText(b), isError: !!b.is_error, status };
+          out[idx] = { ...ev, output: resultText(b), images: resultImages(b), isError: !!b.is_error, status };
         }
       }
       continue;

@@ -41,7 +41,8 @@ export type LiveEvent =
    */
   | { type: 'interrupted'; message: string; duringTool: boolean; partialText: string; partialThinking: string }
   | { type: 'turn_end'; turns: number; ok: boolean }
-  | { type: 'commands'; commands: SlashCommand[] };
+  | { type: 'commands'; commands: SlashCommand[] }
+  | { type: 'suggestion'; suggestion: string };
 
 /** Tokens de entrada/saída do result: soma do modelUsage (todos os modelos do turno), senão o usage
  * agregado. Mesma conta do front (sumModelUsage em web/src/claude/mapper.ts). */
@@ -447,6 +448,8 @@ export class Runner {
       },
       abortController: abort,
       includePartialMessages: true,
+      // Próximo prompt previsto (chega depois do result): vira placeholder do compositor, aceito com Tab.
+      promptSuggestions: true,
       settingSources: ['user', 'project'],
       systemPrompt: { type: 'preset', preset: 'claude_code', append: p.systemAppend },
       // Sem orçamento por padrão; quando configurado é em tokens, nunca em US$ (pedido do Danilo, 30/09/2026).
@@ -524,6 +527,14 @@ export class Runner {
         if (m.type === 'system' && (m as { subtype?: string }).subtype === 'background_tasks_changed') {
           const tasks = (m as { tasks?: unknown }).tasks;
           tarefasFundo = Array.isArray(tasks) ? tasks.length : 0;
+        }
+        if ((m as { type: string }).type === 'prompt_suggestion') {
+          const suggestion = String((m as { suggestion?: unknown }).suggestion ?? '').trim();
+          if (suggestion) {
+            await this.deps.store.appendEvent(id, 'prompt_suggestion', { suggestion });
+            this.emit(id, { type: 'suggestion', suggestion });
+          }
+          continue;
         }
         if (m.type === 'assistant') registrarToolUse(turno, (m as { message?: { content?: unknown } }).message?.content);
         await this.deps.store.appendEvent(id, m.type, m);

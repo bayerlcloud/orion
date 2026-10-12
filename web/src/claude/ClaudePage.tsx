@@ -767,7 +767,7 @@ export default function ClaudePage() {
               )}
               <PermissionDock event={dockedPermission} onDecide={decide} />
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
-                fastMode={state.fastMode}
+                fastMode={state.fastMode} suggestion={state.suggestion}
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft && activeTab.projectId !== undefined ? projects : undefined} projectId={activeTab?.projectId}
                 onProject={escolherProjeto}
