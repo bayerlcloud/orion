@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeUrl, parseMd, promptFromMd } from '../web/src/claude/rich';
 import { applyLive, emptyLive, fromRows } from '../web/src/claude/live';
+import { reduceSdkMessages } from '../web/src/claude/mapper';
 
 describe('campo de prompt com formatação', () => {
   it('link vai para o Claude como "texto (url)"', () => {
@@ -30,5 +31,17 @@ describe('campo de prompt com formatação', () => {
     expect(s.suggestion).toBeNull();
     const r = fromRows([{ seq: 1, type: 'user_prompt', payload: { prompt: 'oi' } }, { seq: 2, type: 'prompt_suggestion', payload: { suggestion: 'e agora?' } }], 'idle', []);
     expect(r.suggestion).toBe('e agora?');
+  });
+});
+
+describe('imagem lida por ferramenta', () => {
+  it('vira miniatura no bloco da ferramenta', () => {
+    const ev = reduceSdkMessages([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/a/b.png' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } }, { type: 'text', text: 'ok' }] }] } },
+    ] as any);
+    const t = ev.find(e => e.kind === 'tool') as any;
+    expect(t.images).toEqual(['data:image/png;base64,AAA']);
+    expect(t.output).toBe('ok');
   });
 });

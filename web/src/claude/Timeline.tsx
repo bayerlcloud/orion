@@ -251,6 +251,24 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
     <div className={`cc-tool is-${e.status}`}>
       <div className="cc-tool-summary">{header}</div>
       {body}
+      {e.images && <ToolImages srcs={e.images} />}
+    </div>
+  );
+}
+
+/** Miniaturas das imagens que a ferramenta devolveu; clique abre no Lightbox. */
+function ToolImages({ srcs }: { srcs: string[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const close = useCallback(() => setOpen(null), []);
+  const images: LightboxImage[] = srcs.map((src, k) => ({ src, alt: `Imagem ${k + 1} lida pelo Claude` }));
+  return (
+    <div className="cc-tool-images">
+      {images.map((m, k) => (
+        <button key={k} type="button" className="cc-tool-image" onClick={() => setOpen(k)} title="Ampliar">
+          <img src={m.src} alt={m.alt} loading="lazy" />
+        </button>
+      ))}
+      <Lightbox images={images} index={open} onClose={close} />
     </div>
   );
 }

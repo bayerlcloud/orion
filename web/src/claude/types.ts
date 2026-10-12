@@ -37,6 +37,8 @@ export type ConvEvent =
   | {
       id: string; kind: 'tool'; toolUseId: string; name: string; label: string; description?: string;
       input: unknown; inputText?: string; output?: string; isError?: boolean; status: ToolStatus;
+      /** Imagens que voltaram no resultado (Read de imagem, screenshot), como data URL. */
+      images?: string[];
     }
   | {
       id: string; kind: 'permission'; toolUseId: string; name: string; label: string; description: string; inputText: string; questions?: AskQuestion[];
@@ -70,7 +72,7 @@ export type SdkContentBlock =
   | { type: 'thinking'; thinking: string }
   | { type: 'redacted_thinking' }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
-  | { type: 'tool_result'; tool_use_id: string; content?: string | { type: 'text'; text: string }[]; is_error?: boolean };
+  | { type: 'tool_result'; tool_use_id: string; content?: string | ({ type: 'text'; text: string } | { type: 'image'; source?: { type?: string; media_type?: string; data?: string } })[]; is_error?: boolean };
 
 export type SdkMessage =
   | { type: 'system'; subtype: 'init'; session_id?: string; model?: string; cwd?: string }
