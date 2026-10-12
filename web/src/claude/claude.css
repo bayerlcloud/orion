@@ -1026,3 +1026,12 @@
 .cc-user-text ul, .cc-user-text ol { margin: 2px 0; padding-left: 1.4em; white-space: normal; }
 .cc-user-text li { white-space: pre-wrap; }
 .cc-user-text a { color: #4a9eff; text-decoration: underline; }
+.cc-text-viewer { width: min(900px, 86vw); max-height: 80vh; display: flex; flex-direction: column; background: var(--cc-panel); border: 1px solid var(--cc-line); border-radius: 8px; overflow: hidden; }
+.cc-text-viewer-name { padding: 8px 12px; border-bottom: 1px solid var(--cc-line); color: var(--cc-fg2); font-size: 12px; }
+.cc-text-viewer pre { margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: var(--cc-mono); font-size: 12px; color: var(--cc-fg); user-select: text; }
+.cc-user-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity .15s; }
+.cc-user-row:hover .cc-user-actions, .cc-user-actions:focus-within { opacity: 1; }
+@media (hover: none) { .cc-user-actions { opacity: 1; } }
+.cc-mention { left: 8px; max-width: min(520px, calc(100% - 16px)); }
+.cc-mention .cc-menu-item.is-on { background: var(--cc-hover); }
+.cc-mention .cc-menu-item-desc { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }

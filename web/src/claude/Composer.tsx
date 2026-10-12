@@ -5,9 +5,10 @@ import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabe
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
-import Lightbox, { type LightboxImage } from './Lightbox';
+import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Lightbox';
 import PlainInput, { type PlainInputHandle } from './PlainInput';
 import { promptFromMd, serializeMd } from './rich';
+import { pedirPermissaoAviso } from './notify';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -80,7 +81,7 @@ function toPending(file: File): Pending {
 /** Pill de anexo pendente, cópia do `ip` da extensão real: bloco inteiro clicável, dimensões da imagem, "x" só no hover. */
 function AttachPill({ a, onOpen, onRemove }: { a: Pending; onOpen: () => void; onRemove: () => void }) {
   const [dims, setDims] = useState<string>();
-  const clickable = a.isImage && !!a.url;
+  const clickable = (a.isImage && !!a.url) || isTextAttachment(a.name, a.file?.type ?? a.uploaded?.media_type);
   return (
     <div className="cc-attach" title={a.name} role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
       onClick={clickable ? onOpen : undefined}
@@ -147,7 +148,7 @@ export function prettyModel(label: string): string {
   return `${nome} ${m[2]}${m[3] ? '.' + m[3] : ''}`;
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle, suggestion }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle, suggestion, inject }: {
   onSend: (text: string, files: File[], uploaded?: Attachment[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
@@ -187,6 +188,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   outputStyles?: OutputStyleInfo[]; outputStyle?: string; onOutputStyle?: (nome: string) => void; onBuildStyle?: () => void;
   /** Próximo prompt previsto pelo SDK (`prompt_suggestion`): aparece como placeholder e entra com Tab. */
   suggestion?: string | null;
+  /** Texto posto no campo por fora ("Editar e reenviar" no balão); `n` muda a cada pedido. */
+  inject?: { text: string; n: number } | null;
 }) {
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree' | 'style'>('');
@@ -195,12 +198,32 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const [dragOver, setDragOver] = useState(false);
   // Popup/galeria de imagem (Lightbox) aberto no índice do anexo clicado — ver claude/Lightbox.tsx.
   const [preview, setPreview] = useState<number | null>(null);
+  const [textOpen, setTextOpen] = useState<Pending | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
   // Ciclo de recall de mensagens (ArrowUp/ArrowDown com o cursor no início/fim do texto — ver `key`
   // abaixo e `cycleMessageIndex` em mapper.ts, que espelha `cycleMessage` do webview real).
   const [cycle, setCycle] = useState<CycleState>({ index: -1, saved: '' });
   const ta = useRef<PlainInputHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // "@arquivo": busca os arquivos do projeto enquanto digita depois de um @.
+  const [mention, setMention] = useState<{ q: string; items: string[]; sel: number } | null>(null);
+  useEffect(() => {
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(ta.current?.lineBeforeCaret() ?? '');
+    if (!m) { setMention(null); return; }
+    const q = m[1];
+    const t = setTimeout(() => {
+      claudeApi.files(q, { session: sessionRef.current, project: projectId })
+        .then(r => setMention(r.files.length ? { q, items: r.files, sel: 0 } : null))
+        .catch(() => setMention(null));
+    }, 120);
+    return () => clearTimeout(t);
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  function pickMention(f: string) {
+    if (!mention) return;
+    ta.current?.replaceBeforeCaret(mention.q.length + 1, `@${f} `);
+    setMention(null);
+  }
+  useEffect(() => { if (inject) { setText(inject.text); setTimeout(() => ta.current?.focus(), 0); } }, [inject?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ditado por voz (ver PARIDADE.md/mapper.ts pro achado completo). `micSupported`: calculado 1x —
   // navegador sem Web Speech API (ex. Firefox) esconde o botão inteiro, mesmo padrão de
@@ -329,6 +352,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       await pending;
     }
     const t = promptFromMd(textRef.current).trim();
+    pedirPermissaoAviso();
     if (sending || (!t && attachments.length === 0)) return;
     const files = attachments.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
     const pre = uploadedOf(attachments);
@@ -344,6 +368,12 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   function key(e: KeyboardEvent<HTMLDivElement>) {
     // Digitou "/" gravando: para a gravação (vai abrir o menu de comandos).
     if (e.key === '/' && micRecorderRef.current) stopMic();
+    if (mention) {
+      const n = mention.items.length;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + (e.key === 'ArrowDown' ? 1 : -1) + n) % n }); return; }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); pickMention(mention.items[mention.sel]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMention(null); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); return; }
     if (e.key === 'Tab' && !e.shiftKey && !text && showSuggestion) { e.preventDefault(); setText(suggestion!); return; }
     // Recall de mensagens: só quando não há menu aberto (evita brigar com a navegação de um popover)
@@ -523,11 +553,27 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       {attachments.length > 0 && (
         <div className="cc-attach-row">
           {attachments.map(a => (
-            <AttachPill key={a.id} a={a} onOpen={() => setPreview(images.findIndex(m => m.src === a.url))} onRemove={() => removeAttachment(a.id)} />
+            <AttachPill key={a.id} a={a} onOpen={() => a.isImage ? setPreview(images.findIndex(m => m.src === a.url)) : setTextOpen(a)} onRemove={() => removeAttachment(a.id)} />
           ))}
         </div>
       )}
       <Lightbox images={images} index={preview} onClose={closePreview} />
+      {textOpen && <TextViewer name={textOpen.name} onClose={() => setTextOpen(null)}
+        load={() => textOpen.file ? textOpen.file.text() : fetch(`/api/claude/attachments?path=${encodeURIComponent(textOpen.uploaded?.path ?? '')}&type=text/plain`).then(r => { if (!r.ok) throw new Error(`erro ${r.status}`); return r.text(); })} />}
+      {mention && (
+        <div className="cc-menu cc-menu-up cc-mention" role="listbox" aria-label="Arquivos do projeto">
+          {mention.items.map((f, k) => {
+            const cut = f.lastIndexOf('/');
+            return (
+              <button key={f} type="button" role="option" aria-selected={k === mention.sel} className={`cc-menu-item ${k === mention.sel ? 'is-on' : ''}`}
+                onMouseDown={e => e.preventDefault()} onClick={() => pickMention(f)}>
+                <span className="cc-menu-item-name cc-mono">{f.slice(cut + 1)}</span>
+                {cut > 0 && <span className="cc-menu-item-desc">{f.slice(0, cut)}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
       <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating} placeholderTab={showSuggestion}

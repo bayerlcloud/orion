@@ -72,3 +72,29 @@ export default function Lightbox({ images, index, onClose }: { images: LightboxI
     document.querySelector('.cc') ?? document.body,
   );
 }
+
+/** Mesmo popup, para ler um anexo de texto (ex.: texto longo colado). `load` busca o conteúdo ao abrir. */
+export function TextViewer({ name, load, onClose }: { name: string; load: () => Promise<string>; onClose: () => void }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    load().then(t => { if (alive) setText(t); }, (e: Error) => { if (alive) setText(`Não foi possível abrir: ${e.message}`); });
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); onClose(); } }
+    document.addEventListener('keydown', onKey, true);
+    return () => { alive = false; document.removeEventListener('keydown', onKey, true); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return createPortal(
+    <div className="cc-preview-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="cc-preview-container cc-text-viewer" role="dialog" aria-label={name}>
+        <div className="cc-text-viewer-name">{name}</div>
+        <pre>{text ?? 'Carregando…'}</pre>
+      </div>
+      <button type="button" onClick={onClose} className="cc-preview-close" title="Fechar (Esc)"><X size={12} /> Fechar</button>
+    </div>,
+    document.querySelector('.cc') ?? document.body,
+  );
+}
+
+const TEXT_EXT = /\.(txt|md|markdown|json|csv|log|ya?ml|xml|ts|tsx|js|jsx|mjs|py|sh|sql|css|html?|env\.example)$/i;
+/** Anexo que dá para ler como texto no visualizador. */
+export const isTextAttachment = (name: string, mediaType?: string) => (mediaType ?? '').startsWith('text/') || TEXT_EXT.test(name);
