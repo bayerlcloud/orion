@@ -19,6 +19,7 @@ import { Pencil } from './icons';
 import './claude.css';
 import { confirmar, perguntar } from '../dialogo';
 import { IcoPainelDireito, useOrionPanel } from '../OrionPanel';
+import { avisarFimTurno } from './notify';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
@@ -43,6 +44,11 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
 
 export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const fimTurno = (id: string, ok: boolean) => avisarFimTurno(id, sessionsRef.current.find(x => x.id === id)?.title ?? 'Sessão', ok);
+  // "Editar e reenviar" do balão: o texto volta para o compositor (n muda a cada clique).
+  const [inject, setInject] = useState<{ text: string; n: number } | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [meId, setMeId] = useState<number | undefined>(undefined);
   const [meName, setMeName] = useState('');
@@ -226,6 +232,7 @@ export default function ClaudePage() {
           if (buffer) { buffer.push(ev); return; }
           setLive(l => ({ ...l, [id]: applyLive(l[id] ?? emptyLive(), ev) }));
           if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
+          if (ev.type === 'turn_end') fimTurno(id, !!ev.ok);
         } catch { /* ignora */ }
       };
       es.onopen = () => {
@@ -298,7 +305,7 @@ export default function ClaudePage() {
     const apply = (ev: any) => {
       setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) }));
       if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
-      if (ev.type === 'turn_end') void refreshUsage();
+      if (ev.type === 'turn_end') { void refreshUsage(); fimTurno(activeId, !!ev.ok); }
     };
     const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
     es.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (buffer) buffer.push(ev); else apply(ev); } catch { /* ignora */ } };
@@ -740,7 +747,7 @@ export default function ClaudePage() {
               </div>
             )}
             {carregandoSessao && <div className="cc-loading" role="status" aria-label="Carregando sessão"><span /><span /><span /></div>}
-            {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} compacto={compacto} />}
+            {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} onEdit={text => setInject(v => ({ text, n: (v?.n ?? 0) + 1 }))} compacto={compacto} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
                 `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
                 `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer
@@ -767,7 +774,7 @@ export default function ClaudePage() {
               )}
               <PermissionDock event={dockedPermission} onDecide={decide} />
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
-                fastMode={state.fastMode} suggestion={state.suggestion}
+                fastMode={state.fastMode} suggestion={state.suggestion} inject={inject}
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft && activeTab.projectId !== undefined ? projects : undefined} projectId={activeTab?.projectId}
                 onProject={escolherProjeto}

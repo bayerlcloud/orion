@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEve
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
 import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
-import { Chevron, Copy, Check, Image, File } from './icons';
+import { Chevron, Copy, Check, Image, File, Pencil } from './icons';
 import { InnerCallList } from './AgentMap';
-import Lightbox, { type LightboxImage } from './Lightbox';
+import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Lightbox';
+import { parseInline, parseMd } from './rich';
 import Ouvir from './Ouvir';
 import { api } from '../api';
 import perigoJson from '../../../deploy/root-perigo.json';
@@ -541,7 +542,7 @@ function UserText({ text }: { text: string }) {
     <div className="cc-user-expandable">
       <div className={`cc-user-wrap ${clipped ? 'is-clickable' : ''}`} onClick={clipped ? () => { if (!window.getSelection()?.toString()) setOpen(true); } : undefined}>
         <div ref={ref} className={`cc-user-text ${clipped ? 'is-collapsed' : ''}`} style={clipped ? { maxHeight: 60 } : undefined}>
-          {text}
+          <UserMd text={text} />
           {clipped && <div className="cc-user-fade" />}
         </div>
         {clipped && <div className="cc-user-more"><button type="button" className="cc-user-expand" onClick={() => setOpen(true)}>Mostrar mais</button></div>}
@@ -549,6 +550,30 @@ function UserText({ text }: { text: string }) {
       {open && tall && <div className="cc-user-more is-open"><button type="button" className="cc-user-expand" onClick={() => setOpen(false)}>Mostrar menos</button></div>}
     </div>
   );
+}
+
+/** Markdown leve do prompt (negrito, itálico, listas, links), montado com elementos React: nada de HTML cru. */
+function UserMd({ text }: { text: string }) {
+  const inline = (s: string) => parseInline(s).map((i, k) =>
+    i.kind === 'b' ? <b key={k}>{i.text}</b> : i.kind === 'i' ? <i key={k}>{i.text}</i>
+      : i.kind === 'a' ? <a key={k} href={i.href} target="_blank" rel="noopener noreferrer">{i.text}</a>
+        : <React.Fragment key={k}>{i.text.split(/(https?:\/\/[^\s)]+)/).map((p, j) => j % 2 ? <a key={j} href={p} target="_blank" rel="noopener noreferrer">{p}</a> : p)}</React.Fragment>);
+  const raw = text.split('\n');
+  const lines = parseMd(text);
+  const item = (k: number) => raw[k].replace(/^([-*•]|\d+[.)]) /, '');
+  const out: React.ReactNode[] = [];
+  for (let k = 0; k < lines.length;) {
+    const kind = lines[k].list;
+    if (kind) {
+      const items: React.ReactNode[] = [];
+      for (; k < lines.length && lines[k].list === kind; k++) items.push(<li key={k}>{inline(item(k))}</li>);
+      out.push(kind === 'ul' ? <ul key={`l${k}`}>{items}</ul> : <ol key={`l${k}`}>{items}</ol>);
+      continue;
+    }
+    out.push(<React.Fragment key={k}>{inline(raw[k])}{k < lines.length - 1 && !lines[k + 1].list ? '\n' : ''}</React.Fragment>);
+    k++;
+  }
+  return <>{out}</>;
 }
 
 /** Foto de quem escreveu (rota por nome); sem foto, cai na inicial. */
@@ -597,15 +622,17 @@ function UserAvatar({ name }: { name: string }) {
 function Attachments({ items }: { items: UserAttachment[] }) {
   const [preview, setPreview] = useState<number | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
+  const [textOpen, setTextOpen] = useState<UserAttachment | null>(null);
   const images: LightboxImage[] = items.flatMap(a => { const src = attachmentImageUrl(a); return src ? [{ src, alt: a.name }] : []; });
   return (
     <div className="cc-user-attach">
       {items.map((a, i) => {
         const url = attachmentImageUrl(a);
+        const open = url ? () => setPreview(images.findIndex(m => m.src === url)) : a.path && isTextAttachment(a.name, a.media_type) ? () => setTextOpen(a) : undefined;
         return (
-          <span key={i} className="cc-attach is-chip" title={a.name} role={url ? 'button' : undefined} tabIndex={url ? 0 : undefined}
-            onClick={url ? () => setPreview(images.findIndex(m => m.src === url)) : undefined}
-            onKeyDown={url ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPreview(images.findIndex(m => m.src === url)); } } : undefined}>
+          <span key={i} className="cc-attach is-chip" title={a.name} role={open ? 'button' : undefined} tabIndex={open ? 0 : undefined}
+            onClick={open}
+            onKeyDown={open ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } : undefined}>
             {url
               ? <img className="cc-attach-thumb" src={url} alt="" />
               : <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={12} /> : <File size={12} />}</span>}
@@ -614,6 +641,8 @@ function Attachments({ items }: { items: UserAttachment[] }) {
         );
       })}
       <Lightbox images={images} index={preview} onClose={closePreview} />
+      {textOpen && <TextViewer name={textOpen.name} onClose={() => setTextOpen(null)}
+        load={() => fetch(`/api/claude/attachments?path=${encodeURIComponent(textOpen.path ?? '')}&type=text/plain`).then(r => { if (!r.ok) throw new Error(`erro ${r.status}`); return r.text(); })} />}
     </div>
   );
 }
@@ -726,7 +755,7 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
   );
 }
 
-export default function Timeline({ events, onDecide, agentTasks, onResend, compacto }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; compacto?: boolean }) {
+export default function Timeline({ events, onDecide, agentTasks, onResend, onEdit, compacto }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; onEdit?: (prompt: string) => void; compacto?: boolean }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
   const folded = useMemo(() => foldExpiredPermissions(events), [events]);
@@ -787,6 +816,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
           // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira card com foto + nome dentro.
           const m = /^\[([^\]\n]{1,40})\]\s*/.exec(e.text);
           const sticky = e.text ? ' is-sticky' : '';
+          const prompt = m ? e.text.slice(m[0].length) : e.text;
           return (
             <div key={e.id} className={`cc-user-row${sticky}`}>
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
@@ -794,7 +824,13 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
                 <div className="cc-user-body">
                   {m && <UserName name={m[1]} when={e.when} />}
                   {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
-                  {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
+                  {e.text && <UserText text={prompt} />}
+                  {prompt.trim() && (
+                    <div className="cc-user-actions">
+                      <CopyButton text={prompt} title="Copiar prompt" className="cc-copy-response" />
+                      {onEdit && <button type="button" className="cc-copy cc-copy-response" title="Editar e reenviar" aria-label="Editar e reenviar" onClick={() => onEdit(prompt)}><Pencil size={14} /></button>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -20,6 +20,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { tituloCurto } from '../claude/titulo.js';
+import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { orionRootServer } from '../claude/rootTool.js';
@@ -588,16 +589,29 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { path?: string; type?: string } }>('/api/claude/attachments', async (req, reply) => {
     const p = req.query?.path ?? '';
     const type = req.query?.type ?? '';
-    if (!p || !(IMAGE_MEDIA_TYPES as readonly string[]).includes(type)) return reply.code(400).send({ error: 'parâmetros inválidos' });
+    // Imagem (miniatura) ou texto puro (ver o anexo colado); nunca text/html, que o navegador executaria.
+    const texto = type === 'text/plain';
+    if (!p || !((IMAGE_MEDIA_TYPES as readonly string[]).includes(type) || texto)) return reply.code(400).send({ error: 'parâmetros inválidos' });
     let rootReal: string;
     try { rootReal = await realpath(uploadRoot); } catch { rootReal = uploadRoot; }
     let rp: string;
     try { rp = await realpath(p); } catch { return reply.code(404).send({ error: 'não encontrado' }); }
     if (!isUnderRoot(rp, rootReal)) return reply.code(403).send({ error: 'acesso negado' });
-    reply.header('Content-Type', type);
+    reply.header('Content-Type', texto ? 'text/plain; charset=utf-8' : type);
+    reply.header('X-Content-Type-Options', 'nosniff');
     // Imutável: o nome do arquivo é um uuid novo por upload (nunca reescrito no mesmo caminho) — cache longo é seguro.
     reply.header('Cache-Control', 'private, max-age=31536000, immutable');
     return reply.send(createReadStream(rp));
+  });
+
+  // Autocompletar "@arquivo" no compositor: arquivos da pasta da sessão (ou da raiz do projeto, no rascunho).
+  app.get<{ Querystring: { session?: string; project?: string; q?: string } }>('/api/claude/files', async (req) => {
+    const { session, project, q = '' } = req.query ?? {};
+    let cwd: string | undefined;
+    if (session && !session.startsWith('draft-')) cwd = (await app.pool.query('SELECT cwd FROM claude_sessions WHERE id = $1', [session])).rows[0]?.cwd;
+    else if (project && /^\d+$/.test(project)) cwd = (await app.pool.query('SELECT path FROM projects WHERE id = $1', [Number(project)])).rows[0]?.path;
+    if (!cwd) return { files: [] };
+    return { files: rankearArquivos(await arquivosDoProjeto(cwd), String(q).slice(0, 200)) };
   });
 
   app.post<{ Body: NewBody }>('/api/claude/sessions', async (req, reply) => {

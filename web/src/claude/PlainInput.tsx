@@ -15,6 +15,10 @@ export type PlainInputHandle = {
   blur: () => void;
   getSelection: () => { start: number; end: number; total: number };
   setCaret: (pos: number) => void;
+  /** Texto da linha atual até o cursor (também dentro de lista). */
+  lineBeforeCaret: () => string | null;
+  /** Apaga `n` caracteres antes do cursor e escreve `text` no lugar (fica no desfazer do navegador). */
+  replaceBeforeCaret: (n: number, text: string) => void;
 };
 
 function offsetOf(root: HTMLElement, node: Node, offset: number): number {
@@ -43,13 +47,13 @@ function placeCaret(root: HTMLElement, pos: number) {
 const exec = (cmd: string, arg?: string) => document.execCommand(cmd, false, arg);
 
 /** Texto da linha atual, do início dela até o cursor (para "- " e "1. " virarem lista). */
-function lineBeforeCaret(root: HTMLElement): string | null {
+function lineBeforeCaret(root: HTMLElement, inList = false): string | null {
   const sel = window.getSelection();
   if (!sel?.rangeCount || !sel.isCollapsed || !root.contains(sel.anchorNode)) return null;
   const r = sel.getRangeAt(0);
   let block: Node | null = r.startContainer;
   while (block && block !== root && !/^(DIV|P|LI)$/.test((block as Element).tagName ?? '')) block = block.parentNode;
-  if (!block || (block as Element).tagName === 'LI' || (block as Element).closest?.('li')) return null;
+  if (!block || (!inList && ((block as Element).tagName === 'LI' || (block as Element).closest?.('li')))) return null;
   const pre = document.createRange();
   pre.setStart(block, 0);
   pre.setEnd(r.startContainer, r.startOffset);
@@ -82,7 +86,9 @@ type Props = {
 
 const PlainInput = forwardRef<PlainInputHandle, Props>(function PlainInput({ value, onChange, onKeyDown, onPaste, placeholder, placeholderTab, className, freeze }, ref) {
   const el = useRef<HTMLDivElement>(null);
-  const emit = () => { if (el.current) onChange(serializeMd(el.current)); };
+  const changeRef = useRef(onChange);
+  changeRef.current = onChange;
+  const emit = () => { if (el.current) changeRef.current(serializeMd(el.current)); };
   useImperativeHandle(ref, () => ({
     get el() { return el.current; },
     focus: () => el.current?.focus(),
@@ -95,6 +101,13 @@ const PlainInput = forwardRef<PlainInputHandle, Props>(function PlainInput({ val
       return { start: offsetOf(root, r.startContainer, r.startOffset), end: offsetOf(root, r.endContainer, r.endOffset), total };
     },
     setCaret: (pos: number) => { if (el.current) placeCaret(el.current, pos); },
+    lineBeforeCaret: () => el.current ? lineBeforeCaret(el.current, true) : null,
+    replaceBeforeCaret: (n: number, text: string) => {
+      el.current?.focus();
+      for (let i = 0; i < n; i++) exec('delete');
+      exec('insertText', text);
+      emit();
+    },
   }), []);
 
   // Valor vindo de fora (envio limpa, histórico, rascunho, comando "/"): redesenha e põe o cursor no
