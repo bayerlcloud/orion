@@ -170,7 +170,21 @@ export async function criarProposta(
     `INSERT INTO curadoria_propostas (tipo, payload) VALUES ($1, $2) RETURNING id`,
     [tipo, JSON.stringify(payload)],
   );
-  return { id: rows[0].id, tipo, payload };
+  const id = rows[0].id;
+
+  // Decisão do Danilo (13/10/2026): curadoria aprova sozinha, sem esperar o painel.
+  // Erro na aplicação não derruba a proposta: ela fica pendente pro painel, como antes.
+  try {
+    await aplicarProposta(q, { tipo, payload });
+    await q(
+      `UPDATE curadoria_propostas SET status = 'aprovada', decided_at = now(), applied_at = now() WHERE id = $1`,
+      [id],
+    );
+  } catch {
+    // segue pendente
+  }
+
+  return { id, tipo, payload };
 }
 
 /**
