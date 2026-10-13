@@ -17,6 +17,10 @@
   --link: #2959aa; --claude: #c6613f; --code-fg: #33635c; --code-block: #e6e7ed; --diff-add: #166775; --diff-del: #914c54;
   --muted: var(--fg2); --code-bg: #00000010;
 }
+:root[data-black]:not([data-theme="light"]) {
+  /* Black (AMOLED): fundo preto puro; pixels apagados gastam menos bateria. */
+  --bg: #000; --bg2: #0a0a0c; --panel: #000; --line: #1c1c22; --hover: #0f0f13; --active: #17171d; --code-block: #050507; --code-bg: #ffffff12;
+}
 * { box-sizing: border-box; }
 /* Barras de rolagem do sistema todo: finas (6px), um pouco mais claras que o fundo (Bayerl 29/09: escura demais some). Sem `scrollbar-width`
    no Chrome: quando ele está definido, o Chrome ignora ::-webkit-scrollbar e desenha a barra nativa
