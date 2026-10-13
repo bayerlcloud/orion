@@ -49,6 +49,7 @@ export function describeTool(name: string, input: unknown): { label: string; des
       const summary = qs.map(q => q.header || q.question).filter(Boolean).join(' · ');
       return { label: 'Pergunta', description: 'o Claude quer que você escolha', inputText: summary || undefined };
     }
+    case 'ExitPlanMode': return { label: 'Plano', description: typeof i.planFilePath === 'string' ? i.planFilePath : undefined, inputText: typeof i.plan === 'string' ? i.plan : '' };
     default: return { label: name, inputText: JSON.stringify(input ?? {}, null, 2) };
   }
 }
