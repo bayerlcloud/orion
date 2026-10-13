@@ -50,10 +50,12 @@ export type LiveState = {
   fastMode: FastModeState;
   /** Próximo prompt previsto pelo SDK depois do último turno; some quando a pessoa manda outra mensagem. */
   suggestion: string | null;
+  /** Mensagens antigas que não vieram na carga (ver TURNOS_INICIAIS em api.ts). */
+  hiddenTurns: number;
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {}, fastMode: 'off', suggestion: null });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {}, fastMode: 'off', suggestion: null, hiddenTurns: 0 });
 
 const ATTACH_NOTE = '\n\n[arquivo anexado:';
 

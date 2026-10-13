@@ -42,6 +42,8 @@ export type PermissionBehavior = 'allow' | 'ask' | 'deny';
 export type PermissionScope = 'user' | 'project';
 export type PermissionRuleSet = { allow: string[]; ask: string[]; deny: string[] };
 
+export const TURNOS_INICIAIS = 20;
+
 export const claudeApi = {
   status: () => api<{ logged_in: boolean; home: string; version: string; linux_user: string | null }>('/api/claude/status'),
   me: () => api<{ user: Me }>('/api/me'),
@@ -52,7 +54,8 @@ export const claudeApi = {
   usage: () => api<{ usage: { id: number; name: string; tokens_5h: string; tokens_7d: string; tokens_total: string; sessions: string }[]; real: RealUsage; by_model?: { model: string | null; tokens: string }[] }>('/api/claude/usage'),
   /** `worktree_name`: cria um git worktree novo (branch `feature/<nome>`) e a sessão já nasce com `cwd` apontando pra ele — ver PARIDADE.md seção 14. Ausente/vazio = sessão normal na raiz do projeto, como sempre foi. */
   create: (b: { project_id: number | null; prompt: string; permission_mode: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[]; worktree_name?: string }) => api<{ id: string; title: string }>('/api/claude/sessions', { method: 'POST', body: JSON.stringify(b) }),
-  get: (id: string) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[] }>(`/api/claude/sessions/${id}`),
+  // Sem `full`: só as últimas TURNOS_INICIAIS mensagens (o resto vem com "Carregar anteriores").
+  get: (id: string, full = false) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[]; hidden_turns?: number }>(`/api/claude/sessions/${id}${full ? '' : `?turnos=${TURNOS_INICIAIS}`}`),
   send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
   // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
   files: (q: string, where: { session?: string; project?: number | null }) => {
