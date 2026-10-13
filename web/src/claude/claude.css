@@ -1038,9 +1038,10 @@
 .cc-mention .cc-menu-item-desc { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .cc-load-all { display: block; margin: 4px auto 14px; padding: 6px 12px; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-bg2); color: var(--cc-fg2); font-size: 12px; cursor: pointer; }
 .cc-load-all:hover { color: var(--cc-fg); }
-/* Turnos fora da tela não são desenhados (conversa longa fica leve, principalmente no celular). O último
-   fica de fora: é o que está rodando ao vivo. */
-.cc-turn:not(:last-child) { content-visibility: auto; contain-intrinsic-size: auto 400px; }
+/* Removido content-visibility:auto (13/10/2026): o placeholder de contain-intrinsic-size (400px) ficava
+   sem ser atualizado pro tamanho real em turnos curtos fora da viewport (scroll pula direto pro fim sem
+   nunca medir), sobrando espaço em branco embaixo da mensagem. ponytail: perda de leveza em conversa
+   muito longa, reconsiderar se ficar lento. */
 /* Plano (ExitPlanMode): cartão no dock + diálogo com o plano inteiro */
 .cc-plan-card { padding: 10px 12px; }
 .cc-plan-row { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
