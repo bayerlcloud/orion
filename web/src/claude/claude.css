@@ -153,11 +153,11 @@
 .cc-timeline { max-width: none; } /* largura toda, pedido do Danilo 29/09/2026 (igual ao plugin no Antigravity) */
 
 /* mensagem do usuário — userMessageContainer/userMessage_07S1Yg: inline-block (largura do conteúdo), fundo e borda de input, raio 6, padding 4px 6px. Avatar + nome são nossos (mantidos a pedido). */
-.cc-user-row { margin: 4px 0 16px; }
+.cc-user-row { margin: 4px 0 10px; }
 /* Última mensagem do usuário presa no topo enquanto o chat rola por trás, com o esfumado embaixo: cópia
    do `.message_07S1Yg.stickyHeader_07S1Yg` do plugin (Antigravity 2.1.165, /srv/orion-reference). O
    sticky vale dentro do `.cc-turn` dela, então o turno seguinte empurra e toma o lugar. */
-.cc-user-row.is-sticky { position: sticky; top: -20px; z-index: 3; margin: 0 -20px 4px; padding: 14px 20px 12px; background-image: linear-gradient(to bottom, var(--cc-bg) calc(100% - 12px), transparent 100%); }
+.cc-user-row.is-sticky { position: sticky; top: -20px; z-index: 3; margin: 0 -20px 0; padding: 14px 20px 6px; background-image: linear-gradient(to bottom, var(--cc-bg) calc(100% - 12px), transparent 100%); }
 .cc-user-avatar { position: relative; width: 22px; height: 22px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: var(--accent, #6b6bff); color: #fff; font: 600 12px var(--font, inherit); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-user-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .cc-user-name { font-size: 12px; font-weight: 600; color: var(--cc-fg); line-height: 22px; }
@@ -181,7 +181,7 @@
 .cc-user-expand:hover { transform: scale(1.05); }
 
 /* mensagem do assistente — message_07S1Yg + timelineMessage_07S1Yg */
-.cc-msg { --pt: 8px; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--pt) 0 8px 30px; color: var(--cc-fg); user-select: text; }
+.cc-msg { --pt: 8px; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--pt) 0 4px 30px; color: var(--cc-fg); user-select: text; }
 .cc-msg > * { max-width: 100%; }
 .cc-msg:has(.cc-msg-actions) { padding-bottom: 0; }
 .cc-user-row + .cc-msg, .cc-msg:first-child { --pt: 0px; }
