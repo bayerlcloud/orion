@@ -199,7 +199,7 @@ type Live = {
   /** Estado do turno para os gatilhos de memória (memoriaGatilhos.ts): textos humanos e se a tool de memória rodou. */
   turno: EstadoTurno | null;
   /** Último arquivo de plano (~/.claude/plans/*.md) que o Claude escreveu nesta sessão: vai junto no pedido de ExitPlanMode. */
-  planFile?: string;
+  planFile?: { file: string; text?: string };
 };
 
 export class Runner {

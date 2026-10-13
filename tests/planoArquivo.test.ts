@@ -8,9 +8,10 @@ describe('plano do ExitPlanMode', () => {
   it('acha o arquivo de plano escrito pelo Claude', () => {
     const content = [
       { type: 'tool_use', name: 'Write', input: { file_path: '/home/x/projeto/README.md' } },
-      { type: 'tool_use', name: 'Write', input: { file_path: '/home/danilo/.claude/plans/abc-def.md' } },
+      { type: 'tool_use', name: 'Write', input: { file_path: '/home/danilo/.claude/plans/abc-def.md', content: '# Novo' } },
     ];
-    expect(arquivoDePlano(content)).toBe('/home/danilo/.claude/plans/abc-def.md');
+    expect(arquivoDePlano(content)).toEqual({ file: '/home/danilo/.claude/plans/abc-def.md', text: '# Novo' });
+    expect(arquivoDePlano([{ type: 'tool_use', name: 'Edit', input: { file_path: '/h/.claude/plans/a.md' } }])).toEqual({ file: '/h/.claude/plans/a.md', text: undefined });
     expect(arquivoDePlano([{ type: 'text', text: 'oi' }])).toBeUndefined();
   });
 
@@ -18,7 +19,8 @@ describe('plano do ExitPlanMode', () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'planos-'));
     const f = path.join(dir, 'p.md');
     await writeFile(f, '# Plano X');
-    expect(await textoDoPlano(f, dir)).toEqual({ plan: '# Plano X', planFilePath: f });
+    expect(await textoDoPlano({ file: f }, dir)).toEqual({ plan: '# Plano X', planFilePath: f });
+    expect((await textoDoPlano({ file: f, text: '# Recém escrito' }, dir))?.plan).toBe('# Recém escrito');
     expect((await textoDoPlano(undefined, dir))?.plan).toBe('# Plano X');
     expect(await textoDoPlano(undefined, path.join(dir, 'nada'))).toBeNull();
   });
