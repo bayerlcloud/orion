@@ -94,7 +94,13 @@ async function main() {
   // wildcard: true = lê o disco a cada pedido. Com false, só os arquivos que existiam no boot tinham
   // rota: um `npm run build` sem restart deixava o index.html novo apontando pra assets sem rota
   // (tela em branco, 29/09/2026). Arquivo inexistente cai no setNotFoundHandler abaixo.
-  await app.register(fastifyStatic, { root: webDir, prefix: '/', wildcard: true });
+  await app.register(fastifyStatic, {
+    root: webDir, prefix: '/', wildcard: true, cacheControl: false,
+    // assets/ tem hash no nome (muda a cada build): cache de 1 ano. index.html e sw.js sempre revalidam.
+    setHeaders: (res, file) => {
+      res.setHeader('Cache-Control', /[\\/]assets[\\/]/.test(file) ? 'public, max-age=31536000, immutable' : 'no-cache');
+    },
+  });
   app.setNotFoundHandler((req, reply) => {
     if (req.method === 'GET' && !req.url.startsWith('/api/')) return reply.sendFile('index.html');
     return reply.code(404).send({ error: 'não encontrado' });

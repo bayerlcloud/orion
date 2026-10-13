@@ -500,9 +500,10 @@
   .cc-tab-actions { flex: 1 1 100%; justify-content: space-between; gap: 0; padding: 0 4px; border-top: 1px solid var(--cc-line); }
   .cc-tab-actions .cc-icon { padding: 9px; }
   .cc-scroll { padding: 12px 12px 40px; }
-  .cc-float { left: 8px; right: 8px; bottom: 8px; }
-  .cc-send, .cc-foot-btn, .cc-mic { min-height: 36px; min-width: 36px; }
-  .cc-send { width: 36px; height: 36px; }
+  .cc-float { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .cc-send, .cc-foot-btn, .cc-mic { min-height: 40px; min-width: 40px; }
+  .cc-send { width: 44px; height: 44px; }
+  .cc-user-actions .cc-copy-response { min-width: 36px; height: 36px; }
   .cc-foot-btn > span { max-width: 110px; }
   /* Rodapé do compositor numa linha só: o botão de enviar nunca desce; o que sobra encolhe com "…". */
   .cc-composer-foot { flex-wrap: nowrap; }
@@ -1035,3 +1036,8 @@
 .cc-mention { left: 8px; max-width: min(520px, calc(100% - 16px)); }
 .cc-mention .cc-menu-item.is-on { background: var(--cc-hover); }
 .cc-mention .cc-menu-item-desc { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.cc-load-all { display: block; margin: 4px auto 14px; padding: 6px 12px; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-bg2); color: var(--cc-fg2); font-size: 12px; cursor: pointer; }
+.cc-load-all:hover { color: var(--cc-fg); }
+/* Turnos fora da tela não são desenhados (conversa longa fica leve, principalmente no celular). O último
+   fica de fora: é o que está rodando ao vivo. */
+.cc-turn:not(:last-child) { content-visibility: auto; contain-intrinsic-size: auto 400px; }

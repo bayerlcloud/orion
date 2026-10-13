@@ -21,3 +21,16 @@ createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </React.StrictMode>,
 );
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => { void navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
+
+// Celular: altura real visível (encolhe quando o teclado abre, inclusive no iPhone, que não redimensiona
+// a página sozinho). A casca usa --app-h no lugar de 100dvh.
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const ajustar = () => document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
+  vv.addEventListener('resize', ajustar);
+  ajustar();
+}

@@ -674,11 +674,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { id, title: titleFromPrompt(prompt) };
   });
 
-  app.get<{ Params: { id: string } }>('/api/claude/sessions/:id', async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { turnos?: string } }>('/api/claude/sessions/:id', async (req, reply) => {
     const { rows } = await app.pool.query(
       `SELECT s.*, u.name AS user_name, p.name AS project_name, p.slug AS project_slug FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id WHERE s.id = $1`, [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
+    const t = Number(req.query?.turnos);
+    const turnos = Number.isInteger(t) && t > 0 ? Math.min(t, 100000) : 1000000;
     // Histórico enxuto: o SDK repete a lista inteira de comandos (`commands_changed`, ~350 KB) e o
     // `init` a cada turno, e isso era ~95% do peso (sessões de 80 a 120 MB, carga lenta no F5). A tela
     // só usa o PRIMEIRO init (linha "Sessão iniciada") e a lista de comandos mais recente.
@@ -686,13 +688,20 @@ export async function claudeRoutes(app: FastifyInstance) {
       `WITH lim AS (
          SELECT max(seq) FILTER (WHERE payload->>'subtype' = 'commands_changed') AS last_cmd,
                 min(seq) FILTER (WHERE payload->>'subtype' = 'init') AS first_init
-           FROM claude_events WHERE session_id = $1 AND type = 'system')
-       SELECT e.seq, e.ts, e.type, e.payload FROM claude_events e, lim
+           FROM claude_events WHERE session_id = $1 AND type = 'system'),
+       -- ?turnos=N: só a partir do N-ésimo prompt mais recente (celular abre conversa longa rápido).
+       corte AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET $2::int - 1 LIMIT 1), 0) AS seq)
+       SELECT e.seq, e.ts, e.type, e.payload FROM claude_events e, lim, corte
         WHERE e.session_id = $1
+          AND (e.seq >= corte.seq OR e.seq = lim.first_init)
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init)
-        ORDER BY e.seq`, [s.id]);
-    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id) };
+        ORDER BY e.seq`, [s.id, turnos]);
+    const primeiro = events.find(e => e.type === 'user_prompt')?.seq;
+    const escondidos = turnos < 1000000 && primeiro !== undefined
+      ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
+      : 0;
+    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id), hidden_turns: escondidos };
   });
 
   app.get<{ Params: { id: string } }>('/api/claude/sessions/:id/stream', async (req, reply) => {

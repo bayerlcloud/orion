@@ -133,7 +133,9 @@ strong { color: var(--fg); }
   .avatar-menu { left: auto; right: 0; bottom: auto; top: 40px; }
   .content { padding: 14px 16px; }
   /* minmax(0,1fr): sem isso a trilha 1fr cresce até a largura mínima da barra de ícones (~426px) e a tela toda rola de lado. */
-  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); height: 100dvh; }
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px minmax(0, 1fr); height: var(--app-h, 100dvh); }
+  /* recorte da câmera / cantos arredondados em paisagem (viewport-fit=cover no index.html) */
+  .shell { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
   .rail { min-width: 0; }
   .rail-nav { min-width: 0; scrollbar-width: none; }
   .rail-nav::-webkit-scrollbar { display: none; }
