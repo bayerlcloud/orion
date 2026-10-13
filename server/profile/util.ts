@@ -51,7 +51,12 @@ export function validSurname(s: unknown): string | null {
   return t;
 }
 
-/** Tema: só 'dark' ou 'light'. Lança em qualquer outro valor. */
+export function validDarkVariant(s: unknown): 'dark' | 'black' {
+  if (s === 'dark' || s === 'black') return s;
+  throw new Error('variante de tema inválida');
+}
+
+/** Tema: 'dark', 'light' ou 'system'. Lança em qualquer outro valor. */
 export function validTheme(s: unknown): 'dark' | 'light' | 'system' {
   if (s === 'dark' || s === 'light' || s === 'system') return s;
   throw new Error('tema inválido');
