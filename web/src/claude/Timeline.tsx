@@ -235,7 +235,8 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
       break;
     }
     case 'ExitPlanMode': {
-      const plan = s(i.plan) ?? '';
+      // Claude Code atual não manda o plano no input; quando aprovado, ele volta no resultado.
+      const plan = s(i.plan) ?? (e.output?.split('## Approved Plan:\n')[1] ?? '');
       header = <><span className="cc-tool-name">Plano </span><span className="cc-tool-plain">{planTitle(plan)}</span></>;
       body = <PlanLink plan={plan} />;
       break;
