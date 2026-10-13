@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEve
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
 import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
-import { Chevron, Copy, Check, Image, File, Pencil } from './icons';
+import { createPortal } from 'react-dom';
+import { Chevron, Copy, Check, Image, File, Pencil, X } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Lightbox';
 import { parseInline, parseMd } from './rich';
@@ -233,6 +234,12 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
       if (hasOut) body = <div className="cc-tool-body"><div className="cc-tool-grid"><Row label="OUT" text={outText} error={e.isError} /></div></div>;
       break;
     }
+    case 'ExitPlanMode': {
+      const plan = s(i.plan) ?? '';
+      header = <><span className="cc-tool-name">Plano </span><span className="cc-tool-plain">{planTitle(plan)}</span></>;
+      body = <PlanLink plan={plan} />;
+      break;
+    }
     case 'Skill': {
       header = <><span className="cc-tool-name">{(s(i.skill) ?? '').replace(/^\//, '')}</span><span className="cc-tool-path"> skill</span></>;
       break;
@@ -414,7 +421,89 @@ function ElicitAnswer({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permissi
   );
 }
 
+/** Título do plano: o primeiro cabeçalho markdown, senão a primeira linha. */
+const planTitle = (plan: string) => (/^#{1,3}\s+(.+)$/m.exec(plan)?.[1] ?? plan.split('\n').find(l => l.trim()) ?? 'Plano').trim();
+
+// Planos cujo diálogo já abriu sozinho (não reabre a cada render/troca de aba).
+const planosAbertos = new Set<string>();
+
+/** Diálogo do plano (ExitPlanMode): plano inteiro em markdown, com aprovar ou continuar planejando. */
+function PlanDialog({ plan, onClose, onDecide }: { plan: string; onClose: () => void; onDecide?: (d: 'allow' | 'deny', msg?: string) => void }) {
+  const [fb, setFb] = useState('');
+  // Destino escolhido depois de montar: no primeiro render o `.cc` pode ainda não estar no DOM.
+  const [host, setHost] = useState<Element | null>(null);
+  useEffect(() => { setHost(document.querySelector('.cc') ?? document.body); }, []);
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); onClose(); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  if (!host) return null;
+  return createPortal(
+    <div className="dlg-bg cc-plan-bg" onClick={ev => { if (ev.target === ev.currentTarget) onClose(); }}>
+      <div className="dlg cc-plan-dlg" role="dialog" aria-label="Plano do Claude">
+        <div className="cc-plan-top">
+          <span className="dlg-titulo">Plano pronto para revisão</span>
+          <button type="button" className="cc-copy cc-copy-response" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar"><X size={14} /></button>
+        </div>
+        <div className="cc-plan-body"><Md text={plan} /></div>
+        {onDecide && (
+          <div className="cc-plan-foot">
+            <textarea className="cc-plan-fb" rows={2} placeholder="Para continuar planejando, diga o que mudar (opcional)" value={fb} onChange={ev => setFb(ev.target.value)} />
+            <div className="cc-plan-btns">
+              <button type="button" className="cc-btn" onClick={() => { onDecide('deny', fb.trim() || 'Continue planejando.'); onClose(); }}>Continuar planejando</button>
+              <button type="button" className="cc-btn cc-btn-primary" onClick={() => { onDecide('allow'); onClose(); }}>Aprovar plano</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    host,
+  );
+}
+
+/** Botão "Abrir plano" no bloco da ferramenta (histórico): só leitura. */
+function PlanLink({ plan }: { plan: string }) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  if (!plan) return null;
+  return <>
+    <button type="button" className="cc-btn cc-plan-open" onClick={() => setOpen(true)}>Abrir plano</button>
+    {open && <PlanDialog plan={plan} onClose={close} />}
+  </>;
+}
+
+/** Cartão do plano no lugar do pedido de permissão; o diálogo abre sozinho na primeira vez. */
+function PlanApproval({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'deny', msg?: string) => void }) {
+  const plan = e.inputText || '';
+  const [open, setOpen] = useState(() => !e.decision && !planosAbertos.has(e.id));
+  useEffect(() => { if (open) planosAbertos.add(e.id); }, [open, e.id]);
+  const close = useCallback(() => setOpen(false), []);
+  const status = e.decision === 'allow' || e.decision === 'allow_always' ? 'Plano aprovado' : e.decision === 'deny' ? 'Plano devolvido: o Claude continua planejando' : e.decision === 'timeout' ? 'Pedido de aprovação expirado' : null;
+  return (
+    <div className={status ? 'cc-perm-done cc-plan-card' : 'cc-perm cc-plan-card'}>
+      {!status && <div className="cc-perm-bg" />}
+      <div className="cc-plan-row">
+        <div className="cc-plan-info">
+          <div className="cc-perm-head">{status ?? 'Plano pronto para revisão'}</div>
+          <div className="cc-plan-title">{planTitle(plan)}</div>
+        </div>
+        <div className="cc-plan-btns">
+          <button type="button" className="cc-btn" onClick={() => setOpen(true)}>Abrir plano</button>
+          {!status && <button type="button" className="cc-btn cc-btn-primary" onClick={() => onDecide?.('allow')}>Aprovar</button>}
+        </div>
+      </div>
+      {open && <PlanDialog plan={plan} onClose={close} onDecide={status ? undefined : onDecide} />}
+    </div>
+  );
+}
+
 export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+  if (e.name === 'ExitPlanMode') return <PlanApproval e={e} onDecide={onDecide} />;
+  return <PermissionCard e={e} onDecide={onDecide} />;
+}
+
+function PermissionCard({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   const isAsk = !!(e.questions && e.questions.length);
   const [focused, setFocused] = useState(0);
   const [reject, setReject] = useState('');

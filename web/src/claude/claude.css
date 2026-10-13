@@ -1041,3 +1041,23 @@
 /* Turnos fora da tela não são desenhados (conversa longa fica leve, principalmente no celular). O último
    fica de fora: é o que está rodando ao vivo. */
 .cc-turn:not(:last-child) { content-visibility: auto; contain-intrinsic-size: auto 400px; }
+/* Plano (ExitPlanMode): cartão no dock + diálogo com o plano inteiro */
+.cc-plan-card { padding: 10px 12px; }
+.cc-plan-row { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cc-plan-info { flex: 1 1 200px; min-width: 0; }
+.cc-plan-title { color: var(--cc-fg2); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-plan-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.cc-plan-open { margin-top: 6px; }
+.cc-plan-dlg { width: min(860px, 100%); max-height: min(88vh, 900px); padding: 0; gap: 0; background: var(--cc-bg2); }
+.cc-plan-top { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--cc-line); }
+.cc-plan-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 18px 16px; }
+.cc-plan-foot { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--cc-line); }
+.cc-plan-fb { width: 100%; resize: vertical; padding: 8px; border: 1px solid var(--cc-line); border-radius: 6px; background: var(--cc-bg); color: var(--cc-fg); font: inherit; }
+.cc-plan-foot .cc-plan-btns { justify-content: flex-end; }
+@media (max-width: 800px) {
+  .cc-plan-bg { padding: 0; }
+  .cc-plan-dlg { width: 100%; height: var(--app-h, 100dvh); max-height: none; border-radius: 0; }
+  .cc-plan-foot .cc-plan-btns .cc-btn { flex: 1; min-height: 44px; }
+}
+.cc-plan-btns .cc-btn, .cc-plan-open { width: auto; padding: 6px 12px; text-align: center; }
+.cc-plan-btns .cc-btn.cc-btn-primary { background: var(--claude); color: #fff; font-weight: 600; box-shadow: none; }
