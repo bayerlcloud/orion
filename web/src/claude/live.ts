@@ -48,10 +48,14 @@ export type LiveState = {
   agentTasks: Record<string, AgentTask>;
   /** Último `fast_mode_state` visto nas mensagens do SDK desta sessão (ver `fastModeFrom` acima) — 'off' até o SDK mandar algo. */
   fastMode: FastModeState;
+  /** Próximo prompt previsto pelo SDK depois do último turno; some quando a pessoa manda outra mensagem. */
+  suggestion: string | null;
+  /** Mensagens antigas que não vieram na carga (ver TURNOS_INICIAIS em api.ts). */
+  hiddenTurns: number;
 };
 export type Row = { seq: number; ts?: string; type: string; payload: any };
 
-export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {}, fastMode: 'off' });
+export const emptyLive = (): LiveState => ({ status: 'idle', messages: [], partialText: '', partialThinking: '', pending: [], resolvedPerms: [], error: null, lastPrompt: null, commands: [], interrupted: null, agentTasks: {}, fastMode: 'off', suggestion: null, hiddenTurns: 0 });
 
 const ATTACH_NOTE = '\n\n[arquivo anexado:';
 
@@ -90,7 +94,7 @@ function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): Li
       if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return { ...s, agentTasks };
       // Nova mensagem do usuário: a interrupção do turno anterior (se houve) não vale mais pro que
       // vem a seguir — mesma janela de vida do erro genuíno (limpo quando volta a rodar, ver 'status').
-      return { ...s, messages: [...s.messages, stamp(m, when)], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode };
+      return { ...s, messages: [...s.messages, stamp(m, when)], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode, suggestion: null };
     }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
@@ -116,6 +120,7 @@ export function fromRows(rows: Row[], status: LiveStatus, pendingIds: { id: stri
       case 'permission_request': reqs.set(p.id, { id: p.id, toolName: p.toolName, input: p.input ?? {}, hasSuggestions: false, toolUseId: typeof p.toolUseId === 'string' ? p.toolUseId : undefined }); break;
       case 'permission_resolved': { const q = reqs.get(p.id); if (q) { q.decision = p.decision; if (typeof p.message === 'string') q.answer = p.message; } break; }
       case 'error': s = { ...s, error: String(p.message ?? 'erro') }; break;
+      case 'prompt_suggestion': s = { ...s, suggestion: String(p.suggestion ?? '') || null }; break;
       // Notas antigas da integração (antes do runner.aviso) viram o mesmo aviso.
       case 'integracao': s = pushMessage(s, { type: 'system', subtype: 'orion_aviso', text: String(p.texto ?? '') } as unknown as SdkMessage, whenOk); break;
       // Stop manual persistido (ver server/claude/runner.ts) — texto parcial reconstruído aqui, do
@@ -152,7 +157,8 @@ export function applyLive(s: LiveState, ev: any, now: number = Date.now()): Live
     // Novo turno rodando: a interrupção do turno anterior (se houve) não vale mais — mesma janela de
     // vida do erro genuíno logo abaixo (redundante com o reset em pushMessage no caminho normal, mas
     // essa é a primeira coisa que o servidor emite ao começar um turno — defesa a mais).
-    case 'status': return { ...s, status: ev.status, error: ev.status === 'running' ? null : s.error, interrupted: ev.status === 'running' ? null : s.interrupted };
+    case 'status': return { ...s, status: ev.status, error: ev.status === 'running' ? null : s.error, interrupted: ev.status === 'running' ? null : s.interrupted, suggestion: ev.status === 'running' ? null : s.suggestion };
+    case 'suggestion': return { ...s, suggestion: typeof ev.suggestion === 'string' && ev.suggestion ? ev.suggestion : null };
     case 'message': return pushMessage(s, ev.message, now);
     case 'partial': {
       const e = ev.event ?? {};

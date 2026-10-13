@@ -19,6 +19,7 @@ import { Pencil } from './icons';
 import './claude.css';
 import { confirmar, perguntar } from '../dialogo';
 import { IcoPainelDireito, useOrionPanel } from '../OrionPanel';
+import { avisarFimTurno } from './notify';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
@@ -43,6 +44,21 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
 
 export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const sessionsRef = useRef(sessions);
+  sessionsRef.current = sessions;
+  const fimTurno = (id: string, ok: boolean) => avisarFimTurno(id, sessionsRef.current.find(x => x.id === id)?.title ?? 'Sessão', ok);
+  // "Editar e reenviar" do balão: o texto volta para o compositor (n muda a cada clique).
+  const [inject, setInject] = useState<{ text: string; n: number } | null>(null);
+  // Sessões em que a pessoa pediu o histórico inteiro (o padrão carrega só as últimas mensagens).
+  const fullRef = useRef(new Set<string>());
+  const carregarTudo = (id: string) => {
+    fullRef.current.add(id);
+    claudeApi.get(id, true).then(r => setLive(l => {
+      const cur = l[id];
+      const base = { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: 0 };
+      return { ...l, [id]: cur ? { ...base, status: cur.status, pending: cur.pending, partialText: cur.partialText, partialThinking: cur.partialThinking } : base };
+    })).catch(e => setErro(e.message));
+  };
   const [projects, setProjects] = useState<Project[]>([]);
   const [meId, setMeId] = useState<number | undefined>(undefined);
   const [meName, setMeName] = useState('');
@@ -119,6 +135,20 @@ export default function ClaudePage() {
   const [floatHeight, setFloatHeight] = useState(0);
   const draftCounter = useRef(0);
   const esRef = useRef<EventSource | null>(null);
+  // Celular: voltando do segundo plano, a conexão costuma estar morta (ou "zumbi" no iOS). Reabre se
+  // caiu ou se a aba ficou escondida mais de 30 s; a recarga traz só as últimas mensagens.
+  const [revive, setRevive] = useState(0);
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      const es = esRef.current;
+      if ((es && es.readyState === EventSource.CLOSED) || (hiddenAt && Date.now() - hiddenAt > 30_000)) setRevive(n => n + 1);
+      hiddenAt = 0;
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   const restoredRef = useRef(false);
   const savedKeyRef = useRef('');
   // Pilha de sessões fechadas recentemente (só ids reais, nunca rascunho) — estilo aba de navegador
@@ -226,14 +256,15 @@ export default function ClaudePage() {
           if (buffer) { buffer.push(ev); return; }
           setLive(l => ({ ...l, [id]: applyLive(l[id] ?? emptyLive(), ev) }));
           if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
+          if (ev.type === 'turn_end') fimTurno(id, !!ev.ok);
         } catch { /* ignora */ }
       };
       es.onopen = () => {
         buffer = buffer ?? [];
-        claudeApi.get(id).then(r => {
+        claudeApi.get(id, fullRef.current.has(id)).then(r => {
           if (!alive) return;
           const pending = buffer ?? []; buffer = null;
-          setLive(l => ({ ...l, [id]: pending.reduce((st, ev) => applyLive(st, ev), fromRows(r.events, r.session.status, r.pending)) }));
+          setLive(l => ({ ...l, [id]: pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 }) }));
         }).catch(() => { buffer = null; });
       };
       streams.set(id, () => { alive = false; es.close(); });
@@ -298,7 +329,7 @@ export default function ClaudePage() {
     const apply = (ev: any) => {
       setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) }));
       if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
-      if (ev.type === 'turn_end') void refreshUsage();
+      if (ev.type === 'turn_end') { void refreshUsage(); fimTurno(activeId, !!ev.ok); }
     };
     const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
     es.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (buffer) buffer.push(ev); else apply(ev); } catch { /* ignora */ } };
@@ -308,10 +339,10 @@ export default function ClaudePage() {
       if (dropTimer) { clearTimeout(dropTimer); dropTimer = null; }
       setStreamStatus('connected');
       buffer = buffer ?? [];
-      claudeApi.get(activeId).then(r => {
+      claudeApi.get(activeId, fullRef.current.has(activeId)).then(r => {
         if (!alive) return;
         const pending = buffer ?? []; buffer = null;
-        setLive(l => ({ ...l, [activeId]: pending.reduce((st, ev) => applyLive(st, ev), fromRows(r.events, r.session.status, r.pending)) }));
+        setLive(l => ({ ...l, [activeId]: pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 }) }));
         if (!first) return;
         first = false;
         const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
@@ -328,7 +359,7 @@ export default function ClaudePage() {
     es.onerror = () => { if (!dropTimer) dropTimer = setTimeout(() => { dropTimer = null; setStreamStatus('disconnected'); }, 4000); };
     esRef.current = es;
     return () => { alive = false; if (dropTimer) clearTimeout(dropTimer); es.close(); esRef.current = null; };
-  }, [activeId, refreshSessions, refreshUsage]);
+  }, [activeId, refreshSessions, refreshUsage, revive]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
   // Sessão real ainda sem histórico carregado (o live só nasce depois do GET): mostra o loading em vez da tela vazia.
@@ -740,7 +771,7 @@ export default function ClaudePage() {
               </div>
             )}
             {carregandoSessao && <div className="cc-loading" role="status" aria-label="Carregando sessão"><span /><span /><span /></div>}
-            {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} compacto={compacto} />}
+            {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} onEdit={text => setInject(v => ({ text, n: (v?.n ?? 0) + 1 }))} hiddenTurns={state.hiddenTurns} onLoadAll={() => carregarTudo(activeId)} compacto={compacto} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
                 `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
                 `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer
@@ -767,7 +798,7 @@ export default function ClaudePage() {
               )}
               <PermissionDock event={dockedPermission} onDecide={decide} />
               <Composer onSend={send} onStop={stop} running={running} mode={mode} onMode={handleMode} effort={effort} onEffort={handleEffort}
-                fastMode={state.fastMode}
+                fastMode={state.fastMode} suggestion={state.suggestion} inject={inject}
                 model={model} onModel={handleModel} modelLabel={modelLabel} history={history} commands={state.commands} sessionId={activeId}
                 projects={activeTab?.draft && activeTab.projectId !== undefined ? projects : undefined} projectId={activeTab?.projectId}
                 onProject={escolherProjeto}

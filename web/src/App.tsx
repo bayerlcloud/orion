@@ -1,19 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, type User } from './api';
 import Login from './pages/Login';
-import Spec from './pages/Spec';
+const Spec = lazy(() => import('./pages/Spec'));
 import Placeholder from './pages/Placeholder';
 import ClaudePage from './claude/ClaudePage';
-import Drive from './pages/Drive';
-import Config from './pages/Config';
-import Whatsapp from './pages/Whatsapp';
-import Dash from './pages/Dash';
-import Arquivos from './pages/Arquivos';
-import Memoria from './pages/Memoria';
-import Perfil from './pages/Perfil';
-import Tarefas from './pages/Tarefas';
-import Tools from './pages/Tools';
+const Drive = lazy(() => import('./pages/Drive'));
+const Config = lazy(() => import('./pages/Config'));
+const Whatsapp = lazy(() => import('./pages/Whatsapp'));
+const Dash = lazy(() => import('./pages/Dash'));
+const Arquivos = lazy(() => import('./pages/Arquivos'));
+const Memoria = lazy(() => import('./pages/Memoria'));
+const Perfil = lazy(() => import('./pages/Perfil'));
+const Tarefas = lazy(() => import('./pages/Tarefas'));
+const Tools = lazy(() => import('./pages/Tools'));
 import { Dialogos } from './dialogo';
 import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
@@ -121,15 +121,16 @@ export default function App() {
         {/* Páginas "vivas": cada página, depois de aberta uma vez, continua montada e só é escondida
             ao trocar de menu. Voltar é instantâneo (sem recarregar nem remontar) e ela segue se
             atualizando em segundo plano, igual às abas do Claude. */}
+        {/* Páginas fora do Claude baixam o próprio código só quando abertas (lazy): o celular abre mais rápido. */}
         {KEEP.filter(p => visited.has(p.path) || p.path === page).map(p => (
           <div key={p.path} className="page-keep" style={{ display: page === p.path ? 'contents' : 'none' }}>
-            {p.el}
+            <Suspense fallback={<div className="center muted">carregando…</div>}>{p.el}</Suspense>
           </div>
         ))}
         <Routes>
           <Route path="/" element={<Navigate to="/claude" replace />} />
           {KEEP.map(p => <Route key={p.path} path={p.path} element={null} />)}
-          <Route path="/perfil" element={<Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} />} />
+          <Route path="/perfil" element={<Suspense fallback={null}><Perfil user={user} onSaved={() => api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => {})} /></Suspense>} />
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>

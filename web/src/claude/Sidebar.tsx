@@ -180,6 +180,26 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   // Gaveta do celular (≤800px, ver claude.css): fecha sozinha ao escolher ou criar sessão. No desktop o botão fica oculto.
   const [drawer, setDrawer] = useState(false);
   const pick = (id: string) => { setDrawer(false); onSelect(id); };
+  // Celular: deslizar da borda esquerda abre a gaveta; deslizar para a esquerda fecha.
+  useEffect(() => {
+    let x0 = 0, y0 = 0, ativo = false;
+    const ini = (e: TouchEvent) => {
+      if (window.innerWidth > 800 || document.body.dataset.page !== '/claude') return;
+      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY;
+      ativo = drawer || x0 < 28;
+    };
+    const fim = (e: TouchEvent) => {
+      if (!ativo) return;
+      ativo = false;
+      const t = e.changedTouches[0], dx = t.clientX - x0, dy = Math.abs(t.clientY - y0);
+      if (dy > Math.abs(dx)) return;
+      if (!drawer && dx > 60) setDrawer(true);
+      else if (drawer && dx < -60) setDrawer(false);
+    };
+    document.addEventListener('touchstart', ini, { passive: true });
+    document.addEventListener('touchend', fim, { passive: true });
+    return () => { document.removeEventListener('touchstart', ini); document.removeEventListener('touchend', fim); };
+  }, [drawer]);
   const [open, setOpen] = useState(true);
   const [acctOpen, setAcctOpen] = useState(true);
   const [q, setQ] = useState('');

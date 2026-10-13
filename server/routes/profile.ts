@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { hashPassword, verifyPassword } from '../auth.js';
 import {
-  AVATAR_EXTS, extForMime, mimeForExt, sanitizePhone, validName, validSurname, validTheme,
+  AVATAR_EXTS, extForMime, mimeForExt, sanitizePhone, validName, validSurname, validTheme, validDarkVariant,
 } from '../profile/util.js';
 
 /** Limite do avatar: 5 MB. */
@@ -22,7 +22,7 @@ export function avatarDir(): string {
 
 type Row = {
   id: number; name: string; surname: string | null; email: string;
-  phone: string | null; role: string; theme: string; avatar_ext: string | null;
+  phone: string | null; role: string; theme: string; dark_variant: string; avatar_ext: string | null;
 };
 
 export async function profileRoutes(app: FastifyInstance) {
@@ -33,7 +33,8 @@ export async function profileRoutes(app: FastifyInstance) {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS surname text;
      ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text;
      ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_ext text;
-     ALTER TABLE users ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'dark';`,
+     ALTER TABLE users ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'dark';
+     ALTER TABLE users ADD COLUMN IF NOT EXISTS dark_variant text NOT NULL DEFAULT 'dark';`,
   );
   await mkdir(dir, { recursive: true }).catch((e: NodeJS.ErrnoException) => {
     writable = false;
@@ -51,7 +52,7 @@ export async function profileRoutes(app: FastifyInstance) {
 
   async function loadRow(id: number): Promise<Row | null> {
     const { rows } = await app.pool.query<Row>(
-      'SELECT id, name, surname, email, phone, role, theme, avatar_ext FROM users WHERE id = $1', [id]);
+      'SELECT id, name, surname, email, phone, role, theme, dark_variant, avatar_ext FROM users WHERE id = $1', [id]);
     return rows[0] ?? null;
   }
 
@@ -66,7 +67,7 @@ export async function profileRoutes(app: FastifyInstance) {
     }
     return {
       id: r.id, name: r.name, surname: r.surname, email: r.email, phone: r.phone,
-      role: r.role, theme: r.theme, has_avatar: hasAvatar,
+      role: r.role, theme: r.theme, dark_variant: r.dark_variant, has_avatar: hasAvatar,
       avatar_url: hasAvatar ? `/api/profile/avatar/${r.id}?v=${version}` : null,
     };
   }
@@ -98,6 +99,7 @@ export async function profileRoutes(app: FastifyInstance) {
         params.push(ph || null); sets.push(`phone = $${params.length}`);
       }
       if (has('theme')) { params.push(validTheme(body.theme)); sets.push(`theme = $${params.length}`); }
+      if (has('dark_variant')) { params.push(validDarkVariant(body.dark_variant)); sets.push(`dark_variant = $${params.length}`); }
     } catch (e: any) {
       return reply.code(400).send({ error: e.message });
     }

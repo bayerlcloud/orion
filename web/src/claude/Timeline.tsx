@@ -2,9 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEve
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
 import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
-import { Chevron, Copy, Check, Image, File } from './icons';
+import { createPortal } from 'react-dom';
+import { Chevron, Copy, Check, Image, File, Pencil, X } from './icons';
 import { InnerCallList } from './AgentMap';
-import Lightbox, { type LightboxImage } from './Lightbox';
+import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Lightbox';
+import { parseInline, parseMd } from './rich';
 import Ouvir from './Ouvir';
 import { api } from '../api';
 import perigoJson from '../../../deploy/root-perigo.json';
@@ -232,6 +234,13 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
       if (hasOut) body = <div className="cc-tool-body"><div className="cc-tool-grid"><Row label="OUT" text={outText} error={e.isError} /></div></div>;
       break;
     }
+    case 'ExitPlanMode': {
+      // Claude Code atual não manda o plano no input; quando aprovado, ele volta no resultado.
+      const plan = s(i.plan) ?? (e.output?.split('## Approved Plan:\n')[1] ?? '');
+      header = <><span className="cc-tool-name">Plano </span><span className="cc-tool-plain">{planTitle(plan)}</span></>;
+      body = <PlanLink plan={plan} />;
+      break;
+    }
     case 'Skill': {
       header = <><span className="cc-tool-name">{(s(i.skill) ?? '').replace(/^\//, '')}</span><span className="cc-tool-path"> skill</span></>;
       break;
@@ -251,6 +260,24 @@ function Tool({ e }: { e: Extract<ConvEvent, { kind: 'tool' }> }) {
     <div className={`cc-tool is-${e.status}`}>
       <div className="cc-tool-summary">{header}</div>
       {body}
+      {e.images && <ToolImages srcs={e.images} />}
+    </div>
+  );
+}
+
+/** Miniaturas das imagens que a ferramenta devolveu; clique abre no Lightbox. */
+function ToolImages({ srcs }: { srcs: string[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  const close = useCallback(() => setOpen(null), []);
+  const images: LightboxImage[] = srcs.map((src, k) => ({ src, alt: `Imagem ${k + 1} lida pelo Claude` }));
+  return (
+    <div className="cc-tool-images">
+      {images.map((m, k) => (
+        <button key={k} type="button" className="cc-tool-image" onClick={() => setOpen(k)} title="Ampliar">
+          <img src={m.src} alt={m.alt} loading="lazy" />
+        </button>
+      ))}
+      <Lightbox images={images} index={open} onClose={close} />
     </div>
   );
 }
@@ -395,7 +422,89 @@ function ElicitAnswer({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permissi
   );
 }
 
+/** Título do plano: o primeiro cabeçalho markdown, senão a primeira linha. */
+const planTitle = (plan: string) => (/^#{1,3}\s+(.+)$/m.exec(plan)?.[1] ?? plan.split('\n').find(l => l.trim()) ?? 'Plano').trim();
+
+// Planos cujo diálogo já abriu sozinho (não reabre a cada render/troca de aba).
+const planosAbertos = new Set<string>();
+
+/** Diálogo do plano (ExitPlanMode): plano inteiro em markdown, com aprovar ou continuar planejando. */
+function PlanDialog({ plan, onClose, onDecide }: { plan: string; onClose: () => void; onDecide?: (d: 'allow' | 'deny', msg?: string) => void }) {
+  const [fb, setFb] = useState('');
+  // Destino escolhido depois de montar: no primeiro render o `.cc` pode ainda não estar no DOM.
+  const [host, setHost] = useState<Element | null>(null);
+  useEffect(() => { setHost(document.querySelector('.cc') ?? document.body); }, []);
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); onClose(); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  if (!host) return null;
+  return createPortal(
+    <div className="dlg-bg cc-plan-bg" onClick={ev => { if (ev.target === ev.currentTarget) onClose(); }}>
+      <div className="dlg cc-plan-dlg" role="dialog" aria-label="Plano do Claude">
+        <div className="cc-plan-top">
+          <span className="dlg-titulo">Plano pronto para revisão</span>
+          <button type="button" className="cc-copy cc-copy-response" onClick={onClose} title="Fechar (Esc)" aria-label="Fechar"><X size={14} /></button>
+        </div>
+        <div className="cc-plan-body"><Md text={plan} /></div>
+        {onDecide && (
+          <div className="cc-plan-foot">
+            <textarea className="cc-plan-fb" rows={2} placeholder="Para continuar planejando, diga o que mudar (opcional)" value={fb} onChange={ev => setFb(ev.target.value)} />
+            <div className="cc-plan-btns">
+              <button type="button" className="cc-btn" onClick={() => { onDecide('deny', fb.trim() || 'Continue planejando.'); onClose(); }}>Continuar planejando</button>
+              <button type="button" className="cc-btn cc-btn-primary" onClick={() => { onDecide('allow'); onClose(); }}>Aprovar plano</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>,
+    host,
+  );
+}
+
+/** Botão "Abrir plano" no bloco da ferramenta (histórico): só leitura. */
+function PlanLink({ plan }: { plan: string }) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  if (!plan) return null;
+  return <>
+    <button type="button" className="cc-btn cc-plan-open" onClick={() => setOpen(true)}>Abrir plano</button>
+    {open && <PlanDialog plan={plan} onClose={close} />}
+  </>;
+}
+
+/** Cartão do plano no lugar do pedido de permissão; o diálogo abre sozinho na primeira vez. */
+function PlanApproval({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'deny', msg?: string) => void }) {
+  const plan = e.inputText || '';
+  const [open, setOpen] = useState(() => !e.decision && !planosAbertos.has(e.id));
+  useEffect(() => { if (open) planosAbertos.add(e.id); }, [open, e.id]);
+  const close = useCallback(() => setOpen(false), []);
+  const status = e.decision === 'allow' || e.decision === 'allow_always' ? 'Plano aprovado' : e.decision === 'deny' ? 'Plano devolvido: o Claude continua planejando' : e.decision === 'timeout' ? 'Pedido de aprovação expirado' : null;
+  return (
+    <div className={status ? 'cc-perm-done cc-plan-card' : 'cc-perm cc-plan-card'}>
+      {!status && <div className="cc-perm-bg" />}
+      <div className="cc-plan-row">
+        <div className="cc-plan-info">
+          <div className="cc-perm-head">{status ?? 'Plano pronto para revisão'}</div>
+          <div className="cc-plan-title">{planTitle(plan)}</div>
+        </div>
+        <div className="cc-plan-btns">
+          <button type="button" className="cc-btn" onClick={() => setOpen(true)}>Abrir plano</button>
+          {!status && <button type="button" className="cc-btn cc-btn-primary" onClick={() => onDecide?.('allow')}>Aprovar</button>}
+        </div>
+      </div>
+      {open && <PlanDialog plan={plan} onClose={close} onDecide={status ? undefined : onDecide} />}
+    </div>
+  );
+}
+
 export function Permission({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
+  if (e.name === 'ExitPlanMode') return <PlanApproval e={e} onDecide={onDecide} />;
+  return <PermissionCard e={e} onDecide={onDecide} />;
+}
+
+function PermissionCard({ e, onDecide }: { e: Extract<ConvEvent, { kind: 'permission' }>; onDecide?: (d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void }) {
   const isAsk = !!(e.questions && e.questions.length);
   const [focused, setFocused] = useState(0);
   const [reject, setReject] = useState('');
@@ -523,7 +632,7 @@ function UserText({ text }: { text: string }) {
     <div className="cc-user-expandable">
       <div className={`cc-user-wrap ${clipped ? 'is-clickable' : ''}`} onClick={clipped ? () => { if (!window.getSelection()?.toString()) setOpen(true); } : undefined}>
         <div ref={ref} className={`cc-user-text ${clipped ? 'is-collapsed' : ''}`} style={clipped ? { maxHeight: 60 } : undefined}>
-          {text}
+          <UserMd text={text} />
           {clipped && <div className="cc-user-fade" />}
         </div>
         {clipped && <div className="cc-user-more"><button type="button" className="cc-user-expand" onClick={() => setOpen(true)}>Mostrar mais</button></div>}
@@ -531,6 +640,30 @@ function UserText({ text }: { text: string }) {
       {open && tall && <div className="cc-user-more is-open"><button type="button" className="cc-user-expand" onClick={() => setOpen(false)}>Mostrar menos</button></div>}
     </div>
   );
+}
+
+/** Markdown leve do prompt (negrito, itálico, listas, links), montado com elementos React: nada de HTML cru. */
+function UserMd({ text }: { text: string }) {
+  const inline = (s: string) => parseInline(s).map((i, k) =>
+    i.kind === 'b' ? <b key={k}>{i.text}</b> : i.kind === 'i' ? <i key={k}>{i.text}</i>
+      : i.kind === 'a' ? <a key={k} href={i.href} target="_blank" rel="noopener noreferrer">{i.text}</a>
+        : <React.Fragment key={k}>{i.text.split(/(https?:\/\/[^\s)]+)/).map((p, j) => j % 2 ? <a key={j} href={p} target="_blank" rel="noopener noreferrer">{p}</a> : p)}</React.Fragment>);
+  const raw = text.split('\n');
+  const lines = parseMd(text);
+  const item = (k: number) => raw[k].replace(/^([-*•]|\d+[.)]) /, '');
+  const out: React.ReactNode[] = [];
+  for (let k = 0; k < lines.length;) {
+    const kind = lines[k].list;
+    if (kind) {
+      const items: React.ReactNode[] = [];
+      for (; k < lines.length && lines[k].list === kind; k++) items.push(<li key={k}>{inline(item(k))}</li>);
+      out.push(kind === 'ul' ? <ul key={`l${k}`}>{items}</ul> : <ol key={`l${k}`}>{items}</ol>);
+      continue;
+    }
+    out.push(<React.Fragment key={k}>{inline(raw[k])}{k < lines.length - 1 && !lines[k + 1].list ? '\n' : ''}</React.Fragment>);
+    k++;
+  }
+  return <>{out}</>;
 }
 
 /** Foto de quem escreveu (rota por nome); sem foto, cai na inicial. */
@@ -579,15 +712,17 @@ function UserAvatar({ name }: { name: string }) {
 function Attachments({ items }: { items: UserAttachment[] }) {
   const [preview, setPreview] = useState<number | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
+  const [textOpen, setTextOpen] = useState<UserAttachment | null>(null);
   const images: LightboxImage[] = items.flatMap(a => { const src = attachmentImageUrl(a); return src ? [{ src, alt: a.name }] : []; });
   return (
     <div className="cc-user-attach">
       {items.map((a, i) => {
         const url = attachmentImageUrl(a);
+        const open = url ? () => setPreview(images.findIndex(m => m.src === url)) : a.path && isTextAttachment(a.name, a.media_type) ? () => setTextOpen(a) : undefined;
         return (
-          <span key={i} className="cc-attach is-chip" title={a.name} role={url ? 'button' : undefined} tabIndex={url ? 0 : undefined}
-            onClick={url ? () => setPreview(images.findIndex(m => m.src === url)) : undefined}
-            onKeyDown={url ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPreview(images.findIndex(m => m.src === url)); } } : undefined}>
+          <span key={i} className="cc-attach is-chip" title={a.name} role={open ? 'button' : undefined} tabIndex={open ? 0 : undefined}
+            onClick={open}
+            onKeyDown={open ? e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } } : undefined}>
             {url
               ? <img className="cc-attach-thumb" src={url} alt="" />
               : <span className="cc-attach-ico">{a.kind === 'image' ? <Image size={12} /> : <File size={12} />}</span>}
@@ -596,6 +731,8 @@ function Attachments({ items }: { items: UserAttachment[] }) {
         );
       })}
       <Lightbox images={images} index={preview} onClose={closePreview} />
+      {textOpen && <TextViewer name={textOpen.name} onClose={() => setTextOpen(null)}
+        load={() => fetch(`/api/claude/attachments?path=${encodeURIComponent(textOpen.path ?? '')}&type=text/plain`).then(r => { if (!r.ok) throw new Error(`erro ${r.status}`); return r.text(); })} />}
     </div>
   );
 }
@@ -708,7 +845,7 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
   );
 }
 
-export default function Timeline({ events, onDecide, agentTasks, onResend, compacto }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; compacto?: boolean }) {
+export default function Timeline({ events, onDecide, agentTasks, onResend, onEdit, hiddenTurns, onLoadAll, compacto }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; onEdit?: (prompt: string) => void; hiddenTurns?: number; onLoadAll?: () => void; compacto?: boolean }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
   const folded = useMemo(() => foldExpiredPermissions(events), [events]);
@@ -769,6 +906,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
           // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira card com foto + nome dentro.
           const m = /^\[([^\]\n]{1,40})\]\s*/.exec(e.text);
           const sticky = e.text ? ' is-sticky' : '';
+          const prompt = m ? e.text.slice(m[0].length) : e.text;
           return (
             <div key={e.id} className={`cc-user-row${sticky}`}>
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
@@ -776,7 +914,13 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
                 <div className="cc-user-body">
                   {m && <UserName name={m[1]} when={e.when} />}
                   {e.attachments && e.attachments.length > 0 && <Attachments items={e.attachments} />}
-                  {e.text && <UserText text={m ? e.text.slice(m[0].length) : e.text} />}
+                  {e.text && <UserText text={prompt} />}
+                  {prompt.trim() && (
+                    <div className="cc-user-actions">
+                      <CopyButton text={prompt} title="Copiar prompt" className="cc-copy-response" />
+                      {onEdit && <button type="button" className="cc-copy cc-copy-response" title="Editar e reenviar" aria-label="Editar e reenviar" onClick={() => onEdit(prompt)}><Pencil size={14} /></button>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -792,6 +936,11 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, compa
   };
   return (
     <div className="cc-timeline">
+      {!!hiddenTurns && onLoadAll && (
+        <button type="button" className="cc-load-all" onClick={onLoadAll}>
+          Carregar {hiddenTurns} {hiddenTurns === 1 ? 'mensagem anterior' : 'mensagens anteriores'}
+        </button>
+      )}
       {turns.map((t, i) => <div key={t[0]?.id ?? i} className="cc-turn">{(compacto ? compactarTurno(t) : t).map(renderEvent)}</div>)}
       {liveAgents.length > 0 && <SubagentRows tasks={liveAgents} />}
     </div>

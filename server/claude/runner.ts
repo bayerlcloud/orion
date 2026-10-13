@@ -3,6 +3,7 @@ import { makePolicyHook, type BackupFn } from './policy.js';
 import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import { makeStopMemoriaHook, novoEstadoTurno, registrarToolUse, sessionStartMemoriaHook, type EstadoTurno } from './memoriaGatilhos.js';
 import { readFile } from 'node:fs/promises';
+import { arquivoDePlano, textoDoPlano } from './planoArquivo.js';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
@@ -41,7 +42,8 @@ export type LiveEvent =
    */
   | { type: 'interrupted'; message: string; duringTool: boolean; partialText: string; partialThinking: string }
   | { type: 'turn_end'; turns: number; ok: boolean }
-  | { type: 'commands'; commands: SlashCommand[] };
+  | { type: 'commands'; commands: SlashCommand[] }
+  | { type: 'suggestion'; suggestion: string };
 
 /** Tokens de entrada/saída do result: soma do modelUsage (todos os modelos do turno), senão o usage
  * agregado. Mesma conta do front (sumModelUsage em web/src/claude/mapper.ts). */
@@ -196,6 +198,8 @@ type Live = {
   entrada: Entrada | null;
   /** Estado do turno para os gatilhos de memória (memoriaGatilhos.ts): textos humanos e se a tool de memória rodou. */
   turno: EstadoTurno | null;
+  /** Último arquivo de plano (~/.claude/plans/*.md) que o Claude escreveu nesta sessão: vai junto no pedido de ExitPlanMode. */
+  planFile?: string;
 };
 
 export class Runner {
@@ -390,7 +394,12 @@ export class Runner {
     await this.setStatus(id, 'running', { lastError: null });
     await this.ecoUsuario(id, text, attachments);
 
-    const canUseTool: Options['canUseTool'] = (toolName, input, opts) => new Promise<PermissionResult>((resolve) => {
+    const canUseTool: Options['canUseTool'] = async (toolName, inputSdk, opts) => {
+      // ExitPlanMode chega sem o plano (o CLI lê do arquivo): anexa o texto para a tela mostrar.
+      const input = toolName === 'ExitPlanMode' && typeof inputSdk.plan !== 'string'
+        ? { ...inputSdk, ...(await textoDoPlano(l.planFile)) }
+        : inputSdk;
+      return new Promise<PermissionResult>((resolve) => {
       const pid = randomUUID();
       const timer = setTimeout(() => {
         l.pending.delete(pid);
@@ -409,7 +418,8 @@ export class Runner {
       void this.deps.store.appendEvent(id, 'permission_request', { id: pid, toolName, input, toolUseId: opts.toolUseID });
       void this.setStatus(id, 'waiting');
       this.emit(id, { type: 'permission_request', id: pid, toolName, input, hasSuggestions: !!opts.suggestions?.length, toolUseId: opts.toolUseID });
-    });
+      });
+    };
 
     // Pedido de confirmação de um MCP (ex.: o GitHub pede o nome do repositório antes de apagar):
     // vira o mesmo cartão de aprovação, com toolName 'Elicitation'. Sem isto o SDK recusava sozinho.
@@ -447,6 +457,8 @@ export class Runner {
       },
       abortController: abort,
       includePartialMessages: true,
+      // Próximo prompt previsto (chega depois do result): vira placeholder do compositor, aceito com Tab.
+      promptSuggestions: true,
       settingSources: ['user', 'project'],
       systemPrompt: { type: 'preset', preset: 'claude_code', append: p.systemAppend },
       // Sem orçamento por padrão; quando configurado é em tokens, nunca em US$ (pedido do Danilo, 30/09/2026).
@@ -525,7 +537,19 @@ export class Runner {
           const tasks = (m as { tasks?: unknown }).tasks;
           tarefasFundo = Array.isArray(tasks) ? tasks.length : 0;
         }
-        if (m.type === 'assistant') registrarToolUse(turno, (m as { message?: { content?: unknown } }).message?.content);
+        if ((m as { type: string }).type === 'prompt_suggestion') {
+          const suggestion = String((m as { suggestion?: unknown }).suggestion ?? '').trim();
+          if (suggestion) {
+            await this.deps.store.appendEvent(id, 'prompt_suggestion', { suggestion });
+            this.emit(id, { type: 'suggestion', suggestion });
+          }
+          continue;
+        }
+        if (m.type === 'assistant') {
+          const content = (m as { message?: { content?: unknown } }).message?.content;
+          registrarToolUse(turno, content);
+          l.planFile = arquivoDePlano(content) ?? l.planFile;
+        }
         await this.deps.store.appendEvent(id, m.type, m);
         this.emit(id, { type: 'message', message: m });
         // Mensagem completa: mesmo reset que o lado cliente faz em pushMessage() ao ver 'assistant'/

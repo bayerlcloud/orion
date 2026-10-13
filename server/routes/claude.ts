@@ -20,6 +20,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { tituloCurto } from '../claude/titulo.js';
+import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { orionRootServer } from '../claude/rootTool.js';
@@ -588,16 +589,29 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { path?: string; type?: string } }>('/api/claude/attachments', async (req, reply) => {
     const p = req.query?.path ?? '';
     const type = req.query?.type ?? '';
-    if (!p || !(IMAGE_MEDIA_TYPES as readonly string[]).includes(type)) return reply.code(400).send({ error: 'parâmetros inválidos' });
+    // Imagem (miniatura) ou texto puro (ver o anexo colado); nunca text/html, que o navegador executaria.
+    const texto = type === 'text/plain';
+    if (!p || !((IMAGE_MEDIA_TYPES as readonly string[]).includes(type) || texto)) return reply.code(400).send({ error: 'parâmetros inválidos' });
     let rootReal: string;
     try { rootReal = await realpath(uploadRoot); } catch { rootReal = uploadRoot; }
     let rp: string;
     try { rp = await realpath(p); } catch { return reply.code(404).send({ error: 'não encontrado' }); }
     if (!isUnderRoot(rp, rootReal)) return reply.code(403).send({ error: 'acesso negado' });
-    reply.header('Content-Type', type);
+    reply.header('Content-Type', texto ? 'text/plain; charset=utf-8' : type);
+    reply.header('X-Content-Type-Options', 'nosniff');
     // Imutável: o nome do arquivo é um uuid novo por upload (nunca reescrito no mesmo caminho) — cache longo é seguro.
     reply.header('Cache-Control', 'private, max-age=31536000, immutable');
     return reply.send(createReadStream(rp));
+  });
+
+  // Autocompletar "@arquivo" no compositor: arquivos da pasta da sessão (ou da raiz do projeto, no rascunho).
+  app.get<{ Querystring: { session?: string; project?: string; q?: string } }>('/api/claude/files', async (req) => {
+    const { session, project, q = '' } = req.query ?? {};
+    let cwd: string | undefined;
+    if (session && !session.startsWith('draft-')) cwd = (await app.pool.query('SELECT cwd FROM claude_sessions WHERE id = $1', [session])).rows[0]?.cwd;
+    else if (project && /^\d+$/.test(project)) cwd = (await app.pool.query('SELECT path FROM projects WHERE id = $1', [Number(project)])).rows[0]?.path;
+    if (!cwd) return { files: [] };
+    return { files: rankearArquivos(await arquivosDoProjeto(cwd), String(q).slice(0, 200)) };
   });
 
   app.post<{ Body: NewBody }>('/api/claude/sessions', async (req, reply) => {
@@ -660,11 +674,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { id, title: titleFromPrompt(prompt) };
   });
 
-  app.get<{ Params: { id: string } }>('/api/claude/sessions/:id', async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { turnos?: string } }>('/api/claude/sessions/:id', async (req, reply) => {
     const { rows } = await app.pool.query(
       `SELECT s.*, u.name AS user_name, p.name AS project_name, p.slug AS project_slug FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id WHERE s.id = $1`, [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
+    const t = Number(req.query?.turnos);
+    const turnos = Number.isInteger(t) && t > 0 ? Math.min(t, 100000) : 1000000;
     // Histórico enxuto: o SDK repete a lista inteira de comandos (`commands_changed`, ~350 KB) e o
     // `init` a cada turno, e isso era ~95% do peso (sessões de 80 a 120 MB, carga lenta no F5). A tela
     // só usa o PRIMEIRO init (linha "Sessão iniciada") e a lista de comandos mais recente.
@@ -672,13 +688,20 @@ export async function claudeRoutes(app: FastifyInstance) {
       `WITH lim AS (
          SELECT max(seq) FILTER (WHERE payload->>'subtype' = 'commands_changed') AS last_cmd,
                 min(seq) FILTER (WHERE payload->>'subtype' = 'init') AS first_init
-           FROM claude_events WHERE session_id = $1 AND type = 'system')
-       SELECT e.seq, e.ts, e.type, e.payload FROM claude_events e, lim
+           FROM claude_events WHERE session_id = $1 AND type = 'system'),
+       -- ?turnos=N: só a partir do N-ésimo prompt mais recente (celular abre conversa longa rápido).
+       corte AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET $2::int - 1 LIMIT 1), 0) AS seq)
+       SELECT e.seq, e.ts, e.type, e.payload FROM claude_events e, lim, corte
         WHERE e.session_id = $1
+          AND (e.seq >= corte.seq OR e.seq = lim.first_init)
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init)
-        ORDER BY e.seq`, [s.id]);
-    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id) };
+        ORDER BY e.seq`, [s.id, turnos]);
+    const primeiro = events.find(e => e.type === 'user_prompt')?.seq;
+    const escondidos = turnos < 1000000 && primeiro !== undefined
+      ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
+      : 0;
+    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id), hidden_turns: escondidos };
   });
 
   app.get<{ Params: { id: string } }>('/api/claude/sessions/:id/stream', async (req, reply) => {

@@ -6,6 +6,11 @@ import type { RemoteSample } from './remoteSample.js';
 /** Monta o ponto gravado em dash_samples a partir de uma amostra remota. Campos lidos por web/src/pages/Dash.tsx. */
 export function pontoRemoto(sample: RemoteSample): {
   t: number;
+  host: RemoteSample['info'];
+  cpu: RemoteSample['cpu'];
+  load: RemoteSample['load'];
+  net: RemoteSample['net'];
+  procs: { count: number } | null;
   mem_used_pct: number | null;
   swap_pct: number | null;
   fs_pct: number | null;
@@ -14,6 +19,11 @@ export function pontoRemoto(sample: RemoteSample): {
 } {
   return {
     t: Date.now(),
+    host: sample.info,
+    cpu: sample.cpu,
+    load: sample.load,
+    net: sample.net,
+    procs: sample.procsCount !== null ? { count: sample.procsCount } : null,
     mem_used_pct: sample.mem?.pct ?? null,
     swap_pct: sample.mem?.swap_pct ?? null,
     fs_pct: sample.fs?.pct ?? null,

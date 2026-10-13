@@ -5,8 +5,10 @@ import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabe
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
 import { pasteFilename } from '../pages/driveUtils';
-import Lightbox, { type LightboxImage } from './Lightbox';
+import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Lightbox';
 import PlainInput, { type PlainInputHandle } from './PlainInput';
+import { promptFromMd, serializeMd } from './rich';
+import { pedirPermissaoAviso } from './notify';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -33,8 +35,8 @@ const MIC_MARKER = '✳';
  * do campo herda o `font-size` do campo pela cascata normal do CSS (`.cc-mic-marker` não define o
  * próprio tamanho).
  *
- * `contentEditable="false"` marca o span como uma "ilha" não editável dentro do campo (que é
- * `plaintext-only`) — mesma técnica usada por menções/chips em editores de texto; o navegador trata
+ * `contentEditable="false"` marca o span como uma "ilha" não editável dentro do campo (área
+ * editável) — mesma técnica usada por menções/chips em editores de texto; o navegador trata
  * como uma unidade só (seta do teclado pula ele inteiro, não entra dentro). Como a inserção é
  * manipulação direta do DOM (não uma edição de verdade), não dispara `onInput`/`onChange` — o
  * `value` controlado do React nem sabe que ele existe, então não vaza pro rascunho nem pro autosave.
@@ -67,6 +69,10 @@ function insertMarkerEl(root: HTMLElement, pos: number): HTMLSpanElement {
 type Pending = { id: string; file?: File; name: string; isImage: boolean; url?: string; uploaded?: Attachment };
 
 let uid = 0;
+let pasteSeq = 0;
+// ponytail: limites fixos; viram ajuste se alguém reclamar.
+const LONG_PASTE_CHARS = 2000;
+const LONG_PASTE_LINES = 30;
 function toPending(file: File): Pending {
   const isImage = (file.type || '').startsWith('image/');
   return { id: `att-${++uid}`, file, name: file.name || 'arquivo', isImage, url: isImage ? URL.createObjectURL(file) : undefined };
@@ -75,7 +81,7 @@ function toPending(file: File): Pending {
 /** Pill de anexo pendente, cópia do `ip` da extensão real: bloco inteiro clicável, dimensões da imagem, "x" só no hover. */
 function AttachPill({ a, onOpen, onRemove }: { a: Pending; onOpen: () => void; onRemove: () => void }) {
   const [dims, setDims] = useState<string>();
-  const clickable = a.isImage && !!a.url;
+  const clickable = (a.isImage && !!a.url) || isTextAttachment(a.name, a.file?.type ?? a.uploaded?.media_type);
   return (
     <div className="cc-attach" title={a.name} role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined}
       onClick={clickable ? onOpen : undefined}
@@ -142,7 +148,7 @@ export function prettyModel(label: string): string {
   return `${nome} ${m[2]}${m[3] ? '.' + m[3] : ''}`;
 }
 
-export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle }: {
+export default function Composer({ onSend, onStop, running, mode, onMode, effort, onEffort, model, onModel, modelLabel, history, commands, sessionId, projects, projectId, onProject, worktreeName, onWorktreeName, elapsed, fastMode, agents, onAgents, outputStyles, outputStyle, onOutputStyle, onBuildStyle, suggestion, inject }: {
   onSend: (text: string, files: File[], uploaded?: Attachment[]) => void | Promise<void>; onStop?: () => void; running: boolean; mode: Mode; onMode: (m: Mode) => void;
   effort?: EffortChoice; onEffort?: (e: EffortChoice) => void; model?: ModelAlias; onModel?: (m: ModelAlias) => void; modelLabel: string;
   /** Mensagens já enviadas nesta sessão, mais recente primeiro — alimenta o recall ArrowUp/ArrowDown (ver cycleMessageIndex). */
@@ -180,6 +186,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
    * estilo); `onBuildStyle` abre o assistente "Construir um estilo personalizado".
    */
   outputStyles?: OutputStyleInfo[]; outputStyle?: string; onOutputStyle?: (nome: string) => void; onBuildStyle?: () => void;
+  /** Próximo prompt previsto pelo SDK (`prompt_suggestion`): aparece como placeholder e entra com Tab. */
+  suggestion?: string | null;
+  /** Texto posto no campo por fora ("Editar e reenviar" no balão); `n` muda a cada pedido. */
+  inject?: { text: string; n: number } | null;
 }) {
   const [text, setText] = useState('');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree' | 'style'>('');
@@ -188,12 +198,32 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const [dragOver, setDragOver] = useState(false);
   // Popup/galeria de imagem (Lightbox) aberto no índice do anexo clicado — ver claude/Lightbox.tsx.
   const [preview, setPreview] = useState<number | null>(null);
+  const [textOpen, setTextOpen] = useState<Pending | null>(null);
   const closePreview = useCallback(() => setPreview(null), []);
   // Ciclo de recall de mensagens (ArrowUp/ArrowDown com o cursor no início/fim do texto — ver `key`
   // abaixo e `cycleMessageIndex` em mapper.ts, que espelha `cycleMessage` do webview real).
   const [cycle, setCycle] = useState<CycleState>({ index: -1, saved: '' });
   const ta = useRef<PlainInputHandle>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // "@arquivo": busca os arquivos do projeto enquanto digita depois de um @.
+  const [mention, setMention] = useState<{ q: string; items: string[]; sel: number } | null>(null);
+  useEffect(() => {
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(ta.current?.lineBeforeCaret() ?? '');
+    if (!m) { setMention(null); return; }
+    const q = m[1];
+    const t = setTimeout(() => {
+      claudeApi.files(q, { session: sessionRef.current, project: projectId })
+        .then(r => setMention(r.files.length ? { q, items: r.files, sel: 0 } : null))
+        .catch(() => setMention(null));
+    }, 120);
+    return () => clearTimeout(t);
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  function pickMention(f: string) {
+    if (!mention) return;
+    ta.current?.replaceBeforeCaret(mention.q.length + 1, `@${f} `);
+    setMention(null);
+  }
+  useEffect(() => { if (inject) { setText(inject.text); setTimeout(() => ta.current?.focus(), 0); } }, [inject?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ditado por voz (ver PARIDADE.md/mapper.ts pro achado completo). `micSupported`: calculado 1x —
   // navegador sem Web Speech API (ex. Firefox) esconde o botão inteiro, mesmo padrão de
@@ -282,7 +312,6 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // Texto antes/depois do cursor no INÍCIO da gravação, mais o texto final já acumulado nesta
   // gravação — `composeDictationText` sempre recalcula a partir daqui, nunca do valor atual do campo
   // (ver limitação documentada em mapper.ts: digitar durante o ditado pode ser sobrescrito).
-  const micBaseRef = useRef<{ before: string; after: string; final: string } | null>(null);
 
   // Trocou de sessão: sai de um ciclo em andamento (o histórico agora é de outra conversa).
   useEffect(() => { setCycle({ index: -1, saved: '' }); }, [sessionId]);
@@ -322,7 +351,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       stopMic();
       await pending;
     }
-    const t = textRef.current.trim();
+    const t = promptFromMd(textRef.current).trim();
+    pedirPermissaoAviso();
     if (sending || (!t && attachments.length === 0)) return;
     const files = attachments.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
     const pre = uploadedOf(attachments);
@@ -338,7 +368,14 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   function key(e: KeyboardEvent<HTMLDivElement>) {
     // Digitou "/" gravando: para a gravação (vai abrir o menu de comandos).
     if (e.key === '/' && micRecorderRef.current) stopMic();
+    if (mention) {
+      const n = mention.items.length;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setMention({ ...mention, sel: (mention.sel + (e.key === 'ArrowDown' ? 1 : -1) + n) % n }); return; }
+      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); pickMention(mention.items[mention.sel]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMention(null); return; }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); return; }
+    if (e.key === 'Tab' && !e.shiftKey && !text && showSuggestion) { e.preventDefault(); setText(suggestion!); return; }
     // Recall de mensagens: só quando não há menu aberto (evita brigar com a navegação de um popover)
     // e o cursor está colado no início (ArrowUp) ou no fim (ArrowDown) de TODO o texto — não só da
     // linha atual. É a mesma checagem de posição do cursor da extensão real (`cycleMessage`/`Cq0` no
@@ -348,7 +385,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       const dir: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
       const sel = el.getSelection();
       const atStart = sel.start === 0 && sel.end === 0;
-      const atEnd = sel.start === text.length && sel.end === text.length;
+      const atEnd = sel.start === sel.total && sel.end === sel.total;
       if ((dir === -1 && atStart) || (dir === 1 && atEnd)) {
         const r = cycleMessageIndex(dir, cycle, history, text);
         if (r) {
@@ -365,7 +402,13 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   }
   function onPaste(e: ClipboardEvent<HTMLDivElement>) {
     const files = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'));
-    if (files.length) { e.preventDefault(); addFiles(files); }
+    if (files.length) { e.preventDefault(); addFiles(files); return; }
+    // Texto longo colado vira anexo .txt em vez de inundar o campo.
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (text.length > LONG_PASTE_CHARS || text.split('\n').length > LONG_PASTE_LINES) {
+      e.preventDefault();
+      addFiles([new window.File([text], `texto-colado-${++pasteSeq}.txt`, { type: 'text/plain' })]);
+    }
   }
   function onDrop(e: DragEvent<HTMLDivElement>) { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer?.files); }
   function pickSlash(cmd: string) { setText(cmd + ' '); setMenu(''); ta.current?.focus(); }
@@ -384,10 +427,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   async function startMic() {
     if (!micSupported || micDenied || micBusy) return;
     const el = ta.current;
-    const value = text;
-    const cur = el?.getSelection() ?? { start: value.length, end: value.length };
-    micBaseRef.current = { before: value.slice(0, cur.start), after: value.slice(cur.end), final: '' };
-    if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, cur.start); setMicDictating(true); }
+    if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, el.getSelection().start); setMicDictating(true); }
     setMicError(undefined);
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
@@ -421,20 +461,22 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           }
           return;
         }
-        // Insere no texto ATUAL, na posição atual do cursor: se a pessoa digitou algo enquanto
-        // transcrevia, nada se perde (antes o texto de quando começou a gravar sobrescrevia).
-        const now = textRef.current;
-        const base = micBaseRef.current;
-        let before = base?.before ?? now, after = base?.after ?? '';
-        if (!base || now !== base.before + base.after) {
-          const sel = ta.current?.getSelection() ?? { start: now.length, end: now.length };
-          before = now.slice(0, sel.start); after = now.slice(sel.end);
-        }
-        if (r.text) {
+        // Insere onde está o marcador, no texto ATUAL (o que foi digitado enquanto transcrevia fica).
+        const root = ta.current?.el, marker = micMarkerElRef.current;
+        if (r.text && root && marker?.isConnected) {
+          const around = (start: boolean) => { const rg = document.createRange(); rg.selectNodeContents(root); if (start) rg.setEndBefore(marker); else rg.setStartAfter(marker); return rg.toString(); };
+          const before = around(true), after = around(false);
           const composed = composeDictationText(before, after, r.text, '');
+          marker.replaceWith(document.createTextNode(composed.value.slice(before.length, composed.value.length - after.length)));
+          micMarkerElRef.current = null;
+          const value = serializeMd(root);
+          textRef.current = value;
+          setText(value);
+          setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
+        } else if (r.text) {
+          const composed = composeDictationText(textRef.current, '', r.text, '');
           textRef.current = composed.value;
           setText(composed.value);
-          setTimeout(() => ta.current?.setCaret(composed.cursor), 0);
         }
       } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
       finally { setMicBusy(false); removeMarkerEl(); micPendingRef.current = null; finish(); }
@@ -497,6 +539,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // aqui (diferente da extensão) vazio é um valor válido — "sem worktree, sessão normal".
   const worktreeNameError = worktreeName ? validateWorktreeName(worktreeName) : null;
   const images: LightboxImage[] = attachments.filter(a => a.url).map(a => ({ src: a.url!, alt: a.name }));
+  const showSuggestion = !!suggestion && !running && !micDictating && !dragOver;
   const canSend = !sending && (!!text.trim() || attachments.length > 0 || micRecording || micBusy) && !worktreeNameError;
 
   return (
@@ -510,18 +553,34 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       {attachments.length > 0 && (
         <div className="cc-attach-row">
           {attachments.map(a => (
-            <AttachPill key={a.id} a={a} onOpen={() => setPreview(images.findIndex(m => m.src === a.url))} onRemove={() => removeAttachment(a.id)} />
+            <AttachPill key={a.id} a={a} onOpen={() => a.isImage ? setPreview(images.findIndex(m => m.src === a.url)) : setTextOpen(a)} onRemove={() => removeAttachment(a.id)} />
           ))}
         </div>
       )}
       <Lightbox images={images} index={preview} onClose={closePreview} />
+      {textOpen && <TextViewer name={textOpen.name} onClose={() => setTextOpen(null)}
+        load={() => textOpen.file ? textOpen.file.text() : fetch(`/api/claude/attachments?path=${encodeURIComponent(textOpen.uploaded?.path ?? '')}&type=text/plain`).then(r => { if (!r.ok) throw new Error(`erro ${r.status}`); return r.text(); })} />}
+      {mention && (
+        <div className="cc-menu cc-menu-up cc-mention" role="listbox" aria-label="Arquivos do projeto">
+          {mention.items.map((f, k) => {
+            const cut = f.lastIndexOf('/');
+            return (
+              <button key={f} type="button" role="option" aria-selected={k === mention.sel} className={`cc-menu-item ${k === mention.sel ? 'is-on' : ''}`}
+                onMouseDown={e => e.preventDefault()} onClick={() => pickMention(f)}>
+                <span className="cc-menu-item-name cc-mono">{f.slice(cut + 1)}</span>
+                {cut > 0 && <span className="cc-menu-item-desc">{f.slice(0, cut)}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
-      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating}
+      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating} placeholderTab={showSuggestion}
         // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
         // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
         // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
-        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : 'Peça ao Claude para editar…'} />
+        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : showSuggestion ? suggestion! : 'Peça ao Claude para editar…'} />
       {/*
         Ditado por voz — canto superior direito do campo, igual à extensão real
         (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).

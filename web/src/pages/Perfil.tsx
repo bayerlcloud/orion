@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type User } from '../api';
 import './perfil.css';
+import { aplicarTema, type Tema, type VarianteEscuro } from '../tema';
 
 type Profile = {
   id: number;
@@ -9,7 +10,8 @@ type Profile = {
   email: string;
   phone: string | null;
   role: 'owner' | 'member' | string;
-  theme: 'dark' | 'light';
+  theme: Tema;
+  dark_variant?: VarianteEscuro;
   has_avatar: boolean;
   avatar_url: string | null;
 };
@@ -23,7 +25,8 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
   const [nome, setNome] = useState('');
   const [sobrenome, setSobrenome] = useState('');
   const [telefone, setTelefone] = useState('');
-  const [tema, setTema] = useState<'dark' | 'light'>('dark');
+  const [tema, setTema] = useState<Tema>('dark');
+  const [variante, setVariante] = useState<VarianteEscuro>('dark');
   const [notaDados, setNotaDados] = useState<Nota>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -44,7 +47,8 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     setNome(r.name ?? '');
     setSobrenome(r.surname ?? '');
     setTelefone(r.phone ?? '');
-    setTema(r.theme === 'light' ? 'light' : 'dark');
+    setTema(r.theme === 'light' || r.theme === 'system' ? r.theme : 'dark');
+    setVariante(r.dark_variant === 'black' ? 'black' : 'dark');
   }
 
   async function carregar() {
@@ -117,12 +121,11 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     } finally { setEnviandoFoto(false); }
   }
 
-  function trocarTema(valor: 'dark' | 'light') {
-    setTema(valor);
-    document.documentElement.setAttribute('data-theme', valor);
-    try { localStorage.setItem('orion-theme', valor); } catch { /* modo privado */ }
+  function trocarTema(novoTema: Tema, novaVariante: VarianteEscuro = variante) {
+    setTema(novoTema); setVariante(novaVariante);
+    aplicarTema(novoTema, novaVariante);
     setNotaDados(null);
-    api<Profile>('/api/profile', { method: 'PUT', body: JSON.stringify({ theme: valor }) })
+    api<Profile>('/api/profile', { method: 'PUT', body: JSON.stringify({ theme: novoTema, dark_variant: novaVariante }) })
       .then(r => { setP(r); onSaved?.(); })
       .catch((e: any) => setNotaDados({ tipo: 'erro', texto: e.message }));
   }
@@ -204,7 +207,20 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
             aria-pressed={tema === 'dark'} onClick={() => trocarTema('dark')}>Escuro</button>
           <button type="button" className={`perfil-tema-btn ${tema === 'light' ? 'active' : ''}`}
             aria-pressed={tema === 'light'} onClick={() => trocarTema('light')}>Claro</button>
+          <button type="button" className={`perfil-tema-btn ${tema === 'system' ? 'active' : ''}`}
+            aria-pressed={tema === 'system'} onClick={() => trocarTema('system')}>Sistema</button>
         </div>
+        {tema !== 'light' && (
+          <>
+            <p className="muted small">{tema === 'system' ? 'Quando o sistema estiver no modo escuro:' : 'Estilo do escuro:'}</p>
+            <div className="perfil-tema" role="group" aria-label="Estilo do tema escuro">
+              <button type="button" className={`perfil-tema-btn ${variante === 'dark' ? 'active' : ''}`}
+                aria-pressed={variante === 'dark'} onClick={() => trocarTema(tema, 'dark')}>Padrão</button>
+              <button type="button" className={`perfil-tema-btn ${variante === 'black' ? 'active' : ''}`}
+                aria-pressed={variante === 'black'} onClick={() => trocarTema(tema, 'black')}>Black (AMOLED)</button>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );
