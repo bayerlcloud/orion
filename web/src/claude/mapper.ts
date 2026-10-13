@@ -611,28 +611,16 @@ export function formatAskAnswer(questions: { header?: string; question: string }
  */
 /**
  * Modo compacto da timeline (menu ⋮ > "Só pergunta e resposta"): esconde os passos do turno
- * (ferramentas e pensamento) e deixa só a mensagem da pessoa, a resposta em texto e o que é
- * aviso/erro. Texto intermediário ("vou olhar X…") some junto: só a resposta final interessa.
+ * (ferramentas e pensamento) e deixa só a mensagem da pessoa e todo texto do Claude.
  *
- * Achado pelo Danilo (04/10/2026): com mensagem enfileirada (compositor ainda rodando quando a
- * próxima é mandada), os dois pedidos ficam no MESMO turno (nenhum `result` nem `user` novo separa
- * um do outro — ver `turns` em Timeline.tsx, que só abre turno novo em `kind: 'user'`) e o Claude
- * responde cada um com seu próprio texto final, sem ferramenta entre eles. A versão antiga ("só o
- * último texto do turno") achava que o primeiro era narração e sumia com ele. Agora só considera
- * narração o texto seguido de ferramenta/pensamento ANTES do próximo texto; texto seguido direto de
- * outro texto (sem passo no meio) é uma resposta final por si, e os dois ficam.
+ * Achado pelo Danilo (13/10/2026): a versão antiga tentava adivinhar qual texto era "narração"
+ * descartável (texto seguido de ferramenta antes do próximo texto). Quando uma ferramenta roda NO
+ * MEIO de uma resposta só (ex.: checa algo, continua escrevendo), a heurística comia a primeira
+ * metade real da resposta. Sem jeito confiável de diferenciar "vou olhar X…" de conteúdo de
+ * verdade, melhor nunca comer texto: mostra todo texto do Claude, só esconde ferramenta/pensamento.
  */
 export function compactarTurno(turn: ConvEvent[]): ConvEvent[] {
-  const narracao = new Set<number>();
-  turn.forEach((e, i) => {
-    if (e.kind !== 'text') return;
-    for (let j = i + 1; j < turn.length; j++) {
-      const f = turn[j];
-      if (f.kind === 'text') break;
-      if (f.kind === 'tool' || f.kind === 'thinking') { narracao.add(i); break; }
-    }
-  });
-  return turn.filter((e, i) => e.kind === 'text' ? !narracao.has(i) : e.kind !== 'tool' && e.kind !== 'thinking');
+  return turn.filter(e => e.kind !== 'tool' && e.kind !== 'thinking');
 }
 
 export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {

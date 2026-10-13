@@ -3,7 +3,9 @@ import { compactarTurno } from '../web/src/claude/mapper';
 import type { ConvEvent } from '../web/src/claude/types';
 
 describe('compactarTurno (menu ⋮ > Só pergunta e resposta)', () => {
-  it('tira ferramentas, pensamento e texto intermediário; deixa usuário, última resposta e erro', () => {
+  it('tira ferramentas e pensamento; deixa usuário, todo texto (mesmo com ferramenta no meio) e erro', () => {
+    // Achado pelo Danilo (13/10/2026): ferramenta no MEIO de uma resposta só (checa algo, continua
+    // escrevendo) não pode comer a primeira metade real do texto — ver comentário em compactarTurno.
     const turn = [
       { id: 'u', kind: 'user', text: '[G] faz X' },
       { id: 'th', kind: 'thinking', text: 'hmm' },
@@ -12,7 +14,7 @@ describe('compactarTurno (menu ⋮ > Só pergunta e resposta)', () => {
       { id: 't2', kind: 'text', text: 'Pronto.' },
       { id: 'r', kind: 'result', ok: false, error: 'caiu' },
     ] as unknown as ConvEvent[];
-    expect(compactarTurno(turn).map(e => e.id)).toEqual(['u', 't2', 'r']);
+    expect(compactarTurno(turn).map(e => e.id)).toEqual(['u', 't1', 't2', 'r']);
   });
   it('mensagem enfileirada: dois textos finais no mesmo turno (sem ferramenta no meio) ficam os dois', () => {
     // Achado pelo Danilo (04/10/2026): compositor manda a próxima mensagem enfileirada antes do
