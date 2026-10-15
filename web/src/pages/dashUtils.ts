@@ -87,7 +87,7 @@ export function sparkPath(values: (number | null | undefined)[], w: number, h: n
   return { line, area, max };
 }
 
-export type UserActivity = { id: number; name: string; last_login: string | null; commands_7d: number };
+export type UserActivity = { id: number; name: string; last_login: string | null; last_work: string | null; commands_7d: number; tokens_7d: number };
 
 /** Acha a atividade (último login + comandos 7d) de um usuário numa lista vinda de /api/dash/user-activity,
  * por id (preferido) e com um fallback por nome só por segurança -- a lista sempre deve trazer o id. */

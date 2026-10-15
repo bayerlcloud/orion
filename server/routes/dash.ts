@@ -76,12 +76,15 @@ export async function dashRoutes(app: FastifyInstance) {
     const { rows } = await app.pool.query(
       `SELECT u.id, u.name,
               (SELECT max(ts) FROM logins l WHERE l.user_id = u.id) AS last_login,
+              (SELECT max(cs.updated_at) FROM claude_sessions cs WHERE cs.user_id = u.id) AS last_work,
               (SELECT count(*) FROM claude_events je
                  JOIN claude_sessions cs ON cs.id = je.session_id
-                WHERE cs.user_id = u.id AND je.type = 'user_prompt' AND je.ts >= now() - interval '7 days') AS commands_7d
+                WHERE cs.user_id = u.id AND je.type = 'user_prompt' AND je.ts >= now() - interval '7 days') AS commands_7d,
+              (SELECT COALESCE(SUM(cs.input_tokens + cs.output_tokens), 0) FROM claude_sessions cs
+                WHERE cs.user_id = u.id AND cs.updated_at >= now() - interval '7 days') AS tokens_7d
          FROM users u
         ORDER BY u.id`);
-    return { users: rows.map(r => ({ id: r.id, name: r.name, last_login: r.last_login, commands_7d: Number(r.commands_7d) })) };
+    return { users: rows.map(r => ({ id: r.id, name: r.name, last_login: r.last_login, last_work: r.last_work, commands_7d: Number(r.commands_7d), tokens_7d: Number(r.tokens_7d) })) };
   });
 
   // Seção Projetos: a coleta demora alguns segundos (git, Cloudflare, SSH na c2, checagem da produção),

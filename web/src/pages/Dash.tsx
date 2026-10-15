@@ -261,6 +261,12 @@ export default function Dash() {
   const kbsStat = (v: number | null) => (v === null ? '—' : fmtKBs(v));
   const health = healthScore(s as any);
   const minhasSessoes = (sessions ?? []).filter(x => me && x.user_name === me.name).slice(0, 6);
+  // Ranking da equipe: quem trabalhou mais recente primeiro (sem trabalho vai pro fim).
+  const rankingEquipe = [...(activity ?? [])].sort((a, b) => {
+    const ta = a.last_work ? new Date(a.last_work).getTime() : 0;
+    const tb = b.last_work ? new Date(b.last_work).getTime() : 0;
+    return tb - ta;
+  });
   const inicial = (me?.name ?? '?').trim().charAt(0).toUpperCase();
 
   if (!pronto) return <div className="dash-skeleton"><span className="dash-skeleton-spin" /> carregando painel…</div>;
@@ -306,6 +312,20 @@ export default function Dash() {
           <ul className="dash-nota-motivos">
             {health.motivos.map((m, i) => <li key={i}>{m}</li>)}
           </ul>
+        </div>
+        <div className="dash-hero-ranking">
+          <div className="dash-hero-sub">ranking da equipe</div>
+          <ol className="dash-ranking">
+            {rankingEquipe.length === 0 && <li className="muted small">sem atividade ainda</li>}
+            {rankingEquipe.map((a, i) => (
+              <li key={a.id}>
+                <span className="dash-ranking-pos">{i + 1}</span>
+                <span className="dash-ranking-nome">{a.name}</span>
+                <span className="muted small">{a.last_work ? ago(clock - new Date(a.last_work).getTime()) : 'sem trabalho'}</span>
+                <span className="muted small">{a.commands_7d} msg · {formatTokens(a.tokens_7d)} tok</span>
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
 
