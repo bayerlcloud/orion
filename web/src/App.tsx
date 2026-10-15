@@ -15,6 +15,7 @@ const Perfil = lazy(() => import('./pages/Perfil'));
 const Tarefas = lazy(() => import('./pages/Tarefas'));
 const Tools = lazy(() => import('./pages/Tools'));
 import { Dialogos } from './dialogo';
+import { ChatDrawer } from './chat/ChatDrawer';
 import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
@@ -143,6 +144,7 @@ export default function App() {
           <IcoPainelDireito open={painel} />
         </button>
       )}
+      <ChatDrawer user={user} />
       <Dialogos />
     </div>
   );
