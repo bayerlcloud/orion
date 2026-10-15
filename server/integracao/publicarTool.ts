@@ -10,6 +10,8 @@ export const INSTRUCOES_PUBLICAR =
   'Esta sessão trabalha numa worktree própria; nada sai dela sozinho. Quando a pessoa pedir "publica" (ou publicar na raiz/main/preview), use publicar. '
   + 'Quando pedir "deploy" (ou subir para produção), use deploy: ele publica na raiz, atualiza o GitHub e faz o deploy, nessa ordem. '
   + 'Nunca rode deploy.sh, wrangler, git push para a main ou o pedido de publicação do Orion na mão: só por estas ferramentas. '
+  + 'Isso vale em QUALQUER modo, inclusive Auto: o Orion nega automaticamente ("bloqueado") mesmo lá, porque essa trava não olha o modo. '
+  + 'Se a tentativa na mão for negada, não insista nem repita: chame publicar ou deploy. '
   + 'Ao terminar uma entrega que mudou arquivos, termine a resposta perguntando: "Posso publicar na raiz?" (para ninguém esquecer de subir o trabalho).';
 
 const resposta = (r: Resultado) => ({ content: [{ type: 'text' as const, text: r.texto }], ...(r.ok ? {} : { isError: true }) });
