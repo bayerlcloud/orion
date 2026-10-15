@@ -1,5 +1,10 @@
 /* Dash — preto e branco, bordas de 1px, sem cantos arredondados. */
 .dash { display: grid; gap: 28px; }
+.dash-fadein { animation: dash-fadein .35s ease both; }
+@keyframes dash-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.dash-skeleton { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 60vh; color: var(--muted); font-size: 13px; }
+.dash-skeleton-spin { width: 14px; height: 14px; border: 1.5px solid var(--line); border-top-color: var(--fg); border-radius: 50%; animation: dash-spin .7s linear infinite; }
+@keyframes dash-spin { to { transform: rotate(360deg); } }
 .dash-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 4px; }
 .dash-head h1 { margin: 0; }
 .dash-live { font-size: 12px; border: 1px solid var(--line); padding: 1px 8px; white-space: nowrap; }

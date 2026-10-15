@@ -129,8 +129,10 @@ export default function Dash() {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [clock, setClock] = useState(Date.now());
   const [host, setHost] = useState<HostKey>('c3');
+  const [pronto, setPronto] = useState(false);
   const liveRef = useRef(false);
   const hostRef = useRef<HostKey>('c3');
+  const primeiraCargaRef = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => { hostRef.current = host; }, [host]);
 
   function pushSample(s: Sample | null | undefined) {
@@ -176,13 +178,19 @@ export default function Dash() {
   // Também cobre a carga inicial (host começa em 'c3').
   useEffect(() => {
     setSeries([]); setHist(null); setNow(null);
-    void loadNow(); void loadHist();
+    primeiraCargaRef.current = Promise.allSettled([loadNow(), loadHist()]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host]);
 
   useEffect(() => {
-    void loadSessions(); void loadActivity();
-    api<{ user: { id: number; name: string; email: string } }>('/api/me').then(r => setMe(r.user)).catch(() => {});
+    // Carrega tudo da primeira leva junto e só então mostra o painel (fade-in único, em vez de cada
+    // seção pipocar na tela conforme a própria requisição termina — pedido do Danilo 15/10/2026).
+    // loadNow/loadHist ficam de fora daqui: o efeito de troca de host (abaixo) já os dispara no mount.
+    Promise.allSettled([
+      loadSessions(), loadActivity(),
+      api<{ user: { id: number; name: string; email: string } }>('/api/me').then(r => setMe(r.user)),
+      primeiraCargaRef.current,
+    ]).finally(() => setPronto(true));
     const hb = setInterval(() => setClock(Date.now()), 1000);
     const histTimer = setInterval(loadHist, 5 * 60_000);
     const sessTimer = setInterval(loadSessions, 30_000);
@@ -255,8 +263,10 @@ export default function Dash() {
   const minhasSessoes = (sessions ?? []).filter(x => me && x.user_name === me.name).slice(0, 6);
   const inicial = (me?.name ?? '?').trim().charAt(0).toUpperCase();
 
+  if (!pronto) return <div className="dash-skeleton"><span className="dash-skeleton-spin" /> carregando painel…</div>;
+
   return (
-    <div className="dash">
+    <div className="dash dash-fadein">
       <div className="dash-head">
         <h1><IcoDash size={22} className="dash-h1-ico" /> Dash</h1>
         <span className={`dash-live${effectiveLive ? '' : ' off'}`}>{effectiveLive ? 'ao vivo' : 'polling 15 s'}</span>
