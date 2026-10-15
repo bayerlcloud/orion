@@ -364,6 +364,35 @@ export async function atualizarMemoria(
   return { atualizada: true, code, nivel: m.level, campos };
 }
 
+export type EncerrarArgs = { titulo: string; resumo: string };
+export type EncerrarResultado = { encerrada: true; memoria: string; titulo: string };
+
+/**
+ * Gatilho "ok pode encerrar a sessão": grava o resumo como micro-fato (nível 4) e arquiva a
+ * sessão prefixando o título com "[Ok] " (idempotente — não prefixa de novo se já tiver).
+ */
+export async function encerrarSessao(
+  query: MemQuery,
+  ctx: MemoryToolCtx,
+  args: EncerrarArgs,
+  embedder: Embedder = embedCorpo,
+): Promise<EncerrarResultado> {
+  const titulo = (args.titulo ?? '').trim();
+  const resumo = (args.resumo ?? '').trim();
+  if (!titulo) throw new Error('informe o título do resumo');
+  if (!resumo) throw new Error('informe o resumo da sessão');
+
+  const mem = await salvarMemoria(query, ctx, { titulo, corpo: resumo, nivel: 4, keywords: ['resumo-sessao'] }, embedder);
+  if (!mem.salva) throw new Error(`memória parecida já existe (${mem.parecida}); avise antes de encerrar de novo`);
+
+  const { rows: [s] } = await query('SELECT title FROM claude_sessions WHERE id = $1', [ctx.sessionId]);
+  if (!s) throw new Error('sessão não encontrada');
+  const novoTitulo = String(s.title ?? '').startsWith('[Ok] ') ? s.title : `[Ok] ${s.title ?? titulo}`;
+  await query('UPDATE claude_sessions SET title = $2, archived = true WHERE id = $1', [ctx.sessionId, novoTitulo]);
+
+  return { encerrada: true, memoria: mem.code, titulo: novoTitulo };
+}
+
 function texto(payload: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }] };
 }
@@ -378,6 +407,7 @@ export const INSTRUCOES = [
   '2. salvar(titulo, corpo, nivel?, escopo?): aprendeu algo durável. nivel 4 (padrão) fato curto; 2 regra; 3 só decisão fechada pela pessoa. escopo: projeto (padrão), plataforma (vale para todos os projetos: publicar, deploy, infra, memória) ou pessoa. Duplicata é recusada: use atualizar.',
   '3. atualizar(code, corpo? | resumo? | titulo? | estado?): fato mudou ou ficou errado. estado "substituida" aposenta a memória. Nível 3 vira proposta para o Danilo aprovar.',
   '4. historico(consulta): o que foi pedido, dito e decidido em sessões passadas deste projeto, com quem e quando (todos_projetos: true cruza). Use quando a pergunta for "quem decidiu", "quando", "o que combinamos".',
+  '5. encerrar(titulo, resumo): a pessoa pediu pra encerrar a sessão ("ok pode encerrar"). Escreva o resumo e chame; grava como memória nível 4 e arquiva a sessão com "[Ok] " no título.',
   'Nunca guarde segredo (token, senha, chave) em memória.',
 ].join('\n');
 
@@ -462,6 +492,21 @@ export function orionMemoryServer(pool: Pool, ctx: MemoryToolCtx): McpSdkServerC
             await materializarTurnos(query).catch(() => 0); // incremental: o que terminou desde a última busca
             const turnos = await buscarHistorico(query, ctx, a);
             return texto({ encontrados: turnos.length, turnos });
+          } catch (e) {
+            return erro(e);
+          }
+        },
+      ),
+      tool(
+        'encerrar',
+        'Quando a pessoa falar algo como "ok pode encerrar a sessão": escreva um resumo do que foi feito/decidido na conversa, chame esta tool para gravá-lo como memória (nível 4) e arquivar a sessão (título vira "[Ok] <nome atual>"). Use só quando a pessoa pedir pra encerrar, nunca por conta própria.',
+        {
+          titulo: z.string().describe('Título curto do resumo (vira o título da memória nível 4)'),
+          resumo: z.string().describe('Resumo em markdown do que foi pedido, feito e decidido na sessão'),
+        },
+        async (a) => {
+          try {
+            return texto(await encerrarSessao(query, ctx, a));
           } catch (e) {
             return erro(e);
           }
