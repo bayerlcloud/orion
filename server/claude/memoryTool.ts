@@ -407,7 +407,7 @@ export const INSTRUCOES = [
   '2. salvar(titulo, corpo, nivel?, escopo?): aprendeu algo durável. nivel 4 (padrão) fato curto; 2 regra; 3 só decisão fechada pela pessoa. escopo: projeto (padrão), plataforma (vale para todos os projetos: publicar, deploy, infra, memória) ou pessoa. Duplicata é recusada: use atualizar.',
   '3. atualizar(code, corpo? | resumo? | titulo? | estado?): fato mudou ou ficou errado. estado "substituida" aposenta a memória. Nível 3 vira proposta para o Danilo aprovar.',
   '4. historico(consulta): o que foi pedido, dito e decidido em sessões passadas deste projeto, com quem e quando (todos_projetos: true cruza). Use quando a pergunta for "quem decidiu", "quando", "o que combinamos".',
-  '5. encerrar(titulo, resumo): a pessoa pediu pra encerrar a sessão ("ok pode encerrar"). Escreva o resumo e chame; grava como memória nível 4 e arquiva a sessão com "[Ok] " no título.',
+  '5. encerrar(titulo, resumo): a pessoa pediu pra encerrar a sessão ("ok pode encerrar"). Se a última ação de código ainda não foi publicar/deploy, pergunte antes (publicar na raiz / deploy / descartar) e só chame depois da resposta. Escreva o resumo e chame; grava como memória nível 4 e arquiva a sessão com "[Ok] " no título.',
   'Nunca guarde segredo (token, senha, chave) em memória.',
 ].join('\n');
 
@@ -499,7 +499,7 @@ export function orionMemoryServer(pool: Pool, ctx: MemoryToolCtx): McpSdkServerC
       ),
       tool(
         'encerrar',
-        'Quando a pessoa falar algo como "ok pode encerrar a sessão": escreva um resumo do que foi feito/decidido na conversa, chame esta tool para gravá-lo como memória (nível 4) e arquivar a sessão (título vira "[Ok] <nome atual>"). Use só quando a pessoa pedir pra encerrar, nunca por conta própria.',
+        'Quando a pessoa falar algo como "ok pode encerrar a sessão": ANTES de chamar, se a última ação de código da sessão não foi "publicar"/"deploy" (ou seja, ainda tem trabalho só na worktree, não publicado na raiz), pergunte o que fazer — publicar na raiz, dar deploy, ou descartar/desfazer — e só chame esta tool depois da resposta (ou se a pessoa já disse pra descartar). Se a última ação já foi publicar/deploy, ou não houve mudança de código na sessão, chame direto. Escreva um resumo do que foi feito/decidido na conversa, chame esta tool para gravá-lo como memória (nível 4) e arquivar a sessão (título vira "[Ok] <nome atual>"). Use só quando a pessoa pedir pra encerrar, nunca por conta própria.',
         {
           titulo: z.string().describe('Título curto do resumo (vira o título da memória nível 4)'),
           resumo: z.string().describe('Resumo em markdown do que foi pedido, feito e decidido na sessão'),
