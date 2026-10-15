@@ -32,7 +32,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
   const [draft, setDraft] = useState(s.title);
   function commit() { const t = draft.trim(); setEditing(false); if (t && t !== s.title) onRename(s.id, t); }
   return (
-    <div className={`cc-item ${active ? 'is-active' : ''}`}>
+    <div className={`cc-item ${active ? 'is-active' : ''}`} onClick={editing ? undefined : onSelect}>
       {/* Bolinha só em sessão aberta numa aba, rodando ou esperando você: igual ao plugin (`GF0` no
           webview 2.1.283: fechada e parada = sem indicador). */}
       {/* Ordem: bolinha > avatar > selo do projeto > nome. Sem bolinha fica um espaço do mesmo
@@ -43,11 +43,10 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
       {s.private && <span className="cc-item-private" title="Sessão privada: só quem criou e o admin veem"><EyeOff size={11} /></span>}
       {editing ? (
         <input className="cc-item-edit" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
-          onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }} />
+          onClick={e => e.stopPropagation()} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }} />
       ) : (
         <button
           className="cc-item-name"
-          onClick={onSelect}
           title={s.title}
           onMouseEnter={e => {
             const btn = e.currentTarget;
@@ -71,7 +70,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
         </button>
       )}
       <span className="cc-item-time">{relativeTime(s.updatedAt)}</span>
-      <span className="cc-item-actions">
+      <span className="cc-item-actions" onClick={e => e.stopPropagation()}>
         {/*
           "Mover para pasta" — alternativa a arrastar-e-soltar (ver PARIDADE.md item 12 da seção 13,
           decisão de escopo: a extensão real move sessão pra pasta por drag-and-drop OU por um menu de
