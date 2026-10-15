@@ -261,12 +261,8 @@ export default function Dash() {
   const kbsStat = (v: number | null) => (v === null ? '—' : fmtKBs(v));
   const health = healthScore(s as any);
   const minhasSessoes = (sessions ?? []).filter(x => me && x.user_name === me.name).slice(0, 6);
-  // Ranking da equipe: quem trabalhou mais recente primeiro (sem trabalho vai pro fim).
-  const rankingEquipe = [...(activity ?? [])].sort((a, b) => {
-    const ta = a.last_work ? new Date(a.last_work).getTime() : 0;
-    const tb = b.last_work ? new Date(b.last_work).getTime() : 0;
-    return tb - ta;
-  });
+  // Ranking da equipe: mais mensagens nos últimos 7 dias primeiro.
+  const rankingEquipe = [...(activity ?? [])].sort((a, b) => b.commands_7d - a.commands_7d);
   const inicial = (me?.name ?? '?').trim().charAt(0).toUpperCase();
 
   if (!pronto) return <div className="dash-skeleton"><span className="dash-skeleton-spin" /> carregando painel…</div>;
@@ -320,9 +316,15 @@ export default function Dash() {
             {rankingEquipe.map((a, i) => (
               <li key={a.id}>
                 <span className="dash-ranking-pos">{i + 1}</span>
-                <span className="dash-ranking-nome">{a.name}</span>
-                <span className="muted small">{a.last_work ? ago(clock - new Date(a.last_work).getTime()) : 'sem trabalho'}</span>
-                <span className="muted small">{a.commands_7d} msg · {formatTokens(a.tokens_7d)} tok</span>
+                <span className="dash-ranking-avatar" aria-hidden="true">
+                  <img src={`/api/profile/avatar/${a.id}`} alt="" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                  <span>{a.name.trim().charAt(0).toUpperCase()}</span>
+                </span>
+                <span className="dash-ranking-texto">
+                  <span className="dash-ranking-nome">{a.name}</span>
+                  <span className="muted small">{a.last_login ? ago(clock - new Date(a.last_login).getTime()) : 'nunca acessou'}</span>
+                </span>
+                <span className="muted small dash-ranking-msgs">{a.commands_7d} msg<br />{formatTokens(a.tokens_7d)} tok</span>
               </li>
             ))}
           </ol>
