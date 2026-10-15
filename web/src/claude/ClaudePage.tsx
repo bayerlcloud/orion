@@ -427,6 +427,10 @@ export default function ClaudePage() {
   }, [activeId, toBottom]);
   // Trocou de aba: sempre começa no fim.
   useEffect(() => { atBottomRef.current = true; toBottom(); }, [activeId, toBottom]);
+  // Trocou de aba: erro da sessão anterior não deve ficar preso na tela (cc-error-bar não se
+  // limpava sozinho — achado pelo Danilo 15/10/2026, ficava "fixo em todas as telas" porque
+  // ClaudePage é um componente só, reaproveitado por todas as abas).
+  useEffect(() => { setErro(''); }, [activeId]);
   // Mensagem nova do usuário (a pessoa acabou de enviar) sempre leva pro fim, mesmo rolado pra cima.
   const lastIsUser = events[events.length - 1]?.kind === 'user';
   useEffect(() => { if (lastIsUser) atBottomRef.current = true; if (atBottomRef.current) toBottom(); }, [events.length, lastIsUser, state.partialText.length, state.partialThinking.length, floatHeight, toBottom]);
@@ -723,7 +727,7 @@ export default function ClaudePage() {
           lateral); turnos e tokens já aparecem na linha "Concluído · … · N turnos · tokens" de cada result
           na timeline e agregados na seção Conta e Uso; projeto/cwd seguem na barra de status embaixo.
         */}
-        {erro && <div className="cc-error-bar">{erro}</div>}
+        {erro && <div className="cc-error-bar"><span>{erro}</span><button type="button" onClick={() => setErro('')} aria-label="Fechar">×</button></div>}
         {activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
         )}

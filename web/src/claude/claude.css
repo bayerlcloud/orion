@@ -524,7 +524,9 @@
 
 /* ===== adições: modo real ===== */
 .cc-banner { background: #3f3225; color: var(--cc-warning); padding: 8px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
-.cc-error-bar { background: #3a1f1c; color: #f0b3a8; padding: 6px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
+.cc-error-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #3a1f1c; color: #f0b3a8; padding: 6px 18px; font-size: 12px; border-bottom: 1px solid var(--cc-line); }
+.cc-error-bar button { flex-shrink: 0; color: inherit; background: none; border: 0; cursor: pointer; font-size: 14px; line-height: 1; opacity: .7; }
+.cc-error-bar button:hover { opacity: 1; }
 /* Banner "conexão perdida" do stream ao vivo (SSE) — espelha disconnectedText/reconnectSpinner da
    extensão real (webview/index.js v2.1.282): o navegador já reconecta sozinho (EventSource nativo),
    isso é só pra avisar que aconteceu, não silêncio total. */
