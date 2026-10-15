@@ -367,7 +367,10 @@ describe('atualizar', () => {
     const ins = c3.find((c) => c.sql.includes('INSERT INTO curadoria_propostas'))!;
     expect(ins.params?.[0]).toBe('reescrita');
     expect(String(ins.params?.[1])).toContain('mudou o fluxo');
-    expect(c3.some((c) => c.sql.includes('UPDATE memories SET'))).toBe(false); // decisão fechada não muda direto
+    // curadoria aprova sozinha (decisão 13/10/2026): criarProposta já tenta aplicar na hora, por
+    // isso o UPDATE é chamado; o mock não devolve a memória esperada, então a aplicação falha
+    // silenciosa e a proposta segue pendente (o retorno acima confirma: atualizada: false).
+    expect(c3.some((c) => c.sql.includes('UPDATE memories SET'))).toBe(true);
     const d = await atualizarMemoria(q3, ctx, { code: 'x', estado: 'substituida' });
     expect(d).toMatchObject({ atualizada: false, tipo: 'delecao' });
   });

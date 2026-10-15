@@ -8,6 +8,16 @@ import { iniciarTema } from './tema';
 // tema salvo antes de renderizar (evita flash)
 iniciarTema();
 
+// Notebook fechado/suspenso por muito tempo com a aba aberta: ao voltar, o app às vezes trava num
+// estado quebrado (tela preta, sem erro visível). Em vez de o usuário ter que atualizar na mão,
+// recarrega sozinho quando a aba ficou oculta por mais de 5 min.
+let hiddenSince = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenSince = Date.now(); return; }
+  if (hiddenSince && Date.now() - hiddenSince > 5 * 60_000) location.reload();
+  hiddenSince = 0;
+});
+
 // links para fora do painel (outro domínio) sempre abrem em nova aba; rotas internas seguem na mesma
 document.addEventListener('click', e => {
   const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
