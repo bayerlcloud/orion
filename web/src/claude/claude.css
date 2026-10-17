@@ -107,7 +107,7 @@
 /* Altura fixa da barra (36px, igual ao botão do Orion), com ou sem abas; a rolagem das abas não engorda a barra. */
 .cc-tabs-scroll::-webkit-scrollbar { display: none; }
 .cc-tab { display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 36px; border-right: 1px solid var(--cc-line); color: var(--cc-fg2); cursor: pointer; white-space: nowrap; max-width: 240px; }
-.cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); }
+.cc-tab.is-active { background: var(--cc-bg); color: var(--cc-fg); box-shadow: inset 0 -2px 0 var(--cc-orange); }
 /* Tracinho de onde a aba cai: antes (esquerda) ou depois (direita) da aba sob o arraste, conforme o
    sentido do arraste — arrastando pra frente, cai depois da última, não antes dela. */
 .cc-tab.is-drop-before { box-shadow: inset 2px 0 0 var(--cc-orange); }
