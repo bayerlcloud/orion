@@ -281,6 +281,16 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const prev = prevSessionRef.current;
     if (prev === sessionId) return;
     draftsRef.current.set(prev ?? '', { text: textRef.current, attachments: attachmentsRef.current });
+    // Salva já o rascunho da aba que saiu (o autosave com atraso foi cancelado pela troca).
+    if (persistable(prev) && savedDraftsRef.current !== null) {
+      const ups = uploadedOf(attachmentsRef.current);
+      const key = saveKey(textRef.current, ups);
+      const sv = savedDraftsRef.current[prev!];
+      if (key !== saveKey(sv?.text ?? '', sv?.attachments ?? [])) {
+        savedDraftsRef.current[prev!] = { text: textRef.current, attachments: ups };
+        void claudeApi.saveDraft(prev!, textRef.current, ups).catch(() => {});
+      }
+    }
     const next = draftsRef.current.get(sessionId ?? '');
     draftsRef.current.delete(sessionId ?? '');
     prevSessionRef.current = sessionId;
@@ -356,12 +366,24 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     if (sending || (!t && attachments.length === 0)) return;
     const files = attachments.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
     const pre = uploadedOf(attachments);
+    const sid = sessionRef.current;
     setSending(true);
     try {
       await onSend(t, files, pre);
-      setText('');
-      attachments.forEach(a => a.url?.startsWith('blob:') && URL.revokeObjectURL(a.url));
-      setAttachments([]);
+      // Trocou de aba enquanto enviava: limpa o rascunho da aba de origem, não o da aba atual.
+      if (sessionRef.current === sid) {
+        textRef.current = '';
+        setText('');
+        attachments.forEach(a => a.url?.startsWith('blob:') && URL.revokeObjectURL(a.url));
+        setAttachments([]);
+      } else draftsRef.current.set(sid ?? '', { text: '', attachments: [] });
+      // Zera o rascunho no servidor na hora: o autosave tem atraso e uma troca de aba logo depois do
+      // envio o cancelava, e o texto já enviado voltava como rascunho ao recarregar (Gustavo, 17/10/2026).
+      if (persistable(sid)) {
+        lastSavedRef.current = { id: sid, key: saveKey('', []) };
+        if (savedDraftsRef.current) savedDraftsRef.current[sid!] = { text: '', attachments: [] };
+        void claudeApi.saveDraft(sid!, '', []).catch(() => {});
+      }
     } catch { /* o ClaudePage mostra o erro; mantém o rascunho e os anexos */ }
     finally { setSending(false); }
   }

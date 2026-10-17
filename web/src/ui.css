@@ -219,6 +219,8 @@ strong { color: var(--fg); }
    Orion) e drawer sobre o conteúdo (position: fixed, não entra no grid do .shell). */
 .chat-toggle { position: fixed; bottom: 16px; right: 16px; z-index: 26; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--panel); border: 1px solid var(--line); color: var(--fg2); cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
 .chat-toggle:hover { color: var(--fg); }
+/* Celular na página do Claude: o botão do chat ficava em cima do Enviar do compositor (o toque ia para o chat). */
+@media (max-width: 800px) { body[data-page="/claude"] .chat-toggle { bottom: calc(140px + env(safe-area-inset-bottom)); right: 10px; width: 40px; height: 40px; opacity: .85; } }
 .chat-badge { min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; background: var(--accent); color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
 .chat-toggle .chat-badge { position: absolute; top: -4px; right: -4px; }
 .chat-panel { position: fixed; bottom: 72px; right: 16px; z-index: 26; width: 320px; height: 440px; max-height: calc(100vh - 100px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.35); }

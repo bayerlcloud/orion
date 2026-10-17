@@ -534,7 +534,8 @@ export default function ClaudePage() {
       const modelOverride = model !== 'default' ? model : undefined;
       if (!activeId || isDraft(activeId)) {
         const pid = activeTab?.projectId;
-        if (pid === undefined) { setErro('Escolha o projeto da sessão (ou Neutro) antes de enviar.'); return; }
+        // throw (não return): o compositor só limpa o texto quando o envio dá certo.
+        if (pid === undefined) throw new Error('Escolha o projeto da sessão (ou Neutro) antes de enviar.');
         // "Aba Claude" — criar worktree direto pela UI do chat (ver PARIDADE.md seção 14): nome
         // digitado no seletor "Worktree" do compositor, se houver. O servidor cria o git worktree e
         // já faz a sessão nascer com `cwd` apontando pra ele; nome vazio = sessão normal, como sempre.
