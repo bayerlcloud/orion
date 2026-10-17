@@ -170,7 +170,29 @@ export async function criarProposta(
     `INSERT INTO curadoria_propostas (tipo, payload) VALUES ($1, $2) RETURNING id`,
     [tipo, JSON.stringify(payload)],
   );
-  return { id: rows[0].id, tipo, payload };
+  const id = rows[0].id;
+
+  // Decisão do Danilo (13/10/2026): curadoria aprova sozinha, sem esperar o painel.
+  // ValidationError aqui é sempre "o estado mudou desde a proposta" (já promovida, memória
+  // apagada etc.): a proposta ficou obsoleta, não precisa de decisão humana, então rejeita
+  // sozinha em vez de travar pendente pra sempre (era o que acumulava a fila).
+  try {
+    await aplicarProposta(q, { tipo, payload });
+    await q(
+      `UPDATE curadoria_propostas SET status = 'aprovada', decided_at = now(), applied_at = now() WHERE id = $1`,
+      [id],
+    );
+  } catch (e) {
+    if (e instanceof ValidationError) {
+      await q(
+        `UPDATE curadoria_propostas SET status = 'rejeitada', decided_at = now() WHERE id = $1`,
+        [id],
+      );
+    }
+    // outros erros (ex.: banco fora do ar): segue pendente pro painel decidir depois
+  }
+
+  return { id, tipo, payload };
 }
 
 /**

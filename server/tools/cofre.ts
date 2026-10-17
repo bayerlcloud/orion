@@ -69,29 +69,47 @@ export function abasParaFechar(abas: AbaCdp[], primeiraVezVista: Map<string, num
 const cofrePainelHomeUrl = 'https://orion.bayerl.cloud/';
 export const COFRE_REAPER_MAX_IDADE_MS = Number(process.env.COFRE_REAPER_MAX_IDADE_MIN ?? 20) * 60_000;
 const COFRE_REAPER_INTERVALO_MS = 5 * 60_000;
+const COFRE_REAPER_TIMEOUT_MS = 10_000;
+const COFRE_REAPER_FALHAS_PARA_RESTART = 3;
+const COFRE_CONTAINER = process.env.COFRE_CONTAINER ?? 'cofre';
 
 /** Varre as abas do Chrome do cofre a cada 5 min e fecha as esquecidas (login parado, aba de
  *  trabalho de sessão antiga etc). Sem isto, abas se acumulam e travam chamadas de outras
- *  sessões no mesmo browser compartilhado (achado em 2026-10-09). */
+ *  sessões no mesmo browser compartilhado (achado em 2026-10-09).
+ *  O CDP pode ficar vivo mas mudo (processo do Chrome não morre, só para de responder): sem
+ *  timeout no fetch, essa varredura fica pendurada pra sempre e nunca mais loga nada, parecendo
+ *  que o reaper morreu (achado em 2026-10-15). Timeout detecta isso; após falhas consecutivas,
+ *  reinicia o container inteiro (`docker restart`), já que RESTART_APP=true do compose só cobre
+ *  o processo do Chrome morrer, não o CDP travar com o processo vivo. */
 export function iniciarReaperAbasCofre(log: (m: string) => void, cdpUrl = cofreCdpUrl(), maxIdadeMs = COFRE_REAPER_MAX_IDADE_MS): void {
   if (!cdpUrl) return;
   const primeiraVezVista = new Map<string, number>();
+  let falhasConsecutivas = 0;
   const varrer = async () => {
     try {
-      const resp = await fetch(`${cdpUrl}/json/list`);
+      const resp = await fetch(`${cdpUrl}/json/list`, { signal: AbortSignal.timeout(COFRE_REAPER_TIMEOUT_MS) });
       const abas: AbaCdp[] = await resp.json();
+      falhasConsecutivas = 0;
       const agora = Date.now();
       const vivas = new Set(abas.map(a => a.id));
       for (const id of primeiraVezVista.keys()) if (!vivas.has(id)) primeiraVezVista.delete(id);
       for (const aba of abas) if (!primeiraVezVista.has(aba.id)) primeiraVezVista.set(aba.id, agora);
       const fechar = abasParaFechar(abas, primeiraVezVista, agora, maxIdadeMs);
       for (const id of fechar) {
-        await fetch(`${cdpUrl}/json/close/${id}`).catch(() => {});
+        await fetch(`${cdpUrl}/json/close/${id}`, { signal: AbortSignal.timeout(COFRE_REAPER_TIMEOUT_MS) }).catch(() => {});
         primeiraVezVista.delete(id);
       }
       if (fechar.length) log(`cofre: fechei ${fechar.length} aba(s) esquecida(s)`);
     } catch (e) {
-      log(`cofre: reaper de abas falhou (${(e as Error).message})`);
+      falhasConsecutivas++;
+      log(`cofre: reaper de abas falhou (${(e as Error).message}); falhas consecutivas: ${falhasConsecutivas}`);
+      if (falhasConsecutivas >= COFRE_REAPER_FALHAS_PARA_RESTART) {
+        falhasConsecutivas = 0;
+        primeiraVezVista.clear();
+        log(`cofre: CDP travado após ${COFRE_REAPER_FALHAS_PARA_RESTART} falhas; reiniciando container ${COFRE_CONTAINER}`);
+        spawn('docker', ['restart', COFRE_CONTAINER], { stdio: 'ignore' })
+          .on('error', e2 => log(`cofre: docker restart falhou: ${e2.message}`));
+      }
     }
   };
   setInterval(varrer, COFRE_REAPER_INTERVALO_MS).unref();

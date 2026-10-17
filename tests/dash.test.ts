@@ -328,8 +328,8 @@ describe('dashUtils', () => {
   });
   it('activityFor acha por id, cai pro nome se faltar id, e some direito quando não tem nada', () => {
     const lista: UserActivity[] = [
-      { id: 1, name: 'Guilherme', last_login: '2026-09-26T12:00:00Z', commands_7d: 3 },
-      { id: 2, name: 'Lais', last_login: null, commands_7d: 0 },
+      { id: 1, name: 'Guilherme', last_login: '2026-09-26T12:00:00Z', last_work: '2026-09-26T12:00:00Z', commands_7d: 3, tokens_7d: 1000 },
+      { id: 2, name: 'Lais', last_login: null, last_work: null, commands_7d: 0, tokens_7d: 0 },
     ];
     expect(activityFor(lista, 1, 'outro nome qualquer')).toMatchObject({ id: 1, commands_7d: 3 });
     expect(activityFor(lista, undefined, 'Lais')).toMatchObject({ id: 2, last_login: null });

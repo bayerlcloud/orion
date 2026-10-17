@@ -85,7 +85,7 @@ export function buildSystemAppend(h: SessionHeader): string {
   }
 
   if (h.cofre) {
-    lines.push('', `Cofre (browser compartilhado): um Chrome real com perfil persistente e logins salvos, disponível pelas tools mcp__cofre__* (navegar, clicar, digitar, screenshot, pdf). Use-o para qualquer coisa que precise de browser. Se um site pedir login, código ou captcha, peça ao Bayerl para abrir ${h.cofre.painel} e resolver na mão; depois continue. É uma instância só, compartilhada: feche as abas que abrir e não faça logout de nada.`);
+    lines.push('', `Cofre (browser compartilhado): um Chrome real com perfil persistente e logins salvos, disponível pelas tools mcp__cofre__* (navegar, clicar, digitar, screenshot, pdf). Use-o para qualquer coisa que precise de browser. Se um site pedir login, código ou captcha, peça para quem está na sessão (qualquer pessoa da equipe, não só o Bayerl) abrir ${h.cofre.painel} e resolver na mão; depois continue. É uma instância só, compartilhada: feche as abas que abrir e não faça logout de nada.`);
   }
 
   const regras = (h.regras ?? []).slice(0, REGRAS_MAX);

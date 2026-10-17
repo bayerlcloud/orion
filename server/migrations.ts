@@ -270,6 +270,29 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_private_default BOOLEAN NOT NULL DEFAULT false;
     `,
   },
+  {
+    // Chat entre pessoas do painel (pedido do Danilo, 15/10/2026): canal único "equipe" (todo mundo) e
+    // uma conversa por par de pessoas. `channel` guarda 'equipe' ou 'dm:<id menor>-<id maior>' — string
+    // em vez de colunas from/to porque o canal "equipe" não tem destinatário. `chat_reads` guarda só o
+    // último id lido por pessoa e canal, pra calcular o badge de não lida sem duplicar mensagem.
+    id: '019_chat',
+    sql: `
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id BIGSERIAL PRIMARY KEY,
+        channel TEXT NOT NULL,
+        from_user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        text TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS chat_messages_channel_idx ON chat_messages (channel, id);
+      CREATE TABLE IF NOT EXISTS chat_reads (
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        channel TEXT NOT NULL,
+        last_read_id BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (user_id, channel)
+      );
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

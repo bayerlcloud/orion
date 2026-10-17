@@ -427,6 +427,10 @@ export default function ClaudePage() {
   }, [activeId, toBottom]);
   // Trocou de aba: sempre começa no fim.
   useEffect(() => { atBottomRef.current = true; toBottom(); }, [activeId, toBottom]);
+  // Trocou de aba: erro da sessão anterior não deve ficar preso na tela (cc-error-bar não se
+  // limpava sozinho — achado pelo Danilo 15/10/2026, ficava "fixo em todas as telas" porque
+  // ClaudePage é um componente só, reaproveitado por todas as abas).
+  useEffect(() => { setErro(''); }, [activeId]);
   // Mensagem nova do usuário (a pessoa acabou de enviar) sempre leva pro fim, mesmo rolado pra cima.
   const lastIsUser = events[events.length - 1]?.kind === 'user';
   useEffect(() => { if (lastIsUser) atBottomRef.current = true; if (atBottomRef.current) toBottom(); }, [events.length, lastIsUser, state.partialText.length, state.partialThinking.length, floatHeight, toBottom]);
@@ -442,6 +446,20 @@ export default function ClaudePage() {
     setActiveId(id);
     setTabs(t => t.some(x => x.id === id) ? t : [...t, { id }]);
   }
+  // Sessão arquivada enquanto a aba dela estava aberta (ex.: pediu "encerrar" no chat — a tool
+  // mcp__orion-memory__encerrar arquiva direto no banco, sem passar por archiveSession/closeTab
+  // daqui) fecha a aba sozinha no próximo refreshSessions. Só fecha quem TRANSICIONOU pra arquivada
+  // agora (prevArchivedRef guarda o estado anterior); abrir manualmente uma sessão já arquivada pela
+  // lateral não tem transição, então não fecha na cara do usuário.
+  const prevArchivedRef = useRef<Map<string, boolean>>(new Map());
+  useEffect(() => {
+    for (const s of sessions) {
+      const antes = prevArchivedRef.current.get(s.id);
+      if (antes === false && s.archived && tabs.some(t => t.id === s.id)) closeTab(s.id);
+      prevArchivedRef.current.set(s.id, !!s.archived);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
   function closeTab(id: string) {
     setTabs(t => { const next = t.filter(x => x.id !== id); if (id === activeId) setActiveId(next.length ? next[next.length - 1].id : null); return next; });
     // Só sessões de verdade entram na pilha de "fechadas recentemente" (rascunho fechado não é uma
@@ -526,6 +544,11 @@ export default function ClaudePage() {
         setActiveId(r.id);
         void refreshSessions();
       } else {
+        // Mandou mensagem numa sessão arquivada ("[Ok] ..."): desarquiva sozinha, não é mais passado.
+        if (sessions.find(s => s.id === activeId)?.archived) {
+          setSessions(ss => ss.map(s => s.id === activeId ? { ...s, archived: false } : s));
+          void claudeApi.archive(activeId, false).catch(() => {});
+        }
         await claudeApi.send(activeId, { prompt, permission_mode: mode, model: modelOverride, effort, attachments });
       }
     } catch (e: any) { setErro(e.message); throw e; }
@@ -723,7 +746,7 @@ export default function ClaudePage() {
           lateral); turnos e tokens já aparecem na linha "Concluído · … · N turnos · tokens" de cada result
           na timeline e agregados na seção Conta e Uso; projeto/cwd seguem na barra de status embaixo.
         */}
-        {erro && <div className="cc-error-bar">{erro}</div>}
+        {erro && <div className="cc-error-bar"><span>{erro}</span><button type="button" onClick={() => setErro('')} aria-label="Fechar">×</button></div>}
         {activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
         )}

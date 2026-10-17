@@ -1,5 +1,10 @@
 /* Dash — preto e branco, bordas de 1px, sem cantos arredondados. */
 .dash { display: grid; gap: 28px; }
+.dash-fadein { animation: dash-fadein .35s ease both; }
+@keyframes dash-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.dash-skeleton { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 60vh; color: var(--muted); font-size: 13px; }
+.dash-skeleton-spin { width: 14px; height: 14px; border: 1.5px solid var(--line); border-top-color: var(--fg); border-radius: 50%; animation: dash-spin .7s linear infinite; }
+@keyframes dash-spin { to { transform: rotate(360deg); } }
 .dash-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 4px; }
 .dash-head h1 { margin: 0; }
 .dash-live { font-size: 12px; border: 1px solid var(--line); padding: 1px 8px; white-space: nowrap; }
@@ -74,7 +79,16 @@
 
 /* cabeçalho e hero */
 .dash-h1-ico { vertical-align: -3px; color: var(--accent); margin-right: 6px; }
-.dash-hero { display: grid; grid-template-columns: 1fr 320px; gap: 14px; margin: 4px 0 20px; }
+.dash-hero { display: grid; grid-template-columns: 1fr 320px 280px; gap: 14px; margin: 4px 0 20px; }
+.dash-hero-ranking { border: 1px solid var(--line); background: var(--bg2); border-radius: 10px; padding: 14px 16px; }
+.dash-ranking { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.dash-ranking li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.dash-ranking-pos { width: 14px; flex-shrink: 0; color: var(--fg2); font-variant-numeric: tabular-nums; }
+.dash-ranking-avatar { position: relative; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; font-size: 11px; font-weight: 600; }
+.dash-ranking-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.dash-ranking-texto { min-width: 0; flex: 1; display: grid; gap: 1px; }
+.dash-ranking-nome { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-ranking-msgs { flex-shrink: 0; text-align: right; }
 .dash-hero-user { border: 1px solid var(--line); background: var(--bg2); border-radius: 10px; padding: 14px 16px; }
 .dash-hero-topo { display: flex; align-items: center; gap: 12px; }
 .dash-avatar { position: relative; width: 46px; height: 46px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
@@ -103,6 +117,7 @@
 .nota-ruim .dash-nota-num b { color: var(--bad); }
 .dash-nota-tag { font-weight: 600; text-transform: capitalize; margin-bottom: 8px; }
 .dash-nota-motivos { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--fg2); display: grid; gap: 3px; }
+@media (max-width: 1040px) { .dash-hero { grid-template-columns: 1fr 320px; } .dash-hero-ranking { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .dash-hero { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---- Projetos (DashProjetos.tsx) ---- */
