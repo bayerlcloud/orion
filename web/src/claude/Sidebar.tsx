@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
@@ -214,6 +214,8 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   useEffect(() => { localStorage.setItem('orion.openOrder', openOrder); }, [openOrder]);
   const [dragId, setDragId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (searchOpen) searchInputRef.current?.focus(); }, [searchOpen]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   function toggleGroup(key: string) {
     setCollapsedGroups(s => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -321,31 +323,23 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
             <button className="cc-new" onClick={() => { setDrawer(false); onNew(); }}><Plus size={13} /> Nova sessão</button>
             {/* Linha única de filtros (01/10/2026): busca, projeto, filtros em pílula (Minhas, Ativas) e,
                 à direita, o menu ⇅ com o modo de ver (ordenar e agrupar). Sem pastas manuais: o projeto já é o grupo. */}
-            {searchOpen ? (
-              <div className="cc-search">
-                <Search size={12} className="cc-search-icon" />
-                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…"
-                  onKeyDown={e => { if (e.key === 'Escape') { setQ(''); setSearchOpen(false); } }}
-                  onBlur={() => { if (!q) setSearchOpen(false); }} />
-                <button className="cc-search-clear" onClick={() => { setQ(''); setSearchOpen(false); }} title="Fechar busca"><X size={11} /></button>
-              </div>
-            ) : (
-              <div className="cc-fbar">
-                <button className={`cc-fbtn ${q ? 'is-on' : ''}`} onClick={() => setSearchOpen(true)} title="Buscar sessão"><Search size={13} /></button>
+            <div className={`cc-fbar-wrap ${searchOpen ? 'is-searching' : ''}`}>
+              <div className="cc-fbar" aria-hidden={searchOpen}>
+                <button className={`cc-fbtn ${q ? 'is-on' : ''}`} onClick={() => setSearchOpen(true)} title="Buscar sessão" tabIndex={searchOpen ? -1 : 0}><Search size={13} /></button>
                 {projectOptions.length > 1 && (
                   <label className={`cc-fproj ${projectFilter ? 'is-on' : ''}`} title="Filtrar por projeto">
                     <span>{projectFilter ? (projectOptions.find(([slug]) => slug === projectFilter)?.[1] ?? projectFilter) : 'Todos'}</span>
                     <Chevron size={9} className="cc-chev-down" />
-                    <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)} aria-label="Filtrar por projeto">
+                    <select value={projectFilter} onChange={e => setProjectFilter(e.target.value)} aria-label="Filtrar por projeto" tabIndex={searchOpen ? -1 : 0}>
                       <option value="">Todos os projetos</option>
                       {projectOptions.map(([slug, label]) => <option key={slug} value={slug}>{label}</option>)}
                     </select>
                   </label>
                 )}
-                <button className={`cc-fchip ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Só as sessões que eu criei" disabled={meId === undefined}>Minhas</button>
-                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as sessões abertas (com bolinha)"><Bolt size={10} /> {openCount}</button>
+                <button className={`cc-fchip ${soMinhas ? 'is-on' : ''}`} onClick={() => setSoMinhas(m => !m)} title="Só as sessões que eu criei" disabled={meId === undefined} tabIndex={searchOpen ? -1 : 0}>Minhas</button>
+                <button className={`cc-fchip ${activeOnly ? 'is-on' : ''}`} onClick={() => setActiveOnly(a => !a)} title="Só as sessões abertas (com bolinha)" tabIndex={searchOpen ? -1 : 0}><Bolt size={10} /> {openCount}</button>
                 <span className="cc-fview">
-                  <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar as abertas">⇅</button>
+                  <button className={`cc-fbtn ${viewOpen ? 'is-on' : ''}`} onClick={() => setViewOpen(o => !o)} title="Ordenar as abertas" tabIndex={searchOpen ? -1 : 0}>⇅</button>
                   {viewOpen && (
                     <>
                       <div className="cc-menu-backdrop" onClick={() => setViewOpen(false)} />
@@ -358,7 +352,14 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                   )}
                 </span>
               </div>
-            )}
+              <div className="cc-search" aria-hidden={!searchOpen}>
+                <Search size={12} className="cc-search-icon" />
+                <input ref={searchInputRef} tabIndex={searchOpen ? 0 : -1} value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar sessão…"
+                  onKeyDown={e => { if (e.key === 'Escape') { setQ(''); setSearchOpen(false); } }}
+                  onBlur={() => { if (!q) setSearchOpen(false); }} />
+                <button className="cc-search-clear" tabIndex={searchOpen ? 0 : -1} onClick={() => { setQ(''); setSearchOpen(false); }} title="Fechar busca"><X size={11} /></button>
+              </div>
+            </div>
             {loading ? (
               // Estado de carregamento inicial (localSessionsLoaded=false na extensão real) — antes
               // pulava direto pra "Nenhuma sessão" enquanto o primeiro fetch ainda estava em voo.
