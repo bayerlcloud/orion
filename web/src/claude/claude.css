@@ -583,11 +583,12 @@
 /* Troca busca <-> filtros sem empurrar o resto da lista: as duas ficam sobrepostas no
    mesmo bloco (altura fixa), fbar some rápido (fadeout), lupa desliza e o campo nasce
    crescendo da esquerda com aceleração/desaceleração; fechar faz o caminho inverso. */
-.cc-fbar-wrap { position: relative; min-height: 26px; margin: 2px 0; }
+.cc-fbar-wrap { position: relative; height: 26px; margin: 2px 0; }
 .cc-fbar-wrap .cc-fbar { margin: 0; transition: opacity .1s linear; }
 .cc-fbar-wrap.is-searching .cc-fbar { opacity: 0; pointer-events: none; transition-duration: .08s; }
 .cc-fbar-wrap .cc-search {
-  position: absolute; inset: 0; z-index: 1; margin: 0;
+  position: absolute; left: 0; top: 0; right: 0; z-index: 1; margin: 0;
+  height: 26px; box-sizing: border-box; padding: 0 8px;
   width: 30px; opacity: 0; overflow: hidden; pointer-events: none;
   transition: width .32s cubic-bezier(.65,0,.35,1), opacity .18s ease .08s;
 }
