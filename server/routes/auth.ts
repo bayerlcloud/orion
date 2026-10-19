@@ -16,8 +16,11 @@ export async function authRoutes(app: FastifyInstance) {
     await app.pool.query('INSERT INTO web_sessions (id, user_id, expires_at) VALUES ($1, $2, $3)', [sid, u.id, expires]);
     await app.pool.query('INSERT INTO logins (user_id, ip, user_agent) VALUES ($1, $2, $3)',
       [u.id, req.headers['x-forwarded-for']?.toString().split(',')[0] ?? req.ip, req.headers['user-agent'] ?? null]);
+    // domain .bayerl.cloud: o cookie vale também em browser.bayerl.cloud, pro forward_auth do
+    // Caddy liberar o cofre sem pedir login de novo (pedido do Danilo, 19/10/2026).
     reply.setCookie(SESSION_COOKIE, sid, {
       path: '/', httpOnly: true, sameSite: 'lax', secure: req.protocol === 'https', expires,
+      domain: req.protocol === 'https' ? '.bayerl.cloud' : undefined,
     });
     return { user: { id: u.id, name: u.name, email: u.email, role: u.role } };
   });
@@ -25,6 +28,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/api/logout', async (req, reply) => {
     const sid = req.cookies[SESSION_COOKIE];
     if (sid) await app.pool.query('DELETE FROM web_sessions WHERE id = $1', [sid]);
+    reply.clearCookie(SESSION_COOKIE, { path: '/', domain: '.bayerl.cloud' });
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return { ok: true };
   });
