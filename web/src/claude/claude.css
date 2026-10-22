@@ -917,6 +917,8 @@
 /* Lista de sessões: selo do projeto (padrão único pra todos) e fotinho de quem criou. */
 .cc-item-project { flex-shrink: 0; max-width: 90px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--cc-line); color: var(--cc-fg2); font-size: 10px; line-height: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .cc-item-private { flex-shrink: 0; display: inline-flex; color: var(--cc-fg2); }
+.cc-item-pinned { flex-shrink: 0; display: inline-flex; color: var(--cc-accent, #e0a526); }
+.cc-item-act.is-on { color: var(--cc-accent, #e0a526); }
 .cc-item-avatar { flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; background: var(--cc-bg2); color: var(--cc-fg2); font-size: 9px; font-weight: 600; box-shadow: 0 0 0 1px var(--cc-line); }
 .cc-item-avatar img { width: 100%; height: 100%; object-fit: cover; }
 /* Aba fora de foco: fotinho em P&B, pra destacar de cara qual aba está ativa (pedido do Danilo, 04/10/2026). */

@@ -36,7 +36,7 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
   const status = s.status === 'error' ? 'failed' : s.status;
   const projectPath = projects.find(p => p.slug === s.project_slug)?.path;
   return {
-    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived, private: !!s.private, userId: s.user_id, userName: s.user_name,
+    id: s.id, title: s.title, status, updatedAt: new Date(s.updated_at).getTime(), project: s.project_slug ?? 'neutro', projectName: s.project_name ?? 'Neutro', archived: !!s.archived, pinned: !!s.pinned, private: !!s.private, userId: s.user_id, userName: s.user_name,
     worktreeName: sessionWorktreeName(s.cwd, projectPath) ?? undefined,
     groupId: s.group_id,
   };
@@ -614,6 +614,10 @@ export default function ClaudePage() {
     setSessions(ss => ss.map(s => s.id === id ? { ...s, archived } : s));
     try { await claudeApi.archive(id, archived); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
   }
+  async function pinSession(id: string, pinned: boolean) {
+    setSessions(ss => ss.map(s => s.id === id ? { ...s, pinned } : s));
+    try { await claudeApi.pin(id, pinned); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
+  }
   async function togglePrivate(id: string, priv: boolean) {
     setSessions(ss => ss.map(s => s.id === id ? { ...s, private: priv } : s));
     try { await claudeApi.private(id, priv); } catch (e: any) { setErro(e.message); } finally { void refreshSessions(); }
@@ -673,7 +677,7 @@ export default function ClaudePage() {
 
   return (
     <div className={`cc ${sideHidden ? 'is-side-hidden' : ''}`}>
-      <Sidebar tabOrder={tabs.map(t => t.id)} onMoveTab={moveTab} sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} onDelete={deleteSession}
+      <Sidebar tabOrder={tabs.map(t => t.id)} onMoveTab={moveTab} sessions={summaries} meId={meId} usage={usage} modelAttribution={modelAttribution} activeId={activeId} loading={sessionsLoading} folders={groups} onSelect={open} onNew={newSession} onRename={renameSession} onArchive={archiveSession} onDelete={deleteSession} onPin={pinSession}
         onCreateGroup={createGroup} onRenameGroup={renameGroup} onDeleteGroup={deleteGroup} onMoveToGroup={moveToGroup} />
       <main className="cc-main">
         <div className="cc-tabs">

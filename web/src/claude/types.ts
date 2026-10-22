@@ -165,6 +165,8 @@ export type SessionGroupInfo = { id: string; name: string; createdAt: number };
 
 export type SessionSummary = {
   id: string; title: string; status: SessionStatus; updatedAt: number; open?: boolean; group?: string; project?: string; projectName?: string; archived?: boolean;
+  /** Sessão fixada (`claude_sessions.pinned`): sobe pro topo da lista, antes das outras. */
+  pinned?: boolean;
   /** Sessão privada (`claude_sessions.private`): só quem criou e o owner veem. Olhinho na sessão. */
   private?: boolean;
   /** Quem criou a sessão: avatar na lista e filtro "Minhas". */
