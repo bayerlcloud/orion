@@ -29,6 +29,7 @@ import { mcpRoutes } from './routes/mcp.js';
 import { iniciarCofreCompartilhado, iniciarReaperAbasCofre } from './tools/cofre.js';
 import { whatsappRoutes } from './routes/whatsapp.js';
 import { chatRoutes } from './routes/chat.js';
+import { designRoutes } from './routes/design.js';
 
 declare module 'fastify' {
   interface FastifyInstance { pool: Pool; repoDir: string; runner: import('./claude/runner.js').Runner }
@@ -94,6 +95,7 @@ async function main() {
   await app.register(mcpRoutes);
   await app.register(whatsappRoutes);
   await app.register(chatRoutes);
+  await app.register(designRoutes);
 
   // wildcard: true = lê o disco a cada pedido. Com false, só os arquivos que existiam no boot tinham
   // rota: um `npm run build` sem restart deixava o index.html novo apontando pra assets sem rota
