@@ -598,36 +598,43 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       )}
       {/* autoComplete off: sem a barra de senha/cartão/endereço do iPhone em cima do teclado. */}
       {/* Área editável em vez de <textarea>: sem a barra de senha/cartão do iPhone (ver PlainInput.tsx). */}
-      <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating} placeholderTab={showSuggestion}
-        // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
-        // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
-        // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
-        placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : showSuggestion ? suggestion! : 'Peça ao Claude para editar…'} />
       {/*
-        Ditado por voz — canto superior direito do campo, igual à extensão real
-        (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).
-        Escondido inteiro (não só desabilitado) quando o navegador não suporta Web Speech API — mesmo
-        padrão do `X.speechToTextEnabled &&` real (feature-flag esconde tudo).
+        Campo + microfone num wrapper próprio (não o `.cc-composer` inteiro): o mic fica `position:
+        absolute` relativo a ESTE div, então sobra abaixo da `.cc-attach-row` em vez de grudar no
+        topo do composer e tampar o canto dos anexos quando a lista de arquivos existe.
       */}
-      {micSupported && (
-        <div className="cc-mic-wrap">
-          <button type="button" className={`cc-mic ${micRecording ? 'is-recording' : ''} ${micBusy ? 'is-busy' : ''}`} disabled={micDenied || micBusy} onClick={toggleMic}
-            aria-label={micError ? `Erro de ditado: ${micError}` : micDenied ? 'Acesso ao microfone negado' : micRecording ? 'Parar gravação' : 'Ditado por voz'}>
-            {micBusy ? <span className="cc-spinner cc-mic-icon" /> : <Mic size={14} className="cc-mic-icon" />}
-          </button>
-          <span className={`cc-mic-tooltip ${micError ? 'is-error' : ''}`} aria-hidden="true">
-            {micError
-              ? `Erro de ditado: ${micError}`
-              : micDenied
-                ? 'Acesso ao microfone negado — permita no navegador'
-                : micRecording
-                  ? 'Toque para parar'
-                  : micBusy
-                  ? 'Transcrevendo…'
-                  : <>Toque para ditar<span className="cc-mic-tooltip-shortcut">{micShortcutLabel(isMacPlatform(navigator))}</span></>}
-          </span>
-        </div>
-      )}
+      <div className="cc-field-wrap">
+        <PlainInput ref={ta} value={text} onChange={setText} onKeyDown={key} onPaste={onPaste} freeze={micDictating} placeholderTab={showSuggestion}
+          // Campo vazio gravando/transcrevendo: sem placeholder, senão ele cobre o marcador de ditado
+          // bem na hora em que o campo está vazio (achado pelo Danilo, 04/10/2026 — o asterisco
+          // renderizava, mas pequeno e por baixo do "Peça ao Claude…", praticamente invisível).
+          placeholder={micDictating ? '' : dragOver ? 'Solte os arquivos aqui…' : running ? 'Enfileirar outra mensagem…' : showSuggestion ? suggestion! : 'Peça ao Claude para editar…'} />
+        {/*
+          Ditado por voz — canto superior direito do campo, igual à extensão real
+          (`micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`, ver PARIDADE.md/mapper.ts).
+          Escondido inteiro (não só desabilitado) quando o navegador não suporta Web Speech API — mesmo
+          padrão do `X.speechToTextEnabled &&` real (feature-flag esconde tudo).
+        */}
+        {micSupported && (
+          <div className="cc-mic-wrap">
+            <button type="button" className={`cc-mic ${micRecording ? 'is-recording' : ''} ${micBusy ? 'is-busy' : ''}`} disabled={micDenied || micBusy} onClick={toggleMic}
+              aria-label={micError ? `Erro de ditado: ${micError}` : micDenied ? 'Acesso ao microfone negado' : micRecording ? 'Parar gravação' : 'Ditado por voz'}>
+              {micBusy ? <span className="cc-spinner cc-mic-icon" /> : <Mic size={14} className="cc-mic-icon" />}
+            </button>
+            <span className={`cc-mic-tooltip ${micError ? 'is-error' : ''}`} aria-hidden="true">
+              {micError
+                ? `Erro de ditado: ${micError}`
+                : micDenied
+                  ? 'Acesso ao microfone negado — permita no navegador'
+                  : micRecording
+                    ? 'Toque para parar'
+                    : micBusy
+                    ? 'Transcrevendo…'
+                    : <>Toque para ditar<span className="cc-mic-tooltip-shortcut">{micShortcutLabel(isMacPlatform(navigator))}</span></>}
+            </span>
+          </div>
+        )}
+      </div>
       {/* Transcrição parcial ("interim") — itálico/cinza, some assim que o trecho é confirmado e vira texto normal no campo (ver composeDictationText em mapper.ts). */}
       {/* Sem a cópia pequena do texto parcial embaixo do microfone: o ditado já aparece no próprio campo. */}
       <div className="cc-composer-foot">

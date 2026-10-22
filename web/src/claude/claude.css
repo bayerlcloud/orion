@@ -421,6 +421,7 @@
 /* Ditado por voz (ver PARIDADE.md, mapper.ts — item 7 da seção 13, confirmado real 29/09/2026).
    Posição igual à extensão real (`.micButtonWrapper_cKsPxg{position:absolute;top:5px;right:0}`) —
    canto superior direito do campo, não na barra de rodapé com os outros botões. */
+.cc-field-wrap { position: relative; min-width: 0; }
 .cc-mic-wrap { position: absolute; z-index: 2; top: 5px; right: 4px; }
 .cc-mic { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; padding: 0 6px; border-radius: 5px; color: var(--cc-fg2); }
 .cc-mic:hover:not(:disabled) { background: var(--cc-hover); color: var(--cc-fg); }
