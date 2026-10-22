@@ -14,27 +14,32 @@ export default function Design({ user }: { user: User }) {
   const [instrucao, setInstrucao] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Refs (não estado) porque o polling roda num único setInterval criado uma vez: ler estado
+  // ali dentro pegaria o valor "congelado" de quando o efeito rodou, não o atual.
+  const itensRef = useRef<Item[]>([]);
+  const abertoIdRef = useRef<number | null>(null);
 
   async function carregar() {
-    try { setItens((await api<{ designs: Item[] }>('/api/design')).designs); } catch (e: any) { setMsg(e.message); }
+    try { const r = await api<{ designs: Item[] }>('/api/design'); setItens(r.designs); itensRef.current = r.designs; } catch (e: any) { setMsg(e.message); }
   }
   async function abrir(id: number) {
+    abertoIdRef.current = id;
     try { setAberto(await api<Detalhe>(`/api/design/${id}`)); } catch (e: any) { setMsg(e.message); }
   }
+  function fechar() { abertoIdRef.current = null; setAberto(null); }
 
   useEffect(() => { void carregar(); }, []);
 
+  // Um intervalo só, criado uma vez: a cada 3s, recarrega a lista se algo estiver "gerando" e
+  // reabre o detalhe se algo estiver aberto (abertoIdRef, não o estado, pra nunca reabrir um
+  // detalhe que a pessoa já fechou).
   useEffect(() => {
-    const pendente = itens.some(i => i.status === 'gerando');
-    if (pendente && !timer.current) {
-      timer.current = setInterval(() => { void carregar(); if (aberto) void abrir(aberto.id); }, 3000);
-    } else if (!pendente && timer.current) {
-      clearInterval(timer.current); timer.current = null;
-    }
-    return () => { if (!pendente && timer.current) { clearInterval(timer.current); timer.current = null; } };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itens]);
+    const id = setInterval(() => {
+      if (itensRef.current.some(i => i.status === 'gerando')) void carregar();
+      if (abertoIdRef.current !== null) void abrir(abertoIdRef.current);
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
 
   async function gerar() {
     if (!tema.trim()) return;
@@ -43,7 +48,7 @@ export default function Design({ user }: { user: User }) {
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
   async function ajustar() {
-    if (!aberto || !instrucao.trim()) return;
+    if (!aberto || !instrucao.trim() || aberto.status === 'gerando') return;
     setBusy(true); setMsg('');
     try { await api(`/api/design/${aberto.id}/ajustar`, { method: 'POST', body: JSON.stringify({ instrucao }) }); setInstrucao(''); await abrir(aberto.id); await carregar(); }
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
@@ -51,7 +56,7 @@ export default function Design({ user }: { user: User }) {
   async function apagar(item: Detalhe) {
     if (!(await confirmar(`Apagar "${item.titulo}"?`, { perigo: true }))) return;
     setBusy(true);
-    try { await api(`/api/design/${item.id}`, { method: 'DELETE' }); setAberto(null); await carregar(); }
+    try { await api(`/api/design/${item.id}`, { method: 'DELETE' }); fechar(); await carregar(); }
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
 
@@ -76,12 +81,12 @@ export default function Design({ user }: { user: User }) {
       </div>
 
       {aberto && (
-        <div className="design-detalhe-fundo" onClick={() => setAberto(null)}>
+        <div className="design-detalhe-fundo" onClick={fechar}>
           <div className="design-detalhe" onClick={e => e.stopPropagation()}>
             <div className="design-detalhe-topo">
               <h2>{aberto.titulo}</h2>
               {(aberto.user_id === user.id || user.role === 'owner') && <button onClick={() => void apagar(aberto)} disabled={busy}>apagar</button>}
-              <button onClick={() => setAberto(null)}>fechar</button>
+              <button onClick={fechar}>fechar</button>
             </div>
             {aberto.status === 'pronto' && aberto.html && (
               <iframe className="design-preview" sandbox="allow-scripts" src={`/api/design/${aberto.id}/preview`} title={aberto.titulo} />
@@ -91,7 +96,7 @@ export default function Design({ user }: { user: User }) {
 
             <div className="design-ajuste">
               <input value={instrucao} onChange={e => setInstrucao(e.target.value)} placeholder="Pedir um ajuste (ex.: deixa o fundo escuro)"
-                onKeyDown={e => { if (e.key === 'Enter' && instrucao.trim()) void ajustar(); }} disabled={aberto.status === 'gerando'} />
+                onKeyDown={e => { if (e.key === 'Enter' && !busy && instrucao.trim() && aberto.status !== 'gerando') void ajustar(); }} disabled={aberto.status === 'gerando'} />
               <button onClick={ajustar} disabled={busy || !instrucao.trim() || aberto.status === 'gerando'}>ajustar</button>
             </div>
 
