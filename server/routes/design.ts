@@ -35,7 +35,7 @@ export async function designRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { id: string } }>('/api/design/:id', async (req, reply) => {
     const { rows } = await app.pool.query(
-      `SELECT d.id, d.titulo, d.tema, d.html, d.status, d.erro, d.historico, d.created_at, d.user_id, u.name AS autor
+      `SELECT d.id, d.titulo, d.tema, d.html, d.status, d.erro, d.historico, d.created_at, d.updated_at, d.user_id, u.name AS autor
          FROM designs d JOIN users u ON u.id = d.user_id
         WHERE d.id = $1`, [req.params.id]);
     if (!rows[0]) return reply.code(404).send({ error: 'não existe' });
@@ -49,7 +49,7 @@ export async function designRoutes(app: FastifyInstance) {
     const { rows } = await app.pool.query('SELECT status FROM designs WHERE id = $1', [id]);
     if (!rows[0]) return reply.code(404).send({ error: 'não existe' });
     if (rows[0].status === 'gerando') return reply.code(409).send({ error: 'já está gerando' });
-    await app.pool.query("UPDATE designs SET status = 'gerando' WHERE id = $1", [id]);
+    await app.pool.query("UPDATE designs SET status = 'gerando', updated_at = now() WHERE id = $1", [id]);
     const tk = await getSetting(app.pool, KEYS.claudeToken);
     void gerarOuAjustarDesign(query, id, instrucao, tk);
     return { ok: true };
