@@ -14,10 +14,11 @@ const Memoria = lazy(() => import('./pages/Memoria'));
 const Perfil = lazy(() => import('./pages/Perfil'));
 const Tarefas = lazy(() => import('./pages/Tarefas'));
 const Tools = lazy(() => import('./pages/Tools'));
+const Design = lazy(() => import('./pages/Design'));
 import { Dialogos } from './dialogo';
 import { ChatDrawer } from './chat/ChatDrawer';
 import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
-import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
+import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDesign, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
   // Claude primeiro: é a página que abre por padrão e onde a equipe passa o dia.
@@ -26,6 +27,7 @@ const MENU = [
   { to: '/arquivos', label: 'Arquivos', Icon: IcoArquivos },
   { to: '/tarefas', label: 'Tarefas', Icon: IcoTarefas },
   { to: '/tools', label: 'Tools', Icon: IcoTools },
+  { to: '/design', label: 'Design', Icon: IcoDesign },
   { to: '/drive', label: 'Drive', Icon: IcoDrive },
   { to: '/memoria', label: 'Memória', Icon: IcoMemoria },
   { to: '/spec', label: 'Spec', Icon: IcoSpec },
@@ -93,6 +95,7 @@ export default function App() {
     { path: '/arquivos', el: <Arquivos user={user} /> },
     { path: '/tarefas', el: <Tarefas user={user} /> },
     { path: '/tools', el: <Tools user={user} /> },
+    { path: '/design', el: <Design user={user} /> },
     { path: '/drive', el: <Drive user={user} /> },
     { path: '/memoria', el: <Memoria user={user} /> },
     { path: '/spec', el: <Spec user={user} /> },
