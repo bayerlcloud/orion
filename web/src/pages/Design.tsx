@@ -5,7 +5,7 @@ import './design.css';
 
 type Item = { id: number; titulo: string; status: 'gerando' | 'pronto' | 'erro'; created_at: string; autor: string };
 type HistoricoItem = { role: 'pedido' | 'ajuste'; texto: string; ts: string };
-type Detalhe = Item & { tema: string; html: string | null; erro: string | null; historico: HistoricoItem[]; user_id: number };
+type Detalhe = Item & { tema: string; html: string | null; erro: string | null; historico: HistoricoItem[]; user_id: number; updated_at: string };
 
 export default function Design({ user }: { user: User }) {
   const [itens, setItens] = useState<Item[]>([]);
@@ -86,7 +86,7 @@ export default function Design({ user }: { user: User }) {
             {aberto.status === 'pronto' && aberto.html && (
               <iframe className="design-preview" sandbox="allow-scripts" src={`/api/design/${aberto.id}/preview`} title={aberto.titulo} />
             )}
-            {aberto.status === 'gerando' && <p className="muted">gerando…</p>}
+            {aberto.status === 'gerando' && <p className="muted">gerando… ({Math.max(0, Math.round((Date.now() - new Date(aberto.updated_at).getTime()) / 1000))}s)</p>}
             {aberto.status === 'erro' && <div className="erro">Falhou: {aberto.erro}</div>}
 
             <div className="design-ajuste">
