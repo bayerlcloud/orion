@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { gerarOuAjustarDesign, montarPromptAjuste, montarPromptInicial, type DesignQuery, type HistoricoItem } from '../server/design/gerar.js';
+import {
+  gerarOuAjustarDesign, limparGerandoPreso, montarPromptAjuste, montarPromptInicial,
+  type DesignQuery, type HistoricoItem,
+} from '../server/design/gerar.js';
 
-function fakePool(estado: { html: string | null; status: string; historico: HistoricoItem[] }) {
+function fakePool(estado: { tema: string; html: string | null; status: string; historico: HistoricoItem[] }) {
   const updates: any[] = [];
   const query: DesignQuery = async (sql, params) => {
     if (sql.startsWith('SELECT')) return { rows: [estado], rowCount: 1 };
@@ -18,34 +21,65 @@ describe('montarPromptInicial', () => {
 });
 
 describe('montarPromptAjuste', () => {
-  it('inclui o html atual, o histórico e a instrução nova', () => {
-    const p = montarPromptAjuste('<html>X</html>', [{ role: 'pedido', texto: 'tema A', ts: '2026-01-01' }], 'deixa o fundo escuro');
+  it('inclui o tema original, o html atual, o histórico e a instrução nova', () => {
+    const p = montarPromptAjuste('cartão de visita minimalista', '<html>X</html>', [{ role: 'pedido', texto: 'tema A', ts: '2026-01-01' }], 'deixa o fundo escuro');
+    expect(p).toContain('cartão de visita minimalista');
     expect(p).toContain('<html>X</html>');
     expect(p).toContain('tema A');
     expect(p).toContain('deixa o fundo escuro');
+  });
+
+  it('nunca pede pra NÃO gerar HTML (a instrução não pode virar negativa)', () => {
+    const p = montarPromptAjuste('tema', '<html>X</html>', [], 'ajuste qualquer');
+    expect(p).not.toContain('não gere');
+  });
+
+  it('inclui o tema mesmo sem html atual (ajuste depois de uma geração que falhou)', () => {
+    const p = montarPromptAjuste('cartão de visita minimalista', '', [], 'tenta de novo');
+    expect(p).toContain('cartão de visita minimalista');
   });
 });
 
 describe('gerarOuAjustarDesign', () => {
   it('pedido inicial: grava html, status pronto e acrescenta ao histórico', async () => {
-    const { query, updates } = fakePool({ html: null, status: 'gerando', historico: [] });
+    const { query, updates } = fakePool({ tema: 'tema', html: null, status: 'gerando', historico: [] });
     await gerarOuAjustarDesign(query, 1, null, null, async () => '<html>novo</html>');
     const upd = updates.find(u => u.sql.includes("status = 'pronto'"));
     expect(upd.params).toContain('<html>novo</html>');
   });
 
-  it('ajuste: usa o html atual no prompt do gerador', async () => {
-    const { query } = fakePool({ html: '<html>velho</html>', status: 'pronto', historico: [{ role: 'pedido', texto: 'tema', ts: '2026-01-01' }] });
+  it('ajuste: usa o html atual e o tema original no prompt do gerador', async () => {
+    const { query } = fakePool({ tema: 'cartão de visita minimalista', html: '<html>velho</html>', status: 'pronto', historico: [{ role: 'pedido', texto: 'tema', ts: '2026-01-01' }] });
     let promptRecebido = '';
     await gerarOuAjustarDesign(query, 1, 'deixa mais escuro', null, async (p) => { promptRecebido = p; return '<html>ajustado</html>'; });
     expect(promptRecebido).toContain('<html>velho</html>');
     expect(promptRecebido).toContain('deixa mais escuro');
+    expect(promptRecebido).toContain('cartão de visita minimalista');
   });
 
   it('erro do gerador: grava status erro e mensagem, nunca lança', async () => {
-    const { query, updates } = fakePool({ html: null, status: 'gerando', historico: [] });
+    const { query, updates } = fakePool({ tema: 'tema', html: null, status: 'gerando', historico: [] });
     await expect(gerarOuAjustarDesign(query, 1, null, null, async () => { throw new Error('timeout'); })).resolves.toBeUndefined();
     const upd = updates.find(u => u.sql.includes("status = 'erro'"));
     expect(upd.params.join(' ')).toContain('timeout');
+  });
+
+  it('nunca lança mesmo se o UPDATE de erro também falhar (banco fora do ar)', async () => {
+    const query: DesignQuery = async (sql) => {
+      if (sql.startsWith('SELECT')) return { rows: [{ tema: 'tema', html: null, historico: [] }], rowCount: 1 };
+      throw new Error('conexão perdida');
+    };
+    await expect(gerarOuAjustarDesign(query, 1, null, null, async () => { throw new Error('timeout'); })).resolves.toBeUndefined();
+  });
+});
+
+describe('limparGerandoPreso', () => {
+  it('marca como erro os designs presos em gerando (ex.: depois de um reinício)', async () => {
+    const chamadas: any[] = [];
+    const query: DesignQuery = async (sql, params) => { chamadas.push({ sql, params }); return { rows: [], rowCount: 2 }; };
+    await limparGerandoPreso(query);
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].sql).toContain("status = 'erro'");
+    expect(chamadas[0].sql).toContain("WHERE status = 'gerando'");
   });
 });
