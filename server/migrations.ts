@@ -303,6 +303,25 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS from_agent BOOLEAN NOT NULL DEFAULT false;
     `,
   },
+  {
+    // Módulo Design (pedido do Guilherme, 22/10/2026): tema em texto vira HTML gerado pela IA,
+    // em segundo plano, com histórico de ajustes. docs/superpowers/specs/2026-10-22-design-module-design.md.
+    id: '021_designs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS designs (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id),
+        titulo TEXT NOT NULL,
+        tema TEXT NOT NULL,
+        html TEXT,
+        status TEXT NOT NULL DEFAULT 'gerando' CHECK (status IN ('gerando', 'pronto', 'erro')),
+        erro TEXT,
+        historico JSONB NOT NULL DEFAULT '[]',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
