@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access, symlink } from 'node:fs/promises';
+import { access, readdir, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { commitTurno, commitsAFrente, integrate, raizLimpa, runTests, sincronizarComBase } from '../tasks/git.js';
 import { escreverPedido } from '../deploy/estado.js';
@@ -48,6 +48,22 @@ function arquivosEmConflito(log: string): string {
 }
 
 const existe = (p: string) => access(p).then(() => true, () => false);
+
+/** Sites estáticos em sites/<slug>/deploy.sh (ex: bayerlpress). Roda cada um; falha num site não para os demais. */
+async function rodarSitesEstaticos(raiz: string, rodar: Rodar): Promise<string> {
+  const dir = path.join(raiz, 'sites');
+  if (!(await existe(dir))) return '';
+  const entradas = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const slugs = entradas.filter(e => e.isDirectory() && !e.name.startsWith('_')).map(e => e.name);
+  const linhas: string[] = [];
+  for (const slug of slugs) {
+    const site = path.join(dir, slug);
+    if (!(await existe(path.join(site, 'deploy.sh')))) continue;
+    const r = await rodar('bash', ['./deploy.sh'], site);
+    linhas.push(r.code === 0 ? `  - ${slug}: ok.` : `  - ${slug}: FALHOU (exit ${r.code}). ${fim(r.out, 300)}`);
+  }
+  return linhas.length ? `\nSites estáticos:\n${linhas.join('\n')}` : '';
+}
 
 export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
   const { projeto } = o;
@@ -102,8 +118,10 @@ export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
       }
       const d = await rodar('bash', ['./deploy.sh'], raiz);
       if (d.code !== 0) return { ok: false, texto: `${p.texto} ${git} O deploy.sh FALHOU (exit ${d.code}); produção segue com a versão anterior.\n${fim(d.out)}` };
+      // ponytail: sites estáticos em sites/<slug>/deploy.sh (convenção do bayerlpress/sites/README.md) rodam também; falha num site não derruba os outros.
+      const sites = await rodarSitesEstaticos(raiz, rodar);
       o.registrar?.('Deploy feito a partir da raiz.');
-      return { ok: true, texto: `${p.texto} ${git} Deploy feito.\n${fim(d.out, 800)}` };
+      return { ok: true, texto: `${p.texto} ${git} Deploy feito.\n${fim(d.out, 800)}${sites}` };
     });
   }
 
