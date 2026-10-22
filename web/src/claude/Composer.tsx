@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Bolt, Check, Clock, Plus, Chevron, X, Image, File, GitBranch, Mic, AgentsPill, AddPlus, SendArrow, SlashCmd, StopSquare, ModeManual, ModeAcceptEdits, ModePlan, ModeAuto } from './icons';
-import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, claudeApi, type Attachment } from './api';
+import { MODE_LABEL, MODE_DESC, MODE_ORDER, EFFORT_LABEL, EFFORT_ORDER, MODEL_LABEL, MODEL_ORDER, ULTRACODE_MENU_LABEL, effortPillLabel, ANEXOS_MAX, type Mode, type Effort, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, claudeApi, type Attachment } from './api';
 import { cycleMessageIndex, validateWorktreeName, isMacPlatform, micShortcutLabel, composeDictationText, agentsPillCountLabel, agentsPillTitle, type AgentsPillDot, type CycleState, attachmentImageUrl } from './mapper';
 import type { FastModeState } from './live';
 import type { SlashCommandInfo } from './types';
@@ -9,6 +9,7 @@ import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Li
 import PlainInput, { type PlainInputHandle } from './PlainInput';
 import { promptFromMd, serializeMd } from './rich';
 import { pedirPermissaoAviso } from './notify';
+import { avisar } from '../dialogo';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -61,7 +62,11 @@ function insertMarkerEl(root: HTMLElement, pos: number): HTMLSpanElement {
     node.parentNode!.insertBefore(span, depois);
     return span;
   }
-  root.appendChild(span); // campo vazio, ou posição no fim: só anexa.
+  // Campo vazio, ou posição no fim: só anexa. Mas o contentEditable às vezes deixa um `<br>` sobrando
+  // (ex.: depois de apagar tudo no campo) pra manter a altura da linha; sem tirar ele, o marcador cai
+  // DEPOIS desse `<br>`, numa segunda linha vazia por cima (achado pelo Danilo, 22/10/2026).
+  root.querySelectorAll(':scope > br').forEach(br => br.remove());
+  root.appendChild(span);
   return span;
 }
 
@@ -337,7 +342,15 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   useEffect(() => () => { attachmentsRef.current.forEach(a => a.url && URL.revokeObjectURL(a.url)); }, []);
 
   function addFiles(list: FileList | File[] | null | undefined) {
-    const files = Array.from(list ?? []);
+    let files = Array.from(list ?? []);
+    if (!files.length) return;
+    // Mesmo limite do server (ANEXOS_MAX/UPLOAD_MAX_FILES): acima disso ele recusa o lote inteiro
+    // como "anexo inválido" sem dizer qual foi — corta aqui e avisa, em vez de deixar estourar no envio.
+    const vagas = ANEXOS_MAX - attachments.length;
+    if (files.length > Math.max(0, vagas)) {
+      void avisar(`Você atingiu o número máximo de anexos por mensagem (${ANEXOS_MAX}). Os arquivos extras não foram adicionados.`);
+      files = files.slice(0, Math.max(0, vagas));
+    }
     if (!files.length) return;
     const added = files.map(toPending);
     setAttachments(prev => [...prev, ...added]);

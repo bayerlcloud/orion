@@ -44,6 +44,9 @@ export type PermissionRuleSet = { allow: string[]; ask: string[]; deny: string[]
 
 export const TURNOS_INICIAIS = 20;
 
+/** Mesmo limite do server (UPLOAD_MAX_FILES em server/routes/claude.ts): acima disso o upload inteiro é recusado como "anexo inválido". */
+export const ANEXOS_MAX = 20;
+
 export const claudeApi = {
   status: () => api<{ logged_in: boolean; home: string; version: string; linux_user: string | null }>('/api/claude/status'),
   me: () => api<{ user: Me }>('/api/me'),

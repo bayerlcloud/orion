@@ -61,7 +61,7 @@ export function claudeUploadDir(): string {
   return path.resolve(process.env.CLAUDE_UPLOAD_DIR ?? '/srv/claude-uploads');
 }
 const UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB por arquivo
-const UPLOAD_MAX_FILES = 10;
+const UPLOAD_MAX_FILES = 20;
 
 /**
  * Um caminho real (já resolvido por `realpath`) está dentro de uma raiz (ou é a própria raiz)? Mesma
