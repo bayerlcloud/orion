@@ -48,6 +48,8 @@ export const Globe = ({ size, className }: P) => <svg {...base(size)} className=
 export const Eye = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" /><circle cx="8" cy="8" r="2" /></svg>;
 export const EyeOff = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M1.5 8S4 3.5 8 3.5c1.2 0 2.3.3 3.2.8M14.5 8S13.2 10.3 11 11.7M4.8 4.8C2.9 6 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1 0 1.9-.2 2.7-.6" /><path d="M6.6 6.6a2 2 0 0 0 2.8 2.8" /><path d="M2 2l12 12" /></svg>;
 export const Shield = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 2l5 2v4c0 3.3-2.1 5.5-5 6.5C5.1 13.5 3 11.3 3 8V4l5-2z" /><path d="M6 8l1.4 1.4L10.5 6" /></svg>;
+/** Fixar sessão no topo da lista (ver Sidebar.tsx). Sem equivalente pronto neste arquivo; mesmo estilo minimalista (traço 1.5, 16x16). */
+export const Pin = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M8 1.5c-2.2 0-4 1.8-4 4 0 3 4 7 4 7s4-4 4-7c0-2.2-1.8-4-4-4z" /><circle cx="8" cy="5.5" r="1.3" /></svg>;
 /** Pasta — "Nova pasta"/pastas nomeadas na lateral de sessões (ver Sidebar.tsx, PARIDADE.md item 12 da seção 13: `newGroupButton`/`newGroupIcon` da extensão real). Sem equivalente pronto neste arquivo; desenhado seguindo o mesmo estilo minimalista (traço 1.5, 16x16). */
 export const Folder = ({ size, className }: P) => <svg {...base(size)} className={className}><path d="M2.5 4.5a1 1 0 0 1 1-1h2.8l1.3 1.6h5.4a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1h-9.5a1 1 0 0 1-1-1z" /></svg>;
 /** Extensões (3 quadrados + um "+", como o glifo de extensions do VS Code) — gatilho do "Gerenciar

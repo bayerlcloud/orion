@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
-import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restore, Trash, EyeOff } from './icons';
+import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restore, Trash, EyeOff, Pin } from './icons';
 
 /**
  * Sentinela usado pelo `<select>` "Mover para pasta" de cada sessão pra representar "solta, sem
@@ -22,11 +22,12 @@ export function Avatar({ id, name }: { id: number; name: string }) {
   );
 }
 
-function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folders, onMoveToGroup }: {
+function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folders, onMoveToGroup, onPin }: {
   s: SessionSummary; active: boolean; onSelect: () => void;
   onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
   onDelete?: (id: string) => void;
   folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void;
+  onPin?: (id: string, pinned: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(s.title);
@@ -40,6 +41,7 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
       {(s.open || s.status === 'running' || s.status === 'waiting') ? <span className={`cc-dot is-${s.status}`} /> : <span className="cc-dot is-none" aria-hidden="true" />}
       {s.userId !== undefined && <Avatar id={s.userId} name={s.userName ?? ''} />}
       <span className="cc-item-project" title={`Projeto: ${s.projectName ?? 'Neutro'}`}>{s.projectName ?? 'Neutro'}</span>
+      {s.pinned && <span className="cc-item-pinned" title="Sessão fixada no topo"><Pin size={11} /></span>}
       {s.private && <span className="cc-item-private" title="Sessão privada: só quem criou e o admin veem"><EyeOff size={11} /></span>}
       {editing ? (
         <input className="cc-item-edit" autoFocus value={draft} onChange={e => setDraft(e.target.value)}
@@ -88,6 +90,9 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
             {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         )}
+        {!s.archived && onPin && (
+          <button className={`cc-item-act ${s.pinned ? 'is-on' : ''}`} title={s.pinned ? 'Desfixar' : 'Fixar no topo'} onClick={() => onPin(s.id, !s.pinned)}><Pin size={12} /></button>
+        )}
         {!s.archived && <button className="cc-item-act" title="Renomear" onClick={() => { setDraft(s.title); setEditing(true); }}><Pencil size={12} /></button>}
         {s.archived ? (
           <>
@@ -102,10 +107,10 @@ function SessionRow({ s, active, onSelect, onRename, onArchive, onDelete, folder
   );
 }
 
-function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive, folders, onMoveToGroup, isFolder, onRenameGroup, onDeleteGroup, drag }: {
+function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed, onToggle, activeId, onSelect, onRename, onArchive, folders, onMoveToGroup, onPin, isFolder, onRenameGroup, onDeleteGroup, drag }: {
   groupKey: string; label: string; sessions: SessionSummary[]; collapsible: boolean; collapsed: boolean; onToggle: () => void;
   activeId: string | null; onSelect: (id: string) => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
-  folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void;
+  folders: SessionGroupInfo[]; onMoveToGroup?: (sessionId: string, groupId: string | null) => void; onPin?: (id: string, pinned: boolean) => void;
   /** `isFolder`: esta seção é uma pasta nomeada de verdade (não "Sem pasta"/os baldes automáticos de projeto/recência) — só então mostra os ícones de renomear/excluir. */
   drag?: { isOpen: (id: string) => boolean; dragId: string | null; setDragId: (id: string | null) => void; onDrop: (toId: string) => void };
   isFolder?: boolean; onRenameGroup?: (name: string) => void; onDeleteGroup?: () => void;
@@ -143,7 +148,7 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
         <div className="cc-list">
           {sessions.map(s => {
             const row = <SessionRow key={s.id} s={s} active={s.id === activeId} onSelect={() => onSelect(s.id)} onRename={onRename} onArchive={onArchive}
-              folders={folders} onMoveToGroup={onMoveToGroup} />;
+              folders={folders} onMoveToGroup={onMoveToGroup} onPin={onPin} />;
             // Modo "ordem das abas": as abertas podem ser arrastadas na lista para mudar a ordem das abas.
             if (!drag || !drag.isOpen(s.id)) return row;
             return (
@@ -162,7 +167,7 @@ function SessionGroupSection({ groupKey, label, sessions, collapsible, collapsed
   );
 }
 
-export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onDelete, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
+export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, modelAttribution, activeId, loading, folders, onSelect, onNew, onRename, onArchive, onDelete, onPin, onCreateGroup, onRenameGroup, onDeleteGroup, onMoveToGroup }:
   {
     tabOrder: string[]; onMoveTab: (fromId: string, toId: string) => void;
     sessions: SessionSummary[]; meId?: number; usage: UsageBar[];
@@ -172,7 +177,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
     /** Pastas nomeadas manuais (ver PARIDADE.md item 12 da seção 13) — `[]` quando nenhuma foi criada ainda; o modo "Por pasta" e o seletor "Mover para pasta" por sessão só aparecem de fato úteis quando há pelo menos uma. */
     folders: SessionGroupInfo[];
     onSelect: (id: string) => void; onNew: () => void; onRename: (id: string, title: string) => void; onArchive: (id: string, archived: boolean) => void;
-    onDelete: (id: string) => void;
+    onDelete: (id: string) => void; onPin?: (id: string, pinned: boolean) => void;
     onCreateGroup: (name: string) => void; onRenameGroup: (id: string, name: string) => void; onDeleteGroup: (id: string) => void;
     onMoveToGroup: (sessionId: string, groupId: string | null) => void;
   }) {
@@ -252,7 +257,9 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
     if (openOrder === 'tabs') abertas.sort((a, b) => tabIndex.get(a.id)! - tabIndex.get(b.id)!);
     return [...abertas, ...fechadas];
   };
-  const groups = groupSessions(localList, groupBy, Date.now(), folders).map(g => ({ ...g, sessions: openFirst(g.sessions) }));
+  // Fixadas sempre no topo, dentro de cada grupo (acima de abertas/fechadas).
+  const pinnedFirst = (list: SessionSummary[]) => [...list.filter(s => s.pinned), ...list.filter(s => !s.pinned)];
+  const groups = groupSessions(localList, groupBy, Date.now(), folders).map(g => ({ ...g, sessions: pinnedFirst(openFirst(g.sessions)) }));
 
   // Projetos presentes entre as sessões, para o filtro (slug → rótulo). Só aparece quando há mais de um.
   const projectOptions: [string, string][] = [];
@@ -370,7 +377,7 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
                   <SessionGroupSection key={g.key} groupKey={g.key} label={g.label} sessions={g.sessions}
                     collapsible={groupBy !== 'none'} collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
                     activeId={activeId} onSelect={pick} onRename={onRename} onArchive={onArchive}
-                    folders={folders} onMoveToGroup={onMoveToGroup}
+                    folders={folders} onMoveToGroup={onMoveToGroup} onPin={onPin}
                     drag={openOrder === 'tabs' ? { isOpen: id => tabIndex.has(id), dragId, setDragId, onDrop: (to) => { if (dragId && tabIndex.has(to)) onMoveTab(dragId, to); setDragId(null); } } : undefined}
                     isFolder={groupBy === 'folder' && g.key !== 'ungrouped'}
                     onRenameGroup={g.key.startsWith('folder:') ? (name) => onRenameGroup(g.key.slice('folder:'.length), name) : undefined}

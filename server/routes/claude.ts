@@ -132,6 +132,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   await ensureCloudflareAccountsTable(app.pool);
   await ensureGoogleCloudAccountsTable(app.pool);
   await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false');
+  await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS pinned boolean NOT NULL DEFAULT false');
   // Output style por sessão (nullable = sem estilo, o "default" do CLI) — ver server/tools/outputStyles.ts
   // e a rota POST /:id/output-style abaixo. Mesmo padrão do archived acima: ALTER aqui, sem disputar migrations.ts.
   await app.pool.query('ALTER TABLE claude_sessions ADD COLUMN IF NOT EXISTS output_style TEXT');
@@ -448,7 +449,7 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   app.get('/api/claude/sessions', async (req) => {
     const { rows } = await app.pool.query(
-      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.group_id, s.private, s.created_at, s.updated_at,
+      `SELECT s.id, s.title, s.status, s.input_tokens, s.output_tokens, s.turns, s.model, s.permission_mode, s.effort, s.cwd, s.last_error, s.archived, s.pinned, s.group_id, s.private, s.created_at, s.updated_at,
               u.id AS user_id, u.name AS user_name, p.slug AS project_slug, p.name AS project_name
          FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id
         ORDER BY s.updated_at DESC LIMIT 200`);
@@ -457,6 +458,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     const visiveis = rows.filter(r => !r.private || r.user_id === req.user!.id || req.user!.role === 'owner');
     const sessions = visiveis.map(r => ({ ...r, status: runner.status(r.id) === 'idle' && r.status === 'error' ? 'error' : runner.status(r.id), pending: runner.pendingPermissions(r.id).length }));
     return { sessions };
+  });
+
+  app.post<{ Params: { id: string }; Body: { pinned?: boolean } }>('/api/claude/sessions/:id/pin', async (req, reply) => {
+    const pinned = !!req.body?.pinned;
+    const { rowCount } = await app.pool.query('UPDATE claude_sessions SET pinned = $2 WHERE id = $1', [req.params.id, pinned]);
+    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    return { ok: true, pinned };
   });
 
   app.post<{ Params: { id: string }; Body: { private?: boolean } }>('/api/claude/sessions/:id/private', async (req, reply) => {
