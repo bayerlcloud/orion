@@ -23,6 +23,8 @@ export const KEYS = {
   hostingerToken: 'hostinger_api_token',
   /** Piloto Laya (docs/plans/2026-10-07-piloto-laya-triagem.md): liga/desliga o hook de triagem sem deploy. */
   layaAtivo: 'laya_ativo',
+  /** Token Bearer do conector MCP público (/mcp), pra adicionar o Orion em claude.ai > Conectores. */
+  mcpToken: 'mcp_connector_token',
 } as const;
 
 /** Token de `claude setup-token`: começa com sk-ant- e é longo. Só validação de forma. */
