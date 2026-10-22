@@ -25,6 +25,7 @@ import { previewRoutes } from './routes/preview.js';
 import { marketplaceRoutes } from './routes/marketplace.js';
 import { outputStylesRoutes } from './routes/outputStyles.js';
 import { conectorRoutes } from './routes/conector.js';
+import { mcpRoutes } from './routes/mcp.js';
 import { iniciarCofreCompartilhado, iniciarReaperAbasCofre } from './tools/cofre.js';
 import { whatsappRoutes } from './routes/whatsapp.js';
 import { chatRoutes } from './routes/chat.js';
@@ -90,6 +91,7 @@ async function main() {
   await app.register(marketplaceRoutes);
   await app.register(outputStylesRoutes);
   await app.register(conectorRoutes);
+  await app.register(mcpRoutes);
   await app.register(whatsappRoutes);
   await app.register(chatRoutes);
 
