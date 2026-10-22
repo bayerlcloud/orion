@@ -43,7 +43,7 @@ export default function Config({ user }: { user: User }) {
     try { setMcp(await api<McpConnector>('/api/settings/mcp-connector')); } catch { /* ignora */ }
   }
   async function regenerarMcp() {
-    if (!(await confirmar('Gerar um token novo? Quem já tiver o conector adicionado em claude.ai para de funcionar até colar o novo.', { perigo: true }))) return;
+    if (!(await confirmar('Gerar um token novo? Quem já tiver o conector adicionado em outro lugar para de funcionar até colar o novo.', { perigo: true }))) return;
     setBusy(true);
     try { setMcp(await api<McpConnector>('/api/settings/mcp-connector/regenerate', { method: 'POST' })); }
     catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
@@ -191,8 +191,8 @@ export default function Config({ user }: { user: User }) {
       )}
 
       <section className="cfg-box">
-        <h2>Conector MCP e API (claude.ai)</h2>
-        <p>Deixa o Orion chamável de dentro do claude.ai (claude.ai → Configurações → Conectores → Adicionar personalizado). Só leitura: busca de memória e histórico do painel.</p>
+        <h2>Conector MCP e API</h2>
+        <p>Deixa o Orion chamável de fora, como conector MCP (adicionar personalizado). Só leitura: busca de memória e histórico do painel.</p>
         {mcp && (
           <table><tbody>
             <tr><th>URL</th><td className="mono">{mcp.url}</td></tr>
