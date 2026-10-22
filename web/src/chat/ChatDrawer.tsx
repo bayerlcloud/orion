@@ -2,17 +2,29 @@ import { useEffect, useRef, useState } from 'react';
 import { api, type User } from '../api';
 import { IcoChat } from '../icons';
 
-type Conversa = { channel: string; nome: string; unread: number };
-type Mensagem = { id: number; from_user_id: number; from_name: string; text: string; created_at: string };
+type Conversa = { channel: string; nome: string; unread: number; orion?: boolean };
+type Mensagem = { id: number; from_user_id: number | null; from_agent: boolean; from_name: string; text: string; created_at: string };
 
 const KEY = 'orion:chat-aberto';
 const CANAL_KEY = 'orion:chat-canal';
+const MENCAO_RE = /(@?\borion\b)/gi;
+
+// split() com regex de captura devolve [texto, match, texto, match, ...]: índices ímpares são a menção.
+function textoComMencao(texto: string) {
+  const partes = texto.split(MENCAO_RE);
+  return partes.map((p, i) => (i % 2 === 1 ? <span key={i} className="chat-mencao">{p}</span> : p));
+}
 
 /**
  * Chat entre pessoas do painel: botão flutuante no canto inferior direito (independente do painel
- * Orion, que fica no canto superior), lista de conversas (equipe + uma por pessoa) e mensagens.
- * Sem WebSocket de propósito: só 4 pessoas no time, polling a cada poucos segundos resolve sem
- * subir infra nova — se o time crescer muito ou quiser "digitando…" ao vivo, troca por SSE.
+ * Orion, que fica no canto superior), lista de conversas (Orion fixo no topo + equipe + uma por
+ * pessoa) e mensagens. Sem WebSocket de propósito: time pequeno, polling a cada poucos segundos
+ * resolve sem subir infra nova — se o time crescer muito ou quiser "digitando…" ao vivo de verdade,
+ * troca por SSE.
+ *
+ * O Orion responde dentro do mesmo POST de envio (ver server/routes/chat.ts): no canal equipe só
+ * quando mencionado, na DM com ele sempre. Enquanto o POST está pendente, `respondendo` mostra um
+ * indicador local — não é presença real, só reflete a chamada em andamento.
  */
 export function ChatDrawer({ user }: { user: User }) {
   const [open, setOpen] = useState(() => localStorage.getItem(KEY) === '1');
@@ -20,6 +32,7 @@ export function ChatDrawer({ user }: { user: User }) {
   const [canal, setCanal] = useState<string | null>(() => localStorage.getItem(CANAL_KEY));
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [text, setText] = useState('');
+  const [respondendo, setRespondendo] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { localStorage.setItem(KEY, open ? '1' : '0'); }, [open]);
@@ -48,7 +61,7 @@ export function ChatDrawer({ user }: { user: User }) {
     return () => { alive = false; clearInterval(t); };
   }, [open, canal]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [mensagens.length]);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [mensagens.length, respondendo]);
 
   const unreadTotal = conversas.reduce((s, c) => s + c.unread, 0);
 
@@ -56,10 +69,15 @@ export function ChatDrawer({ user }: { user: User }) {
     const t = text.trim();
     if (!t || !canal) return;
     setText('');
-    const { mensagem } = await api<{ mensagem: Mensagem }>(`/api/chat/${encodeURIComponent(canal)}/mensagens`, {
-      method: 'POST', body: JSON.stringify({ text: t }),
-    });
-    setMensagens((ms) => [...ms, mensagem]);
+    setRespondendo(true);
+    try {
+      const { mensagens: novas } = await api<{ mensagens: Mensagem[] }>(`/api/chat/${encodeURIComponent(canal)}/mensagens`, {
+        method: 'POST', body: JSON.stringify({ text: t }),
+      });
+      setMensagens((ms) => [...ms, ...novas]);
+    } finally {
+      setRespondendo(false);
+    }
   }
 
   const conversaAtual = conversas.find((c) => c.channel === canal);
@@ -80,8 +98,8 @@ export function ChatDrawer({ user }: { user: User }) {
           {!canal ? (
             <div className="chat-lista">
               {conversas.map((c) => (
-                <button key={c.channel} className="chat-conversa" onClick={() => setCanal(c.channel)}>
-                  <span>{c.nome}</span>
+                <button key={c.channel} className={`chat-conversa ${c.orion ? 'is-orion' : ''}`} onClick={() => setCanal(c.channel)}>
+                  <span>{c.orion ? '✶ ' : ''}{c.nome}</span>
                   {c.unread > 0 && <span className="chat-badge">{c.unread > 9 ? '9+' : c.unread}</span>}
                 </button>
               ))}
@@ -90,11 +108,13 @@ export function ChatDrawer({ user }: { user: User }) {
             <>
               <div className="chat-msgs">
                 {mensagens.map((m) => (
-                  <div key={m.id} className={`chat-msg ${m.from_user_id === user.id ? 'is-me' : ''}`}>
-                    {m.from_user_id !== user.id && canal === 'equipe' && <div className="chat-msg-autor">{m.from_name}</div>}
-                    <div className="chat-msg-bolha">{m.text}</div>
+                  <div key={m.id} className={`chat-msg ${m.from_agent ? 'is-orion' : m.from_user_id === user.id ? 'is-me' : ''}`}>
+                    {!m.from_agent && m.from_user_id !== user.id && canal === 'equipe' && <div className="chat-msg-autor">{m.from_name}</div>}
+                    {m.from_agent && <div className="chat-msg-autor">Orion</div>}
+                    <div className="chat-msg-bolha">{textoComMencao(m.text)}</div>
                   </div>
                 ))}
+                {respondendo && <div className="chat-msg is-orion"><div className="chat-msg-autor">Orion</div><div className="chat-msg-bolha chat-respondendo">respondendo…</div></div>}
                 <div ref={endRef} />
               </div>
               <div className="chat-input">

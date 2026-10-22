@@ -293,6 +293,16 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // Orion como participante do chat (decisão do conclave de 22/10/2026): sem usuário real na
+    // tabela users (evita linha fake e FK fingida), from_user_id vira nullable e from_agent marca
+    // a mensagem como resposta do Orion. GET/POST de chat.ts passam a LEFT JOIN em vez de JOIN.
+    id: '020_chat_orion',
+    sql: `
+      ALTER TABLE chat_messages ALTER COLUMN from_user_id DROP NOT NULL;
+      ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS from_agent BOOLEAN NOT NULL DEFAULT false;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

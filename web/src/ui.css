@@ -239,3 +239,8 @@ strong { color: var(--fg); }
 .chat-msg.is-me .chat-msg-bolha { background: var(--accent); color: #fff; border-color: transparent; }
 .chat-input { padding: 8px; border-top: 1px solid var(--line); }
 .chat-input textarea { width: 100%; resize: none; display: block; }
+.chat-conversa.is-orion { font-weight: 600; }
+.chat-msg.is-orion .chat-msg-bolha { border-color: var(--accent); }
+.chat-msg.is-orion .chat-msg-autor { color: var(--accent); font-weight: 600; }
+.chat-mencao { color: var(--accent); font-weight: 600; }
+.chat-respondendo { color: var(--fg2); font-style: italic; }
