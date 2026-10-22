@@ -1,9 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
-import { KEYS, getSetting, setSetting } from '../settings.js';
+import { getOrCreateMcpToken } from '../settings.js';
 import { buscarMemorias } from '../claude/memoryTool.js';
 import { buscarHistorico, materializarTurnos } from '../memories/historico.js';
 
@@ -47,11 +46,7 @@ function buildServer(pool: FastifyInstance['pool']): McpServer {
 
 export async function mcpRoutes(app: FastifyInstance) {
   app.post('/mcp', async (req, reply) => {
-    let token = await getSetting(app.pool, KEYS.mcpToken);
-    if (!token) {
-      token = randomBytes(24).toString('hex');
-      await setSetting(app.pool, KEYS.mcpToken, token, null);
-    }
+    const token = await getOrCreateMcpToken(app.pool, null);
     const auth = req.headers.authorization ?? '';
     if (auth !== `Bearer ${token}`) return reply.code(401).send({ error: 'token inválido' });
 

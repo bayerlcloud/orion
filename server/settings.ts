@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { randomBytes } from 'node:crypto';
 
 /** Tabela chave/valor da Central. Criada aqui (e não em migrations.ts) para não disputar o arquivo com outros agentes. */
 export async function ensureSettingsTable(pool: Pool): Promise<void> {
@@ -26,6 +27,15 @@ export const KEYS = {
   /** Token Bearer do conector MCP público (/mcp), pra adicionar o Orion em claude.ai > Conectores. */
   mcpToken: 'mcp_connector_token',
 } as const;
+
+/** Token do conector MCP: gera na primeira vez que alguém pedir (rota /mcp ou a tela de Configurações). */
+export async function getOrCreateMcpToken(pool: Pool, userId: number | null): Promise<string> {
+  const existing = await getSetting(pool, KEYS.mcpToken);
+  if (existing) return existing;
+  const token = randomBytes(24).toString('hex');
+  await setSetting(pool, KEYS.mcpToken, token, userId);
+  return token;
+}
 
 /** Token de `claude setup-token`: começa com sk-ant- e é longo. Só validação de forma. */
 export function looksLikeClaudeToken(t: string): boolean {

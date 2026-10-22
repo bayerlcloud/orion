@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { randomBytes } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { KEYS, deleteSetting, ensureSettingsTable, getSetting, looksLikeClaudeToken, maskToken, sdkEnv, setSetting } from '../settings.js';
+import { KEYS, deleteSetting, ensureSettingsTable, getOrCreateMcpToken, getSetting, looksLikeClaudeToken, maskToken, sdkEnv, setSetting } from '../settings.js';
 import { LoginFlow } from '../claude/login.js';
 import { readClaudeCredentials, credentialsPath } from '../claude/credentialsFile.js';
 import { unlink } from 'node:fs/promises';
@@ -116,6 +117,17 @@ export async function settingsRoutes(app: FastifyInstance) {
       await setSetting(app.pool, KEYS.taskBudgetTokens, String(n), req.user!.id);
     }
     return { ok: true };
+  });
+
+  // Conector MCP público (/mcp, ver routes/mcp.ts): token Bearer pra adicionar o Orion em claude.ai > Conectores.
+  app.get('/api/settings/mcp-connector', async (req) => {
+    const token = await getOrCreateMcpToken(app.pool, req.user!.id);
+    return { url: `${req.protocol}://${req.hostname}/mcp`, token };
+  });
+  app.post('/api/settings/mcp-connector/regenerate', async (req) => {
+    const token = randomBytes(24).toString('hex');
+    await setSetting(app.pool, KEYS.mcpToken, token, req.user!.id);
+    return { url: `${req.protocol}://${req.hostname}/mcp`, token };
   });
 
   // URL do banco de produção de cada projeto (segredo): usada só pelo backup antes de SQL destrutivo e pelo backup noturno.

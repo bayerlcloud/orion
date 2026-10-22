@@ -13,6 +13,7 @@ type Settings = {
 type LoginSnap = { state: 'idle' | 'starting' | 'awaiting_code' | 'exchanging' | 'done' | 'error'; url: string | null; error: string | null; output_tail: string };
 type TestResult = { ok: boolean; model: string; reply: string; ms: number; error: string | null; via: string };
 type Pessoa = { id: number; name: string; email: string; role: 'owner' | 'member'; sessions_private_default: boolean };
+type McpConnector = { url: string; token: string };
 
 export default function Config({ user }: { user: User }) {
   const [s, setS] = useState<Settings | null>(null);
@@ -26,6 +27,8 @@ export default function Config({ user }: { user: User }) {
   const [login, setLogin] = useState<LoginSnap | null>(null);
   const [code, setCode] = useState('');
   const [pessoas, setPessoas] = useState<Pessoa[] | null>(null);
+  const [mcp, setMcp] = useState<McpConnector | null>(null);
+  const [mcpMostrar, setMcpMostrar] = useState(false);
 
   async function load() {
     try {
@@ -35,6 +38,15 @@ export default function Config({ user }: { user: User }) {
   }
   async function loadPessoas() {
     try { const r = await api<{ users: Pessoa[] }>('/api/users'); setPessoas(r.users); } catch { /* ignora */ }
+  }
+  async function loadMcp() {
+    try { setMcp(await api<McpConnector>('/api/settings/mcp-connector')); } catch { /* ignora */ }
+  }
+  async function regenerarMcp() {
+    if (!(await confirmar('Gerar um token novo? Quem já tiver o conector adicionado em claude.ai para de funcionar até colar o novo.', { perigo: true }))) return;
+    setBusy(true);
+    try { setMcp(await api<McpConnector>('/api/settings/mcp-connector/regenerate', { method: 'POST' })); }
+    catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
   }
   async function togglePrivacidade(id: number, v: boolean) {
     setPessoas(ps => ps ? ps.map(p => p.id === id ? { ...p, sessions_private_default: v } : p) : ps);
@@ -47,7 +59,7 @@ export default function Config({ user }: { user: User }) {
       if (r.state === 'awaiting_code' || r.state === 'exchanging' || r.state === 'starting') { setLogin(r); }
     } catch { /* sem fluxo */ }
   }
-  useEffect(() => { void load(); void loadLoginFlow(); void loadPessoas(); }, []);
+  useEffect(() => { void load(); void loadLoginFlow(); void loadPessoas(); void loadMcp(); }, []);
 
   if (user.role !== 'owner') return <div><h1>Configurações</h1><p className="muted">Só o admin vê esta página.</p></div>;
 
@@ -177,6 +189,21 @@ export default function Config({ user }: { user: User }) {
           </tbody></table>
         </section>
       )}
+
+      <section className="cfg-box">
+        <h2>Conector MCP e API (claude.ai)</h2>
+        <p>Deixa o Orion chamável de dentro do claude.ai (claude.ai → Configurações → Conectores → Adicionar personalizado). Só leitura: busca de memória e histórico do painel.</p>
+        {mcp && (
+          <table><tbody>
+            <tr><th>URL</th><td className="mono">{mcp.url}</td></tr>
+            <tr><th>Token</th><td className="mono">{mcpMostrar ? mcp.token : '•'.repeat(16)}</td></tr>
+          </tbody></table>
+        )}
+        <div className="cfg-actions">
+          <button onClick={() => setMcpMostrar(v => !v)} disabled={!mcp}>{mcpMostrar ? 'esconder token' : 'mostrar token'}</button>
+          <button onClick={regenerarMcp} disabled={busy || !mcp}>gerar token novo</button>
+        </div>
+      </section>
 
       {s && s.meta.length > 0 && (
         <section className="cfg-box">
