@@ -1,9 +1,10 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { sdkEnv } from '../settings.js';
+import { montarBlocosReferencia, type ConteudoBloco } from './projetos.js';
 
 export type DesignQuery = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount: number | null }>;
 export type HistoricoItem = { role: 'pedido' | 'ajuste'; texto: string; ts: string };
-export type GeradorHtml = (prompt: string, token: string | null) => Promise<string>;
+export type GeradorHtml = (blocos: ConteudoBloco[], token: string | null) => Promise<string>;
 
 export function montarPromptInicial(tema: string): string {
   return 'Gere um único arquivo HTML autocontido (CSS e JS inline, sem dependência externa obrigatória). '
@@ -25,14 +26,28 @@ function limparHtml(texto: string): string {
   return (m ? m[1] : t).trim();
 }
 
+/** Uma única SDKUserMessage com os blocos (texto + imagem), no formato da Messages API. */
+async function* umaMensagem(blocos: ConteudoBloco[]) {
+  yield {
+    type: 'user' as const,
+    message: {
+      role: 'user' as const,
+      content: blocos.map(b => b.type === 'text'
+        ? { type: 'text' as const, text: b.text }
+        : { type: 'image' as const, source: { type: 'base64' as const, media_type: b.media_type, data: b.data } }),
+    },
+    parent_tool_use_id: null,
+  };
+}
+
 /** Mesmo padrão de `tituloCurto` em claude/titulo.ts: turno único, sem ferramentas, timeout próprio. */
-export const gerarHtmlReal: GeradorHtml = async (prompt, token) => {
+export const gerarHtmlReal: GeradorHtml = async (blocos, token) => {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), 90_000);
   let texto = '';
   let erro: string | null = null;
   try {
-    const q = query({ prompt, options: {
+    const q = query({ prompt: umaMensagem(blocos), options: {
       cwd: '/tmp', maxTurns: 1, tools: [], permissionMode: 'default', settingSources: [], abortController: abort,
       strictMcpConfig: true, mcpServers: {}, plugins: [], skills: [], env: { ...(sdkEnv(token) ?? process.env), ENABLE_CLAUDEAI_MCP_SERVERS: 'false' },
     } });
@@ -52,12 +67,14 @@ export async function gerarOuAjustarDesign(
   query: DesignQuery, id: number, instrucao: string | null, token: string | null, gerador: GeradorHtml = gerarHtmlReal,
 ): Promise<void> {
   try {
-    const { rows } = await query('SELECT tema, html, historico FROM designs WHERE id = $1', [id]);
+    const { rows } = await query('SELECT tema, html, historico, project_id FROM designs WHERE id = $1', [id]);
     const tema: string = rows[0]?.tema ?? '';
     const prompt = instrucao === null
       ? montarPromptInicial(tema)
       : montarPromptAjuste(tema, rows[0]?.html ?? '', rows[0]?.historico ?? [], instrucao);
-    const html = await gerador(prompt, token);
+    const blocos: ConteudoBloco[] = [{ type: 'text', text: prompt }];
+    if (rows[0]?.project_id) blocos.push(...(await montarBlocosReferencia(query, rows[0].project_id)));
+    const html = await gerador(blocos, token);
     const item: HistoricoItem = { role: instrucao ? 'ajuste' : 'pedido', texto: instrucao ?? tema, ts: new Date().toISOString() };
     await query(
       "UPDATE designs SET html = $2, status = 'pronto', historico = historico || $3::jsonb, updated_at = now() WHERE id = $1",
