@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { safeFilename } from '../driveUtils.js';
 import { maxFileBytes } from './drive.js';
-import { extrairZip, mimeDeArquivo, projectsDir } from '../design/projetos.js';
+import { extrairZip, mimeDeArquivo, projectsDir, tipoSeguroParaView } from '../design/projetos.js';
 import { podeApagar } from './design.js';
 
 /**
@@ -105,16 +105,21 @@ export async function designProjectsRoutes(app: FastifyInstance) {
     if (!projeto) return reply.code(404).send({ error: 'não existe' });
     if (!podeApagar(req.user!, projeto)) return reply.code(403).send({ error: 'só quem criou ou o admin' });
     const { rows } = await app.pool.query('SELECT caminho_disco FROM design_project_files WHERE project_id = $1', [req.params.id]);
-    await Promise.all(rows.map(r => unlink(path.join(dir, r.caminho_disco)).catch(() => {})));
+    // Banco primeiro, disco depois: se o DELETE falhar, nada foi tocado (consistente). Se o
+    // DELETE der certo mas algum unlink falhar depois, o pior caso é um arquivo órfão no disco
+    // (inofensivo) — nunca uma linha de banco sobrevivendo apontando pra arquivo já apagado.
     await app.pool.query('DELETE FROM design_projects WHERE id = $1', [req.params.id]);
+    await Promise.all(rows.map(r => unlink(path.join(dir, r.caminho_disco)).catch(() => {})));
     return { ok: true };
   });
 
   app.get<{ Params: { id: string; fileId: string } }>('/api/design/projects/:id/files/:fileId/view', async (req, reply) => {
     const { rows } = await app.pool.query('SELECT caminho_disco, mime, nome FROM design_project_files WHERE id = $1 AND project_id = $2', [req.params.fileId, req.params.id]);
     if (!rows[0]) return reply.code(404).send({ error: 'não existe' });
+    const { type, attachment } = tipoSeguroParaView(rows[0].mime || 'application/octet-stream');
     reply.header('X-Content-Type-Options', 'nosniff');
-    reply.type(rows[0].mime || 'application/octet-stream');
+    if (attachment) reply.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(rows[0].nome)}`);
+    reply.type(type);
     return reply.send(createReadStream(path.join(dir, rows[0].caminho_disco)));
   });
 }

@@ -1,8 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
-  gerarOuAjustarDesign, limparGerandoPreso, montarPromptAjuste, montarPromptInicial,
+  gerarOuAjustarDesign, limparGerandoPreso, mensagemDeErro, montarPromptAjuste, montarPromptInicial,
   type DesignQuery, type HistoricoItem,
 } from '../server/design/gerar.js';
+
+describe('mensagemDeErro', () => {
+  it('subtype success com is_error: usa o texto real do erro (m.result), não a palavra "success"', () => {
+    expect(mensagemDeErro({ subtype: 'success', result: 'an image in the conversation could not be processed' }))
+      .toBe('an image in the conversation could not be processed');
+  });
+  it('outros subtypes: usa o subtype (não tem m.result pra usar)', () => {
+    expect(mensagemDeErro({ subtype: 'error_max_turns' })).toBe('error_max_turns');
+  });
+});
 
 function fakePool(estado: { tema: string; html: string | null; status: string; historico: HistoricoItem[] }) {
   const updates: any[] = [];
