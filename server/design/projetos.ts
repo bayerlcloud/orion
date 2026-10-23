@@ -31,6 +31,11 @@ export function mediaTypeDeImagem(nome: string): MediaTypeImagem | null {
   return MEDIA_TYPE[path.extname(nome).toLowerCase()] ?? null;
 }
 
+/** Melhor palpite de mime por extensão, pra arquivos extraídos de zip (AdmZip não dá mimetype). */
+export function mimeDeArquivo(nome: string): string {
+  return mediaTypeDeImagem(nome) ?? 'application/octet-stream';
+}
+
 export type EntradaZip = { nome: string; dados: Buffer };
 
 export function extrairZip(buffer: Buffer): EntradaZip[] {

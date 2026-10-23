@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import AdmZip from 'adm-zip';
 import {
-  extrairZip, mediaTypeDeImagem, montarBlocosReferencia, tipoDeArquivo, type DesignQuery,
+  extrairZip, mediaTypeDeImagem, mimeDeArquivo, montarBlocosReferencia, tipoDeArquivo, type DesignQuery,
 } from '../server/design/projetos.js';
 
 describe('tipoDeArquivo', () => {
@@ -19,6 +19,16 @@ describe('mediaTypeDeImagem', () => {
     expect(mediaTypeDeImagem('a.jpg')).toBe('image/jpeg');
     expect(mediaTypeDeImagem('a.png')).toBe('image/png');
     expect(mediaTypeDeImagem('a.svg')).toBeNull();
+  });
+});
+
+describe('mimeDeArquivo', () => {
+  it('imagem conhecida: devolve o media_type certo, pra miniatura funcionar mesmo vindo de dentro de um zip', () => {
+    expect(mimeDeArquivo('assets/logo.png')).toBe('image/png');
+    expect(mimeDeArquivo('foto.jpg')).toBe('image/jpeg');
+  });
+  it('não-imagem: cai pro genérico', () => {
+    expect(mimeDeArquivo('estilo.css')).toBe('application/octet-stream');
   });
 });
 

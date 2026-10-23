@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { safeFilename } from '../driveUtils.js';
 import { maxFileBytes } from './drive.js';
-import { extrairZip, projectsDir } from '../design/projetos.js';
+import { extrairZip, mimeDeArquivo, projectsDir } from '../design/projetos.js';
 import { podeApagar } from './design.js';
 
 /**
@@ -79,7 +79,7 @@ export async function designProjectsRoutes(app: FastifyInstance) {
       const buf = await part.toBuffer();
       if (original.toLowerCase().endsWith('.zip')) {
         for (const entrada of extrairZip(buf)) {
-          gravados.push(await gravarArquivo(id, entrada.nome, entrada.dados, 'application/octet-stream'));
+          gravados.push(await gravarArquivo(id, entrada.nome, entrada.dados, mimeDeArquivo(entrada.nome)));
         }
       } else {
         gravados.push(await gravarArquivo(id, original, buf, part.mimetype || 'application/octet-stream'));
