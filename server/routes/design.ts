@@ -28,12 +28,12 @@ export async function designRoutes(app: FastifyInstance) {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
   });
 
-  app.post<{ Body: { tema?: string } }>('/api/design', async (req, reply) => {
+  app.post<{ Body: { tema?: string; project_id?: number } }>('/api/design', async (req, reply) => {
     const tema = (req.body?.tema ?? '').trim();
     if (!tema) return reply.code(400).send({ error: 'informe o tema' });
     const { rows } = await app.pool.query(
-      'INSERT INTO designs (user_id, titulo, tema) VALUES ($1, $2, $3) RETURNING id',
-      [req.user!.id, tema.slice(0, 60), tema],
+      'INSERT INTO designs (user_id, titulo, tema, project_id) VALUES ($1, $2, $3, $4) RETURNING id',
+      [req.user!.id, tema.slice(0, 60), tema, req.body?.project_id ?? null],
     );
     const id = rows[0].id;
     void getSetting(app.pool, KEYS.claudeToken)
