@@ -36,12 +36,30 @@ export function mimeDeArquivo(nome: string): string {
   return mediaTypeDeImagem(nome) ?? 'application/octet-stream';
 }
 
+const MIME_INLINE_SEGURO = new Set<string>(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/**
+ * Decide se o `/view` pode servir o mime inline. Upload avulso guarda o mime que o NAVEGADOR DO
+ * CLIENTE declarou (part.mimetype) — alguém pode subir um .html/.svg com script e mandar o link
+ * pra outra pessoa do time abrir; servir isso inline na origem do Orion seria XSS armazenado com
+ * a sessão de quem clicar. Só as imagens que a API de visão aceita saem inline; o resto força
+ * download (`attachment`), nunca executa no navegador.
+ */
+export function tipoSeguroParaView(mime: string): { type: string; attachment: boolean } {
+  return MIME_INLINE_SEGURO.has(mime) ? { type: mime, attachment: false } : { type: 'application/octet-stream', attachment: true };
+}
+
 export type EntradaZip = { nome: string; dados: Buffer };
+
+/** Lixo que o Finder do Mac põe em todo zip: não é conteúdo real, e um "._arquivo.png" vira imagem inválida. */
+function ehLixoDeZipMac(nome: string): boolean {
+  return nome.startsWith('__MACOSX/') || path.basename(nome).startsWith('._');
+}
 
 export function extrairZip(buffer: Buffer): EntradaZip[] {
   const zip = new AdmZip(buffer);
   return zip.getEntries()
-    .filter(e => !e.isDirectory)
+    .filter(e => !e.isDirectory && !ehLixoDeZipMac(e.entryName))
     .map(e => ({ nome: e.entryName, dados: e.getData() }));
 }
 

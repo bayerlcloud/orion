@@ -40,6 +40,15 @@ async function* umaMensagem(blocos: ConteudoBloco[]) {
   };
 }
 
+/**
+ * subtype 'success' com is_error carrega o texto real do erro em `result` (ex.: "an image in
+ * the conversation could not be processed"); os outros subtypes (error_max_turns etc.) não têm
+ * `result`, aí o subtype já é a mensagem. Sem isso a mensagem gravada vira só "success", inútil.
+ */
+export function mensagemDeErro(m: { subtype: string; result?: unknown }): string {
+  return m.subtype === 'success' && typeof m.result === 'string' ? m.result : m.subtype;
+}
+
 /** Mesmo padrão de `tituloCurto` em claude/titulo.ts: turno único, sem ferramentas, timeout próprio. */
 export const gerarHtmlReal: GeradorHtml = async (blocos, token) => {
   const abort = new AbortController();
@@ -53,7 +62,7 @@ export const gerarHtmlReal: GeradorHtml = async (blocos, token) => {
     } });
     for await (const m of q) {
       if (m.type === 'assistant') for (const b of m.message.content) if (b.type === 'text') texto += b.text;
-      if (m.type === 'result' && m.is_error) erro = m.subtype;
+      if (m.type === 'result' && m.is_error) erro = mensagemDeErro(m);
     }
   } finally { clearTimeout(timer); }
   if (erro) throw new Error(`erro do modelo: ${erro}`);

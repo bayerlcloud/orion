@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import AdmZip from 'adm-zip';
 import {
-  extrairZip, mediaTypeDeImagem, mimeDeArquivo, montarBlocosReferencia, tipoDeArquivo, type DesignQuery,
+  extrairZip, mediaTypeDeImagem, mimeDeArquivo, montarBlocosReferencia, tipoDeArquivo,
+  tipoSeguroParaView, type DesignQuery,
 } from '../server/design/projetos.js';
 
 describe('tipoDeArquivo', () => {
@@ -41,6 +42,15 @@ describe('extrairZip', () => {
     const entradas = extrairZip(zip.toBuffer());
     expect(entradas.map(e => e.nome).sort()).toEqual(['assets/logo.png', 'estilo.css']);
   });
+
+  it('ignora lixo do zip do Mac (__MACOSX e ._arquivo) — senão vira "imagem" inválida e quebra a geração', () => {
+    const zip = new AdmZip();
+    zip.addFile('assets/logo.png', Buffer.from('fake-png'));
+    zip.addFile('__MACOSX/assets/._logo.png', Buffer.from('lixo-do-finder'));
+    zip.addFile('._estilo.css', Buffer.from('lixo-do-finder'));
+    const entradas = extrairZip(zip.toBuffer());
+    expect(entradas.map(e => e.nome)).toEqual(['assets/logo.png']);
+  });
 });
 
 describe('montarBlocosReferencia', () => {
@@ -69,5 +79,18 @@ describe('montarBlocosReferencia', () => {
   it('nunca lança se um arquivo não existir em disco', async () => {
     const query: DesignQuery = async () => ({ rows: [{ nome: 'sumiu.png', caminho_disco: 'nao-existe-mesmo' }], rowCount: 1 });
     await expect(montarBlocosReferencia(query, 1)).resolves.toEqual([]);
+  });
+});
+
+describe('tipoSeguroParaView', () => {
+  it('imagem de verdade: inline, sem forçar download', () => {
+    expect(tipoSeguroParaView('image/png')).toEqual({ type: 'image/png', attachment: false });
+    expect(tipoSeguroParaView('image/jpeg')).toEqual({ type: 'image/jpeg', attachment: false });
+  });
+
+  it('html/svg/qualquer outro mime: nunca inline (evita XSS armazenado servido na origem do Orion)', () => {
+    expect(tipoSeguroParaView('text/html')).toEqual({ type: 'application/octet-stream', attachment: true });
+    expect(tipoSeguroParaView('image/svg+xml')).toEqual({ type: 'application/octet-stream', attachment: true });
+    expect(tipoSeguroParaView('application/octet-stream')).toEqual({ type: 'application/octet-stream', attachment: true });
   });
 });
