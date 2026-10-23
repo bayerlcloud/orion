@@ -322,6 +322,29 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       );
     `,
   },
+  {
+    // Projetos de referência (pedido do Guilherme, 23/10/2026): fonte de design system dos
+    // clientes, usada como referência multimodal ao gerar. docs/superpowers/specs/2026-10-23-design-projetos-design.md.
+    id: '022_design_projects',
+    sql: `
+      CREATE TABLE IF NOT EXISTS design_projects (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id),
+        nome TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS design_project_files (
+        id SERIAL PRIMARY KEY,
+        project_id INT NOT NULL REFERENCES design_projects(id) ON DELETE CASCADE,
+        nome TEXT NOT NULL,
+        caminho_disco TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size BIGINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      ALTER TABLE designs ADD COLUMN IF NOT EXISTS project_id INT REFERENCES design_projects(id) ON DELETE SET NULL;
+    `,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {
