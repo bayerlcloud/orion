@@ -1,5 +1,12 @@
-.design-form { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 18px; }
-.design-form textarea { flex: 1; resize: vertical; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); color: var(--fg); }
+.design-abas { display: flex; gap: 6px; margin-bottom: 12px; }
+.design-abas button { padding: 6px 14px; border: 1px solid var(--line); background: var(--bg2); color: var(--fg2); border-radius: 999px; cursor: pointer; font: inherit; }
+.design-abas button.ativa { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.design-form { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 18px; }
+.design-form textarea { resize: vertical; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); color: var(--fg); }
+.design-form input[type="text"], .design-form input:not([type]) { padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); color: var(--fg); flex: 1; }
+.design-form-linha { display: flex; gap: 10px; align-items: center; }
+.design-form-linha select { padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); color: var(--fg); flex: 1; }
 
 .design-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .design-card { text-align: left; border: 1px solid var(--line); background: var(--bg2); border-radius: 8px; padding: 12px 14px; cursor: pointer; font: inherit; color: inherit; display: flex; flex-direction: column; gap: 6px; }
@@ -23,3 +30,12 @@
 
 .design-historico { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 12px; color: var(--fg2); }
 .design-historico-papel { font-weight: 600; text-transform: capitalize; margin-right: 6px; }
+
+.design-upload { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1.5px dashed var(--line); border-radius: 8px; text-align: center; color: var(--fg2); font-size: 13px; }
+
+.design-arquivos-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.design-arquivo { border: 1px solid var(--line); background: var(--bg2); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.design-arquivo img { width: 100%; height: 80px; object-fit: cover; border-radius: 4px; }
+.design-arquivo-ext { width: 100%; height: 80px; display: flex; align-items: center; justify-content: center; background: var(--code-bg); border-radius: 4px; font-family: var(--mono); font-size: 13px; color: var(--fg2); text-transform: uppercase; }
+.design-arquivo-nome { font-size: 11px; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.design-arquivo button { font-size: 11px; color: var(--link); background: none; border: 0; cursor: pointer; font-family: inherit; }

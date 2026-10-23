@@ -48,13 +48,39 @@ describe('gerarOuAjustarDesign', () => {
     expect(upd.params).toContain('<html>novo</html>');
   });
 
-  it('ajuste: usa o html atual e o tema original no prompt do gerador', async () => {
+  it('ajuste: usa o html atual e o tema original no bloco de texto do prompt', async () => {
     const { query } = fakePool({ tema: 'cartão de visita minimalista', html: '<html>velho</html>', status: 'pronto', historico: [{ role: 'pedido', texto: 'tema', ts: '2026-01-01' }] });
-    let promptRecebido = '';
-    await gerarOuAjustarDesign(query, 1, 'deixa mais escuro', null, async (p) => { promptRecebido = p; return '<html>ajustado</html>'; });
-    expect(promptRecebido).toContain('<html>velho</html>');
-    expect(promptRecebido).toContain('deixa mais escuro');
-    expect(promptRecebido).toContain('cartão de visita minimalista');
+    let blocosRecebidos: any[] = [];
+    await gerarOuAjustarDesign(query, 1, 'deixa mais escuro', null, async (blocos) => { blocosRecebidos = blocos; return '<html>ajustado</html>'; });
+    const texto = (blocosRecebidos.find(b => b.type === 'text') as any).text;
+    expect(texto).toContain('<html>velho</html>');
+    expect(texto).toContain('deixa mais escuro');
+    expect(texto).toContain('cartão de visita minimalista');
+  });
+
+  it('com project_id: chama montarBlocosReferencia (busca os arquivos do projeto) e devolve o texto do pedido primeiro', async () => {
+    const sqlsChamados: string[] = [];
+    const query: DesignQuery = async (sql) => {
+      sqlsChamados.push(sql);
+      if (sql.includes('FROM designs')) return { rows: [{ tema: 'tema', html: null, historico: [], project_id: 7 }], rowCount: 1 };
+      if (sql.includes('design_project_files')) return { rows: [{ nome: 'ref.txt', caminho_disco: 'x' }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    };
+    let blocosRecebidos: any[] = [];
+    await gerarOuAjustarDesign(query, 1, null, null, async (blocos) => { blocosRecebidos = blocos; return '<html>ok</html>'; });
+    expect(sqlsChamados.some(s => s.includes('design_project_files'))).toBe(true);
+    expect(blocosRecebidos[0]).toMatchObject({ type: 'text' });
+  });
+
+  it('sem project_id: não consulta design_project_files', async () => {
+    const sqlsChamados: string[] = [];
+    const query: DesignQuery = async (sql) => {
+      sqlsChamados.push(sql);
+      if (sql.includes('FROM designs')) return { rows: [{ tema: 'tema', html: null, historico: [], project_id: null }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    };
+    await gerarOuAjustarDesign(query, 1, null, null, async () => '<html>ok</html>');
+    expect(sqlsChamados.some(s => s.includes('design_project_files'))).toBe(false);
   });
 
   it('erro do gerador: grava status erro e mensagem, nunca lança', async () => {
