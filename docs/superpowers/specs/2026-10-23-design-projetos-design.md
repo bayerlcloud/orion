@@ -21,8 +21,10 @@ projeto.
   imagem de verdade (multimodal); texto (`css`, `html`, `json`, `md`, `txt`, `yml`, `yaml`)
   via conteúdo inline no prompt. Os demais formatos ficam guardados, mas não entram no prompt
   (fora de escopo ler PDF/Word/Figma nesta v1).
-- Limite pra não estourar contexto: até 5 imagens e até ~20 000 caracteres de texto por
-  geração (trunca o que passar, mais recentes primeiro pela ordem de upload).
+- Sem limite de quantidade de imagens nem de tamanho de texto por geração (pedido explícito do
+  Guilherme, 23/10/2026): manda todas as imagens e todo o texto do projeto. Risco aceito:
+  projeto grande pode estourar o contexto do modelo ou ficar lento/caro — sem mitigação nesta
+  v1.
 
 ## Dados
 
@@ -76,10 +78,10 @@ Limite de tamanho: reaproveita `maxFileBytes()` do Drive (2 GB por arquivo, ou
 `POST /api/design` ganha campo opcional `project_id`. Quando vier:
 1. Busca os arquivos do projeto (`design_project_files`).
 2. Separa por tipo (extensão): imagens vs. texto vs. ignorado (por extensão, ver Escopo).
-3. Imagens: lê até 5 (mais recentes primeiro), converte pra base64, monta blocos
-   `{ type: 'image', source: { type: 'base64', media_type, data } }`.
-4. Texto: lê e concatena até ~20 000 caracteres (`nome do arquivo` + conteúdo, um após o
-   outro, corta o que passar do limite).
+3. Imagens: lê todas, converte pra base64, monta um bloco
+   `{ type: 'image', source: { type: 'base64', media_type, data } }` por imagem.
+4. Texto: lê e concatena todo o conteúdo (`nome do arquivo` + conteúdo, um após o outro, sem
+   corte).
 5. O prompt deixa de ser uma string simples: vira uma mensagem com blocos (texto do pedido +
    blocos de imagem + bloco de texto de referência). O SDK aceita isso via
    `prompt: AsyncIterable<SDKUserMessage>` (um gerador que emite uma única `SDKUserMessage`
@@ -119,18 +121,20 @@ projetos existentes, "nenhum" por padrão).
 
 ## Segurança
 
-Upload de zip: biblioteca `adm-zip` lê em memória antes de gravar — limitar pelo mesmo teto de
-`maxFileBytes()` por entrada extraída (não só no zip inteiro), pra um zip-bomb não estourar
-disco. Nome de cada entrada passa por `safeFilename` igual ao Drive (evita `../` na gravação em
-disco; o caminho "bonito" com pastas fica só no campo `nome` do banco, nunca vira caminho real
-em disco).
+Upload de zip: biblioteca `adm-zip` lê em memória antes de gravar. Sem limite de tamanho de
+entrada nem de quantidade de entradas (pedido explícito do Guilherme, 23/10/2026) — risco
+aceito de zip-bomb (disco/memória); sem mitigação nesta v1. Nome de cada entrada passa por
+`safeFilename` igual ao Drive (evita `../` na gravação em disco; o caminho "bonito" com pastas
+fica só no campo `nome` do banco, nunca vira caminho real em disco) — essa parte é correção de
+segurança básica, não um limite de tamanho/quantidade, e fica mantida.
 
 ## Testes
 
 - `tests/designProjects.test.ts`: extração de zip (mock do `adm-zip`, confere que cada entrada
   vira uma linha com `nome` = caminho relativo); separação de arquivos por tipo (imagem/texto/
-  ignorado); montagem dos blocos multimodais (limite de 5 imagens, truncamento de texto em
-  ~20 000 caracteres); apagar projeto remove os arquivos do disco; autorização (autor/owner).
+  ignorado); montagem dos blocos multimodais (todas as imagens do projeto viram bloco, todo o
+  texto entra concatenado, sem corte); apagar projeto remove os arquivos do disco; autorização
+  (autor/owner).
 
 ## Fora de escopo (v1)
 
