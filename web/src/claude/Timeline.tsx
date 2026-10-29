@@ -335,8 +335,17 @@ function ToolBlock({ e, agentTasks }: { e: Extract<ConvEvent, { kind: 'tool' }>;
  * respostas" (com todas as perguntas respondidas) — clicar numa opção só marca/desmarca, não
  * finaliza mais sozinho (antes, o primeiro clique em qualquer pergunta já respondia tudo, e não
  * dava pra marcar mais de uma opção mesmo em pergunta multiSelect).
+ *
+ * X/Esc (pedido do Danilo, 29/10/2026, achado ao comparar com o popup real do Claude Code —
+ * `Og`/"Esc to cancel" no webview descompilado, ver PARIDADE.md): fecha sem responder, mandando
+ * `deny` com uma mensagem padrão pro Claude seguir sem a resposta, em vez de deixar o card
+ * travado pra sempre (só dava pra sair respondendo antes).
+ * Campo de texto livre antes do botão Enviar (mesma ordem do pedido): ele é outra forma de
+ * resposta, não deve vir depois da ação que já finaliza.
+ * Lista de opções com scroll próprio (`cc-ask-opts`, max-height + overflow): perguntas com muitas
+ * opções não empurravam mais o botão Enviar pra fora da tela.
  */
-function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide?: (d: 'answer', msg?: string) => void }) {
+function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide?: (d: 'answer' | 'deny', msg?: string) => void }) {
   const [picks, setPicks] = useState<Record<number, Set<number>>>({});
   const [freeText, setFreeText] = useState('');
 
@@ -352,10 +361,12 @@ function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide
     const picksArr = questions.map((q, qi) => [...(picks[qi] ?? [])].sort((a, b) => a - b).map(oi => q.options[oi].label));
     onDecide?.('answer', formatAskAnswer(questions, picksArr));
   }
+  function cancelar() { onDecide?.('deny', 'O usuário optou por não responder a esta pergunta agora.'); }
   const ready = questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0);
 
   return (
-    <div className="cc-perm cc-ask">
+    <div className="cc-perm cc-ask" tabIndex={0} onKeyDown={ev => { if (ev.key === 'Escape') { ev.preventDefault(); cancelar(); } }}>
+      <button type="button" className="cc-ask-close" onClick={cancelar} title="Fechar sem responder (Esc)" aria-label="Fechar sem responder"><X size={14} /></button>
       {questions.map((q, qi) => (
         <div key={qi} className="cc-ask-q">
           {q.header && <div className="cc-ask-header">{q.header}</div>}
@@ -374,12 +385,12 @@ function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide
           </div>
         </div>
       ))}
+      <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" value={freeText} onChange={ev => setFreeText(ev.target.value)}
+        onKeyDown={ev => { if (ev.key === 'Enter' && freeText.trim()) onDecide?.('answer', freeText.trim()); }} />
       <div className="cc-ask-submit-row">
         <button className="cc-btn cc-btn-primary" disabled={!ready} onClick={submit}>Enviar respostas</button>
       </div>
-      <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" value={freeText} onChange={ev => setFreeText(ev.target.value)}
-        onKeyDown={ev => { if (ev.key === 'Enter' && freeText.trim()) onDecide?.('answer', freeText.trim()); }} />
-      <div className="cc-hints">Escolha as opções e clique em Enviar respostas · ou escreva a sua e Enter</div>
+      <div className="cc-hints">Escolha as opções e clique em Enviar respostas · ou escreva a sua e Enter · Esc fecha sem responder</div>
     </div>
   );
 }

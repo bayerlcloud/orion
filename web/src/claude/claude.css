@@ -552,16 +552,19 @@
 .cc-tab-actions .cc-icon { padding: 3px; }
 
 /* pergunta do Claude (AskUserQuestion) */
-.cc-ask-q { margin-bottom: 8px; }
+.cc-ask { position: relative; }
+.cc-ask-close { position: absolute; top: 0; right: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; color: var(--cc-fg2); background: transparent; border: none; border-radius: 6px; cursor: pointer; }
+.cc-ask-close:hover { background: var(--cc-bg2); color: var(--cc-fg); }
+.cc-ask-q { margin-bottom: 8px; padding-right: 24px; }
 .cc-ask-header { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--cc-fg2); }
 .cc-ask-title { font-weight: 600; margin: 2px 0 8px; }
-.cc-ask-opts { display: grid; gap: 6px; }
+.cc-ask-opts { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
 .cc-ask-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 8px 10px; }
 .cc-ask-opt-label { font-weight: 600; }
 .cc-ask-opt-desc { font-size: 12px; color: var(--cc-fg2); }
 .cc-ask-opt.is-selected { border-color: var(--cc-orange); background: color-mix(in srgb, var(--cc-orange) 14%, var(--cc-bg2)); }
 .cc-ask-multi { font-weight: 400; font-size: 12px; color: var(--cc-fg2); }
-.cc-ask-submit-row { display: flex; justify-content: flex-end; }
+.cc-ask-submit-row { display: flex; justify-content: flex-end; margin-top: 8px; }
 .cc-perm-exp { color: var(--cc-warning); }
 
 /* ===== conta e uso ===== */
