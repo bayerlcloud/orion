@@ -342,8 +342,11 @@ function ToolBlock({ e, agentTasks }: { e: Extract<ConvEvent, { kind: 'tool' }>;
  * travado pra sempre (só dava pra sair respondendo antes).
  * Campo de texto livre antes do botão Enviar (mesma ordem do pedido): ele é outra forma de
  * resposta, não deve vir depois da ação que já finaliza.
- * Lista de opções com scroll próprio (`cc-ask-opts`, max-height + overflow): perguntas com muitas
- * opções não empurravam mais o botão Enviar pra fora da tela.
+ * Scroll do card inteiro (correção 29/10/2026, pedido do Danilo: com 2+ perguntas o card passava do
+ * topo da tela e o botão Enviar ficava inalcançável — o scroll só na lista de opções, de uma
+ * pergunta por vez, não bastava porque o total de perguntas empilhadas também precisa rolar).
+ * Texto livre + Enviar ficam FORA da área que rola (`cc-ask-foot`), sempre visíveis — só as
+ * perguntas/opções (`cc-ask-scroll`) rolam.
  */
 function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide?: (d: 'answer' | 'deny', msg?: string) => void }) {
   const [picks, setPicks] = useState<Record<number, Set<number>>>({});
@@ -367,30 +370,34 @@ function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide
   return (
     <div className="cc-perm cc-ask" tabIndex={0} onKeyDown={ev => { if (ev.key === 'Escape') { ev.preventDefault(); cancelar(); } }}>
       <button type="button" className="cc-ask-close" onClick={cancelar} title="Fechar sem responder (Esc)" aria-label="Fechar sem responder"><X size={14} /></button>
-      {questions.map((q, qi) => (
-        <div key={qi} className="cc-ask-q">
-          {q.header && <div className="cc-ask-header">{q.header}</div>}
-          <div className="cc-ask-title">{q.question}{q.multiSelect && <span className="cc-ask-multi"> · escolha uma ou mais</span>}</div>
-          <div className="cc-ask-opts">
-            {q.options.map((o, oi) => {
-              const selected = picks[qi]?.has(oi) ?? false;
-              return (
-                <button key={oi} type="button" className={`cc-btn cc-ask-opt ${selected ? 'is-selected' : ''}`}
-                  onClick={() => toggle(qi, oi, !!q.multiSelect)} title={o.description} aria-pressed={selected}>
-                  <span className="cc-ask-opt-label">{o.label}</span>
-                  {o.description && <span className="cc-ask-opt-desc">{o.description}</span>}
-                </button>
-              );
-            })}
+      <div className="cc-ask-scroll">
+        {questions.map((q, qi) => (
+          <div key={qi} className="cc-ask-q">
+            {q.header && <div className="cc-ask-header">{q.header}</div>}
+            <div className="cc-ask-title">{q.question}{q.multiSelect && <span className="cc-ask-multi"> · escolha uma ou mais</span>}</div>
+            <div className="cc-ask-opts">
+              {q.options.map((o, oi) => {
+                const selected = picks[qi]?.has(oi) ?? false;
+                return (
+                  <button key={oi} type="button" className={`cc-btn cc-ask-opt ${selected ? 'is-selected' : ''}`}
+                    onClick={() => toggle(qi, oi, !!q.multiSelect)} title={o.description} aria-pressed={selected}>
+                    <span className="cc-ask-opt-label">{o.label}</span>
+                    {o.description && <span className="cc-ask-opt-desc">{o.description}</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
-      <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" value={freeText} onChange={ev => setFreeText(ev.target.value)}
-        onKeyDown={ev => { if (ev.key === 'Enter' && freeText.trim()) onDecide?.('answer', freeText.trim()); }} />
-      <div className="cc-ask-submit-row">
-        <button className="cc-btn cc-btn-primary" disabled={!ready} onClick={submit}>Enviar respostas</button>
+        ))}
       </div>
-      <div className="cc-hints">Escolha as opções e clique em Enviar respostas · ou escreva a sua e Enter · Esc fecha sem responder</div>
+      <div className="cc-ask-foot">
+        <input className="cc-perm-reject" placeholder="ou escreva sua própria resposta…" value={freeText} onChange={ev => setFreeText(ev.target.value)}
+          onKeyDown={ev => { if (ev.key === 'Enter' && freeText.trim()) onDecide?.('answer', freeText.trim()); }} />
+        <div className="cc-ask-submit-row">
+          <button className="cc-btn cc-btn-primary" disabled={!ready} onClick={submit}>Enviar respostas</button>
+        </div>
+        <div className="cc-hints">Escolha as opções e clique em Enviar respostas · ou escreva a sua e Enter · Esc fecha sem responder</div>
+      </div>
     </div>
   );
 }
