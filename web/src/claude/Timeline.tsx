@@ -361,11 +361,17 @@ function AskAnswer({ questions, onDecide }: { questions: AskQuestion[]; onDecide
     });
   }
   function submit() {
+    // Texto livre manda sozinho (prioridade sobre as opções marcadas): o usuário pode preencher
+    // algumas opções e ainda preferir escrever a resposta de verdade no campo — ela que vale.
+    if (freeText.trim()) { onDecide?.('answer', freeText.trim()); return; }
     const picksArr = questions.map((q, qi) => [...(picks[qi] ?? [])].sort((a, b) => a - b).map(oi => q.options[oi].label));
     onDecide?.('answer', formatAskAnswer(questions, picksArr));
   }
   function cancelar() { onDecide?.('deny', 'O usuário optou por não responder a esta pergunta agora.'); }
-  const ready = questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0);
+  // Pedido do Danilo (30/10/2026): digitar no campo livre tem que bastar — antes o botão Enviar só
+  // habilitava com TODAS as perguntas marcadas, mesmo com texto escrito, e ficava cinza parecendo um
+  // campo vazio, sem dar pra entender por que não enviava.
+  const ready = !!freeText.trim() || questions.every((_, qi) => (picks[qi]?.size ?? 0) > 0);
 
   return (
     <div className="cc-perm cc-ask" tabIndex={0} onKeyDown={ev => { if (ev.key === 'Escape') { ev.preventDefault(); cancelar(); } }}>
