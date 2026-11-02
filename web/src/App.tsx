@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, type User } from './api';
+import { aplicarTema, type Tema, type VarianteEscuro } from './tema';
 import Login from './pages/Login';
 const Spec = lazy(() => import('./pages/Spec'));
 import Placeholder from './pages/Placeholder';
@@ -78,7 +79,14 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
-    api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => setUser(null));
+    api<{ user: User }>('/api/me').then(r => {
+      setUser(r.user);
+      // tema é por usuário, salvo no servidor; aparelho novo (sem localStorage) precisa buscar aqui,
+      // senão fica no padrão até a pessoa abrir Configurações (bug relatado pelo Gustavo, 02/11/2026).
+      api<{ theme: Tema; dark_variant?: VarianteEscuro }>('/api/profile')
+        .then(p => aplicarTema(p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark', p.dark_variant === 'black' ? 'black' : 'dark'))
+        .catch(() => {});
+    }).catch(() => setUser(null));
   }, []);
 
   if (user === undefined) return <div className="center muted">carregando…</div>;
