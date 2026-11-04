@@ -56,9 +56,24 @@ export function OrionPanel({ user }: { user: User }) {
   const events = toConvEvents(live);
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [events.length, live.partialText]);
 
-  // Liga o stream da sessão contínua: ao montar (sessão já existe de uma visita anterior) e a cada
-  // troca de id (sessão nova criada pelo primeiro envio). Mesmo padrão de ClaudePage.tsx: buffer
-  // enquanto carrega o histórico, pra não perder eventos que cheguem nesse meio-tempo.
+  // Celular/aba em segundo plano por muito tempo: a conexão costuma estar morta ao voltar (mesmo
+  // padrão de ClaudePage.tsx). Reabre se caiu ou se a aba ficou escondida mais de 30s.
+  const [revive, setRevive] = useState(0);
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVis = () => {
+      if (document.hidden) { hiddenAt = Date.now(); return; }
+      const es = esRef.current;
+      if ((es && es.readyState === EventSource.CLOSED) || (hiddenAt && Date.now() - hiddenAt > 30_000)) setRevive(n => n + 1);
+      hiddenAt = 0;
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  // Liga o stream da sessão contínua: ao montar (sessão já existe de uma visita anterior), a cada
+  // troca de id (sessão nova criada pelo primeiro envio) e ao reviver. Mesmo padrão de ClaudePage.tsx:
+  // buffer enquanto carrega o histórico, pra não perder eventos que cheguem nesse meio-tempo.
   useEffect(() => {
     esRef.current?.close(); esRef.current = null;
     if (!sessionId) return;
@@ -82,7 +97,7 @@ export function OrionPanel({ user }: { user: User }) {
     };
     esRef.current = es;
     return () => { alive = false; es.close(); };
-  }, [sessionId]);
+  }, [sessionId, revive]);
 
   async function send() {
     const t = text.trim();
