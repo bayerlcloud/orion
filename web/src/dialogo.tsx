@@ -30,11 +30,13 @@ export function Dialogos() {
   const [valor, setValor] = useState('');
   const campo = useRef<HTMLInputElement>(null);
   const okBtn = useRef<HTMLButtonElement>(null);
+  const cancelarBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => { mudou = () => setN(n => n + 1); if (fila.length) mudou(); return () => { mudou = null; }; }, []);
   const p = fila[0];
   useEffect(() => {
     if (!p) return;
     if (p.tipo === 'perguntar') { setValor(p.inicial ?? ''); setTimeout(() => campo.current?.select(), 0); }
+    else if (p.tipo === 'confirmar' && p.perigo) setTimeout(() => cancelarBtn.current?.focus(), 0);
     else setTimeout(() => okBtn.current?.focus(), 0);
   }, [p]);
   if (!p) return null;
@@ -56,7 +58,7 @@ export function Dialogos() {
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); fechar(true); } }} />
         )}
         <div className="dlg-botoes">
-          {p.tipo !== 'avisar' && <button type="button" className="dlg-btn" onClick={() => fechar(false)}>Cancelar</button>}
+          {p.tipo !== 'avisar' && <button type="button" ref={cancelarBtn} className="dlg-btn" onClick={() => fechar(false)}>Cancelar</button>}
           <button type="button" ref={okBtn} className={`dlg-btn primario ${p.tipo === 'confirmar' && p.perigo ? 'perigo' : ''}`} onClick={() => fechar(true)}>
             {p.tipo === 'avisar' ? 'OK' : p.ok ?? (p.tipo === 'perguntar' ? 'Salvar' : 'Confirmar')}
           </button>
