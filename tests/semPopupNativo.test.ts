@@ -14,7 +14,8 @@ describe('sem pop-up nativo', () => {
   it('web/src não chama confirm/alert/prompt do navegador', () => {
     const achados = arquivos(path.resolve(__dirname, '../web/src')).flatMap(f =>
       readFileSync(f, 'utf8').split('\n').map((l, i) => ({ f, i, l }))
-        .filter(({ l }) => !/^\s*(\/\/|\*|\/\*)/.test(l) && /(^|[^.\w])(window\.)?(confirm|alert|prompt)\(/.test(l))
+        .filter(({ l }) => !/^\s*(\/\/|\*|\/\*)/.test(l) &&
+          (/(^|[^.\w])(window\.)?(confirm|alert|prompt)\(/.test(l) || /window\[['"](confirm|alert|prompt)['"]\]/.test(l)))
         .map(({ f, i }) => `${path.relative(process.cwd(), f)}:${i + 1}`));
     expect(achados).toEqual([]);
   });
