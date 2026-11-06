@@ -3,6 +3,7 @@ import type { SessionGroupInfo, SessionSummary } from './types';
 import type { ModelAttribution, UsageBar } from './mapper';
 import { relativeTime, filterSessions, groupSessions, validateGroupName, type GroupBy } from './mapper';
 import { Chevron, Plus, Search, Bolt, X, Archive, Pencil, Folder, Filter, Restore, Trash, EyeOff, Pin } from './icons';
+import { claudeApi } from './api';
 
 /**
  * Sentinela usado pelo `<select>` "Mover para pasta" de cada sessão pra representar "solta, sem
@@ -221,6 +222,17 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   const [searchOpen, setSearchOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (searchOpen) searchInputRef.current?.focus(); }, [searchOpen]);
+  // Busca também dentro do conteúdo das mensagens (não só título/projeto), com debounce pra não
+  // bater no servidor a cada tecla. contentMatches guarda os ids que bateram pelo termo atual.
+  const [contentMatches, setContentMatches] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    const term = q.trim();
+    if (!term) { setContentMatches(new Set()); return; }
+    const t = setTimeout(() => {
+      claudeApi.searchSessions(term).then(r => setContentMatches(new Set(r.sessionIds))).catch(() => setContentMatches(new Set()));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   function toggleGroup(key: string) {
     setCollapsedGroups(s => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -247,10 +259,18 @@ export default function Sidebar({ tabOrder, onMoveTab, sessions, meId, usage, mo
   // Botão ⚡ (pedido do Danilo, 02/10/2026): filtra toda sessão com bolinha (aberta para este usuário, rodando ou esperando).
   const temBolinha = (s: SessionSummary) => s.open || tabIndex.has(s.id) || s.status === 'running' || s.status === 'waiting';
   const openCount = sessions.filter(temBolinha).length;
-  const filter = { term: q, project: projectFilter || undefined, userId: soMinhas ? meId : undefined };
+  // Termo bate por título/projeto (filterSessions) OU por conteúdo das mensagens (contentMatches,
+  // buscado no servidor); os outros filtros (projeto, minhas) continuam exigidos junto.
+  const filter = { project: projectFilter || undefined, userId: soMinhas ? meId : undefined };
+  const passaTermo = (s: SessionSummary) => {
+    const term = q.trim().toLowerCase();
+    if (!term) return true;
+    const tituloHit = s.title.toLowerCase().includes(term) || (s.project ?? '').toLowerCase().includes(term) || (s.projectName ?? '').toLowerCase().includes(term);
+    return tituloHit || contentMatches.has(s.id);
+  };
   const soAbertas = (list: SessionSummary[]) => activeOnly ? list.filter(temBolinha) : list;
-  const localList = soAbertas(filterSessions(sessions.filter(s => !s.archived), filter));
-  const archivedList = soAbertas(filterSessions(sessions.filter(s => s.archived), filter));
+  const localList = soAbertas(filterSessions(sessions.filter(s => !s.archived), filter).filter(passaTermo));
+  const archivedList = soAbertas(filterSessions(sessions.filter(s => s.archived), filter).filter(passaTermo));
   const openFirst = (list: SessionSummary[]) => {
     const abertas = list.filter(s => tabIndex.has(s.id));
     const fechadas = list.filter(s => !tabIndex.has(s.id));
