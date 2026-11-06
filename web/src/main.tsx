@@ -8,6 +8,33 @@ import { iniciarTema } from './tema';
 // tema salvo antes de renderizar (evita flash)
 iniciarTema();
 
+/**
+ * Sem isso, qualquer erro de render (ex.: aba volta de muito tempo em segundo plano com um estado
+ * esperando algo que não chegou) desmontava a árvore inteira: sobrava só o body com o tema escuro,
+ * ou seja, tela preta sem nenhum erro visível (relato do Danilo, 06/11/2026) — só F5 resolvia porque
+ * nada aqui recarregava sozinho. Recarrega uma vez sozinho; se persistir, mostra o erro.
+ */
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error?: Error }> {
+  state: { error?: Error } = {};
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) {
+    const key = 'orion-crash-reload-at';
+    const last = Number(sessionStorage.getItem(key) || 0);
+    if (Date.now() - last > 10_000) { sessionStorage.setItem(key, String(Date.now())); location.reload(); return; }
+    console.error('Orion travou e já tentou recarregar uma vez:', error);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, color: '#ccc' }}>
+          Algo travou na interface. <button onClick={() => location.reload()}>Recarregar</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // links para fora do painel (outro domínio) sempre abrem em nova aba; rotas internas seguem na mesma
 document.addEventListener('click', e => {
   const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
@@ -16,9 +43,11 @@ document.addEventListener('click', e => {
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
 
