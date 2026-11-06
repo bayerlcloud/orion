@@ -42,6 +42,24 @@ export type PermissionBehavior = 'allow' | 'ask' | 'deny';
 export type PermissionScope = 'user' | 'project';
 export type PermissionRuleSet = { allow: string[]; ask: string[]; deny: string[] };
 
+/** `multipart/form-data` com timeout — ver nota de uso em `transcribe`/`uploads` abaixo. */
+async function fetchForm<T>(path: string, fd: FormData, timeoutMs = 120000): Promise<T> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(path, { method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw new Error('Tempo esgotado, tente de novo');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
+  return data as T;
+}
+
 export const TURNOS_INICIAIS = 20;
 
 /** Mesmo limite do server (UPLOAD_MAX_FILES em server/routes/claude.ts): acima disso o upload inteiro é recusado como "anexo inválido". */
@@ -69,21 +87,18 @@ export const claudeApi = {
   },
   drafts: () => api<{ drafts: Record<string, { text: string; attachments: Attachment[] }> }>('/api/claude/drafts'),
   saveDraft: (id: string, text: string, attachments: Attachment[]) => api<{ ok: true }>(`/api/claude/drafts/${id}`, { method: 'PUT', body: JSON.stringify({ text, attachments }) }),
+  // `fetchForm`: mesmo timeout do helper `api()` (ver api.ts) — sem isso, upload/transcrição numa
+  // rede travada prendia o `await` pra sempre, e o botão Enviar do compositor ficava inativo até F5
+  // (achado do Danilo, 06/11/2026). multipart não passa por `api()` (que forçaria Content-Type JSON).
   transcribe: async (audio: Blob, filename: string): Promise<{ text: string; engine: string }> => {
     const fd = new FormData();
     fd.append('file', audio, filename);
-    const res = await fetch('/api/claude/transcribe', { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
-    return data as { text: string; engine: string };
+    return fetchForm('/api/claude/transcribe', fd);
   },
   uploads: async (files: File[]): Promise<{ attachments: Attachment[] }> => {
     const fd = new FormData();
     for (const f of files) fd.append('file', f, f.name);
-    const res = await fetch('/api/claude/uploads', { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
-    return data as { attachments: Attachment[] };
+    return fetchForm('/api/claude/uploads', fd);
   },
   permission: (id: string, b: { approval_id: string; decision: 'allow' | 'allow_always' | 'deny' | 'answer'; message?: string }) => api<{ ok: true }>(`/api/claude/sessions/${id}/permission`, { method: 'POST', body: JSON.stringify(b) }),
   /**
