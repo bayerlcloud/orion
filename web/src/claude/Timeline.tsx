@@ -932,7 +932,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
           const sticky = e.text ? ' is-sticky' : '';
           const prompt = m ? e.text.slice(m[0].length) : e.text;
           return (
-            <div key={e.id} className={`cc-user-row${sticky}`}>
+            <div key={e.id} id={`ev-${e.id}`} className={`cc-user-row${sticky}`}>
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
                 {m && <UserAvatar name={m[1]} />}
                 <div className="cc-user-body">
@@ -951,7 +951,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
           );
         }
         return (
-          <div key={e.id} className={`cc-msg ${dotClass(e)}`}>
+          <div key={e.id} id={`ev-${e.id}`} className={`cc-msg ${dotClass(e)}`}>
             {e.kind === 'text' && <AssistantText e={e} />}
             {e.kind === 'thinking' && <Thinking e={e} />}
             {e.kind === 'tool' && <ToolBlock e={e} agentTasks={agentTasks} />}

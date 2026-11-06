@@ -12,7 +12,7 @@ import SkillsHooksPanel from './SkillsHooksPanel';
 import PermissionRules from './PermissionRules';
 import Marketplace from './Marketplace';
 import BuildStyleDialog from './OutputStyles';
-import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, EyeOff, Filter, SendArrow } from './icons';
+import { X, Dots, Power, Sync, ArrowLeft, ArrowRight, AgentMap as AgentMapIcon, GitBranch, Wrench, Shield, Puzzle, Eye, EyeOff, Filter, SendArrow, Search } from './icons';
 import PreviewPublico, { prefetchPreviewPublico } from '../PreviewPublico';
 import SessionMenu from './SessionMenu';
 import { Pencil } from './icons';
@@ -87,8 +87,16 @@ export default function ClaudePage() {
   // Modo compacto (menu ⋮): esconde ferramentas e pensamento, só pergunta e resposta final. Lembra no navegador.
   const [compacto, setCompacto] = useState(() => localStorage.getItem('orion.claudeCompacto') === '1');
   const [painelOpen, togglePainel] = useOrionPanel();
+  // Busca DENTRO da conversa aberta (diferente da lupa da Sidebar, que busca sessão por título/projeto;
+  // pedido do Guilherme, 06/11/2026: uma segunda lupa, tipo Ctrl+F no histórico desta sessão).
+  const [convSearchOpen, setConvSearchOpen] = useState(false);
+  const [convQuery, setConvQuery] = useState('');
+  const [convMatchIndex, setConvMatchIndex] = useState(0);
+  const convSearchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (convSearchOpen) convSearchInputRef.current?.focus(); }, [convSearchOpen]);
   const toggleCompacto = () => setCompacto(c => { localStorage.setItem('orion.claudeCompacto', c ? '0' : '1'); return !c; });
   const [activeId, setActiveId] = useState<string | null>(null);
+  useEffect(() => { setConvSearchOpen(false); setConvQuery(''); }, [activeId]);
   const [live, setLive] = useState<Record<string, LiveState>>({});
   const [mode, setMode] = useState<Mode>('acceptEdits');
   const [effort, setEffort] = useState<EffortChoice>(NOVA_SESSAO.effort);
@@ -365,6 +373,27 @@ export default function ClaudePage() {
   // Sessão real ainda sem histórico carregado (o live só nasce depois do GET): mostra o loading em vez da tela vazia.
   const carregandoSessao = !!activeId && !isDraft(activeId) && !live[activeId];
   const events = useMemo(() => toConvEvents(state), [state]);
+  // Eventos com texto visível (pergunta, resposta, pensamento) que a busca-na-conversa pode achar.
+  const convMatches = useMemo(() => {
+    const term = convQuery.trim().toLowerCase();
+    if (!term) return [];
+    return events.filter(e => (e.kind === 'text' || e.kind === 'user' || e.kind === 'thinking') && e.text.toLowerCase().includes(term));
+  }, [events, convQuery]);
+  useEffect(() => { setConvMatchIndex(0); }, [convQuery]);
+  useEffect(() => {
+    const m = convMatches[convMatchIndex];
+    if (!m) return;
+    const el = document.getElementById(`ev-${m.id}`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.classList.add('cc-search-hit');
+    const t = setTimeout(() => el.classList.remove('cc-search-hit'), 1400);
+    return () => clearTimeout(t);
+  }, [convMatches, convMatchIndex]);
+  const gotoConvMatch = (delta: number) => {
+    if (!convMatches.length) return;
+    setConvMatchIndex(i => (i + delta + convMatches.length) % convMatches.length);
+  };
   // Recall ArrowUp/ArrowDown do compositor: mensagens já enviadas nesta sessão, mais recente primeiro.
   const history = useMemo(() => messageHistory(events), [events]);
   // Card de permissão docado (Bash/Edit e AskUserQuestion passam pelo mesmo mecanismo de
@@ -715,6 +744,11 @@ export default function ClaudePage() {
             {/* Trocado de lugar com o ⋮ (pedido do Danilo, 04/10/2026): este botão entra na barra,
                 o ⋮ vai pro canto fixo onde ele estava (ver cc-smenu-corner em claude.css/App.tsx). */}
             <button className={`cc-icon ${painelOpen ? 'is-on' : ''}`} title={painelOpen ? 'Fechar o Orion' : 'Abrir o Orion'} onClick={togglePainel}><IcoPainelDireito open={painelOpen} size={14} /></button>
+            {/* Segunda lupa (pedido do Guilherme, 06/11/2026): a da Sidebar busca sessão por título;
+                esta busca dentro da conversa aberta, tipo Ctrl+F no histórico desta sessão. */}
+            {activeId && !carregandoSessao && (
+              <button className={`cc-icon ${convSearchOpen ? 'is-on' : ''}`} title="Buscar nesta conversa" onClick={() => setConvSearchOpen(o => !o)}><Search size={14} /></button>
+            )}
             {/* Olhinho (pedido do Danilo, 09/10/2026): sessão privada, só quem criou e o admin veem.
                 Fica na própria barra de abas, junto dos outros botões (não encavala o ⋮/painel). */}
             {active && !isDraft(activeId!) && (active.user_id === meId || role === 'owner') && (
@@ -754,6 +788,20 @@ export default function ClaudePage() {
         {erro && <div className="cc-error-bar"><span>{erro}</span><button type="button" onClick={() => setErro('')} aria-label="Fechar">×</button></div>}
         {activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
+        )}
+        {convSearchOpen && (
+          <div className="cc-conv-search">
+            <Search size={12} className="cc-search-icon" />
+            <input ref={convSearchInputRef} value={convQuery} onChange={e => setConvQuery(e.target.value)} placeholder="Buscar nesta conversa…"
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setConvQuery(''); setConvSearchOpen(false); }
+                else if (e.key === 'Enter') gotoConvMatch(e.shiftKey ? -1 : 1);
+              }} />
+            <span className="cc-conv-search-count">{convQuery.trim() ? (convMatches.length ? `${convMatchIndex + 1}/${convMatches.length}` : '0/0') : ''}</span>
+            <button type="button" className="cc-icon" title="Anterior (Shift+Enter)" disabled={!convMatches.length} onClick={() => gotoConvMatch(-1)}><ArrowLeft size={13} /></button>
+            <button type="button" className="cc-icon" title="Próximo (Enter)" disabled={!convMatches.length} onClick={() => gotoConvMatch(1)}><ArrowRight size={13} /></button>
+            <button type="button" className="cc-search-clear" title="Fechar busca" onClick={() => { setConvQuery(''); setConvSearchOpen(false); }}><X size={12} /></button>
+          </div>
         )}
         {/*
           "Aba Claude" — criar/gerenciar worktree direto pela UI do chat (ver PARIDADE.md seção 14).
