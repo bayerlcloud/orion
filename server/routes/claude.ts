@@ -460,6 +460,23 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { sessions };
   });
 
+  // Busca dentro do conteúdo das mensagens (não só título): devolve os ids de sessão que têm
+  // alguma mensagem de usuário/assistente (não de subagente) batendo com o termo. payload->'message'->>'content'
+  // funciona tanto pro conteúdo string (user simples) quanto pro array de blocos (text/thinking/tool_use),
+  // porque ->> converte o valor pra texto de qualquer jeito; casa também dentro de tool_use, o que é aceitável
+  // aqui (achar "conversei sobre X" não precisa separar texto de ferramenta).
+  app.get<{ Querystring: { q?: string } }>('/api/claude/sessions/search', async (req) => {
+    const term = (req.query.q ?? '').trim();
+    if (!term) return { sessionIds: [] };
+    const escaped = term.replace(/[\\%_]/g, c => `\\${c}`);
+    const { rows } = await app.pool.query(
+      `SELECT DISTINCT session_id FROM claude_events
+         WHERE type IN ('user', 'assistant') AND payload->>'parent_tool_use_id' IS NULL
+           AND payload->'message'->>'content' ILIKE $1
+         LIMIT 500`, [`%${escaped}%`]);
+    return { sessionIds: rows.map(r => r.session_id as string) };
+  });
+
   app.post<{ Params: { id: string }; Body: { pinned?: boolean } }>('/api/claude/sessions/:id/pin', async (req, reply) => {
     const pinned = !!req.body?.pinned;
     const { rowCount } = await app.pool.query('UPDATE claude_sessions SET pinned = $2 WHERE id = $1', [req.params.id, pinned]);

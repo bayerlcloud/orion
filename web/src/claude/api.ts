@@ -70,6 +70,7 @@ export const claudeApi = {
   me: () => api<{ user: Me }>('/api/me'),
   projects: () => api<{ projects: Project[] }>('/api/claude/projects'),
   sessions: () => api<{ sessions: ApiSession[] }>('/api/claude/sessions'),
+  searchSessions: (q: string) => api<{ sessionIds: string[] }>(`/api/claude/sessions/search?q=${encodeURIComponent(q)}`),
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null; client?: string }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),
   usage: () => api<{ usage: { id: number; name: string; tokens_5h: string; tokens_7d: string; tokens_total: string; sessions: string }[]; real: RealUsage; by_model?: { model: string | null; tokens: string }[] }>('/api/claude/usage'),
