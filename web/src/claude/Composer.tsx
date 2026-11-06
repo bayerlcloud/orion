@@ -341,6 +341,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   attachmentsRef.current = attachments;
   useEffect(() => () => { attachmentsRef.current.forEach(a => a.url && URL.revokeObjectURL(a.url)); }, []);
 
+  // Promessa do upload em segundo plano de cada anexo pendente (ver addFiles), por id — `send()`
+  // espera por elas em vez de subir o arquivo de novo (ver nota lá: subir os dois ao mesmo tempo
+  // dobrava o tempo numa conexão lenta, achado do Danilo, 06/11/2026).
+  const uploadingRef = useRef(new Map<string, Promise<void>>());
   function addFiles(list: FileList | File[] | null | undefined) {
     let files = Array.from(list ?? []);
     if (!files.length) return;
@@ -357,9 +361,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     // Sobe cada anexo na hora (não só ao enviar): assim ele entra no rascunho salvo e volta depois de F5.
     for (const p of added) {
       const f = p.file!;
-      claudeApi.uploads([new window.File([f], pasteFilename(p.name, f.type), { type: f.type })])
+      const up = claudeApi.uploads([new window.File([f], pasteFilename(p.name, f.type), { type: f.type })])
         .then(r => { const u = r.attachments[0]; if (u) setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, uploaded: u } : a)); })
-        .catch(() => { /* fica só no navegador; o envio tenta subir de novo */ });
+        .catch(() => { /* fica só no navegador; o envio tenta subir de novo */ })
+        .finally(() => { uploadingRef.current.delete(p.id); });
+      uploadingRef.current.set(p.id, up);
     }
   }
   function removeAttachment(id: string) {
@@ -377,17 +383,22 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     const t = promptFromMd(textRef.current).trim();
     pedirPermissaoAviso();
     if (sending || (!t && attachments.length === 0)) return;
-    const files = attachments.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
-    const pre = uploadedOf(attachments);
     const sid = sessionRef.current;
     setSending(true);
     try {
+      // Espera os anexos que já estão subindo sozinhos desde que foram soltos (ver addFiles), em vez
+      // de subir de novo aqui — os dois ao mesmo tempo competem pela mesma banda e dobram o tempo
+      // numa conexão lenta (achado do Danilo, 06/11/2026: upload "ficava a eternidade" antes de enviar).
+      await Promise.all(attachmentsRef.current.map(a => uploadingRef.current.get(a.id)).filter((p): p is Promise<void> => !!p));
+      const current = attachmentsRef.current;
+      const files = current.filter(a => !a.uploaded && a.file).map(a => new window.File([a.file!], pasteFilename(a.name, a.file!.type), { type: a.file!.type }));
+      const pre = uploadedOf(current);
       await onSend(t, files, pre);
       // Trocou de aba enquanto enviava: limpa o rascunho da aba de origem, não o da aba atual.
       if (sessionRef.current === sid) {
         textRef.current = '';
         setText('');
-        attachments.forEach(a => a.url?.startsWith('blob:') && URL.revokeObjectURL(a.url));
+        current.forEach(a => a.url?.startsWith('blob:') && URL.revokeObjectURL(a.url));
         setAttachments([]);
       } else draftsRef.current.set(sid ?? '', { text: '', attachments: [] });
       // Zera o rascunho no servidor na hora: o autosave tem atraso e uma troca de aba logo depois do
