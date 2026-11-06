@@ -932,7 +932,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
           const sticky = e.text ? ' is-sticky' : '';
           const prompt = m ? e.text.slice(m[0].length) : e.text;
           return (
-            <div key={e.id} id={`ev-${e.id}`} className={`cc-user-row${sticky}`}>
+            <div key={e.id} id={`ev-${e.id}`} className={`cc-user-row${sticky}${e.pending ? ' is-pending' : ''}`} title={e.pending ? 'Enviando…' : undefined}>
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
                 {m && <UserAvatar name={m[1]} />}
                 <div className="cc-user-body">
