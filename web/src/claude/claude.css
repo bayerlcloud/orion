@@ -154,6 +154,7 @@
 
 /* mensagem do usuário — userMessageContainer/userMessage_07S1Yg: inline-block (largura do conteúdo), fundo e borda de input, raio 6, padding 4px 6px. Avatar + nome são nossos (mantidos a pedido). */
 .cc-user-row { margin: 4px 0 10px; }
+.cc-user-row.is-pending .cc-user { opacity: .55; }
 /* Última mensagem do usuário presa no topo enquanto o chat rola por trás, com o esfumado embaixo: cópia
    do `.message_07S1Yg.stickyHeader_07S1Yg` do plugin (Antigravity 2.1.165, /srv/orion-reference). O
    sticky vale dentro do `.cc-turn` dela, então o turno seguinte empurra e toma o lugar. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
-import { applyLive, emptyLive, fromRows, toConvEvents, type LiveState } from './live';
+import { addPendingUser, applyLive, dropPendingUser, emptyLive, fromRows, keepPendingUser, toConvEvents, type LiveState } from './live';
 import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
 import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
@@ -272,7 +272,7 @@ export default function ClaudePage() {
         claudeApi.get(id, fullRef.current.has(id)).then(r => {
           if (!alive) return;
           const pending = buffer ?? []; buffer = null;
-          setLive(l => ({ ...l, [id]: pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 }) }));
+          setLive(l => ({ ...l, [id]: keepPendingUser(l[id], pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 })) }));
         }).catch(() => { buffer = null; });
       };
       streams.set(id, () => { alive = false; es.close(); });
@@ -350,7 +350,7 @@ export default function ClaudePage() {
       claudeApi.get(activeId, fullRef.current.has(activeId)).then(r => {
         if (!alive) return;
         const pending = buffer ?? []; buffer = null;
-        setLive(l => ({ ...l, [activeId]: pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 }) }));
+        setLive(l => ({ ...l, [activeId]: keepPendingUser(l[activeId], pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 })) }));
         if (!first) return;
         first = false;
         const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
@@ -579,7 +579,12 @@ export default function ClaudePage() {
           setSessions(ss => ss.map(s => s.id === activeId ? { ...s, archived: false } : s));
           void claudeApi.archive(activeId, false).catch(() => {});
         }
-        await claudeApi.send(activeId, { prompt, permission_mode: mode, model: modelOverride, effort, attachments });
+        // Balão provisório na hora (o eco do servidor pode demorar, ex.: mensagem na fila do turno que
+        // está terminando); o eco real toma o lugar dele. Mesmo texto que o servidor monta (prefixPrompt).
+        const sid = activeId;
+        setLive(l => ({ ...l, [sid]: addPendingUser(l[sid] ?? emptyLive(), `[${meName.trim() || 'alguém'}] ${prompt.trim()}`, attachments) }));
+        try { await claudeApi.send(sid, { prompt, permission_mode: mode, model: modelOverride, effort, attachments }); }
+        catch (e) { setLive(l => l[sid] ? { ...l, [sid]: dropPendingUser(l[sid]) } : l); throw e; }
       }
     } catch (e: any) { setErro(e.message); throw e; }
   }

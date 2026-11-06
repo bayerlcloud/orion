@@ -92,13 +92,40 @@ function pushMessage(s: LiveState, m: SdkMessage, when: number = Date.now()): Li
     const t = userText(m);
     if (t !== undefined) {
       if (s.lastPrompt !== null && (t === s.lastPrompt || (t.startsWith(s.lastPrompt) && t.slice(s.lastPrompt.length).startsWith(ATTACH_NOTE)))) return { ...s, agentTasks };
+      // Eco real de uma mensagem já mostrada como provisória (addPendingUser): toma o lugar da mais
+      // antiga provisória, na mesma posição, em vez de aparecer duas vezes.
+      const pi = s.messages.findIndex(isPendingUser);
+      const messages = pi >= 0 ? s.messages.map((x, i) => i === pi ? stamp(m, when) : x) : [...s.messages, stamp(m, when)];
       // Nova mensagem do usuário: a interrupção do turno anterior (se houve) não vale mais pro que
       // vem a seguir — mesma janela de vida do erro genuíno (limpo quando volta a rodar, ver 'status').
-      return { ...s, messages: [...s.messages, stamp(m, when)], lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode, suggestion: null };
+      return { ...s, messages, lastPrompt: t, partialText: '', partialThinking: '', interrupted: null, agentTasks, fastMode, suggestion: null };
     }
   }
   const clear = m.type === 'assistant' || m.type === 'result';
   return { ...s, messages: [...s.messages, stamp(m, when)], partialText: clear ? '' : s.partialText, partialThinking: clear ? '' : s.partialThinking, agentTasks, fastMode };
+}
+
+const isPendingUser = (m: SdkMessage) => !!(m as { _pending?: boolean })._pending;
+
+/**
+ * Mostra a mensagem enviada na hora, antes do eco do servidor (que pode demorar: com o turno anterior
+ * terminando, ela espera na fila sem eco). Some quando o eco real chega (pushMessage) ou com `dropPendingUser`.
+ */
+export function addPendingUser(s: LiveState, text: string, attachments?: unknown[]): LiveState {
+  const m = { type: 'user', message: { role: 'user', content: text, ...(attachments?.length ? { attachments } : {}) }, _pending: true, _when: Date.now() } as unknown as SdkMessage;
+  return { ...s, messages: [...s.messages, m] };
+}
+export function dropPendingUser(s: LiveState): LiveState {
+  let i = s.messages.length - 1;
+  while (i >= 0 && !isPendingUser(s.messages[i])) i--;
+  return i < 0 ? s : { ...s, messages: s.messages.filter((_, k) => k !== i) };
+}
+/** Recarga do histórico (reconexão) não apaga as provisórias que o servidor ainda não ecoou. */
+export function keepPendingUser(prev: LiveState | undefined, next: LiveState): LiveState {
+  // Eco que chegou enquanto a conexão estava caída já vem no histórico: essa provisória sai.
+  const reais = new Set(next.messages.slice(-20).flatMap(m => m.type === 'user' ? [userText(m)] : []));
+  const p = (prev?.messages.filter(isPendingUser) ?? []).filter(m => m.type === 'user' && !reais.has(userText(m)));
+  return p.length ? { ...next, messages: [...next.messages, ...p] } : next;
 }
 
 /** Reconstrói o estado a partir das linhas persistidas + verdade do servidor sobre pendências. */

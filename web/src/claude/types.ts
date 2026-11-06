@@ -24,7 +24,7 @@ export type UserAttachment = { kind: 'image' | 'file'; name: string; media_type?
 
 export type ConvEvent =
   /** `when`: `_when` real da mensagem (ver reduceSdkMessages), pra mostrar data/hora de envio. */
-  | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[]; when?: number }
+  | { id: string; kind: 'user'; text: string; attachments?: UserAttachment[]; when?: number; pending?: boolean }
   /**
    * `interrupted`: rótulo amigável ("Interrompido"/"Ferramenta interrompida") quando este texto é o
    * que restou de uma resposta cortada por um stop manual (botão Parar) — distinto de erro: renderiza

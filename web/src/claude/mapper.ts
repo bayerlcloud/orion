@@ -122,7 +122,8 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
       const c = m.message.content;
       const attachments = m.message.attachments;
       const when = typeof mWhen === 'number' ? mWhen : undefined;
-      if (typeof c === 'string') { if (c.trim() || attachments?.length) out.push({ id: nid(), kind: 'user', text: c, attachments, when }); continue; }
+      const pending = (m as { _pending?: boolean })._pending ? true : undefined;
+      if (typeof c === 'string') { if (c.trim() || attachments?.length) out.push({ id: nid(), kind: 'user', text: c, attachments, when, pending }); continue; }
       for (const b of c) {
         if (b.type === 'text' && b.text.trim()) out.push({ id: nid(), kind: 'user', text: b.text, attachments, when });
         else if (b.type === 'tool_result') {
