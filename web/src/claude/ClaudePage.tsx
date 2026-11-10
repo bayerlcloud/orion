@@ -734,7 +734,9 @@ export default function ClaudePage() {
                 {/* Foto de quem criou a sessão no lugar do asterisco do Claude; aba rascunho é minha. */}
                 {s ? <Avatar id={s.user_id} name={s.user_name} />
                   : t.draft && meId !== undefined ? <Avatar id={meId} name={meName} />
-                  : <span className="cc-tab-spark">✳</span>}
+                  // ︎ força apresentação em texto (respeita a cor do CSS); sem isso, mobile
+                  // (Android/iOS) troca pelo emoji colorido do sistema (verde), ignorando --claude.
+                  : <span className="cc-tab-spark">{'✳︎'}</span>}
                 {/* Dot de status na própria aba — outro destino da barra removida (o texto de status ficava lá). */}
                 {s && <span className={`cc-dot cc-tab-dot is-${toSummary(s, projects).status}`} />}
                 <span className="cc-tab-title">{label}</span>

@@ -32,10 +32,22 @@ export async function transcribe(pool: Pool, audio: Blob, filename: string): Pro
   const [groqKey, localKey] = await Promise.all([getSetting(pool, 'groq_api_key'), getSetting(pool, 'whisper_local_api_key')]);
   const errors: string[] = [];
   if (groqKey) {
-    try { return { text: await callEngine('https://api.groq.com/openai/v1/audio/transcriptions', groqKey, 'whisper-large-v3', audio, filename, 20_000), engine: 'groq' }; }
-    catch (e) { errors.push(`groq: ${(e as Error).message}`); }
+    // Falha na Groq costuma ser blip de rede (<1% das vezes); 1 retry rápido evita cair pro
+    // local, que é 4-5x mais lento (CPU) e foi o motivo do ditado "travar" por mais de 1 minuto.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { return { text: await callEngine('https://api.groq.com/openai/v1/audio/transcriptions', groqKey, 'whisper-large-v3', audio, filename, 15_000), engine: 'groq' }; }
+      catch (e) {
+        const msg = `groq (tentativa ${attempt + 1}): ${(e as Error).message}`;
+        errors.push(msg);
+        console.error('[transcribe]', msg);
+      }
+    }
   }
   try { return { text: await callEngine(`${LOCAL_URL}/v1/audio/transcriptions`, localKey, LOCAL_MODEL, audio, filename, 120_000), engine: 'local' }; }
-  catch (e) { errors.push(`local: ${(e as Error).message}`); }
+  catch (e) {
+    const msg = `local: ${(e as Error).message}`;
+    errors.push(msg);
+    console.error('[transcribe]', msg);
+  }
   throw new Error(errors.join(' | '));
 }
