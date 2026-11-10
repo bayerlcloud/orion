@@ -25,7 +25,9 @@ const SLASH_FALLBACK: { cmd: string; desc: string }[] = [
 ];
 
 // Caractere do marcador de ditado — um só lugar pra não desencontrar entre inserir e procurar.
-const MIC_MARKER = '✳';
+// ︎ força apresentação em texto (respeita a cor laranja do CSS); sem isso, mobile troca
+// pelo emoji colorido do sistema (verde no Android), ignorando .cc-mic-marker.
+const MIC_MARKER = '✳︎';
 
 /**
  * Planta o marcador de ditado como um elemento de VERDADE no meio do texto, no ponto exato do
@@ -536,7 +538,11 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     if (micRecording) stopMic(); else void startMic();
   }
   // Trocou de sessão: para qualquer ditado em andamento (a gravação era pra outra conversa).
-  useEffect(() => { if (micRecorderRef.current) stopMic(); }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // removeMarkerEl() na hora, sem esperar a transcrição terminar — senão o marcador (e o freeze
+  // do PlainInput, que ele liga) ficava "invadindo" o campo da sessão nova até a resposta do
+  // servidor voltar (achado pelo Danilo, 10/11/2026). O resultado da transcrição continua indo
+  // pro rascunho da sessão certa (ver checagem `entry.session !== sessionRef.current` no onstop).
+  useEffect(() => { if (micRecorderRef.current) { stopMic(); removeMarkerEl(); } }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Desmontagem: nunca deixa o microfone do navegador "preso" ligado.
   useEffect(() => () => { stopMic(true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Atalho de teclado ⌘D/Ctrl+D — mesmo achado na extensão real (`micTooltipShortcut`, função `j11()`
