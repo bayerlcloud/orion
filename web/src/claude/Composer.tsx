@@ -772,7 +772,9 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
         {/* Rodando e caixa vazia: Parar. Começou a escrever (ou anexou): vira Enviar, que enfileira. */}
         {running && onStop && !text.trim() && attachments.length === 0 && !micRecording && !micBusy
           ? <button className="cc-send" data-permission-mode={mode} onClick={onStop} aria-label="Parar" title="Parar"><StopSquare className="cc-stop-icon" /></button>
-          : <button className="cc-send" data-permission-mode={mode} onClick={() => void send()} disabled={!canSend} aria-label="Enviar mensagem" title="Enviar mensagem"><SendArrow className="cc-send-icon" /></button>}
+          : <button className="cc-send" data-permission-mode={mode} onClick={() => void send()} disabled={!canSend} aria-label={sending ? 'Enviando anexos…' : 'Enviar mensagem'} title={sending ? 'Enviando anexos…' : 'Enviar mensagem'}>
+              {sending ? <span className="cc-spinner cc-send-icon" /> : <SendArrow className="cc-send-icon" />}
+            </button>}
       </div>
     </div>
   );
