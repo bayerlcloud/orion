@@ -270,6 +270,13 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { logged_in: loggedIn || !!token, via: token ? 'token' : (loggedIn ? 'login' : null), home, version, linux_user: process.env.USER ?? null };
   });
 
+  /** Erro de render do front (ErrorBoundary em main.tsx): antes disso a 1ª ocorrência recarregava
+   * sozinho sem deixar rastro nenhum, impossível diagnosticar (relato do Danilo, 10/11/2026). */
+  app.post<{ Body: { message?: string; stack?: string; url?: string } }>('/api/claude/client-error', async (req) => {
+    app.log.error({ userId: req.user?.id, ...req.body }, '[client-error] render travou no front');
+    return { ok: true };
+  });
+
   /** Abas abertas do usuário no chat: lembradas entre reloads/dispositivos. */
   app.get('/api/claude/ui-state', async (req) => {
     const { rows } = await app.pool.query('SELECT claude_open_tabs, claude_active_session FROM users WHERE id = $1', [req.user!.id]);

@@ -18,6 +18,15 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   state: { error?: Error } = {};
   static getDerivedStateFromError(error: Error) { return { error }; }
   componentDidCatch(error: Error) {
+    // Manda pro servidor ANTES de recarregar — sem isso, a 1ª ocorrência (a maioria dos casos,
+    // já que o reload quase sempre resolve) sumia sem deixar rastro nenhum pra diagnosticar.
+    try {
+      fetch('/api/claude/client-error', {
+        method: 'POST', keepalive: true, credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: error.message, stack: error.stack, url: location.href }),
+      }).catch(() => {});
+    } catch { /* no-op */ }
     const key = 'orion-crash-reload-at';
     const last = Number(sessionStorage.getItem(key) || 0);
     if (Date.now() - last > 10_000) { sessionStorage.setItem(key, String(Date.now())); location.reload(); return; }
