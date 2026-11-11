@@ -20,7 +20,17 @@ export async function api<T>(path: string, init?: RequestInit, timeoutMs = 30000
   } finally {
     clearTimeout(timer);
   }
-  const data = await res.json().catch(() => ({}));
+  // Celular que volta de muito tempo em segundo plano às vezes entrega um 200 com corpo cortado
+  // (conexão morta pelo SO enquanto a aba estava congelada): sem isso, `.catch(() => ({}))` fabricava
+  // um objeto vazio como se fosse sucesso de verdade, e o código seguinte quebrava tentando ler um
+  // campo que nunca veio (ex.: `r.session.status`) — "algo travou na interface" só no mobile,
+  // achado pelo Danilo em 10-11/11/2026 (ver /api/claude/client-error, log que apontou a causa).
+  let data: unknown;
+  try { data = await res.json(); }
+  catch (e) {
+    if (res.ok) throw new Error('Resposta incompleta do servidor, tente de novo');
+    data = {}; // erro sem corpo JSON válido (ex.: 405 em texto puro) — vira `erro ${status}` abaixo.
+  }
   if (!res.ok) throw new Error((data as any).error ?? (data as any).message ?? `erro ${res.status}`);
   return data as T;
 }
