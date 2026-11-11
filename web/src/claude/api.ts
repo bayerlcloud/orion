@@ -55,7 +55,14 @@ async function fetchForm<T>(path: string, fd: FormData, timeoutMs = 120000): Pro
   } finally {
     clearTimeout(timer);
   }
-  const data = await res.json().catch(() => ({}));
+  // Mesmo risco do helper genérico em ../api.ts: corpo cortado num 200 (mobile voltando de muito
+  // tempo em segundo plano) não pode virar objeto vazio fingindo sucesso.
+  let data: unknown;
+  try { data = await res.json(); }
+  catch (e) {
+    if (res.ok) throw new Error('Resposta incompleta do servidor, tente de novo');
+    data = {};
+  }
   if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
   return data as T;
 }
