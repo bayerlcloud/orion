@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import type { Store, SessionStatus, Decision } from './runner.js';
 import { ROOT_LIBERADO_HORAS } from './policy.js';
+import { truncarToolResult } from '../tools/leveza.js';
 
 /** Persistência do runner no Postgres. Sequência por sessão calculada no INSERT. */
 export function pgStore(pool: Pool): Store {
@@ -12,6 +13,8 @@ export function pgStore(pool: Pool): Store {
   const hasInit = new Set<string>();
   return {
     async appendEvent(sessionId, type, payload) {
+      // tool_result > 20 KB só encolhe no banco (a sessão já viu tudo) — ver tools/leveza.ts.
+      payload = truncarToolResult(payload);
       const sub = type === 'system' ? (payload as { subtype?: string } | null)?.subtype : undefined;
       if (sub === 'commands_changed') return;
       if (sub === 'init') {

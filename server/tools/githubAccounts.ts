@@ -42,10 +42,23 @@ export function maskGithubToken(t: string): string {
 
 export type HttpMcpServerConfig = { type: 'http'; url: string; headers: Record<string, string> };
 
-/** Um MCP remoto oficial do GitHub (github/github-mcp-server hospedado) por conta — {} sem contas. */
-export function githubMcpServers(contas: Pick<GithubAccount, 'label' | 'token'>[]): Record<string, HttpMcpServerConfig> {
+/** MCP remoto oficial do GitHub (github/github-mcp-server hospedado). A sessão NÃO fala com ele direto: ver githubMcpServers. */
+export const GITHUB_MCP_UPSTREAM = 'https://api.githubcopilot.com/mcp/';
+
+/** Base local do painel (o proxy /conector mora nele). */
+export function urlLocalDoPainel(): string {
+  return process.env.ORION_LOCAL_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
+}
+
+/**
+ * Um MCP por conta, apontando pro proxy local /conector/github-<slug>/mcp/ (routes/conector.ts injeta o Bearer).
+ * Antes a URL era a do GitHub com o token no header, e o SDK passa mcpServers inteiro no argv do `claude`:
+ * qualquer `ps` na c3 mostrava os 3 PATs (achado de 12/11/2026). Agora o token nunca sai do painel.
+ * Quem decide QUAIS contas entram é routes/claude.ts (só a do projeto — ver tools/leveza.ts).
+ */
+export function githubMcpServers(contas: Pick<GithubAccount, 'label'>[], base = urlLocalDoPainel()): Record<string, HttpMcpServerConfig> {
   const out: Record<string, HttpMcpServerConfig> = {};
-  for (const c of contas) out[nomeMcpGithub(c.label)] = { type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: `Bearer ${c.token}` } };
+  for (const c of contas) out[nomeMcpGithub(c.label)] = { type: 'http', url: `${base}/conector/${nomeMcpGithub(c.label)}/mcp/`, headers: {} };
   return out;
 }
 

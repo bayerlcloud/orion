@@ -184,3 +184,8 @@ a.pj-link:hover { background: var(--hover); }
   .pj-grid { grid-template-columns: 1fr; }
   .pj-modal-bg { padding: 8px; }
 }
+
+/* leveza por projeto (DashProjetos: conta GitHub + conectores claude.ai) */
+.pj-conectores { border: 1px solid var(--border, #333); border-radius: 6px; padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.pj-conectores legend { padding: 0 4px; }
+.pj-check { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
