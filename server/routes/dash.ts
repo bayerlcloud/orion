@@ -5,6 +5,16 @@ import { REMOTE_HOSTS } from '../dash/remoteHosts.js';
 
 const STAT_KEYS = ['cpu', 'iowait', 'load1', 'mem_used_pct', 'disk_util'] as const;
 
+/**
+ * Cast pra float tolerante a objeto: hosts remotos gravam `cpu`/`iowait` como `{pct, steal, iowait}`
+ * (server/dash/remoteAlerta.ts: pontoRemoto), não como número puro — `(data->>'cpu')::float` direto
+ * quebrava a query inteira pra c1/c2/hostinger ("invalid input syntax for type double precision"),
+ * e o histórico desses hosts voltava sempre vazio. `key` já deve vir com aspas simples (ex.: "'cpu'").
+ */
+function castFloat(key: string): string {
+  return `(CASE WHEN jsonb_typeof(data->${key}) = 'object' THEN (data->${key}->>'pct') ELSE (data->>${key}) END)::float`;
+}
+
 function clampInt(v: unknown, dflt: number, min: number, max: number): number {
   const x = Math.floor(Number(v));
   if (!Number.isFinite(x)) return dflt;
@@ -44,9 +54,9 @@ export async function dashRoutes(app: FastifyInstance) {
       const { rows } = await app.pool.query(
         `SELECT ts, data FROM dash_samples WHERE host = $2 AND ts > now() - $1::int * interval '1 hour' ORDER BY ts`, [hours, host]);
       const sel = STAT_KEYS.map(k =>
-        `max((data->>'${k}_max')::float) FILTER (WHERE ts > now() - interval '24 hours') AS ${k}_max_24h,
-         max((data->>'${k}')::float)     FILTER (WHERE ts > now() - interval '24 hours') AS ${k}_avgmax_24h,
-         avg((data->>'${k}')::float) AS ${k}_avg_7d`).join(',\n');
+        `max(${castFloat(`'${k}_max'`)}) FILTER (WHERE ts > now() - interval '24 hours') AS ${k}_max_24h,
+         max(${castFloat(`'${k}'`)})     FILTER (WHERE ts > now() - interval '24 hours') AS ${k}_avgmax_24h,
+         avg(${castFloat(`'${k}'`)}) AS ${k}_avg_7d`).join(',\n');
       const { rows: st } = await app.pool.query(
         `SELECT count(*)::int AS minutes_7d, ${sel} FROM dash_samples WHERE host = $1 AND ts > now() - interval '7 days'`, [host]);
       const s = st[0] ?? {};
