@@ -1,4 +1,6 @@
 import type { FastifyInstance } from 'fastify';
+import { Readable } from 'node:stream';
+import { GITHUB_MCP_UPSTREAM, listarContasGithub, nomeMcpGithub } from '../tools/githubAccounts.js';
 import { bloqueadoNaEvolution, evolutionConfig, NOME_CONECTOR_EVOLUTION, NOME_CONECTOR_WHATSAPP, WA_TOKEN_ORION, urlGatewayLocal } from '../tools/evolution.js';
 import { getSetting } from '../settings.js';
 import { bloqueadoNoHttp, listarConectoresHttp } from '../tools/conectoresHttp.js';
@@ -34,6 +36,20 @@ export async function conectorRoutes(app: FastifyInstance) {
         const token = await getSetting(app.pool, WA_TOKEN_ORION);
         if (!token) return reply.code(404).send({ error: 'app orion do gateway sem token (settings whatsapp_token_orion)' });
         return repassar(`${urlGatewayLocal()}/${req.params['*']}${qs}`, { apikey: token });
+      }
+      if (req.params.nome.startsWith('github-')) {
+        // MCP oficial do GitHub (streamable HTTP) com o PAT injetado aqui — a sessão só conhece esta URL local
+        // (ver githubMcpServers). A resposta vem como SSE mesmo no initialize: repassa o corpo como stream,
+        // sem bufferizar, e devolve Mcp-Session-Id pro cliente seguir a conversa.
+        const conta = (await listarContasGithub(app.pool)).find(c => nomeMcpGithub(c.label) === req.params.nome);
+        if (!conta) return reply.code(404).send({ error: `conta GitHub ${req.params.nome} não existe; veja a aba Tools › GitHub` });
+        if (!/^mcp\/?$/.test(req.params['*'])) return reply.code(404).send({ error: 'esse conector só serve o MCP do GitHub em /mcp/' });
+        const h: Record<string, string> = { Authorization: `Bearer ${conta.token}` };
+        for (const k of ['accept', 'content-type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']) { const v = req.headers[k]; if (typeof v === 'string') h[k] = v; }
+        const r = await fetch(GITHUB_MCP_UPSTREAM + qs, { method: req.method, headers: h, body: corpo });
+        reply.code(r.status);
+        for (const k of ['content-type', 'mcp-session-id', 'mcp-protocol-version']) { const v = r.headers.get(k); if (v) reply.header(k, v); }
+        return reply.send(r.body ? Readable.fromWeb(r.body as unknown as import('node:stream/web').ReadableStream) : '');
       }
       const http = (await listarConectoresHttp(app.pool)).find(c => c.nome === req.params.nome);
       if (http) {

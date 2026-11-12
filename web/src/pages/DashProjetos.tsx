@@ -8,7 +8,7 @@ import PreviewPublico from '../PreviewPublico';
 type Alerta = { nivel: 'ruim' | 'atencao'; texto: string };
 type Ficha = {
   id: number; slug: string; name: string; path: string; existe: boolean;
-  meta: { prod_url?: string; banco?: string; notas?: string };
+  meta: { prod_url?: string; banco?: string; notas?: string; conectores?: string[]; github_conta?: number | 'auto' | 'nenhuma' };
   git: null | {
     branch: string; remote: string | null; github: string | null; ultimo: { sha: string; quando: string; autor: string; msg: string } | null;
     upstream: string | null; ahead: number | null; behind: number | null; ultimo_push: string | null; sujos: number; commits_7d: number;
@@ -105,7 +105,14 @@ function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => voi
 
 function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onClose: () => void; onSaved: () => void }) {
   const [edit, setEdit] = useState(false);
-  const [form, setForm] = useState({ prod_url: f.meta.prod_url ?? '', banco: f.meta.banco ?? '', notas: f.meta.notas ?? '' });
+  const [form, setForm] = useState({ prod_url: f.meta.prod_url ?? '', banco: f.meta.banco ?? '', notas: f.meta.notas ?? '', conectores: f.meta.conectores ?? [], github_conta: (f.meta.github_conta ?? 'auto') as number | 'auto' | 'nenhuma' });
+  // Opções de leveza (conectores claude.ai da conta + contas GitHub) — só carrega ao abrir a edição.
+  const [opcoes, setOpcoes] = useState<{ conectores: string[]; contas: { id: number; label: string; login: string }[] } | null>(null);
+  useEffect(() => {
+    if (!edit || opcoes) return;
+    api<{ conectores: string[]; contas: { id: number; label: string; login: string }[] }>('/api/claude/leveza/opcoes').then(setOpcoes).catch(() => setOpcoes({ conectores: [], contas: [] }));
+  }, [edit, opcoes]);
+  const contaAtual = typeof f.meta.github_conta === 'number' ? (opcoes?.contas.find(c => c.id === f.meta.github_conta)?.label ?? `conta #${f.meta.github_conta}`) : f.meta.github_conta === 'nenhuma' ? 'nenhuma' : 'automática (dono do remote)';
   const [erro, setErro] = useState('');
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -136,6 +143,8 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
               <dt>código</dt><dd>Contabo c3 (217.76.55.249)</dd>
               <dt>roda em</dt><dd>{f.corpo ? <>{f.corpo.onde}{f.corpo.conta ? <> · <b>{f.corpo.conta}</b></> : ''} <span className="muted small">({f.corpo.fonte})</span></> : '—'}</dd>
               <dt>conectores</dt><dd>{f.conectores.length ? f.conectores.join(', ') : '—'}</dd>
+              <dt>GitHub na sessão</dt><dd>{contaAtual}</dd>
+              <dt>claude.ai na sessão</dt><dd>{f.meta.conectores?.length ? f.meta.conectores.map(c => c.replace(/^claude\.ai /, '')).join(', ') : <span className="muted">nenhum (sessão leve)</span>}</dd>
             </dl>
           </Bloco>
 
@@ -220,11 +229,24 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
         </div>
 
         <div className="pj-edit">
-          {!edit ? <button onClick={() => setEdit(true)}>Editar URL de produção, banco e notas</button> : (
+          {!edit ? <button onClick={() => setEdit(true)}>Editar URL, banco, notas, GitHub e conectores</button> : (
             <>
               <label>URL de produção <input value={form.prod_url} placeholder="detectada sozinha se ficar vazio" onChange={e => setForm({ ...form, prod_url: e.target.value })} /></label>
               <label>Banco (texto livre, substitui o detectado no card) <input value={form.banco} onChange={e => setForm({ ...form, banco: e.target.value })} /></label>
               <label>Notas <textarea rows={3} value={form.notas} onChange={e => setForm({ ...form, notas: e.target.value })} /></label>
+              <label>Conta GitHub nas sessões deste projeto
+                <select value={String(form.github_conta)} onChange={e => setForm({ ...form, github_conta: e.target.value === 'auto' || e.target.value === 'nenhuma' ? e.target.value : Number(e.target.value) })}>
+                  <option value="auto">automática (conta cujo login é o dono do remote)</option>
+                  <option value="nenhuma">nenhuma (sem MCP do GitHub)</option>
+                  {(opcoes?.contas ?? []).map(c => <option key={c.id} value={c.id}>{c.label} ({c.login})</option>)}
+                </select>
+              </label>
+              <fieldset className="pj-conectores">
+                <legend>Conectores claude.ai que sobem nas sessões deste projeto <span className="muted small">(nenhum marcado = sessão leve)</span></legend>
+                {!opcoes ? <span className="muted small">carregando…</span> : opcoes.conectores.length === 0 ? <span className="muted small">nenhum conector claude.ai visto ainda</span> : opcoes.conectores.map(c => (
+                  <label key={c} className="pj-check"><input type="checkbox" checked={form.conectores.includes(c)} onChange={e => setForm({ ...form, conectores: e.target.checked ? [...form.conectores, c] : form.conectores.filter(x => x !== c) })} /> {c.replace(/^claude\.ai /, '')}</label>
+                ))}
+              </fieldset>
               {erro && <div className="dash-erro">{erro}</div>}
               <div className="pj-edit-bt"><button onClick={() => void salvar()}>Salvar</button><button onClick={() => setEdit(false)}>Cancelar</button></div>
             </>

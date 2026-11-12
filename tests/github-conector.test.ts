@@ -18,7 +18,8 @@ describe('contas GitHub (aba Tools)', () => {
     expect(githubMcpServers([])).toEqual({});
     const s = githubMcpServers([{ label: 'bayerlcloud', token: 'ghp_x' }, { label: 'hub', token: 'ghp_y' }]);
     expect(Object.keys(s)).toEqual(['github-bayerlcloud', 'github-hub']);
-    expect(s['github-bayerlcloud']).toEqual({ type: 'http', url: 'https://api.githubcopilot.com/mcp/', headers: { Authorization: 'Bearer ghp_x' } });
+    expect(s['github-bayerlcloud']).toEqual({ type: 'http', url: 'http://127.0.0.1:3000/conector/github-bayerlcloud/mcp/', headers: {} });
+    expect(JSON.stringify(s)).not.toContain('ghp_');
   });
   it('a explicação de cada conta entra no header da sessão', () => {
     const github = githubParaHeader([{ id: 1, label: 'bayerlcloud', login: 'bayerlcloud', email: 'danilo@bayerlstudio.com.br', token: 'ghp_x', notes: 'repos branspace e fisioexpert' }]);

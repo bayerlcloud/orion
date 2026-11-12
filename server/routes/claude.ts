@@ -38,7 +38,8 @@ import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.
 import { branchAtual } from '../tasks/git.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
-import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub } from '../tools/githubAccounts.js';
+import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub, type GithubAccount } from '../tools/githubAccounts.js';
+import { contaGithubDoProjeto, disallowConectores, donoDoRemote, envConectores, listarConectoresClaudeAi, metaLeveza, remoteOrigin } from '../tools/leveza.js';
 import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { ensureGoogleCloudAccountsTable, googleCloudParaHeader, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
@@ -203,8 +204,8 @@ export async function claudeRoutes(app: FastifyInstance) {
       registrar: (texto) => { runner.aviso(s.id, texto); },
     });
     runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, layaHook: makeLayaHook(app.pool, s.id, { modelo: model, esforco: eff.effort }), env: await turnEnv(), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, userId)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, layaHook: makeLayaHook(app.pool, s.id, { modelo: model, esforco: eff.effort }), env: await turnEnvLeve(s.project_id ?? null), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(userId, s.project_id ?? null)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await contasGithubPara(s.project_id ?? null)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
   }
 
@@ -213,6 +214,27 @@ export async function claudeRoutes(app: FastifyInstance) {
     return attachments.length ? { text, attachments } : text;
   }
   const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
+  // Leveza por projeto (12/11/2026, ver tools/leveza.ts): UMA conta GitHub por sessão (projects.meta.github_conta:
+  // id | 'auto' | 'nenhuma'; auto = login igual ao dono do remote origin) e conectores claude.ai só os liberados em
+  // projects.meta.conectores (vazio = ENABLE_CLAUDEAI_MCP_SERVERS=false). Sessão sem projeto não sobe nada disso.
+  const metaDoProjeto = async (projectId: number | null) => {
+    if (!projectId) return { leve: metaLeveza(null), path: null as string | null };
+    const { rows } = await app.pool.query('SELECT path, meta FROM projects WHERE id = $1', [projectId]);
+    return { leve: metaLeveza(rows[0]?.meta), path: (rows[0]?.path as string | undefined) ?? null };
+  };
+  const contasGithubPara = async (projectId: number | null): Promise<GithubAccount[]> => {
+    const { leve, path } = await metaDoProjeto(projectId);
+    const conta = contaGithubDoProjeto(await listarContasGithub(app.pool), leve.github_conta, donoDoRemote(path ? await remoteOrigin(path) : null));
+    return conta ? [conta] : [];
+  };
+  const turnEnvLeve = async (projectId: number | null) => envConectores(await turnEnv(), (await metaDoProjeto(projectId)).leve.conectores);
+  const composicaoLeve = async (userId: number, projectId: number | null) => {
+    const base = await composicaoPara(app.pool, userId);
+    const permitidos = (await metaDoProjeto(projectId)).leve.conectores;
+    const extra = permitidos.length ? disallowConectores(await listarConectoresClaudeAi(app.pool), permitidos) : [];
+    const disallowedTools = [...(base.disallowedTools ?? []), ...extra];
+    return { ...base, ...(disallowedTools.length ? { disallowedTools } : {}) };
+  };
   // MCPs de toda sessão: um github por conta cadastrada na aba Tools + orion-memory (sempre).
   // Cloudflare, Hostinger, Coolify, n8n e Supabase não são MCP: são conectores simples (proxy local /conector/<nome>), só entram no header.
   // Cofre (Chrome compartilhado da c3) entra como MCP `cofre` quando COFRE_CDP_URL está no ambiente.
@@ -221,7 +243,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // orion-senhas: cofre PESSOAL do Danilo (Vaultwarden) — só entra quando quem mandou o turno é owner.
     const { rows: autorRows } = await app.pool.query('SELECT role FROM users WHERE id = $1', [autorId]);
     return {
-      ...githubMcpServers(await listarContasGithub(app.pool)),
+      ...githubMcpServers(await contasGithubPara(projectId)),
       ...(cofreMcpServers(cofreCdpUrl()) ?? {}),
       'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId, autorId }),
       'orion-root': orionRootServer(sessionId),
@@ -700,8 +722,8 @@ export async function claudeRoutes(app: FastifyInstance) {
       registrar: (texto) => { runner.aviso(id, texto); },
     });
     runner.startTurn({
-      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, layaHook: makeLayaHook(app.pool, id, { modelo: b.model || d.model || 'sonnet', esforco: eff.effort }), env: await turnEnv(), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoPara(app.pool, req.user!.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await listarContasGithub(app.pool)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, layaHook: makeLayaHook(app.pool, id, { modelo: b.model || d.model || 'sonnet', esforco: eff.effort }), env: await turnEnvLeve(project.id), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(req.user!.id, project.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await contasGithubPara(project.id)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
@@ -930,6 +952,12 @@ export async function claudeRoutes(app: FastifyInstance) {
     const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
     await startFor(s, s.user_id, prefixPrompt('Orion', prompt), mode, s.model ?? undefined, s.effort ?? undefined);
   }
+
+  /** Opções do card do projeto (Dash › Projetos): conectores claude.ai que a conta tem e contas GitHub cadastradas. */
+  app.get('/api/claude/leveza/opcoes', async () => ({
+    conectores: await listarConectoresClaudeAi(app.pool),
+    contas: (await listarContasGithub(app.pool)).map(c => ({ id: c.id, label: c.label, login: c.login })),
+  }));
 
   // Turnos cortados por restart do servidor (deploy, crash): nada roda em memória depois do boot,
   // então retoma cada sessão que estava 'running'/'waiting' com um "continue" em nome do Orion, pra
