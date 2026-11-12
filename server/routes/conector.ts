@@ -44,7 +44,8 @@ export async function conectorRoutes(app: FastifyInstance) {
         const conta = (await listarContasGithub(app.pool)).find(c => nomeMcpGithub(c.label) === req.params.nome);
         if (!conta) return reply.code(404).send({ error: `conta GitHub ${req.params.nome} não existe; veja a aba Tools › GitHub` });
         if (!/^mcp\/?$/.test(req.params['*'])) return reply.code(404).send({ error: 'esse conector só serve o MCP do GitHub em /mcp/' });
-        const h: Record<string, string> = { Authorization: `Bearer ${conta.token}` };
+        // X-MCP-Toolsets (header oficial do servidor): só o que a equipe usa — 45 tools viram ~20.
+        const h: Record<string, string> = { Authorization: `Bearer ${conta.token}`, 'X-MCP-Toolsets': 'context,repos,issues,pull_requests' };
         for (const k of ['accept', 'content-type', 'mcp-session-id', 'mcp-protocol-version', 'last-event-id']) { const v = req.headers[k]; if (typeof v === 'string') h[k] = v; }
         const r = await fetch(GITHUB_MCP_UPSTREAM + qs, { method: req.method, headers: h, body: corpo });
         reply.code(r.status);

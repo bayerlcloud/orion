@@ -345,6 +345,19 @@ const MIGRATIONS: { id: string; sql: string }[] = [
       ALTER TABLE designs ADD COLUMN IF NOT EXISTS project_id INT REFERENCES design_projects(id) ON DELETE SET NULL;
     `,
   },
+  {
+    // Arquivo de eventos (tools/leveza.ts arquivarEventosAntigos): sessões paradas há 30+ dias saem de claude_events.
+    id: '016_claude_events_arquivo',
+    sql: `CREATE TABLE IF NOT EXISTS claude_events_arquivo (LIKE claude_events INCLUDING ALL);`,
+  },
+  {
+    // Cofre (navegador compartilhado) virou opt-in por projeto: liga quem usou nos últimos 30 dias, pra ninguém perder nada.
+    id: '017_projects_cofre_optin',
+    sql: `UPDATE projects p SET meta = meta || '{"cofre": true}'::jsonb
+           WHERE NOT (meta ? 'cofre')
+             AND EXISTS (SELECT 1 FROM claude_sessions s JOIN claude_events e ON e.session_id = s.id
+                          WHERE s.project_id = p.id AND e.type = 'assistant' AND e.ts > now() - interval '30 days' AND e.payload::text LIKE '%mcp__cofre__%');`,
+  },
 ];
 
 export async function migrate(pool: Pool): Promise<void> {

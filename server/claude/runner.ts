@@ -200,6 +200,36 @@ type Live = {
   turno: EstadoTurno | null;
   /** Último arquivo de plano (~/.claude/plans/*.md) que o Claude escreveu nesta sessão: vai junto no pedido de ExitPlanMode. */
   planFile?: { file: string; text?: string };
+  /** Estado do processo quente (um query() vivo atendendo vários turnos) — null sem processo. Ver Ciclo/run(). */
+  ciclo: Ciclo | null;
+};
+
+/**
+ * Processo quente (12/11/2026): antes cada mensagem subia um `claude` novo com --resume (2,8 s de
+ * partida, reconexão dos MCPs, releitura do histórico, cache de prompt recriado). Agora o query()
+ * fica vivo depois do result: a próxima mensagem entra pela mesma entrada e o CLI responde na hora.
+ * O processo só fecha quando fica ocioso por `quenteMs` (ORION_PROCESSO_QUENTE_MS, padrão 10 min),
+ * quando passa do teto de ociosos (`maxQuentes`, ORION_PROCESSOS_QUENTES_MAX, padrão 4 — fecha o
+ * mais antigo), no Parar, ou no restart do serviço. Com quenteMs <= 0 volta ao comportamento antigo
+ * (processo por turno) — é assim que os testes antigos de runner.test.ts rodam.
+ * Um Ciclo = um processo; os campos de turno são zerados a cada turno (iniciarTurnoQuente).
+ */
+type Ciclo = {
+  p: TurnParams;
+  text: string;
+  /** Objeto ÚNICO por processo (os hooks do SDK o capturam por closure): zerado com Object.assign a cada turno. */
+  turno: EstadoTurno;
+  emTurno: boolean;
+  ok: boolean; turns: number; tokens?: { input: number; output: number }; semTexto: boolean; sucesso: boolean;
+  /** Fim anormal do turno (catch de run()): 'interrupted' vira status idle, 'error' vira status error. */
+  fim: null | { tipo: 'interrupted' | 'error'; msg: string };
+  partialText: string; partialThinking: string;
+  tarefasFundo: number;
+  quenteTimer: NodeJS.Timeout | null;
+  rearmarWatchdog: () => void;
+  pararWatchdog: () => void;
+  /** O que o processo tem aplicado agora (opções do 1º turno + setters ao vivo): turno novo com valor diferente chama o control method. */
+  aplicado: { permissionMode: TurnParams['permissionMode']; model?: string; effort?: TurnParams['effort']; outputStyle?: string };
 };
 
 /**
@@ -236,14 +266,24 @@ export class Runner {
   private live = new Map<string, Live>();
   private semaforo: Semaforo;
   private turnoOciosoMs: number;
-  constructor(private deps: { queryFn: QueryFn; store: Store; permissionTimeoutMs?: number; log?: (msg: string) => void; maxTurnosConcorrentes?: number; turnoOciosoMs?: number }) {
+  private quenteMs: number;
+  private maxQuentes: number;
+  /** Processos quentes OCIOSOS (sem turno), por sessão: pra fechar o mais antigo quando passa do teto. */
+  private quentes = new Map<string, { desde: number; fechar: () => void }>();
+  constructor(private deps: { queryFn: QueryFn; store: Store; permissionTimeoutMs?: number; log?: (msg: string) => void; maxTurnosConcorrentes?: number; turnoOciosoMs?: number; quenteMs?: number; maxQuentes?: number }) {
     this.semaforo = new Semaforo(deps.maxTurnosConcorrentes ?? 3);
     this.turnoOciosoMs = deps.turnoOciosoMs ?? TURNO_OCIOSO_MS_PADRAO;
+    const envNum = (k: string, dflt: number) => { const v = Number(process.env[k]); return Number.isFinite(v) && process.env[k] !== undefined ? v : dflt; };
+    this.quenteMs = deps.quenteMs ?? envNum('ORION_PROCESSO_QUENTE_MS', 10 * 60_000);
+    this.maxQuentes = deps.maxQuentes ?? envNum('ORION_PROCESSOS_QUENTES_MAX', 4);
   }
+
+  /** Quantos processos quentes ociosos existem agora (observabilidade/testes). */
+  quentesOciosos(): number { return this.quentes.size; }
 
   private get(id: string): Live {
     let l = this.live.get(id);
-    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null, entrada: null, turno: null }; this.live.set(id, l); }
+    if (!l) { l = { status: 'idle', abort: null, subscribers: new Set(), pending: new Map(), queue: [], stderr: [], commands: [], stopHadPendingTool: false, query: null, entrada: null, turno: null, ciclo: null }; this.live.set(id, l); }
     return l;
   }
 
@@ -364,7 +404,7 @@ export class Runner {
    */
   startTurn(p: TurnParams): void {
     const l = this.get(p.sessionId);
-    if (l.status === 'running' || l.status === 'waiting') {
+    if (l.status === 'running' || l.status === 'waiting' || l.ciclo?.emTurno) {
       if (l.entrada && !l.entrada.fechado) {
         const { text, attachments } = normalizar(p.prompt);
         l.turno?.textos.push(text);
@@ -373,7 +413,40 @@ export class Runner {
       } else l.queue.push(p);
       return;
     }
+    // Processo quente ocioso (Query viva, entrada aberta): o turno entra nele, sem subir outro claude.
+    if (l.ciclo && l.entrada && !l.entrada.fechado && l.query) { void this.iniciarTurnoQuente(l, p); return; }
     void this.run(p);
+  }
+
+  /** Começa um turno num processo quente ocioso: mesma sequência de run() (status, eco, semáforo, gancho) e a mensagem vai pela entrada viva. */
+  private async iniciarTurnoQuente(l: Live, p: TurnParams): Promise<void> {
+    const c = l.ciclo!; const id = p.sessionId;
+    const { text, attachments } = normalizar(p.prompt);
+    c.emTurno = true; c.p = p; c.text = text;
+    Object.assign(c.turno, novoEstadoTurno(text));
+    c.ok = false; c.turns = 0; c.tokens = undefined; c.semTexto = false; c.sucesso = false; c.fim = null;
+    c.partialText = ''; c.partialThinking = '';
+    if (c.quenteTimer) { clearTimeout(c.quenteTimer); c.quenteTimer = null; }
+    this.quentes.delete(id);
+    await this.setStatus(id, 'running', { lastError: null });
+    await this.ecoUsuario(id, text, attachments);
+    await this.semaforo.pegar();
+    // Opções que mudam por turno e têm control method: aplica ao vivo quando o valor difere do que o processo tem.
+    if (p.permissionMode !== c.aplicado.permissionMode && await this.setPermissionModeLive(id, p.permissionMode)) c.aplicado.permissionMode = p.permissionMode;
+    if (p.model !== c.aplicado.model && await this.setModelLive(id, p.model)) c.aplicado.model = p.model;
+    if (p.effort !== c.aplicado.effort && await this.setEffortLive(id, p.effort)) c.aplicado.effort = p.effort;
+    if (p.outputStyle !== c.aplicado.outputStyle && await this.setOutputStyleLive(id, p.outputStyle ?? null)) c.aplicado.outputStyle = p.outputStyle;
+    if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
+    c.rearmarWatchdog();
+    l.entrada!.push(mensagemUsuario(id, text, attachments).catch(() => mensagemUsuario(id, `${text}\n\n[anexo não pôde ser lido]`, [])));
+  }
+
+  /** Fecha os processos quentes ociosos além do teto, do mais antigo pro mais novo. */
+  private aposentarExcedentes(): void {
+    while (this.quentes.size > this.maxQuentes) {
+      const [id, q] = [...this.quentes.entries()].sort((a, b) => a[1].desde - b[1].desde)[0];
+      this.quentes.delete(id); q.fechar();
+    }
   }
 
   /** Persiste e mostra a mensagem do usuário na hora em que ela chega. */
@@ -397,6 +470,8 @@ export class Runner {
     // uso de ferramenta" (ver LiveEvent 'interrupted').
     l.stopHadPendingTool = l.pending.size > 0;
     for (const [pid, p] of l.pending) { clearTimeout(p.timer); p.resolve({ behavior: 'deny', message: 'Sessão interrompida pelo usuário', interrupt: true }); l.pending.delete(pid); this.emit(id, { type: 'permission_resolved', id: pid, decision: 'deny' }); }
+    // Processo quente ocioso: só fecha (sem turno não há o que marcar como interrompido).
+    if (l.ciclo && !l.ciclo.emTurno) { this.quentes.delete(id); l.entrada?.fechar(); }
     l.abort?.abort();
   }
 
@@ -509,53 +584,47 @@ export class Runner {
       ...(p.outputStyle ? { settings: { outputStyle: p.outputStyle } } : {}),
     };
 
-    let ok = false, turns = 0, tokens: { input: number; output: number } | undefined;
-    // Acumula o texto/thinking parcial do streaming (deltas de 'stream_event') pra poder persistir
-    // no evento 'interrupted' se o turno for abortado no meio de uma resposta ainda incompleta — sem
-    // isso, esse texto se perde pra sempre ao recarregar a página: mensagens parciais nunca são
-    // gravadas em claude_events (só a mensagem completa seria, e ela nunca chega quando o turno é
-    // interrompido). Mesma lógica de reset/acúmulo do lado cliente (ver applyLive/pushMessage em
-    // web/src/claude/live.ts), reimplementada aqui porque o servidor não vê os eventos que ele mesmo
-    // emite.
-    let partialText = '', partialThinking = '';
-    let sucesso = false, semTexto = false;
-    // Subagentes em background (tool Task com run_in_background) ainda vivos, pelo push
-    // `background_tasks_changed` do CLI. Enquanto houver um, a entrada NÃO fecha no result: fechar
-    // faz o CLI recusar toda ferramenta deles ("The user doesn't want to take this action right
-    // now") e o relatório se perde (visto em 30/09 na Andrômeda e em 01/10 na sessão de memória).
-    let tarefasFundo = 0;
     let watchdogDisparado = false;
     let watchdogTimer: NodeJS.Timeout | null = null;
-    const rearmarWatchdog = () => {
-      if (watchdogTimer) clearTimeout(watchdogTimer);
-      watchdogTimer = setTimeout(() => { watchdogDisparado = true; abort.abort(); }, this.turnoOciosoMs);
+    const c: Ciclo = {
+      p, text, turno, emTurno: true, ok: false, turns: 0, tokens: undefined, semTexto: false, sucesso: false, fim: null,
+      partialText: '', partialThinking: '', tarefasFundo: 0, quenteTimer: null,
+      rearmarWatchdog: () => {
+        if (watchdogTimer) clearTimeout(watchdogTimer);
+        watchdogTimer = setTimeout(() => { watchdogDisparado = true; abort.abort(); }, this.turnoOciosoMs);
+      },
+      pararWatchdog: () => { if (watchdogTimer) clearTimeout(watchdogTimer); watchdogTimer = null; },
+      aplicado: { permissionMode: p.permissionMode, model: p.model, effort: p.effort, outputStyle: p.outputStyle },
     };
-    // Trava a quantidade de turnos (processos `claude`) rodando ao mesmo tempo nesta instância; o
-    // excedente espera aqui mesmo, antes de subir o processo (ver classe Semaforo acima).
+    l.ciclo = c;
+    // Trava a quantidade de turnos rodando ao mesmo tempo nesta instância; o excedente espera aqui
+    // mesmo, antes de subir o processo (ver classe Semaforo acima).
     await this.semaforo.pegar();
+    let entrada: Entrada | null = null;
+    let q: Query | AsyncIterable<SDKMessage> | null = null;
     try {
       // Gancho de início (integração por turno: traz a base para a worktree). Erro só vira log.
       if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
-      const entrada = canal<SDKUserMessage>();
+      entrada = canal<SDKUserMessage>();
       entrada.push(Promise.resolve(await mensagemUsuario(id, text, attachments)));
       l.entrada = entrada;
-      const q = this.deps.queryFn({ prompt: entrada, options });
+      q = this.deps.queryFn({ prompt: entrada, options });
       // Guardada em l.query (não só na variável local `q`) pra que setPermissionModeLive/setModelLive/
       // setEffortLive — chamados por uma rota HTTP a qualquer momento, fora deste for-await — consigam
-      // achar a Query certa enquanto o turno está rodando. Limpa no finally, junto de l.abort.
+      // achar a Query certa enquanto o processo está vivo. Limpa no finally, junto de l.abort.
       l.query = q as unknown as Query;
-      rearmarWatchdog();
+      c.rearmarWatchdog();
       for await (const m of q as AsyncIterable<SDKMessage>) {
-        rearmarWatchdog();
+        if (c.emTurno) c.rearmarWatchdog();
         if (m.type === 'stream_event') {
           const se = (m.event ?? {}) as { type?: string; content_block?: { type?: string }; delta?: { type?: string; text?: string; thinking?: string } };
-          if (se.type === 'message_start') { partialText = ''; partialThinking = ''; }
+          if (se.type === 'message_start') { c.partialText = ''; c.partialThinking = ''; }
           else if (se.type === 'content_block_start') {
-            if (se.content_block?.type === 'text') partialText = '';
-            else if (se.content_block?.type === 'thinking') partialThinking = '';
+            if (se.content_block?.type === 'text') c.partialText = '';
+            else if (se.content_block?.type === 'thinking') c.partialThinking = '';
           } else if (se.type === 'content_block_delta') {
-            if (se.delta?.type === 'text_delta') partialText += se.delta.text ?? '';
-            else if (se.delta?.type === 'thinking_delta') partialThinking += se.delta.thinking ?? '';
+            if (se.delta?.type === 'text_delta') c.partialText += se.delta.text ?? '';
+            else if (se.delta?.type === 'thinking_delta') c.partialThinking += se.delta.thinking ?? '';
           }
           this.emit(id, { type: 'partial', event: m.event });
           continue;
@@ -581,7 +650,7 @@ export class Runner {
         }
         if (m.type === 'system' && (m as { subtype?: string }).subtype === 'background_tasks_changed') {
           const tasks = (m as { tasks?: unknown }).tasks;
-          tarefasFundo = Array.isArray(tasks) ? tasks.length : 0;
+          c.tarefasFundo = Array.isArray(tasks) ? tasks.length : 0;
         }
         if ((m as { type: string }).type === 'prompt_suggestion') {
           const suggestion = String((m as { suggestion?: unknown }).suggestion ?? '').trim();
@@ -593,7 +662,7 @@ export class Runner {
         }
         if (m.type === 'assistant') {
           const content = (m as { message?: { content?: unknown } }).message?.content;
-          registrarToolUse(turno, content);
+          registrarToolUse(c.turno, content);
           l.planFile = arquivoDePlano(content) ?? l.planFile;
         }
         await this.deps.store.appendEvent(id, m.type, m);
@@ -601,65 +670,97 @@ export class Runner {
         // Mensagem completa: mesmo reset que o lado cliente faz em pushMessage() ao ver 'assistant'/
         // 'result' — o que estava acumulado em partialText/partialThinking já virou (ou vai virar)
         // conteúdo definitivo dessa mensagem, não sobra parcial órfão pro próximo bloco.
-        if (m.type === 'assistant' || m.type === 'result') { partialText = ''; partialThinking = ''; }
+        if (m.type === 'assistant' || m.type === 'result') { c.partialText = ''; c.partialThinking = ''; }
         if (m.type === 'result') {
-          ok = !m.is_error; semTexto = ok && typeof (m as { result?: unknown }).result === 'string' && !(m as { result: string }).result.trim();
+          c.ok = !m.is_error; c.semTexto = c.ok && typeof (m as { result?: unknown }).result === 'string' && !(m as { result: string }).result.trim();
           // Mensagem que entrou no bolo depois da última rodada vira mais um result no mesmo query(): soma.
-          const t = resultTokens(m); tokens = { input: (tokens?.input ?? 0) + t.input, output: (tokens?.output ?? 0) + t.output }; turns += m.num_turns ?? 0;
+          const t = resultTokens(m); c.tokens = { input: (c.tokens?.input ?? 0) + t.input, output: (c.tokens?.output ?? 0) + t.output }; c.turns += m.num_turns ?? 0;
           if (m.is_error) l.stderr.push(m.subtype);
-          // Nada mais na fila do CLI e nenhum subagente em background: fecha a entrada e o query()
-          // termina. O que já foi empurrado e o CLI ainda não viu sai mesmo assim (o canal entrega o
-          // resto antes de acabar) e gera outro result. Com subagente vivo, a entrada fica aberta: o
-          // CLI abre sozinho o turno da notificação quando ele termina e manda outro result, que
-          // chega aqui com `background_tasks_changed` já em zero e fecha.
+          // Nada mais na fila do CLI e nenhum subagente em background: o turno acabou. Com processo
+          // quente a entrada fica aberta esperando a próxima mensagem (ou o timer de ocioso); sem
+          // (quenteMs <= 0) fecha a entrada e o query() termina, como sempre foi. Com subagente vivo, a
+          // entrada fica aberta: o CLI abre sozinho o turno da notificação quando ele termina e manda
+          // outro result, que chega aqui com `background_tasks_changed` já em zero.
           // ponytail: subagente que nunca termina deixa a sessão em 'running' até o Stop do usuário.
           const temFila = (m as { queued_turn_count?: number }).queued_turn_count! > 0;
-          if (!temFila && tarefasFundo === 0) entrada.fechar();
-          else if (!temFila) this.deps.log?.(`sessão ${id}: result com ${tarefasFundo} subagente(s) em background; entrada segue aberta`);
+          if (!temFila && c.tarefasFundo === 0) await this.fecharTurno(id, l, entrada, c);
+          else if (!temFila) this.deps.log?.(`sessão ${id}: result com ${c.tarefasFundo} subagente(s) em background; entrada segue aberta`);
         }
       }
-      await this.setStatus(id, ok ? 'idle' : 'error', { tokens, turns, lastError: ok ? null : (l.stderr.slice(-3).join('\n') || 'erro') });
-      this.emit(id, { type: 'turn_end', turns, ok });
-      sucesso = ok;
     } catch (e: any) {
-      const interrupted = abort.signal.aborted;
-      const msg = interrupted
-        ? (watchdogDisparado ? `Turno sem nenhuma atividade por ${Math.round(this.turnoOciosoMs / 60_000)} min; interrompido automaticamente` : 'Interrompido pelo usuário')
-        : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
-      this.deps.log?.(`sessão ${id}: ${msg}`);
-      if (interrupted) {
-        // Stop manual do usuário: evento e persistência PRÓPRIOS ('interrupted'), nunca 'error' — ver
-        // LiveEvent.interrupted e PARIDADE.md ("Mensagem interrompida", corrigido 28/09/2026). Carrega
-        // o texto parcial já gerado (senão ele se perde ao recarregar) e se havia ferramenta pendente.
-        const duringTool = l.stopHadPendingTool; l.stopHadPendingTool = false;
-        await this.deps.store.appendEvent(id, 'interrupted', { message: msg, duringTool, partialText, partialThinking });
-        this.emit(id, { type: 'interrupted', message: msg, duringTool, partialText, partialThinking });
-      } else {
-        await this.deps.store.appendEvent(id, 'error', { message: msg });
-        this.emit(id, { type: 'error', message: msg });
+      if (c.emTurno) {
+        const interrupted = abort.signal.aborted;
+        const msg = interrupted
+          ? (watchdogDisparado ? `Turno sem nenhuma atividade por ${Math.round(this.turnoOciosoMs / 60_000)} min; interrompido automaticamente` : 'Interrompido pelo usuário')
+          : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
+        this.deps.log?.(`sessão ${id}: ${msg}`);
+        if (interrupted) {
+          // Stop manual do usuário: evento e persistência PRÓPRIOS ('interrupted'), nunca 'error' — ver
+          // LiveEvent.interrupted e PARIDADE.md ("Mensagem interrompida", corrigido 28/09/2026). Carrega
+          // o texto parcial já gerado (senão ele se perde ao recarregar) e se havia ferramenta pendente.
+          const duringTool = l.stopHadPendingTool; l.stopHadPendingTool = false;
+          await this.deps.store.appendEvent(id, 'interrupted', { message: msg, duringTool, partialText: c.partialText, partialThinking: c.partialThinking });
+          this.emit(id, { type: 'interrupted', message: msg, duringTool, partialText: c.partialText, partialThinking: c.partialThinking });
+        } else {
+          await this.deps.store.appendEvent(id, 'error', { message: msg });
+          this.emit(id, { type: 'error', message: msg });
+        }
+        c.fim = { tipo: interrupted ? 'interrupted' : 'error', msg };
+      } else if (!abort.signal.aborted) {
+        this.deps.log?.(`sessão ${id}: processo quente caiu ocioso: ${e?.message ?? e}`);
       }
-      await this.setStatus(id, interrupted ? 'idle' : 'error', { lastError: msg });
-      this.emit(id, { type: 'turn_end', turns, ok: false });
     } finally {
-      if (watchdogTimer) clearTimeout(watchdogTimer);
+      // Processo acabou com turno aberto (CLI terminou sem result, erro, Parar): fecha o turno aqui.
+      if (c.emTurno) await this.encerrarTurno(id, l, c);
+      c.pararWatchdog();
+      if (c.quenteTimer) clearTimeout(c.quenteTimer);
+      this.quentes.delete(id);
       // close() libera os MCPs em processo e os callbacks da Query mais cedo (sdk.d.ts); o processo
-      // `claude` em si e seus filhos stdio (npx prisma/pdf-viewer/etc.) o próprio SDK encerra ao
-      // drenar o generator — o reaper (orion-mcp-reaper.timer) cobre o que ainda assim fica órfão.
-      if (l.query && typeof (l.query as unknown as { close?: () => void }).close === 'function') {
-        try { (l.query as unknown as { close: () => void }).close(); } catch { /* já fechada */ }
+      // `claude` em si e seus filhos stdio o próprio SDK encerra ao drenar o generator — o reaper
+      // (orion-prisma-reaper.timer) cobre o que ainda assim fica órfão.
+      if (q && typeof (q as unknown as { close?: () => void }).close === 'function') {
+        try { (q as unknown as { close: () => void }).close(); } catch { /* já fechada */ }
       }
-      this.semaforo.soltar();
-      l.abort = null;
-      l.query = null;
-      l.turno = null;
-      l.entrada?.fechar(); l.entrada = null;
-      for (const [pid, pend] of l.pending) { clearTimeout(pend.timer); l.pending.delete(pid); }
-      // Gancho de fim (commit e fila de integração): roda também em turno interrompido ou com erro,
-      // e antes do próximo turno da fila, para não disputar o git da mesma worktree.
-      if (p.ganchos?.depois) await p.ganchos.depois(sucesso).catch((e) => this.deps.log?.(`sessão ${id}: gancho depois falhou: ${e instanceof Error ? e.message : e}`));
-      const next = l.queue.shift();
-      if (next) void this.run({ ...next, isNew: false });
-      else if (sucesso && semTexto && !text.includes(CUTUCAO)) void this.run({ ...p, isNew: false, prompt: `[Orion] ${CUTUCAO}` });
+      // Só limpa o que é DESTE processo: um turno novo pode já ter subido outro (entrada fechada pelo
+      // timer de ocioso e mensagem chegando no mesmo instante).
+      if (l.query === (q as unknown as Query)) { l.query = null; l.abort = null; l.turno = null; l.ciclo = null; }
+      if (l.entrada === entrada) { entrada?.fechar(); l.entrada = null; }
+      if (!l.ciclo) {
+        const next = l.queue.shift();
+        if (next) void this.run({ ...next, isNew: false });
+        else if (c.sucesso && c.semTexto && !c.text.includes(CUTUCAO)) void this.run({ ...c.p, isNew: false, prompt: `[Orion] ${CUTUCAO}` });
+      }
     }
+  }
+
+  /** Fim de um turno (result final): status, turn_end, semáforo, pendências e gancho de fim. Uma vez por turno. */
+  private async encerrarTurno(id: string, l: Live, c: Ciclo): Promise<void> {
+    c.emTurno = false;
+    c.pararWatchdog();
+    const ok = c.fim ? false : c.ok;
+    const status: SessionStatus = c.fim ? (c.fim.tipo === 'interrupted' ? 'idle' : 'error') : (ok ? 'idle' : 'error');
+    const lastError = c.fim ? c.fim.msg : (ok ? null : (l.stderr.slice(-3).join('\n') || 'erro'));
+    await this.setStatus(id, status, { tokens: c.tokens, turns: c.turns, lastError });
+    this.emit(id, { type: 'turn_end', turns: c.turns, ok });
+    c.sucesso = ok;
+    this.semaforo.soltar();
+    for (const [pid, pend] of l.pending) { clearTimeout(pend.timer); l.pending.delete(pid); }
+    // Gancho de fim (commit e fila de integração): roda também em turno interrompido ou com erro,
+    // e antes do próximo turno, para não disputar o git da mesma worktree.
+    if (c.p.ganchos?.depois) await c.p.ganchos.depois(c.sucesso).catch((e) => this.deps.log?.(`sessão ${id}: gancho depois falhou: ${e instanceof Error ? e.message : e}`));
+  }
+
+  /** Result final de um turno: encerra e decide o que o processo faz — próximo da fila, cutucão, ficar quente ou fechar. */
+  private async fecharTurno(id: string, l: Live, entrada: Entrada, c: Ciclo): Promise<void> {
+    await this.encerrarTurno(id, l, c);
+    if (this.quenteMs <= 0) { entrada.fechar(); return; } // modo antigo: processo por turno (o finally cuida da fila/cutucão)
+    const next = l.queue.shift();
+    if (next) { void this.iniciarTurnoQuente(l, next); return; }
+    if (c.sucesso && c.semTexto && !c.text.includes(CUTUCAO)) { void this.iniciarTurnoQuente(l, { ...c.p, isNew: false, prompt: `[Orion] ${CUTUCAO}` }); return; }
+    // Ocioso e quente: fecha sozinho depois de quenteMs, ou antes se passar do teto de ociosos.
+    const fechar = () => { if (c.quenteTimer) clearTimeout(c.quenteTimer); c.quenteTimer = null; if (!c.emTurno) entrada.fechar(); };
+    c.quenteTimer = setTimeout(() => { this.quentes.delete(id); fechar(); }, this.quenteMs);
+    this.quentes.set(id, { desde: Date.now(), fechar });
+    this.aposentarExcedentes();
   }
 }

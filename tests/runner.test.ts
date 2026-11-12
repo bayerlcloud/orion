@@ -1,3 +1,6 @@
+// Modo antigo (processo por turno): estes testes descrevem o ciclo de UM query() por turno. O processo
+// quente (vários turnos num query()) tem testes próprios em runnerQuente.test.ts.
+process.env.ORION_PROCESSO_QUENTE_MS = '0';
 import { describe, it, expect } from 'vitest';
 import { resultTokens, Runner, CUTUCAO, type Store, type LiveEvent, type QueryFn } from '../server/claude/runner';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, FRASE_TOOL, REGRA_LINHAS_MAX, type MemoriaDecisao, type MemoriaRegra } from '../server/claude/header';

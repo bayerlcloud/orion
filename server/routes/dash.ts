@@ -110,7 +110,7 @@ export async function dashRoutes(app: FastifyInstance) {
     return { coletado: new Date(fichas!.em).toISOString(), projetos: fichas!.dados };
   });
 
-  app.patch<{ Params: { id: string }; Body: { prod_url?: unknown; banco?: unknown; notas?: unknown; conectores?: unknown; github_conta?: unknown } }>('/api/dash/projects/:id', async (req, reply) => {
+  app.patch<{ Params: { id: string }; Body: { prod_url?: unknown; banco?: unknown; notas?: unknown; conectores?: unknown; github_conta?: unknown; cofre?: unknown } }>('/api/dash/projects/:id', async (req, reply) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id)) return reply.code(400).send({ error: 'id inválido' });
     const b = req.body ?? {};
@@ -124,6 +124,7 @@ export async function dashRoutes(app: FastifyInstance) {
     // (e só são apagados) quando o corpo os traz, pra um cliente antigo não zerar o que outro gravou.
     const tirar = ['prod_url', 'banco', 'notas'];
     if ('conectores' in b) { tirar.push('conectores'); if (Array.isArray(b.conectores)) meta.conectores = b.conectores.filter((x): x is string => typeof x === 'string').slice(0, 50); }
+    if ('cofre' in b) { tirar.push('cofre'); if (b.cofre === true) meta.cofre = true; }
     if ('github_conta' in b) { tirar.push('github_conta'); const g = b.github_conta; if (g === 'nenhuma' || (typeof g === 'number' && Number.isInteger(g))) meta.github_conta = g; }
     // Só mexe nas chaves do card: o resto do meta (ex.: preview_dir do preview) fica intacto.
     const r = await app.pool.query('UPDATE projects SET meta = (meta - $3::text[]) || $2::jsonb WHERE id = $1', [id, meta, tirar]);
