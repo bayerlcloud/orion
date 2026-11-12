@@ -39,7 +39,7 @@ import { branchAtual } from '../tasks/git.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub, type GithubAccount } from '../tools/githubAccounts.js';
-import { contaGithubDoProjeto, disallowConectores, donoDoRemote, envConectores, listarConectoresClaudeAi, metaLeveza, remoteOrigin } from '../tools/leveza.js';
+import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, metaLeveza, remoteOrigin } from '../tools/leveza.js';
 import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { ensureGoogleCloudAccountsTable, googleCloudParaHeader, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
@@ -193,6 +193,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // `effort` chega no valor de fio (pode ser 'ultracode', vindo da rota ou da coluna persistida) —
     // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
     const eff = resolveUltracode(effort);
+    await desarquivar(app.pool, s.id).catch(() => 0); // retomada de sessão arquivada: o seq continua de onde parou
     const textoPrompt = typeof prompt === 'string' ? prompt : prompt.text;
     // Duas sessões da mesma pessoa no projeto dividem a worktree dela: avisa quando a outra está rodando.
     const { rows: paralelas } = await app.pool.query<{ title: string }>(
@@ -205,7 +206,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, layaHook: makeLayaHook(app.pool, s.id, { modelo: model, esforco: eff.effort }), env: await turnEnvLeve(s.project_id ?? null), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(userId, s.project_id ?? null)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await contasGithubPara(s.project_id ?? null)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await contasGithubPara(s.project_id ?? null)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(s.project_id ?? null) }), eff.ultracode),
     });
   }
 
@@ -227,7 +228,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     const conta = contaGithubDoProjeto(await listarContasGithub(app.pool), leve.github_conta, donoDoRemote(path ? await remoteOrigin(path) : null));
     return conta ? [conta] : [];
   };
-  const turnEnvLeve = async (projectId: number | null) => envConectores(await turnEnv(), (await metaDoProjeto(projectId)).leve.conectores);
+  const turnEnvLeve = async (projectId: number | null) => envLeve(envConectores(await turnEnv(), (await metaDoProjeto(projectId)).leve.conectores));
+  const cofreHeaderPara = async (projectId: number | null) => (await metaDoProjeto(projectId)).leve.cofre ? cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) : null;
   const composicaoLeve = async (userId: number, projectId: number | null) => {
     const base = await composicaoPara(app.pool, userId);
     const permitidos = (await metaDoProjeto(projectId)).leve.conectores;
@@ -244,7 +246,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     const { rows: autorRows } = await app.pool.query('SELECT role FROM users WHERE id = $1', [autorId]);
     return {
       ...githubMcpServers(await contasGithubPara(projectId)),
-      ...(cofreMcpServers(cofreCdpUrl()) ?? {}),
+      // Cofre (navegador compartilhado, 32 tools): só em projeto que ligou (projects.meta.cofre — ver tools/leveza.ts).
+      ...((await metaDoProjeto(projectId)).leve.cofre ? (cofreMcpServers(cofreCdpUrl()) ?? {}) : {}),
       'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId, autorId }),
       'orion-root': orionRootServer(sessionId),
       ...(autorRows[0]?.role === 'owner' ? { 'orion-senhas': orionSenhasServer() } : {}),
@@ -261,7 +264,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       const { rows } = await app.pool.query(
         `SELECT level, code, title, summary, body_md, scope_project_id, scope_user_id FROM memories
           WHERE level IN (2, 3) AND estado = 'ativa' AND (scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL))
-          ORDER BY level ASC, updated_at DESC`, [projectId, userId]);
+          ORDER BY level ASC, (scope_project_id IS NOT NULL) DESC, (scope_user_id IS NOT NULL) DESC, updated_at DESC`, [projectId, userId]);
       const escopo = (r: any) => (r.scope_project_id ? 'projeto' : r.scope_user_id ? 'usuário' : 'universal') as MemoriaRegra['scope'];
       const regras = rows.filter((r: any) => r.level === 2);
       const decisoes = rows.filter((r: any) => r.level === 3);
@@ -723,7 +726,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, layaHook: makeLayaHook(app.pool, id, { modelo: b.model || d.model || 'sonnet', esforco: eff.effort }), env: await turnEnvLeve(project.id), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(req.user!.id, project.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await contasGithubPara(project.id)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await contasGithubPara(project.id)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(project.id) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
@@ -733,6 +736,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       `SELECT s.*, u.name AS user_name, p.name AS project_name, p.slug AS project_slug FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id WHERE s.id = $1`, [req.params.id]);
     const s = rows[0];
     if (!s) return reply.code(404).send({ error: 'sessão não existe' });
+    await desarquivar(app.pool, s.id).catch(() => 0); // sessão antiga: eventos voltam do arquivo (tools/leveza.ts)
     const t = Number(req.query?.turnos);
     const turnos = Number.isInteger(t) && t > 0 ? Math.min(t, 100000) : 1000000;
     // Histórico enxuto: o SDK repete a lista inteira de comandos (`commands_changed`, ~350 KB) e o

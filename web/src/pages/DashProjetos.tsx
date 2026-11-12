@@ -8,7 +8,7 @@ import PreviewPublico from '../PreviewPublico';
 type Alerta = { nivel: 'ruim' | 'atencao'; texto: string };
 type Ficha = {
   id: number; slug: string; name: string; path: string; existe: boolean;
-  meta: { prod_url?: string; banco?: string; notas?: string; conectores?: string[]; github_conta?: number | 'auto' | 'nenhuma' };
+  meta: { prod_url?: string; banco?: string; notas?: string; conectores?: string[]; github_conta?: number | 'auto' | 'nenhuma'; cofre?: boolean };
   git: null | {
     branch: string; remote: string | null; github: string | null; ultimo: { sha: string; quando: string; autor: string; msg: string } | null;
     upstream: string | null; ahead: number | null; behind: number | null; ultimo_push: string | null; sujos: number; commits_7d: number;
@@ -105,7 +105,7 @@ function Card({ f, clock, onOpen }: { f: Ficha; clock: number; onOpen: () => voi
 
 function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onClose: () => void; onSaved: () => void }) {
   const [edit, setEdit] = useState(false);
-  const [form, setForm] = useState({ prod_url: f.meta.prod_url ?? '', banco: f.meta.banco ?? '', notas: f.meta.notas ?? '', conectores: f.meta.conectores ?? [], github_conta: (f.meta.github_conta ?? 'auto') as number | 'auto' | 'nenhuma' });
+  const [form, setForm] = useState({ prod_url: f.meta.prod_url ?? '', banco: f.meta.banco ?? '', notas: f.meta.notas ?? '', conectores: f.meta.conectores ?? [], github_conta: (f.meta.github_conta ?? 'auto') as number | 'auto' | 'nenhuma', cofre: f.meta.cofre ?? false });
   // Opções de leveza (conectores claude.ai da conta + contas GitHub) — só carrega ao abrir a edição.
   const [opcoes, setOpcoes] = useState<{ conectores: string[]; contas: { id: number; label: string; login: string }[] } | null>(null);
   useEffect(() => {
@@ -145,6 +145,7 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
               <dt>conectores</dt><dd>{f.conectores.length ? f.conectores.join(', ') : '—'}</dd>
               <dt>GitHub na sessão</dt><dd>{contaAtual}</dd>
               <dt>claude.ai na sessão</dt><dd>{f.meta.conectores?.length ? f.meta.conectores.map(c => c.replace(/^claude\.ai /, '')).join(', ') : <span className="muted">nenhum (sessão leve)</span>}</dd>
+              <dt>navegador (cofre)</dt><dd>{f.meta.cofre ? 'ligado nas sessões' : <span className="muted">desligado (sessão leve)</span>}</dd>
             </dl>
           </Bloco>
 
@@ -241,6 +242,7 @@ function Detalhe({ f, clock, onClose, onSaved }: { f: Ficha; clock: number; onCl
                   {(opcoes?.contas ?? []).map(c => <option key={c.id} value={c.id}>{c.label} ({c.login})</option>)}
                 </select>
               </label>
+              <label className="pj-check"><input type="checkbox" checked={form.cofre} onChange={e => setForm({ ...form, cofre: e.target.checked })} /> Navegador compartilhado (cofre, 32 ferramentas) nas sessões deste projeto</label>
               <fieldset className="pj-conectores">
                 <legend>Conectores claude.ai que sobem nas sessões deste projeto <span className="muted small">(nenhum marcado = sessão leve)</span></legend>
                 {!opcoes ? <span className="muted small">carregando…</span> : opcoes.conectores.length === 0 ? <span className="muted small">nenhum conector claude.ai visto ainda</span> : opcoes.conectores.map(c => (

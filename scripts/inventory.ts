@@ -8,6 +8,7 @@ import { migrate } from '../server/migrations.js';
 import { collectInventory, saveSnapshot, SNAPSHOTS_GUARDADOS } from '../server/inventory.js';
 import { generateNivel1 } from '../server/nivel1/generate.js';
 import { decairMicrofatos } from '../server/memories/decay.js';
+import { arquivarEventosAntigos } from '../server/tools/leveza.js';
 import { ensureHistoricoTable, materializarTurnos } from '../server/memories/historico.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,6 +40,14 @@ async function main() {
       `${decay.mortas.length} morreram${decay.mortas.length ? ` (${decay.mortas.join(', ')})` : ''}`);
   } catch (e: any) {
     console.log('aviso decaimento nível 4:', e?.message ?? e);
+  }
+
+  // Arquivo de eventos: sessões paradas há 30+ dias saem de claude_events (20 por ciclo). Nunca aborta o ciclo.
+  try {
+    const a = await arquivarEventosAntigos(pool);
+    console.log(`arquivo de eventos: ${a.sessoes} sessão(ões), ${a.linhas} linha(s) movidas`);
+  } catch (e: any) {
+    console.log('aviso arquivo de eventos:', e?.message ?? e);
   }
 
   // Histórico pesquisável (memória v3): materializa os turnos terminados desde a última vez, com embedding local.
