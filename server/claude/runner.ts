@@ -202,9 +202,44 @@ type Live = {
   planFile?: { file: string; text?: string };
 };
 
+/**
+ * Semáforo simples: trava a quantidade de turnos (processos `claude` filhos) rodando ao mesmo tempo.
+ * Sem isso, N sessões mandando mensagem junto sobem N processos de ~400 MB + MCPs cada, de uma vez
+ * (achado da investigação de 12/11/2026: 9 GB de RSS, swap cheio, painel travando pra todo mundo).
+ * O excedente só espera a vez — nenhum turno é recusado, só atrasado.
+ */
+class Semaforo {
+  private emUso = 0;
+  private fila: (() => void)[] = [];
+  constructor(private limite: number) {}
+  async pegar(): Promise<void> {
+    if (this.emUso < this.limite) { this.emUso++; return; }
+    await new Promise<void>((r) => this.fila.push(r));
+    this.emUso++;
+  }
+  soltar(): void {
+    this.emUso--;
+    this.fila.shift()?.();
+  }
+}
+
+/**
+ * Sem nenhum evento do SDK por este tempo, o turno está travado (achado de 12/11/2026: subagente em
+ * background que nunca termina, ou qualquer outro jeito do CLI emperrar, segurava a sessão em
+ * 'running' pra sempre — só o botão Parar resolvia). Generoso de propósito: uma ferramenta única bem
+ * lenta (build, clone grande) não emite mensagem nenhuma enquanto roda, então o valor não pode ser
+ * curto a ponto de interromper trabalho real em andamento.
+ */
+const TURNO_OCIOSO_MS_PADRAO = 45 * 60_000;
+
 export class Runner {
   private live = new Map<string, Live>();
-  constructor(private deps: { queryFn: QueryFn; store: Store; permissionTimeoutMs?: number; log?: (msg: string) => void }) {}
+  private semaforo: Semaforo;
+  private turnoOciosoMs: number;
+  constructor(private deps: { queryFn: QueryFn; store: Store; permissionTimeoutMs?: number; log?: (msg: string) => void; maxTurnosConcorrentes?: number; turnoOciosoMs?: number }) {
+    this.semaforo = new Semaforo(deps.maxTurnosConcorrentes ?? 3);
+    this.turnoOciosoMs = deps.turnoOciosoMs ?? TURNO_OCIOSO_MS_PADRAO;
+  }
 
   private get(id: string): Live {
     let l = this.live.get(id);
@@ -489,6 +524,15 @@ export class Runner {
     // faz o CLI recusar toda ferramenta deles ("The user doesn't want to take this action right
     // now") e o relatório se perde (visto em 30/09 na Andrômeda e em 01/10 na sessão de memória).
     let tarefasFundo = 0;
+    let watchdogDisparado = false;
+    let watchdogTimer: NodeJS.Timeout | null = null;
+    const rearmarWatchdog = () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      watchdogTimer = setTimeout(() => { watchdogDisparado = true; abort.abort(); }, this.turnoOciosoMs);
+    };
+    // Trava a quantidade de turnos (processos `claude`) rodando ao mesmo tempo nesta instância; o
+    // excedente espera aqui mesmo, antes de subir o processo (ver classe Semaforo acima).
+    await this.semaforo.pegar();
     try {
       // Gancho de início (integração por turno: traz a base para a worktree). Erro só vira log.
       if (p.ganchos?.antes) await p.ganchos.antes().catch((e) => this.deps.log?.(`sessão ${id}: gancho antes falhou: ${e instanceof Error ? e.message : e}`));
@@ -500,7 +544,9 @@ export class Runner {
       // setEffortLive — chamados por uma rota HTTP a qualquer momento, fora deste for-await — consigam
       // achar a Query certa enquanto o turno está rodando. Limpa no finally, junto de l.abort.
       l.query = q as unknown as Query;
+      rearmarWatchdog();
       for await (const m of q as AsyncIterable<SDKMessage>) {
+        rearmarWatchdog();
         if (m.type === 'stream_event') {
           const se = (m.event ?? {}) as { type?: string; content_block?: { type?: string }; delta?: { type?: string; text?: string; thinking?: string } };
           if (se.type === 'message_start') { partialText = ''; partialThinking = ''; }
@@ -577,7 +623,9 @@ export class Runner {
       sucesso = ok;
     } catch (e: any) {
       const interrupted = abort.signal.aborted;
-      const msg = interrupted ? 'Interrompido pelo usuário' : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
+      const msg = interrupted
+        ? (watchdogDisparado ? `Turno sem nenhuma atividade por ${Math.round(this.turnoOciosoMs / 60_000)} min; interrompido automaticamente` : 'Interrompido pelo usuário')
+        : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
       this.deps.log?.(`sessão ${id}: ${msg}`);
       if (interrupted) {
         // Stop manual do usuário: evento e persistência PRÓPRIOS ('interrupted'), nunca 'error' — ver
@@ -593,6 +641,14 @@ export class Runner {
       await this.setStatus(id, interrupted ? 'idle' : 'error', { lastError: msg });
       this.emit(id, { type: 'turn_end', turns, ok: false });
     } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      // close() libera os MCPs em processo e os callbacks da Query mais cedo (sdk.d.ts); o processo
+      // `claude` em si e seus filhos stdio (npx prisma/pdf-viewer/etc.) o próprio SDK encerra ao
+      // drenar o generator — o reaper (orion-mcp-reaper.timer) cobre o que ainda assim fica órfão.
+      if (l.query && typeof (l.query as unknown as { close?: () => void }).close === 'function') {
+        try { (l.query as unknown as { close: () => void }).close(); } catch { /* já fechada */ }
+      }
+      this.semaforo.soltar();
       l.abort = null;
       l.query = null;
       l.turno = null;
