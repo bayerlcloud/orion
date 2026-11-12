@@ -138,3 +138,8 @@ export async function desarquivar(pool: Pool, sessionId: string): Promise<number
   const r = await pool.query(`WITH m AS (DELETE FROM claude_events_arquivo WHERE session_id = $1 RETURNING *) INSERT INTO claude_events SELECT * FROM m`, [sessionId]);
   return r.rowCount ?? 0;
 }
+
+/** JSON pro jsonb do Postgres sem \u0000 (saída de ferramenta com byte nulo derrubava o INSERT: "unsupported Unicode escape sequence", 2x em 30 dias, e o turno morria). */
+export function jsonSemNul(v: unknown): string {
+  return JSON.stringify(v).replace(/\\u0000/g, '');
+}

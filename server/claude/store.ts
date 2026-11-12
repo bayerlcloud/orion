@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type { Store, SessionStatus, Decision } from './runner.js';
 import { ROOT_LIBERADO_HORAS } from './policy.js';
-import { truncarToolResult } from '../tools/leveza.js';
+import { jsonSemNul, truncarToolResult } from '../tools/leveza.js';
 
 /** Persistência do runner no Postgres. Sequência por sessão calculada no INSERT. */
 export function pgStore(pool: Pool): Store {
@@ -26,7 +26,7 @@ export function pgStore(pool: Pool): Store {
       await pool.query(
         `INSERT INTO claude_events (session_id, seq, type, payload)
          VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM claude_events WHERE session_id = $1), $2, $3)`,
-        [sessionId, type, JSON.stringify(payload)]);
+        [sessionId, type, jsonSemNul(payload)]);
     },
     async updateSession(sessionId, patch) {
       const sets: string[] = ['updated_at = now()']; const vals: unknown[] = [sessionId]; let i = 2;

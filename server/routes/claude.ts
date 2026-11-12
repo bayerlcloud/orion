@@ -9,7 +9,7 @@ import {
 import { readProjectHooks } from '../claude/hooks.js';
 import { listProjectSkills, setSkillOverride } from '../claude/skills.js';
 import { validateGroupName, sanitizeGroupName } from '../claude/groups.js';
-import { access, mkdir, realpath, stat, unlink } from 'node:fs/promises';
+import { access, appendFile, mkdir, readFile, realpath, stat, unlink } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { homedir } from 'node:os';
@@ -599,6 +599,45 @@ export async function claudeRoutes(app: FastifyInstance) {
       return await transcribe(app.pool, new Blob([new Uint8Array(buf)], { type: part.mimetype || 'audio/webm' }), part.filename || 'audio.webm');
     } catch (e) {
       req.log.error({ err: (e as Error).message }, 'transcrição falhou nos dois motores');
+      return reply.code(502).send({ error: 'não consegui transcrever agora' });
+    }
+  });
+
+  // Ditado em pedaços (12/11/2026, subida de 27 KB/s do celular): o navegador manda o áudio ENQUANTO
+  // grava (um pedaço a cada 3 s, 24 kbps) e, ao soltar o botão, falta só o último pedaço. Os pedaços
+  // só vão daqui pro disco; a Groq recebe UMA chamada com o arquivo inteiro no /fim (mesmo custo de antes).
+  const DITADO_ID = /^[a-z0-9]{6,40}$/;
+  const DITADO_BYTES_MAX = 25 * 1024 * 1024;
+  const extAudio = (nome?: string | null) => { const m = /\.(webm|m4a|ogg|mp4)$/i.exec(nome ?? ''); return (m?.[1] ?? 'webm').toLowerCase(); };
+  const mimeAudio = (ext: string) => ext === 'm4a' || ext === 'mp4' ? 'audio/mp4' : ext === 'ogg' ? 'audio/ogg' : 'audio/webm';
+  const ditadoPath = (userId: number, id: string, ext: string) => path.join(uploadRoot, String(userId), `ditado-${id}.${ext}`);
+  app.post<{ Querystring: { id?: string; seq?: string } }>('/api/claude/transcribe/pedaco', async (req, reply) => {
+    const id = req.query?.id ?? '';
+    if (!DITADO_ID.test(id) || !Number.isInteger(Number(req.query?.seq))) return reply.code(400).send({ error: 'pedaço inválido' });
+    if (!req.isMultipart()) return reply.code(400).send({ error: 'envie como multipart/form-data' });
+    const part = await req.file();
+    if (!part) return reply.code(400).send({ error: 'sem áudio' });
+    const buf = await part.toBuffer();
+    const dest = ditadoPath(req.user!.id, id, extAudio(part.filename));
+    await mkdir(path.dirname(dest), { recursive: true });
+    const atual = await stat(dest).then(st => st.size).catch(() => 0);
+    if (atual + buf.length > DITADO_BYTES_MAX) return reply.code(413).send({ error: 'áudio grande demais' });
+    await appendFile(dest, buf);
+    return { ok: true, bytes: atual + buf.length };
+  });
+  app.post<{ Body: { id?: string; filename?: string } }>('/api/claude/transcribe/fim', async (req, reply) => {
+    const id = req.body?.id ?? '';
+    if (!DITADO_ID.test(id)) return reply.code(400).send({ error: 'gravação inválida' });
+    const ext = extAudio(req.body?.filename);
+    const dest = ditadoPath(req.user!.id, id, ext);
+    const buf = await readFile(dest).catch(() => null);
+    void unlink(dest).catch(() => {});
+    if (!buf) return reply.code(404).send({ error: 'gravação não encontrada' });
+    if (buf.length < 800) return { text: '', engine: 'none' };
+    try {
+      return await transcribe(app.pool, new Blob([new Uint8Array(buf)], { type: mimeAudio(ext) }), `ditado.${ext}`);
+    } catch (e) {
+      req.log.error({ err: (e as Error).message }, 'transcrição (pedaços) falhou nos dois motores');
       return reply.code(502).send({ error: 'não consegui transcrever agora' });
     }
   });

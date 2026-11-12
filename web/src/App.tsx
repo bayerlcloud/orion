@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { api, type User } from './api';
+import { api, type User, EVENTO_SESSAO_EXPIROU } from './api';
 import { aplicarTema, type Tema, type VarianteEscuro } from './tema';
 import Login from './pages/Login';
 const Spec = lazy(() => import('./pages/Spec'));
@@ -66,6 +66,12 @@ function Avatar({ user, onLogout, onProfile }: { user: User; onLogout: () => voi
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  // Login expirado em qualquer chamada (ver avisarSessaoExpirou em api.ts): volta pra tela de entrada na hora.
+  useEffect(() => {
+    const h = () => setUser(null);
+    window.addEventListener(EVENTO_SESSAO_EXPIROU, h);
+    return () => window.removeEventListener(EVENTO_SESSAO_EXPIROU, h);
+  }, []);
   const nav = useNavigate();
   const loc = useLocation();
   // Página do menu em que a pessoa está ('/claude', '/dash'…) e as que já foram abertas (ficam montadas).

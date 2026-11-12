@@ -1,4 +1,4 @@
-import { api } from '../api';
+import { api, avisarSessaoExpirou } from '../api';
 import type { Row } from './live';
 import type { RealUsage } from './mapper';
 import type { HookListing, SkillEntry } from './types';
@@ -42,29 +42,35 @@ export type PermissionBehavior = 'allow' | 'ask' | 'deny';
 export type PermissionScope = 'user' | 'project';
 export type PermissionRuleSet = { allow: string[]; ask: string[]; deny: string[] };
 
-/** `multipart/form-data` com timeout — ver nota de uso em `transcribe`/`uploads` abaixo. */
-async function fetchForm<T>(path: string, fd: FormData, timeoutMs = 120000): Promise<T> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  let res: Response;
-  try {
-    res = await fetch(path, { method: 'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal });
-  } catch (e) {
-    if ((e as Error).name === 'AbortError') throw new Error('Tempo esgotado, tente de novo');
-    throw e;
-  } finally {
-    clearTimeout(timer);
-  }
-  // Mesmo risco do helper genérico em ../api.ts: corpo cortado num 200 (mobile voltando de muito
-  // tempo em segundo plano) não pode virar objeto vazio fingindo sucesso.
-  let data: unknown;
-  try { data = await res.json(); }
-  catch (e) {
-    if (res.ok) throw new Error('Resposta incompleta do servidor, tente de novo');
-    data = {};
-  }
-  if (!res.ok) throw new Error((data as any).error ?? `erro ${res.status}`);
-  return data as T;
+export type Progresso = (enviado: number, total: number) => void;
+
+/**
+ * `multipart/form-data` com timeout e PROGRESSO de subida (XMLHttpRequest: `fetch` não expõe o
+ * progresso do envio). Medido em 12/11/2026: a subida do celular é 27 KB/s; sem barra, um anexo de
+ * 1,5 MB (60 s) parecia "não ir". 401 avisa o App como no helper `api()` (login expirado).
+ */
+function fetchForm<T>(path: string, fd: FormData, timeoutMs = 120000, onProgress?: Progresso): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', path);
+    x.withCredentials = true;
+    x.timeout = timeoutMs;
+    if (onProgress) x.upload.onprogress = ev => { if (ev.lengthComputable) onProgress(ev.loaded, ev.total); };
+    x.onload = () => {
+      let data: any;
+      // Mesmo risco do helper genérico em ../api.ts: corpo cortado num 200 (mobile voltando de muito
+      // tempo em segundo plano) não pode virar objeto vazio fingindo sucesso.
+      try { data = JSON.parse(x.responseText); }
+      catch { if (x.status >= 200 && x.status < 300) return reject(new Error('Resposta incompleta do servidor, tente de novo')); data = {}; }
+      if (x.status >= 200 && x.status < 300) return resolve(data as T);
+      avisarSessaoExpirou(path, x.status);
+      reject(new Error(data.error ?? data.message ?? `erro ${x.status}`));
+    };
+    x.onerror = () => reject(new Error('Falha de rede no envio, tente de novo'));
+    x.ontimeout = () => reject(new Error('Tempo esgotado, tente de novo'));
+    x.onabort = () => reject(new Error('Envio cancelado'));
+    x.send(fd);
+  });
 }
 
 export const TURNOS_INICIAIS = 20;
@@ -98,15 +104,22 @@ export const claudeApi = {
   // `fetchForm`: mesmo timeout do helper `api()` (ver api.ts) — sem isso, upload/transcrição numa
   // rede travada prendia o `await` pra sempre, e o botão Enviar do compositor ficava inativo até F5
   // (achado do Danilo, 06/11/2026). multipart não passa por `api()` (que forçaria Content-Type JSON).
-  transcribe: async (audio: Blob, filename: string): Promise<{ text: string; engine: string }> => {
+  transcribe: async (audio: Blob, filename: string, onProgress?: Progresso): Promise<{ text: string; engine: string }> => {
     const fd = new FormData();
     fd.append('file', audio, filename);
-    return fetchForm('/api/claude/transcribe', fd);
+    return fetchForm('/api/claude/transcribe', fd, 120000, onProgress);
   },
-  uploads: async (files: File[]): Promise<{ attachments: Attachment[] }> => {
+  // Ditado em pedaços (ver rotas em server/routes/claude.ts): sobe enquanto grava; `transcribeFim` dispara a transcrição única.
+  transcribePedaco: async (id: string, seq: number, audio: Blob, filename: string): Promise<{ ok: true; bytes: number }> => {
+    const fd = new FormData();
+    fd.append('file', audio, filename);
+    return fetchForm(`/api/claude/transcribe/pedaco?id=${encodeURIComponent(id)}&seq=${seq}`, fd, 60000);
+  },
+  transcribeFim: (id: string, filename: string) => api<{ text: string; engine: string }>('/api/claude/transcribe/fim', { method: 'POST', body: JSON.stringify({ id, filename }) }, 120000),
+  uploads: async (files: File[], onProgress?: Progresso): Promise<{ attachments: Attachment[] }> => {
     const fd = new FormData();
     for (const f of files) fd.append('file', f, f.name);
-    return fetchForm('/api/claude/uploads', fd);
+    return fetchForm('/api/claude/uploads', fd, 120000, onProgress);
   },
   permission: (id: string, b: { approval_id: string; decision: 'allow' | 'allow_always' | 'deny' | 'answer'; message?: string }) => api<{ ok: true }>(`/api/claude/sessions/${id}/permission`, { method: 'POST', body: JSON.stringify(b) }),
   /**
