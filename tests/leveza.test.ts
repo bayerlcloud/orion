@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
+import { jsonSemNul, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
 
 describe('leveza por sessão (12/11/2026)', () => {
   it('slug dos conectores claude.ai igual ao que o CLI usa nas tools', () => {
@@ -66,5 +66,13 @@ describe('envLeve: contexto por mensagem', () => {
     expect(Number(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW)).toBeLessThanOrEqual(200_000);
     expect(e.BASH_MAX_OUTPUT_LENGTH).toBe('20000');
     expect(e.MAX_MCP_OUTPUT_TOKENS).toBe('10000');
+  });
+});
+
+describe('jsonSemNul', () => {
+  it('tira o \\u0000 do JSON e deixa o resto igual', () => {
+    const j = jsonSemNul({ a: 'x\u0000y', b: 'u0000 literal', c: 1 });
+    expect(j).toBe('{"a":"xy","b":"u0000 literal","c":1}');
+    expect(JSON.parse(j).a).toBe('xy');
   });
 });

@@ -10,6 +10,7 @@ import PlainInput, { type PlainInputHandle } from './PlainInput';
 import { promptFromMd, serializeMd } from './rich';
 import { pedirPermissaoAviso } from './notify';
 import { avisar } from '../dialogo';
+import { reduzirImagem } from './imagem';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -73,13 +74,16 @@ function insertMarkerEl(root: HTMLElement, pos: number): HTMLSpanElement {
 }
 
 /** Anexo pendente: o arquivo ainda em memória, com miniatura (objectURL) quando é imagem. */
-type Pending = { id: string; file?: File; name: string; isImage: boolean; url?: string; uploaded?: Attachment };
+type Pending = { id: string; file?: File; name: string; isImage: boolean; url?: string; uploaded?: Attachment; /** % da subida em andamento (ver addFiles); ausente = não está subindo */ progresso?: number };
 
 let uid = 0;
 let pasteSeq = 0;
 // ponytail: limites fixos; viram ajuste se alguém reclamar.
 const LONG_PASTE_CHARS = 2000;
 const LONG_PASTE_LINES = 30;
+/** Mesmo limite do server (UPLOAD_MAX_BYTES): acima disso o upload volta 413. */
+const ANEXO_BYTES_MAX = 25 * 1024 * 1024;
+const ehVideo = (f: File) => /^video\//.test(f.type) || /\.(mp4|mov|mkv|avi)$/i.test(f.name);
 function toPending(file: File): Pending {
   const isImage = (file.type || '').startsWith('image/');
   return { id: `att-${++uid}`, file, name: file.name || 'arquivo', isImage, url: isImage ? URL.createObjectURL(file) : undefined };
@@ -98,6 +102,8 @@ function AttachPill({ a, onOpen, onRemove }: { a: Pending; onOpen: () => void; o
         : <span className="cc-attach-ico">{a.isImage ? <Image size={12} /> : <File size={12} />}</span>}
       <span className="cc-attach-name">{a.name}</span>
       {dims && <span className="cc-attach-meta">{dims}</span>}
+      {a.progresso !== undefined && <span className="cc-attach-meta cc-attach-pct">{a.progresso}%</span>}
+      {a.progresso !== undefined && <span className="cc-attach-bar" style={{ width: `${a.progresso}%` }} aria-hidden="true" />}
       <button type="button" className="cc-attach-x" onClick={e => { e.stopPropagation(); onRemove(); }} title="Remover anexo"><X size={12} /></button>
     </div>
   );
@@ -311,6 +317,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     setAttachments(nextAtts);
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
   const [micBusy, setMicBusy] = useState(false);
+  /** % do áudio já no servidor enquanto a transcrição espera a subida (null = não está subindo). */
+  const [micProgresso, setMicProgresso] = useState<number | null>(null);
   const [micRecording, setMicRecording] = useState(false);
   const [micError, setMicError] = useState<string>();
   // Nó real do marcador de ditado inserido no campo (ver insertMarkerEl acima) — guardado pra tirar
@@ -357,15 +365,30 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       void avisar(`Você atingiu o número máximo de anexos por mensagem (${ANEXOS_MAX}). Os arquivos extras não foram adicionados.`);
       files = files.slice(0, Math.max(0, vagas));
     }
+    // Vídeo e tamanho (12/11/2026): o Claude não assiste vídeo (26 mp4 em 30 dias, 298 MB, a 27 KB/s de subida);
+    // acima de 25 MB o servidor recusa — avisa antes, em vez de deixar "não ir".
+    const grandes = files.filter(f => f.size > ANEXO_BYTES_MAX);
+    if (grandes.length) {
+      void avisar(`${grandes.map(f => f.name).join(', ')}: acima de 25 MB, não sobe. Para vídeo, mande um trecho curto ou alguns prints.`, 'Anexo grande demais');
+      files = files.filter(f => !grandes.includes(f));
+    }
+    if (files.some(ehVideo)) void avisar('O Claude não assiste vídeo: ele só consegue extrair alguns quadros com ffmpeg se você pedir. Numa conexão lenta, prints resolvem melhor e sobem em segundos.', 'Vídeo anexado');
     if (!files.length) return;
     const added = files.map(toPending);
     setAttachments(prev => [...prev, ...added]);
     // Sobe cada anexo na hora (não só ao enviar): assim ele entra no rascunho salvo e volta depois de F5.
     for (const p of added) {
-      const f = p.file!;
-      const up = claudeApi.uploads([new window.File([f], pasteFilename(p.name, f.type), { type: f.type })])
-        .then(r => { const u = r.attachments[0]; if (u) setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, uploaded: u } : a)); })
-        .catch(() => { /* fica só no navegador; o envio tenta subir de novo */ })
+      const up = (async () => {
+        const f0 = p.file!;
+        // Imagem grande vira JPEG de até 2048 px ANTES de subir (ver imagem.ts): 1,5 MB → ~200 KB, 60 s → 8 s.
+        const f = p.isImage ? await reduzirImagem(f0) : f0;
+        if (f !== f0) setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, file: f } : a));
+        const pct = (e: number, t: number) => setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, progresso: Math.min(99, Math.round(e / Math.max(t, 1) * 100)) } : a));
+        const r = await claudeApi.uploads([new window.File([f], pasteFilename(f.name, f.type), { type: f.type })], pct);
+        const u = r.attachments[0];
+        setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, ...(u ? { uploaded: u } : {}), progresso: undefined } : a));
+      })()
+        .catch(() => { setAttachments(prev => prev.map(a => a.id === p.id ? { ...a, progresso: undefined } : a)); /* fica só no navegador; o envio tenta subir de novo */ })
         .finally(() => { uploadingRef.current.delete(p.id); });
       uploadingRef.current.set(p.id, up);
     }
@@ -478,7 +501,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
     if (el?.el) { micMarkerElRef.current = insertMarkerEl(el.el, el.getSelection().start); setMicDictating(true); }
     setMicError(undefined);
     let stream: MediaStream;
-    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }); }
     catch (e) {
       const name = (e as { name?: string }).name;
       if (name === 'NotAllowedError' || name === 'SecurityError') setMicDenied(true);
@@ -486,20 +509,46 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       return;
     }
     const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported?.(t)) ?? '';
-    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    // 24 kbps mono: voz fica nítida pro Whisper e o arquivo 5x menor (padrão do navegador ~128 kbps;
+    // a 27 KB/s de subida, 1 min de áudio levava 37 s pra subir — achado de 12/11/2026).
+    const rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 24000 });
     const chunks: Blob[] = [];
     let finish!: () => void;
     const entry = { rec, stream, cancelled: false, session: sessionRef.current, done: new Promise<void>(r => { finish = r; }) };
-    rec.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
+    const type0 = mime || 'audio/webm';
+    const ext = type0.includes('mp4') ? 'm4a' : type0.includes('ogg') ? 'ogg' : 'webm';
+    // Pedaços sobem ENQUANTO grava, na ordem (uma promessa encadeada). Se algum falhar, cai pro modo
+    // antigo (arquivo inteiro no fim). A Groq só recebe UMA chamada, no /fim — ver server/routes/claude.ts.
+    const gravId = `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    let seq = 0, bytesGravados = 0, bytesSubidos = 0;
+    let fila: Promise<boolean> = Promise.resolve(true);
+    rec.ondataavailable = ev => {
+      if (!ev.data.size) return;
+      chunks.push(ev.data); bytesGravados += ev.data.size;
+      const n = seq++; const pedaco = ev.data;
+      fila = fila.then(async ok => {
+        if (!ok) return false;
+        try { await claudeApi.transcribePedaco(gravId, n, pedaco, `ditado.${ext}`); bytesSubidos += pedaco.size; return true; }
+        catch { return false; }
+      });
+    };
     rec.onstop = async () => {
       stream.getTracks().forEach(t => t.stop());
       if (entry.cancelled) { removeMarkerEl(); finish(); return; }
       micPendingRef.current = entry.done;
-      const type = rec.mimeType || mime || 'audio/webm';
-      const ext = type.includes('mp4') ? 'm4a' : type.includes('ogg') ? 'ogg' : 'webm';
+      const type = rec.mimeType || type0;
       setMicBusy(true);
+      setMicProgresso(bytesGravados ? Math.round(bytesSubidos / bytesGravados * 100) : null);
       try {
-        const r = await claudeApi.transcribe(new Blob(chunks, { type }), `ditado.${ext}`);
+        const transcrever = async () => {
+          const ok = await fila;
+          if (ok && seq > 0) {
+            setMicProgresso(100);
+            try { return await claudeApi.transcribeFim(gravId, `ditado.${ext}`); } catch { /* servidor não achou a gravação: manda inteira */ }
+          }
+          return claudeApi.transcribe(new Blob(chunks, { type }), `ditado.${ext}`, (e, t) => setMicProgresso(Math.round(e / Math.max(t, 1) * 100)));
+        };
+        const r = await transcrever();
         // Trocou de aba enquanto gravava/transcrevia: o ditado vai para o rascunho da aba de origem.
         if (entry.session !== sessionRef.current) {
           if (r.text) {
@@ -527,10 +576,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           setText(composed.value);
         }
       } catch (err) { setMicError((err as Error).message || 'Falha ao transcrever'); }
-      finally { setMicBusy(false); removeMarkerEl(); micPendingRef.current = null; finish(); }
+      finally { setMicBusy(false); setMicProgresso(null); removeMarkerEl(); micPendingRef.current = null; finish(); }
     };
     micRecorderRef.current = entry;
-    rec.start();
+    rec.start(3000); // um pedaço a cada 3 s (ver ondataavailable)
     setMicRecording(true);
   }
   function toggleMic() {
@@ -659,7 +708,7 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
                   : micRecording
                     ? 'Toque para parar'
                     : micBusy
-                    ? 'Transcrevendo…'
+                    ? (micProgresso !== null && micProgresso < 100 ? `Enviando áudio… ${micProgresso}%` : 'Transcrevendo…')
                     : <>Toque para ditar<span className="cc-mic-tooltip-shortcut">{micShortcutLabel(isMacPlatform(navigator))}</span></>}
             </span>
           </div>

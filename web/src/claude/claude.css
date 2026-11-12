@@ -1101,3 +1101,7 @@
 }
 .cc-plan-btns .cc-btn, .cc-plan-open { width: auto; padding: 6px 12px; text-align: center; }
 .cc-plan-btns .cc-btn.cc-btn-primary { background: var(--claude); color: #fff; font-weight: 600; box-shadow: none; }
+
+/* progresso de subida do anexo (Composer.tsx AttachPill: `progresso`) */
+.cc-attach-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--cc-accent, #7aa2f7); transition: width .2s; pointer-events: none; }
+.cc-attach-pct { font-variant-numeric: tabular-nums; }

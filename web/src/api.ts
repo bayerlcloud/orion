@@ -1,6 +1,17 @@
 export type User = { id: number; name: string; email: string; role: 'owner' | 'member' };
 
 /**
+ * Login expirado (cookie de 30 dias): antes toda chamada falhava em silêncio até dar F5 — "a mensagem
+ * não vai". Agora qualquer 401 fora do login avisa o App (ver App.tsx), que volta pra tela de entrada.
+ */
+export const EVENTO_SESSAO_EXPIROU = 'orion:sessao-expirou';
+export function avisarSessaoExpirou(path: string, status: number): void {
+  if (status === 401 && !path.startsWith('/api/login') && !path.startsWith('/api/me') && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENTO_SESSAO_EXPIROU));
+  }
+}
+
+/**
  * Chamada à API. Só manda Content-Type JSON quando há corpo; POST vazio sem cabeçalho, senão o
  * Fastify devolve 400. `timeoutMs`: sem timeout aqui, uma rede travada deixava o `await` pendurado
  * pra sempre — no compositor do chat (Composer.tsx) isso prendia `sending` em `true` e o botão
@@ -31,6 +42,6 @@ export async function api<T>(path: string, init?: RequestInit, timeoutMs = 30000
     if (res.ok) throw new Error('Resposta incompleta do servidor, tente de novo');
     data = {}; // erro sem corpo JSON válido (ex.: 405 em texto puro) — vira `erro ${status}` abaixo.
   }
-  if (!res.ok) throw new Error((data as any).error ?? (data as any).message ?? `erro ${res.status}`);
+  if (!res.ok) { avisarSessaoExpirou(path, res.status); throw new Error((data as any).error ?? (data as any).message ?? `erro ${res.status}`); }
   return data as T;
 }
