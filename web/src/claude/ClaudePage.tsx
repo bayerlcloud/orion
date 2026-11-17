@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { addPendingUser, applyLive, dropPendingUser, emptyLive, fromRows, keepPendingUser, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, MODE_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
 import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar, { Avatar } from './Sidebar';
@@ -18,6 +18,8 @@ import SessionMenu from './SessionMenu';
 import { Pencil } from './icons';
 import './claude.css';
 import { confirmar, perguntar } from '../dialogo';
+import Fibra from '../Fibra';
+import { BotaoDitado, juntarDitado, useDitado } from './Ditado';
 import { IcoPainelDireito, useOrionPanel } from '../OrionPanel';
 import { avisarFimTurno } from './notify';
 
@@ -551,6 +553,41 @@ export default function ClaudePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [sessions]);
 
+  // Tela "Olá, Orion." (sem sessão aberta; trazida do Cérebro DDC em 17/11/2026): caixa própria, mais
+  // simples que o Composer, que cria a sessão direto no projeto escolhido (lembrado neste aparelho)
+  // sem passar pelo rascunho/escolha de projeto. "Nova sessão" na lateral continua com o fluxo de rascunho.
+  const [olaTexto, setOlaTexto] = useState('');
+  const [olaBusy, setOlaBusy] = useState(false);
+  const [olaProjeto, setOlaProjeto] = useState<number | null | undefined>(() => {
+    try { const v = localStorage.getItem('orion.olaProjeto'); return v === null ? undefined : v === 'neutro' ? null : Number(v); } catch { return undefined; }
+  });
+  const olaProjetos = useMemo(() => [...projects].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')), [projects]);
+  // Projeto efetivo: o lembrado (se ainda existe), senão o primeiro da lista, senão Neutro.
+  const olaProjetoAtual: number | null = olaProjeto !== undefined && (olaProjeto === null || projects.some(p => p.id === olaProjeto)) ? olaProjeto : (olaProjetos[0]?.id ?? null);
+  function escolherOlaProjeto(v: string) {
+    const id = v === 'neutro' ? null : Number(v);
+    setOlaProjeto(id);
+    try { localStorage.setItem('orion.olaProjeto', id === null ? 'neutro' : String(id)); } catch { /* modo privado */ }
+  }
+  // Microfone da caixa: o texto ditado entra na caixa; Enviar no meio da gravação para, transcreve e manda.
+  const olaDitado = useDitado(t => setOlaTexto(v => juntarDitado(v, t)));
+  async function enviarDoOla() {
+    if (olaBusy) return;
+    let texto = olaTexto;
+    if (olaDitado.estado === 'gravando') texto = juntarDitado(texto, await olaDitado.parar());
+    const prompt = texto.trim();
+    if (!prompt) return;
+    setErro(''); setOlaBusy(true);
+    try {
+      const r = await claudeApi.create({ project_id: olaProjetoAtual, prompt, permission_mode: mode, model: model !== 'default' ? model : undefined, effort });
+      setTabs(t => [...t, { id: r.id }]);
+      setActiveId(r.id);
+      setOlaTexto('');
+      void refreshSessions();
+    } catch (e: any) { setErro(e.message); }
+    finally { setOlaBusy(false); }
+  }
+
   async function send(text: string, files: File[] = [], uploaded: Attachment[] = []) {
     setErro('');
     try {
@@ -821,7 +858,8 @@ export default function ClaudePage() {
         {/* `.cc-chat` = `.chatContainer_07S1Yg` real: âncora `position:relative` pras duas camadas
             absolutas por cima da área que rola (`.cc-fade`/`.cc-float` abaixo) — ver claude.css e
             PARIDADE.md "Layout flutuante do composer". */}
-        <div className="cc-chat">
+        <div className={`cc-chat ${!activeId && !sessionsLoading ? 'is-ola' : ''}`}>
+          {!activeId && !sessionsLoading && <Fibra />}
           <div className="cc-scroll" ref={scrollRef}>
             {/* Dentro do .cc-scroll (pedido do Danilo 02/10/2026): rola junto e some com a conversa, não fica fixo. */}
             {active && activeWorktreeName && (
@@ -838,10 +876,31 @@ export default function ClaudePage() {
                 ainda se tem aba pra restaurar. */}
             {!activeId && sessionsLoading && <div className="cc-loading" role="status" aria-label="Carregando"><span /><span /><span /></div>}
             {!activeId && !sessionsLoading && (
-              <div className="cc-empty-state">
-                <div className="cc-brand-big">✳ Claude Code</div>
-                <p>Escolha uma sessão à esquerda ou clique em <b>Nova sessão</b>.</p>
-                <p className="cc-muted">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada.</p>
+              <div className="cc-ola">
+                <div>
+                  <h1>Olá, Orion.<span className="cc-ola-cursor" aria-hidden="true" /></h1>
+                  <p>O que vamos resolver hoje?</p>
+                </div>
+                <form className="cc-ola-compor" onSubmit={e => { e.preventDefault(); void enviarDoOla(); }}>
+                  <textarea value={olaTexto} onChange={e => setOlaTexto(e.target.value)} rows={2} autoFocus disabled={olaBusy}
+                    placeholder={olaDitado.estado === 'gravando' ? 'Ouvindo… pode falar.' : olaDitado.estado === 'transcrevendo' ? 'Transcrevendo o que você disse…' : 'Fale com o Orion…'}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void enviarDoOla(); } }} />
+                  <div className="cc-ola-foot">
+                    <select value={olaProjetoAtual === null ? 'neutro' : String(olaProjetoAtual)} onChange={e => escolherOlaProjeto(e.target.value)} aria-label="Projeto da sessão" title="Projeto da sessão">
+                      {olaProjetos.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      <option value="neutro">Neutro (sem projeto)</option>
+                    </select>
+                    <span className="cc-ola-modo">{MODE_LABEL[mode]}</span>
+                    <BotaoDitado ditado={olaDitado} className="cc-ola-mic" />
+                    <button type="submit" className="cc-ola-enviar" disabled={(!olaTexto.trim() && olaDitado.estado !== 'gravando') || olaDitado.estado === 'transcrevendo' || olaBusy}>{olaBusy ? 'Abrindo…' : 'Enviar'}<SendArrow className="cc-send-icon" /></button>
+                  </div>
+                </form>
+                <div className="cc-ola-sugestoes">
+                  {['O que mudou no projeto hoje?', 'Revisar a última entrega', 'Resumo do que está pendente', 'Rodar os testes e me contar'].map(t => (
+                    <button key={t} type="button" onClick={() => setOlaTexto(t)}>{t}</button>
+                  ))}
+                </div>
+                <p className="cc-ola-nota">Cada sessão roda na c3, na pasta do projeto, com o login único do Max. Fechar o navegador não interrompe nada. As sessões anteriores ficam na lateral.</p>
               </div>
             )}
             {activeTab?.draft && activeTab.projectId === undefined && (
