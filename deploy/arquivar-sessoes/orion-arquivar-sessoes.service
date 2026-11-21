@@ -1,0 +1,13 @@
+[Unit]
+Description=Orion: arquiva sessões paradas há mais de 30 dias
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=danilo
+WorkingDirectory=/srv/orion-live
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion-live/dist/scripts/arquivar-sessoes.js
+TimeoutStartSec=300
+Nice=10
