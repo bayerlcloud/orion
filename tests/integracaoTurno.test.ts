@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ganchosDaSessao } from '../server/integracao/turno';
+import { ganchosDaSessao, comandoIsolado, DEPLOY_LOCK } from '../server/integracao/turno';
 import { FilaIntegracao } from '../server/integracao/fila';
 import { commitTurno, integrate } from '../server/tasks/git';
 
@@ -109,5 +109,31 @@ describe('ganchosDaSessao', () => {
     const c = await ganchosDaSessao(opcoes(wtG))!.publicador.deploy();
     expect(c.texto).toContain('Deploy cancelado');
     expect(rodados).toEqual([]);
+  });
+});
+
+describe('comandoIsolado: deploy.sh fora do cgroup do painel (23/11/2026)', () => {
+  const env = { PATH: '/usr/bin', HOME: '/home/danilo' };
+  it('bash ./deploy.sh vira systemd-run --user --scope com teto de memória, slice própria e cadeado global', () => {
+    const c = comandoIsolado('bash', ['./deploy.sh'], '/srv/projects/brandspace', { uid: 1001, agora: 1000, isolar: true, env });
+    expect(c.cmd).toBe('systemd-run');
+    expect(c.unit).toBe('orion-deploy-brandspace-rs');
+    expect(c.args.slice(0, 3)).toEqual(['--user', '--scope', '--quiet']);
+    expect(c.args).toContain('--slice=orion-deploys.slice');
+    expect(c.args).toContain('MemoryMax=6G');
+    expect(c.args.slice(-6)).toEqual(['flock', '-w', '1200', DEPLOY_LOCK, 'bash', './deploy.sh']);
+    expect(c.env.XDG_RUNTIME_DIR).toBe('/run/user/1001');
+    expect(c.env.DBUS_SESSION_BUS_ADDRESS).toBe('unix:path=/run/user/1001/bus');
+    expect(c.env.GIT_TERMINAL_PROMPT).toBe('0');
+    expect(c.env.PATH).toBe('/usr/bin');
+  });
+  it('git e outros comandos seguem direto; ORION_DEPLOY_ISOLADO=0 desliga pro deploy.sh também', () => {
+    const g = comandoIsolado('git', ['push'], '/srv/projects/x', { isolar: true, env });
+    expect(g.cmd).toBe('git'); expect(g.unit).toBeNull(); expect(g.args).toEqual(['push']);
+    const d = comandoIsolado('bash', ['./deploy.sh'], '/srv/projects/x', { isolar: false, env });
+    expect(d.cmd).toBe('bash'); expect(d.unit).toBeNull();
+  });
+  it('nome da unidade sai do nome da pasta, saneado', () => {
+    expect(comandoIsolado('bash', ['./deploy.sh'], '/srv/projects/Sítio Novo!', { uid: 1, agora: 35, isolar: true, env }).unit).toBe('orion-deploy-s-tio-novo-z');
   });
 });

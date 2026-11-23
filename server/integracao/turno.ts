@@ -16,7 +16,8 @@ import type { FilaIntegracao } from './fila.js';
 
 /** O próprio Orion publica pela fila do systemd (pedido.json), não por deploy.sh. */
 export const ORION_RAIZ = '/srv/orion';
-const DEPLOY_TIMEOUT = 15 * 60_000;
+// 30 min: com UM deploy por vez (ver comandoIsolado), o segundo pode esperar o build do primeiro (10 min) e ainda rodar o seu.
+const DEPLOY_TIMEOUT = 30 * 60_000;
 
 export type Resultado = { ok: boolean; texto: string };
 export type Publicador = { raiz: string; publicar: () => Promise<Resultado>; deploy: () => Promise<Resultado> };
@@ -35,9 +36,52 @@ type Opcoes = {
   pedirOrion?: (por: string) => Promise<void>;
 };
 
+/** Cadeado global dos deploys: um build pesado por vez na c3 (dois de 5 GB juntos = swap cheio pra todo mundo). */
+export const DEPLOY_LOCK = '/tmp/orion-deploys.lock';
+
+/**
+ * Isolamento do deploy.sh (23/11/2026). Rodado como filho do painel, o build do Brandspace (heap de 6 GB no
+ * package.json) entrava no cgroup do orion-central (MemoryHigh=6G) e estrangulava o painel inteiro: swap
+ * 100%, load 30, site sem responder — 20 publicações no dia, uma atrás da outra (12/11 foi igual). Agora
+ * o script roda num scope do gerente de usuário (`systemd-run --user --scope`: fora do cgroup do serviço,
+ * mesmo env/cwd/stdio, exit code preservado — provado na c3 em 23/11) com teto próprio de memória e UM
+ * deploy por vez (flock global). Só o `bash ./deploy.sh`; git e o resto seguem direto. Desligável com
+ * ORION_DEPLOY_ISOLADO=0. ponytail: teto fixo em 6G; vira meta do projeto se algum precisar de mais.
+ */
+export function comandoIsolado(cmd: string, args: string[], cwd: string, o: { uid?: number; agora?: number; isolar?: boolean; env?: NodeJS.ProcessEnv } = {}): { cmd: string; args: string[]; unit: string | null; env: Record<string, string> } {
+  const isolar = o.isolar ?? process.env.ORION_DEPLOY_ISOLADO !== '0';
+  const uid = o.uid ?? process.getuid?.() ?? 0;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(o.env ?? process.env)) if (typeof v === 'string') env[k] = v;
+  env.GIT_TERMINAL_PROMPT = '0';
+  if (!isolar || cmd !== 'bash' || args[0] !== './deploy.sh') return { cmd, args, unit: null, env };
+  const slug = path.basename(cwd).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'projeto';
+  const unit = `orion-deploy-${slug}-${(o.agora ?? Date.now()).toString(36)}`;
+  env.XDG_RUNTIME_DIR ??= `/run/user/${uid}`;
+  env.DBUS_SESSION_BUS_ADDRESS ??= `unix:path=/run/user/${uid}/bus`;
+  return {
+    cmd: 'systemd-run',
+    args: ['--user', '--scope', '--quiet', `--unit=${unit}`, '--slice=orion-deploys.slice', '-p', 'MemoryMax=6G', '-p', 'MemoryHigh=5G', '-p', 'CPUWeight=50',
+      'flock', '-w', '1200', DEPLOY_LOCK, cmd, ...args],
+    unit, env,
+  };
+}
+
 const rodarPadrao: Rodar = (cmd, args, cwd) => new Promise((resolve) => {
-  execFile(cmd, args, { cwd, timeout: DEPLOY_TIMEOUT, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
-    (err, stdout, stderr) => resolve({ code: err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0, out: `${stdout ?? ''}${stderr ?? ''}` }));
+  const c = comandoIsolado(cmd, args, cwd);
+  const codigo = (err: unknown) => (err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0);
+  execFile(c.cmd, c.args, { cwd, timeout: DEPLOY_TIMEOUT, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: c.env }, (err, stdout, stderr) => {
+    const out = `${stdout ?? ''}${stderr ?? ''}`;
+    // Timeout: o execFile só mata o systemd-run; derruba o scope inteiro (build e filhos) pra não sobrar órfão.
+    if (c.unit && err && (err as { killed?: boolean }).killed) execFile('systemctl', ['--user', 'stop', `${c.unit}.scope`], { env: c.env }, () => {});
+    // Gerente de usuário fora do ar: roda direto, como antes, e deixa o motivo na saída.
+    if (c.unit && codigo(err) !== 0 && /Failed to connect to bus|Failed to start transient|systemd-run: (command )?not found|ENOENT/i.test(`${out}${(err as Error | null)?.message ?? ''}`)) {
+      execFile(cmd, args, { cwd, timeout: DEPLOY_TIMEOUT, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: { ...c.env } },
+        (e2, so2, se2) => resolve({ code: codigo(e2), out: `[isolamento indisponível (${out.trim().slice(0, 120)}); rodou direto]\n${so2 ?? ''}${se2 ?? ''}` }));
+      return;
+    }
+    resolve({ code: codigo(err), out });
+  });
 });
 
 const fim = (t: string, n = 1500) => t.trim().slice(-n);
