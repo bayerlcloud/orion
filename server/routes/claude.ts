@@ -39,7 +39,7 @@ import { branchAtual } from '../tasks/git.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub, type GithubAccount } from '../tools/githubAccounts.js';
-import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, metaLeveza, remoteOrigin } from '../tools/leveza.js';
+import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, metaLeveza, remoteOrigin, truncarToolResult } from '../tools/leveza.js';
 import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { ensureGoogleCloudAccountsTable, googleCloudParaHeader, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
@@ -794,6 +794,9 @@ export async function claudeRoutes(app: FastifyInstance) {
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init)
         ORDER BY e.seq`, [s.id, turnos]);
+    // Corte de 20 KB também na LEITURA (23/11/2026): sessão de agente com 20 turnos devolvia 50 MB de JSON
+    // (tool_results gravados antes do corte de 12/11); abrir a sessão levava 18 s no p90, 193 s no pior caso.
+    for (const e of events) e.payload = truncarToolResult(e.payload);
     const primeiro = events.find(e => e.type === 'user_prompt')?.seq;
     const escondidos = turnos < 1000000 && primeiro !== undefined
       ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
