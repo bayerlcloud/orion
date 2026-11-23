@@ -143,3 +143,33 @@ export async function desarquivar(pool: Pool, sessionId: string): Promise<number
 export function jsonSemNul(v: unknown): string {
   return JSON.stringify(v).replace(/\\u0000/g, '');
 }
+
+/**
+ * Imagens dentro de tool_result (prints do navegador compartilhado, base64) são o que pesa numa sessão de
+ * agente: 384 prints = 63 MB numa sessão de 155 MB (23/11/2026). A Timeline mostra essas imagens
+ * (mapper.ts resultImages), então na LEITURA ficam só as dos turnos recentes; as antigas viram uma nota.
+ * Nunca mexe no que está gravado. Devolve o mesmo objeto quando não há o que trocar.
+ */
+export function semImagensDeFerramenta<T>(payload: T): T {
+  const p = payload as { type?: string; message?: { content?: unknown } } | null;
+  if (!p || p.type !== 'user' || !Array.isArray(p.message?.content)) return payload;
+  let mudou = false;
+  const content = (p.message!.content as Array<Record<string, unknown>>).map(b => {
+    if (!b || b.type !== 'tool_result' || !Array.isArray(b.content)) return b;
+    const blocos = (b.content as Array<Record<string, unknown>>).map(c => {
+      if (c?.type !== 'image') return c;
+      mudou = true;
+      const src = c.source as { data?: string } | undefined;
+      const kb = Math.round(((typeof src?.data === 'string' ? src.data.length : 0) * 3) / 4 / 1024);
+      return { type: 'text', text: `[imagem de ferramenta de um turno antigo (${kb} KB) não carregada: a sessão viu na hora]` };
+    });
+    return { ...b, content: blocos };
+  });
+  return mudou ? ({ ...(p as object), message: { ...(p.message as object), content } } as T) : payload;
+}
+
+/** Seq a partir do qual as imagens de ferramenta ficam ao abrir a sessão: o 3º prompt mais recente (menos que isso, fica tudo). */
+export function limiarImagens(events: ReadonlyArray<{ type: string; seq: number }>, turnosComImagem = 3): number {
+  const prompts = events.filter(e => e.type === 'user_prompt').map(e => e.seq);
+  return prompts.length >= turnosComImagem ? prompts[prompts.length - turnosComImagem] : 0;
+}
