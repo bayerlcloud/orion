@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { jsonSemNul, limiarImagens, semImagensDeFerramenta, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
+import { enxugarToolUseResult, jsonSemNul, limiarImagens, semImagensDeFerramenta, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
 
 describe('leveza por sessão (12/11/2026)', () => {
   it('slug dos conectores claude.ai igual ao que o CLI usa nas tools', () => {
@@ -93,5 +93,21 @@ describe('imagens de ferramenta só nos turnos recentes (23/11/2026)', () => {
     const ev = [{ type: 'user_prompt', seq: 1 }, { type: 'user', seq: 2 }, { type: 'user_prompt', seq: 10 }, { type: 'user_prompt', seq: 20 }, { type: 'user_prompt', seq: 30 }];
     expect(limiarImagens(ev)).toBe(10);
     expect(limiarImagens(ev.slice(0, 3))).toBe(0);
+  });
+});
+
+describe('enxugarToolUseResult: só os campos do mapa de agentes', () => {
+  it('mantém status/totais do Task e descarta a cópia do resultado; sem o campo devolve o mesmo objeto', () => {
+    const u = { type: 'user', message: { content: 'x' }, tool_use_result: { status: 'completed', totalTokens: 10, totalToolUseCount: 2, totalDurationMs: 5, content: [{ type: 'image', source: { data: 'A'.repeat(1000) } }] } };
+    expect(enxugarToolUseResult(u)).toEqual({ type: 'user', message: { content: 'x' }, tool_use_result: { status: 'completed', totalTokens: 10, totalToolUseCount: 2, totalDurationMs: 5 } });
+    expect(u.tool_use_result.content.length).toBe(1); // nunca muta
+    const bash = { type: 'user', message: { content: 'x' }, tool_use_result: { stdout: 'y'.repeat(5000), stderr: '' } };
+    expect(enxugarToolUseResult(bash)).toEqual({ type: 'user', message: { content: 'x' } });
+    const str = { type: 'user', message: { content: 'x' }, tool_use_result: 'texto cru' };
+    expect(enxugarToolUseResult(str)).toEqual({ type: 'user', message: { content: 'x' } });
+    const sem = { type: 'user', message: { content: 'x' } };
+    expect(enxugarToolUseResult(sem)).toBe(sem);
+    const a = { type: 'assistant', tool_use_result: { x: 1 } };
+    expect(enxugarToolUseResult(a)).toBe(a);
   });
 });

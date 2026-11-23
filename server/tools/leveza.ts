@@ -173,3 +173,21 @@ export function limiarImagens(events: ReadonlyArray<{ type: string; seq: number 
   const prompts = events.filter(e => e.type === 'user_prompt').map(e => e.seq);
   return prompts.length >= turnosComImagem ? prompts[prompts.length - turnosComImagem] : 0;
 }
+
+/** Campos de `tool_use_result` que o painel usa (mapper.ts parseAgentTaskUsage: mapa de agentes). O resto é cópia do tool_result. */
+const TOOL_USE_RESULT_CAMPOS = ['status', 'totalTokens', 'totalToolUseCount', 'totalDurationMs'] as const;
+
+/**
+ * O SDK repete o resultado INTEIRO da ferramenta em `SDKUserMessage.tool_use_result` (print de 551 KB
+ * duas vezes no mesmo evento; 26 dos 35 MB de uma sessão aberta, 23/11/2026). O painel só lê os 4
+ * campos de contagem do subagente (Task). Fica só isso; vale na gravação e na leitura. Nunca muta.
+ */
+export function enxugarToolUseResult<T>(payload: T): T {
+  const p = payload as { type?: string; tool_use_result?: unknown } | null;
+  if (!p || p.type !== 'user' || !('tool_use_result' in p)) return payload;
+  const r = p.tool_use_result;
+  const resto: Record<string, unknown> = {};
+  if (r && typeof r === 'object' && !Array.isArray(r)) for (const k of TOOL_USE_RESULT_CAMPOS) if (k in (r as object)) resto[k] = (r as Record<string, unknown>)[k];
+  const { tool_use_result: _fora, ...sem } = p as Record<string, unknown>;
+  return (Object.keys(resto).length ? { ...sem, tool_use_result: resto } : sem) as T;
+}
