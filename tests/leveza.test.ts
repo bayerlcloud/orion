@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { jsonSemNul, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
+import { jsonSemNul, limiarImagens, semImagensDeFerramenta, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
 
 describe('leveza por sessão (12/11/2026)', () => {
   it('slug dos conectores claude.ai igual ao que o CLI usa nas tools', () => {
@@ -74,5 +74,24 @@ describe('jsonSemNul', () => {
     const j = jsonSemNul({ a: 'x\u0000y', b: 'u0000 literal', c: 1 });
     expect(j).toBe('{"a":"xy","b":"u0000 literal","c":1}');
     expect(JSON.parse(j).a).toBe('xy');
+  });
+});
+
+describe('imagens de ferramenta só nos turnos recentes (23/11/2026)', () => {
+  const img = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(4096) } };
+  it('troca image por nota em tool_result; texto e o resto ficam; sem imagem devolve o mesmo objeto', () => {
+    const u = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: [{ type: 'text', text: 'ok' }, img] }] } };
+    const r = semImagensDeFerramenta(u) as typeof u;
+    expect(r).not.toBe(u);
+    expect((r.message.content[0] as any).content).toEqual([{ type: 'text', text: 'ok' }, { type: 'text', text: '[imagem de ferramenta de um turno antigo (3 KB) não carregada: a sessão viu na hora]' }]);
+    const semImg = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't', content: 'texto' }] } };
+    expect(semImagensDeFerramenta(semImg)).toBe(semImg);
+    const assistant = { type: 'assistant', message: { content: [img] } };
+    expect(semImagensDeFerramenta(assistant)).toBe(assistant);
+  });
+  it('limiarImagens: seq do 3º prompt mais recente; com menos de 3 prompts, 0 (fica tudo)', () => {
+    const ev = [{ type: 'user_prompt', seq: 1 }, { type: 'user', seq: 2 }, { type: 'user_prompt', seq: 10 }, { type: 'user_prompt', seq: 20 }, { type: 'user_prompt', seq: 30 }];
+    expect(limiarImagens(ev)).toBe(10);
+    expect(limiarImagens(ev.slice(0, 3))).toBe(0);
   });
 });
