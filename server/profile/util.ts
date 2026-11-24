@@ -56,8 +56,12 @@ export function validDarkVariant(s: unknown): 'dark' | 'black' {
   throw new Error('variante de tema inválida');
 }
 
-/** Tema: 'dark', 'light' ou 'system'. Lança em qualquer outro valor. */
-export function validTheme(s: unknown): 'dark' | 'light' | 'system' {
-  if (s === 'dark' || s === 'light' || s === 'system') return s;
+/** Ids de tema aceitos: catálogo espelha web/src/tema.ts (TEMAS) + 'system'. */
+const TEMA_IDS = ['dark', 'light', 'system', 'dracula', 'nord', 'one-dark', 'branco', 'claude'] as const;
+type TemaId = (typeof TEMA_IDS)[number];
+
+/** Tema: um dos ids do catálogo. Lança em qualquer outro valor. */
+export function validTheme(s: unknown): TemaId {
+  if ((TEMA_IDS as readonly unknown[]).includes(s)) return s as TemaId;
   throw new Error('tema inválido');
 }

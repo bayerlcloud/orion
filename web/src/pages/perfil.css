@@ -23,7 +23,16 @@
   color: var(--ok); padding: 8px 10px; margin: 10px 0 0; border-radius: 6px; font-size: 13px;
 }
 
-.perfil-tema { display: inline-flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.perfil-tema-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 14px; }
+.perfil-tema-sw {
+  display: flex; align-items: center; gap: 8px; font: inherit; font-size: 13px; padding: 7px 14px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg2); color: var(--fg2); cursor: pointer;
+}
+.perfil-tema-sw:hover { background: var(--hover); color: var(--fg); }
+.perfil-tema-sw.active { border-color: var(--accent); color: var(--fg); background: var(--active); }
+.perfil-tema-dot { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; }
+
+.perfil-tema { display: inline-flex; gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-bottom: 14px; }
 .perfil-tema-btn {
   font: inherit; font-size: 13px; padding: 7px 16px; border: 0; cursor: pointer;
   background: var(--bg2); color: var(--fg2); border-right: 1px solid var(--line);

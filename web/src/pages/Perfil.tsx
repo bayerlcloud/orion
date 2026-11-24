@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type User } from '../api';
 import './perfil.css';
-import { aplicarTema, type Tema, type VarianteEscuro } from '../tema';
+import { aplicarTema, temaValido, TEMAS, type Tema, type VarianteEscuro } from '../tema';
 
 type Profile = {
   id: number;
@@ -47,7 +47,7 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     setNome(r.name ?? '');
     setSobrenome(r.surname ?? '');
     setTelefone(r.phone ?? '');
-    setTema(r.theme === 'light' || r.theme === 'system' ? r.theme : 'dark');
+    setTema(temaValido(r.theme));
     setVariante(r.dark_variant === 'black' ? 'black' : 'dark');
   }
 
@@ -202,15 +202,31 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
       <section className="cfg-box">
         <h2>Aparência</h2>
         <p className="muted small">Escolha o tema da interface. Vale só para você.</p>
-        <div className="perfil-tema" role="group" aria-label="Tema da interface">
-          <button type="button" className={`perfil-tema-btn ${tema === 'dark' ? 'active' : ''}`}
-            aria-pressed={tema === 'dark'} onClick={() => trocarTema('dark')}>Escuro</button>
-          <button type="button" className={`perfil-tema-btn ${tema === 'light' ? 'active' : ''}`}
-            aria-pressed={tema === 'light'} onClick={() => trocarTema('light')}>Claro</button>
-          <button type="button" className={`perfil-tema-btn ${tema === 'system' ? 'active' : ''}`}
-            aria-pressed={tema === 'system'} onClick={() => trocarTema('system')}>Sistema</button>
+        <p className="muted small">Escuros</p>
+        <div className="perfil-tema-grid" role="group" aria-label="Temas escuros">
+          {TEMAS.filter(t => t.escuro).map(t => (
+            <button key={t.id} type="button" className={`perfil-tema-sw ${tema === t.id ? 'active' : ''}`}
+              aria-pressed={tema === t.id} onClick={() => trocarTema(t.id)}>
+              <span className="perfil-tema-dot" style={{ background: t.cor }} />
+              {t.label}
+            </button>
+          ))}
         </div>
-        {tema !== 'light' && (
+        <p className="muted small">Claros</p>
+        <div className="perfil-tema-grid" role="group" aria-label="Temas claros">
+          {TEMAS.filter(t => !t.escuro).map(t => (
+            <button key={t.id} type="button" className={`perfil-tema-sw ${tema === t.id ? 'active' : ''}`}
+              aria-pressed={tema === t.id} onClick={() => trocarTema(t.id)}>
+              <span className="perfil-tema-dot" style={{ background: t.cor, border: '1px solid var(--line)' }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="perfil-tema" role="group" aria-label="Tema da interface">
+          <button type="button" className={`perfil-tema-btn ${tema === 'system' ? 'active' : ''}`}
+            aria-pressed={tema === 'system'} onClick={() => trocarTema('system')}>Sistema (acompanha o aparelho)</button>
+        </div>
+        {(tema === 'system' || TEMAS.find(t => t.id === tema)?.escuro) && (
           <>
             <p className="muted small">{tema === 'system' ? 'Quando o sistema estiver no modo escuro:' : 'Estilo do escuro:'}</p>
             <div className="perfil-tema" role="group" aria-label="Estilo do tema escuro">
