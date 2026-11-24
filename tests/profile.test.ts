@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  sanitizePhone, extForMime, mimeForExt, validName, validSurname, validTheme, AVATAR_EXTS,
+  sanitizePhone, extForMime, mimeForExt, validName, validSurname, validTemaEscuro, validTemaClaro, validModo, AVATAR_EXTS,
 } from '../server/profile/util.js';
 
 describe('sanitizePhone', () => {
@@ -91,14 +91,38 @@ describe('validSurname', () => {
   });
 });
 
-describe('validTheme', () => {
-  it('aceita dark e light', () => {
-    expect(validTheme('dark')).toBe('dark');
-    expect(validTheme('light')).toBe('light');
+describe('validTemaEscuro', () => {
+  it('aceita orion e dark', () => {
+    expect(validTemaEscuro('orion')).toBe('orion');
+    expect(validTemaEscuro('dark')).toBe('dark');
+  });
+  it('rejeita tema claro e qualquer outro valor', () => {
+    expect(() => validTemaEscuro('branco')).toThrow();
+    expect(() => validTemaEscuro('')).toThrow();
+    expect(() => validTemaEscuro(undefined)).toThrow();
+  });
+});
+
+describe('validTemaClaro', () => {
+  it('aceita branco e light', () => {
+    expect(validTemaClaro('branco')).toBe('branco');
+    expect(validTemaClaro('light')).toBe('light');
+  });
+  it('rejeita tema escuro e qualquer outro valor', () => {
+    expect(() => validTemaClaro('dark')).toThrow();
+    expect(() => validTemaClaro('')).toThrow();
+    expect(() => validTemaClaro(undefined)).toThrow();
+  });
+});
+
+describe('validModo', () => {
+  it('aceita system, light e dark', () => {
+    expect(validModo('system')).toBe('system');
+    expect(validModo('light')).toBe('light');
+    expect(validModo('dark')).toBe('dark');
   });
   it('rejeita qualquer outro valor', () => {
-    expect(() => validTheme('escuro')).toThrow();
-    expect(() => validTheme('')).toThrow();
-    expect(() => validTheme(undefined)).toThrow();
+    expect(() => validModo('escuro')).toThrow();
+    expect(() => validModo(undefined)).toThrow();
   });
 });

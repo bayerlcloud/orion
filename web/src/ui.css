@@ -56,6 +56,16 @@
   --link: #88c0d0; --claude: #d08770; --code-fg: #e5e9f0; --code-block: #3b4252; --diff-add: #a3be8c; --diff-del: #bf616a;
   --muted: var(--fg2); --code-bg: #ffffff12;
 }
+:root[data-theme="orion"] {
+  /* Orion: preto/branco/laranja, o tema padrão do painel (pedido do Gustavo, 24/11/2026). Preto
+     puro de propósito (não precisa de color-mix no AMOLED: já nasce no fundo). */
+  color-scheme: dark;
+  --bg: #000000; --bg2: #0a0a0a; --panel: #000000; --fg: #ffffff; --fg2: #a3a3a3; --line: #232323;
+  --bg-raw: #000000; --bg2-raw: #0a0a0a; --panel-raw: #000000; --line-raw: #232323; --hover-raw: #161616; --active-raw: #212121; --code-block-raw: #0a0a0a;
+  --hover: #161616; --active: #212121; --accent: #ff7a1a; --accent-2: #ff7a1aaa; --ok: #3ddc84; --bad: #ff5c5c; --warn: #ffc24b; --info: #4ea1ff;
+  --link: #ff9144; --claude: #ff7a1a; --code-fg: #ffb37a; --code-block: #0a0a0a; --diff-add: #3ddc84; --diff-del: #ff5c5c;
+  --muted: var(--fg2); --code-bg: #ffffff12;
+}
 :root[data-theme="one-dark"] {
   color-scheme: dark;
   --bg: #282c34; --bg2: #21252b; --panel: #282c34; --fg: #abb2bf; --fg2: #5c6370; --line: #181a1f;
@@ -68,11 +78,14 @@
   /* Black (AMOLED): puxa qualquer tema escuro pro preto puro; pixels apagados gastam menos bateria.
      Parte de --X-raw (valor "puro" do tema, sem color-mix), não de --X: referenciar a própria
      variável que esta regra também define forma ciclo e o navegador invalida ela inteira (o bug
-     relatado pelo Gustavo, 24/11/2026: o AMOLED sumia). */
-  --bg: color-mix(in srgb, var(--bg-raw) 25%, black); --bg2: color-mix(in srgb, var(--bg2-raw) 35%, black);
-  --panel: color-mix(in srgb, var(--panel-raw) 25%, black); --line: color-mix(in srgb, var(--line-raw) 60%, black);
-  --hover: color-mix(in srgb, var(--hover-raw) 40%, black); --active: color-mix(in srgb, var(--active-raw) 45%, black);
-  --code-block: color-mix(in srgb, var(--code-block-raw) 25%, black);
+     relatado pelo Gustavo, 24/11/2026: o AMOLED sumia).
+     Percentuais baixos de propósito (pedido do Gustavo, 24/11/2026: "o preto não está preto"):
+     o fundo e o painel quase não guardam a cor original do tema, só line/hover/active ficam com
+     um resto maior, pra ainda dar pra diferenciar um do outro sem clarear o preto. */
+  --bg: color-mix(in srgb, var(--bg-raw) 8%, black); --bg2: color-mix(in srgb, var(--bg2-raw) 14%, black);
+  --panel: color-mix(in srgb, var(--panel-raw) 8%, black); --line: color-mix(in srgb, var(--line-raw) 45%, black);
+  --hover: color-mix(in srgb, var(--hover-raw) 22%, black); --active: color-mix(in srgb, var(--active-raw) 28%, black);
+  --code-block: color-mix(in srgb, var(--code-block-raw) 10%, black);
 }
 * { box-sizing: border-box; }
 /* Barras de rolagem do sistema todo: finas (6px), um pouco mais claras que o fundo (Bayerl 29/09: escura demais some). Sem `scrollbar-width`

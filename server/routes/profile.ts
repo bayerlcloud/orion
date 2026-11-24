@@ -6,7 +6,8 @@ import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { hashPassword, verifyPassword } from '../auth.js';
 import {
-  AVATAR_EXTS, extForMime, mimeForExt, sanitizePhone, validName, validSurname, validTheme, validDarkVariant,
+  AVATAR_EXTS, extForMime, mimeForExt, sanitizePhone, validName, validSurname,
+  validTemaEscuro, validTemaClaro, validModo, validDarkVariant,
 } from '../profile/util.js';
 
 /** Limite do avatar: 5 MB. */
@@ -22,7 +23,8 @@ export function avatarDir(): string {
 
 type Row = {
   id: number; name: string; surname: string | null; email: string;
-  phone: string | null; role: string; theme: string; dark_variant: string; avatar_ext: string | null;
+  phone: string | null; role: string; mode: string; theme_light: string; theme_dark: string;
+  dark_variant: string; avatar_ext: string | null;
 };
 
 export async function profileRoutes(app: FastifyInstance) {
@@ -36,6 +38,23 @@ export async function profileRoutes(app: FastifyInstance) {
      ALTER TABLE users ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'dark';
      ALTER TABLE users ADD COLUMN IF NOT EXISTS dark_variant text NOT NULL DEFAULT 'dark';`,
   );
+  // Tema virou dois eixos (modo + tema por modo, pedido do Gustavo 24/11/2026): antes era um único
+  // id de tema que incluía 'system'. Migração de uma vez só (guardada pela própria existência da
+  // coluna nova), lendo a coluna antiga `theme` para não perder a escolha de quem já tinha mexido.
+  await app.pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'theme_dark') THEN
+        ALTER TABLE users ADD COLUMN mode text NOT NULL DEFAULT 'dark';
+        ALTER TABLE users ADD COLUMN theme_light text NOT NULL DEFAULT 'branco';
+        ALTER TABLE users ADD COLUMN theme_dark text NOT NULL DEFAULT 'orion';
+        UPDATE users SET
+          mode = CASE WHEN theme = 'system' THEN 'system' WHEN theme IN ('light', 'branco', 'claude') THEN 'light' ELSE 'dark' END,
+          theme_dark = CASE WHEN theme IN ('dark', 'dracula', 'nord', 'one-dark') THEN theme ELSE 'orion' END,
+          theme_light = CASE WHEN theme IN ('light', 'branco', 'claude') THEN theme ELSE 'branco' END;
+      END IF;
+    END $$;
+  `);
   await mkdir(dir, { recursive: true }).catch((e: NodeJS.ErrnoException) => {
     writable = false;
     app.log.warn(`AVATAR_DIR ${dir} não pôde ser criado: ${e.message}`);
@@ -52,7 +71,7 @@ export async function profileRoutes(app: FastifyInstance) {
 
   async function loadRow(id: number): Promise<Row | null> {
     const { rows } = await app.pool.query<Row>(
-      'SELECT id, name, surname, email, phone, role, theme, dark_variant, avatar_ext FROM users WHERE id = $1', [id]);
+      'SELECT id, name, surname, email, phone, role, mode, theme_light, theme_dark, dark_variant, avatar_ext FROM users WHERE id = $1', [id]);
     return rows[0] ?? null;
   }
 
@@ -67,7 +86,7 @@ export async function profileRoutes(app: FastifyInstance) {
     }
     return {
       id: r.id, name: r.name, surname: r.surname, email: r.email, phone: r.phone,
-      role: r.role, theme: r.theme, dark_variant: r.dark_variant, has_avatar: hasAvatar,
+      role: r.role, mode: r.mode, theme_light: r.theme_light, theme_dark: r.theme_dark, dark_variant: r.dark_variant, has_avatar: hasAvatar,
       avatar_url: hasAvatar ? `/api/profile/avatar/${r.id}?v=${version}` : null,
     };
   }
@@ -98,7 +117,9 @@ export async function profileRoutes(app: FastifyInstance) {
         const ph = sanitizePhone(body.phone);
         params.push(ph || null); sets.push(`phone = $${params.length}`);
       }
-      if (has('theme')) { params.push(validTheme(body.theme)); sets.push(`theme = $${params.length}`); }
+      if (has('mode')) { params.push(validModo(body.mode)); sets.push(`mode = $${params.length}`); }
+      if (has('theme_light')) { params.push(validTemaClaro(body.theme_light)); sets.push(`theme_light = $${params.length}`); }
+      if (has('theme_dark')) { params.push(validTemaEscuro(body.theme_dark)); sets.push(`theme_dark = $${params.length}`); }
       if (has('dark_variant')) { params.push(validDarkVariant(body.dark_variant)); sets.push(`dark_variant = $${params.length}`); }
     } catch (e: any) {
       return reply.code(400).send({ error: e.message });
