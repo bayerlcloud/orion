@@ -8,6 +8,7 @@
 :root, :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #16161e; --bg2: #1a1b26; --panel: #16161e; --fg: #a9b1d6; --fg2: #7a80a3; --line: #101014;
+  --bg-raw: #16161e; --bg2-raw: #1a1b26; --panel-raw: #16161e; --line-raw: #101014; --hover-raw: #13131a; --active-raw: #202330; --code-block-raw: #16161e;
   --hover: #13131a; --active: #202330; --accent: #3d59a1; --accent-2: #3d59a1aa; --ok: #74c991; --bad: #c74e39; --warn: #e1c08d; --info: #3b82f6;
   --link: #6183bb; --claude: #d97757; --code-fg: #b4b8cc; --code-block: #16161e; --diff-add: #449dab; --diff-del: #914c54;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -42,6 +43,7 @@
 :root[data-theme="dracula"] {
   color-scheme: dark;
   --bg: #282a36; --bg2: #21222c; --panel: #282a36; --fg: #f8f8f2; --fg2: #6272a4; --line: #191a21;
+  --bg-raw: #282a36; --bg2-raw: #21222c; --panel-raw: #282a36; --line-raw: #191a21; --hover-raw: #21222c; --active-raw: #343746; --code-block-raw: #21222c;
   --hover: #21222c; --active: #343746; --accent: #bd93f9; --accent-2: #bd93f9aa; --ok: #50fa7b; --bad: #ff5555; --warn: #f1fa8c; --info: #8be9fd;
   --link: #8be9fd; --claude: #ffb86c; --code-fg: #f1fa8c; --code-block: #21222c; --diff-add: #50fa7b; --diff-del: #ff5555;
   --muted: var(--fg2); --code-bg: #ffffff12;
@@ -49,6 +51,7 @@
 :root[data-theme="nord"] {
   color-scheme: dark;
   --bg: #2e3440; --bg2: #3b4252; --panel: #2e3440; --fg: #d8dee9; --fg2: #7b88a1; --line: #262b35;
+  --bg-raw: #2e3440; --bg2-raw: #3b4252; --panel-raw: #2e3440; --line-raw: #262b35; --hover-raw: #3b4252; --active-raw: #434c5e; --code-block-raw: #3b4252;
   --hover: #3b4252; --active: #434c5e; --accent: #88c0d0; --accent-2: #88c0d0aa; --ok: #a3be8c; --bad: #bf616a; --warn: #ebcb8b; --info: #81a1c1;
   --link: #88c0d0; --claude: #d08770; --code-fg: #e5e9f0; --code-block: #3b4252; --diff-add: #a3be8c; --diff-del: #bf616a;
   --muted: var(--fg2); --code-bg: #ffffff12;
@@ -56,16 +59,20 @@
 :root[data-theme="one-dark"] {
   color-scheme: dark;
   --bg: #282c34; --bg2: #21252b; --panel: #282c34; --fg: #abb2bf; --fg2: #5c6370; --line: #181a1f;
+  --bg-raw: #282c34; --bg2-raw: #21252b; --panel-raw: #282c34; --line-raw: #181a1f; --hover-raw: #2c313a; --active-raw: #3a3f4b; --code-block-raw: #21252b;
   --hover: #2c313a; --active: #3a3f4b; --accent: #61afef; --accent-2: #61afefaa; --ok: #98c379; --bad: #e06c75; --warn: #e5c07b; --info: #56b6c2;
   --link: #61afef; --claude: #d19a66; --code-fg: #e5c07b; --code-block: #21252b; --diff-add: #98c379; --diff-del: #e06c75;
   --muted: var(--fg2); --code-bg: #ffffff12;
 }
 :root[data-black] {
-  /* Black (AMOLED): puxa qualquer tema escuro pro preto puro; pixels apagados gastam menos bateria. */
-  --bg: color-mix(in srgb, var(--bg) 25%, black); --bg2: color-mix(in srgb, var(--bg2) 35%, black);
-  --panel: color-mix(in srgb, var(--panel) 25%, black); --line: color-mix(in srgb, var(--line) 60%, black);
-  --hover: color-mix(in srgb, var(--hover) 40%, black); --active: color-mix(in srgb, var(--active) 45%, black);
-  --code-block: color-mix(in srgb, var(--code-block) 25%, black);
+  /* Black (AMOLED): puxa qualquer tema escuro pro preto puro; pixels apagados gastam menos bateria.
+     Parte de --X-raw (valor "puro" do tema, sem color-mix), não de --X: referenciar a própria
+     variável que esta regra também define forma ciclo e o navegador invalida ela inteira (o bug
+     relatado pelo Gustavo, 24/11/2026: o AMOLED sumia). */
+  --bg: color-mix(in srgb, var(--bg-raw) 25%, black); --bg2: color-mix(in srgb, var(--bg2-raw) 35%, black);
+  --panel: color-mix(in srgb, var(--panel-raw) 25%, black); --line: color-mix(in srgb, var(--line-raw) 60%, black);
+  --hover: color-mix(in srgb, var(--hover-raw) 40%, black); --active: color-mix(in srgb, var(--active-raw) 45%, black);
+  --code-block: color-mix(in srgb, var(--code-block-raw) 25%, black);
 }
 * { box-sizing: border-box; }
 /* Barras de rolagem do sistema todo: finas (6px), um pouco mais claras que o fundo (Bayerl 29/09: escura demais some). Sem `scrollbar-width`
