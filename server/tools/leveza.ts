@@ -139,9 +139,19 @@ export async function desarquivar(pool: Pool, sessionId: string): Promise<number
   return r.rowCount ?? 0;
 }
 
-/** JSON pro jsonb do Postgres sem \u0000 (saída de ferramenta com byte nulo derrubava o INSERT: "unsupported Unicode escape sequence", 2x em 30 dias, e o turno morria). */
+/** JSON pro jsonb do Postgres sem NUL (saída de ferramenta com byte nulo derrubava o INSERT: "unsupported
+ *  Unicode escape sequence", 2x em 30 dias, e o turno morria). Tira o caractere NUL de cada string ANTES
+ *  do stringify: um regex no texto já serializado (versão antiga) cortava "\u0000" errado quando uma barra
+ *  invertida vinha logo antes do NUL, sobrando barra solta e quebrando o JSON ("invalid input syntax for
+ *  type json", 24/11/2026, turno morrendo toda hora porque o mesmo evento tentava regravar no resume). */
+function semNul(v: unknown): unknown {
+  if (typeof v === 'string') return v.includes('\0') ? v.replace(/\0/g, '') : v;
+  if (Array.isArray(v)) return v.map(semNul);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, semNul(x)]));
+  return v;
+}
 export function jsonSemNul(v: unknown): string {
-  return JSON.stringify(v).replace(/\\u0000/g, '');
+  return JSON.stringify(semNul(v));
 }
 
 /**
