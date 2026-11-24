@@ -5,7 +5,7 @@ import { aplicarTema, type Tema, type VarianteEscuro } from './tema';
 import Login from './pages/Login';
 const Spec = lazy(() => import('./pages/Spec'));
 import Placeholder from './pages/Placeholder';
-import ClaudePage from './claude/ClaudePage';
+const ClaudePage = lazy(() => import('./claude/ClaudePage'));
 const Drive = lazy(() => import('./pages/Drive'));
 const Config = lazy(() => import('./pages/Config'));
 const Whatsapp = lazy(() => import('./pages/Whatsapp'));
@@ -85,14 +85,13 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
-    api<{ user: User }>('/api/me').then(r => {
-      setUser(r.user);
-      // tema é por usuário, salvo no servidor; aparelho novo (sem localStorage) precisa buscar aqui,
-      // senão fica no padrão até a pessoa abrir Configurações (bug relatado pelo Gustavo, 02/11/2026).
-      api<{ theme: Tema; dark_variant?: VarianteEscuro }>('/api/profile')
-        .then(p => aplicarTema(p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark', p.dark_variant === 'black' ? 'black' : 'dark'))
-        .catch(() => {});
-    }).catch(() => setUser(null));
+    // tema é por usuário, salvo no servidor; aparelho novo (sem localStorage) precisa buscar aqui,
+    // senão fica no padrão até a pessoa abrir Configurações (bug relatado pelo Gustavo, 02/11/2026).
+    // Disparadas juntas (não em série): carregamento mais rápido em aparelho novo.
+    api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => setUser(null));
+    api<{ theme: Tema; dark_variant?: VarianteEscuro }>('/api/profile')
+      .then(p => aplicarTema(p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark', p.dark_variant === 'black' ? 'black' : 'dark'))
+      .catch(() => {});
   }, []);
 
   if (user === undefined) return <div className="center muted">carregando…</div>;
