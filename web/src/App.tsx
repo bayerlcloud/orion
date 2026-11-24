@@ -1,11 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, type User, EVENTO_SESSAO_EXPIROU } from './api';
-import { aplicarTema, type Tema, type VarianteEscuro } from './tema';
+import { aplicarTema, temaValido, modoValido, type TemaId, type Modo, type VarianteEscuro } from './tema';
 import Login from './pages/Login';
 const Spec = lazy(() => import('./pages/Spec'));
 import Placeholder from './pages/Placeholder';
-import ClaudePage from './claude/ClaudePage';
+const ClaudePage = lazy(() => import('./claude/ClaudePage'));
 const Drive = lazy(() => import('./pages/Drive'));
 const Config = lazy(() => import('./pages/Config'));
 const Whatsapp = lazy(() => import('./pages/Whatsapp'));
@@ -18,7 +18,8 @@ const Tools = lazy(() => import('./pages/Tools'));
 const Design = lazy(() => import('./pages/Design'));
 import { Dialogos } from './dialogo';
 import { ChatDrawer } from './chat/ChatDrawer';
-import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
+import { IcoPainelDireito, useOrionPanel } from './OrionPanel';
+const OrionPanelBody = lazy(() => import('./OrionPanelBody'));
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDesign, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
@@ -85,14 +86,16 @@ export default function App() {
   }, [page]);
 
   useEffect(() => {
-    api<{ user: User }>('/api/me').then(r => {
-      setUser(r.user);
-      // tema é por usuário, salvo no servidor; aparelho novo (sem localStorage) precisa buscar aqui,
-      // senão fica no padrão até a pessoa abrir Configurações (bug relatado pelo Gustavo, 02/11/2026).
-      api<{ theme: Tema; dark_variant?: VarianteEscuro }>('/api/profile')
-        .then(p => aplicarTema(p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark', p.dark_variant === 'black' ? 'black' : 'dark'))
-        .catch(() => {});
-    }).catch(() => setUser(null));
+    // tema é por usuário, salvo no servidor; aparelho novo (sem localStorage) precisa buscar aqui,
+    // senão fica no padrão até a pessoa abrir Configurações (bug relatado pelo Gustavo, 02/11/2026).
+    // Disparadas juntas (não em série): carregamento mais rápido em aparelho novo.
+    api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => setUser(null));
+    api<{ mode: Modo; theme_light: TemaId; theme_dark: TemaId; dark_variant?: VarianteEscuro }>('/api/profile')
+      .then(p => aplicarTema({
+        modo: modoValido(p.mode), temaClaro: temaValido(p.theme_light, false), temaEscuro: temaValido(p.theme_dark, true),
+        variante: p.dark_variant === 'black' ? 'black' : 'dark',
+      }))
+      .catch(() => {});
   }, []);
 
   if (user === undefined) return <div className="center muted">carregando…</div>;
@@ -152,7 +155,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
-      <OrionPanel user={user} />
+      <Suspense fallback={null}><OrionPanelBody user={user} /></Suspense>
       {/* No Claude (pedido do Danilo, 04/10/2026): este botão troca de lugar com o ⋮ da barra de
           abas — vira item normal da barra (ClaudePage.tsx), e o ⋮ assume este canto fixo. Nas
           demais páginas, sem barra de abas, o canto continua sendo deste botão. */}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type User } from '../api';
 import './perfil.css';
-import { aplicarTema, type Tema, type VarianteEscuro } from '../tema';
+import { aplicarTema, temaValido, modoValido, TEMAS, type TemaId, type Modo, type VarianteEscuro } from '../tema';
 
 type Profile = {
   id: number;
@@ -10,7 +10,9 @@ type Profile = {
   email: string;
   phone: string | null;
   role: 'owner' | 'member' | string;
-  theme: Tema;
+  mode: Modo;
+  theme_light: TemaId;
+  theme_dark: TemaId;
   dark_variant?: VarianteEscuro;
   has_avatar: boolean;
   avatar_url: string | null;
@@ -25,7 +27,9 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
   const [nome, setNome] = useState('');
   const [sobrenome, setSobrenome] = useState('');
   const [telefone, setTelefone] = useState('');
-  const [tema, setTema] = useState<Tema>('dark');
+  const [modo, setModo] = useState<Modo>('dark');
+  const [temaClaro, setTemaClaro] = useState<TemaId>('branco');
+  const [temaEscuro, setTemaEscuro] = useState<TemaId>('orion');
   const [variante, setVariante] = useState<VarianteEscuro>('dark');
   const [notaDados, setNotaDados] = useState<Nota>(null);
   const [salvando, setSalvando] = useState(false);
@@ -47,7 +51,9 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     setNome(r.name ?? '');
     setSobrenome(r.surname ?? '');
     setTelefone(r.phone ?? '');
-    setTema(r.theme === 'light' || r.theme === 'system' ? r.theme : 'dark');
+    setModo(modoValido(r.mode));
+    setTemaClaro(temaValido(r.theme_light, false));
+    setTemaEscuro(temaValido(r.theme_dark, true));
     setVariante(r.dark_variant === 'black' ? 'black' : 'dark');
   }
 
@@ -65,7 +71,7 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     try {
       const r = await api<Profile>('/api/profile', {
         method: 'PUT',
-        body: JSON.stringify({ name: nome, surname: sobrenome, phone: telefone, theme: tema }),
+        body: JSON.stringify({ name: nome, surname: sobrenome, phone: telefone }),
       });
       aplicar(r);
       setNotaDados({ tipo: 'ok', texto: 'Dados salvos.' });
@@ -121,11 +127,15 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
     } finally { setEnviandoFoto(false); }
   }
 
-  function trocarTema(novoTema: Tema, novaVariante: VarianteEscuro = variante) {
-    setTema(novoTema); setVariante(novaVariante);
-    aplicarTema(novoTema, novaVariante);
+  function trocarAparencia(novo: Partial<{ modo: Modo; temaClaro: TemaId; temaEscuro: TemaId; variante: VarianteEscuro }>) {
+    const next = { modo, temaClaro, temaEscuro, variante, ...novo };
+    setModo(next.modo); setTemaClaro(next.temaClaro); setTemaEscuro(next.temaEscuro); setVariante(next.variante);
+    aplicarTema(next);
     setNotaDados(null);
-    api<Profile>('/api/profile', { method: 'PUT', body: JSON.stringify({ theme: novoTema, dark_variant: novaVariante }) })
+    api<Profile>('/api/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ mode: next.modo, theme_light: next.temaClaro, theme_dark: next.temaEscuro, dark_variant: next.variante }),
+    })
       .then(r => { setP(r); onSaved?.(); })
       .catch((e: any) => setNotaDados({ tipo: 'erro', texto: e.message }));
   }
@@ -201,26 +211,47 @@ export default function Perfil({ user, onSaved }: { user: User; onSaved?: () => 
 
       <section className="cfg-box">
         <h2>Aparência</h2>
-        <p className="muted small">Escolha o tema da interface. Vale só para você.</p>
-        <div className="perfil-tema" role="group" aria-label="Tema da interface">
-          <button type="button" className={`perfil-tema-btn ${tema === 'dark' ? 'active' : ''}`}
-            aria-pressed={tema === 'dark'} onClick={() => trocarTema('dark')}>Escuro</button>
-          <button type="button" className={`perfil-tema-btn ${tema === 'light' ? 'active' : ''}`}
-            aria-pressed={tema === 'light'} onClick={() => trocarTema('light')}>Claro</button>
-          <button type="button" className={`perfil-tema-btn ${tema === 'system' ? 'active' : ''}`}
-            aria-pressed={tema === 'system'} onClick={() => trocarTema('system')}>Sistema</button>
+        <p className="muted small">Vale só para você. Escolha o modo e, separadamente, qual tema usar em cada um.</p>
+
+        <p className="muted small">Modo</p>
+        <div className="perfil-tema" role="group" aria-label="Modo">
+          <button type="button" className={`perfil-tema-btn ${modo === 'system' ? 'active' : ''}`}
+            aria-pressed={modo === 'system'} onClick={() => trocarAparencia({ modo: 'system' })}>Sistema</button>
+          <button type="button" className={`perfil-tema-btn ${modo === 'light' ? 'active' : ''}`}
+            aria-pressed={modo === 'light'} onClick={() => trocarAparencia({ modo: 'light' })}>Claro</button>
+          <button type="button" className={`perfil-tema-btn ${modo === 'dark' ? 'active' : ''}`}
+            aria-pressed={modo === 'dark'} onClick={() => trocarAparencia({ modo: 'dark' })}>Escuro</button>
         </div>
-        {tema !== 'light' && (
-          <>
-            <p className="muted small">{tema === 'system' ? 'Quando o sistema estiver no modo escuro:' : 'Estilo do escuro:'}</p>
-            <div className="perfil-tema" role="group" aria-label="Estilo do tema escuro">
-              <button type="button" className={`perfil-tema-btn ${variante === 'dark' ? 'active' : ''}`}
-                aria-pressed={variante === 'dark'} onClick={() => trocarTema(tema, 'dark')}>Padrão</button>
-              <button type="button" className={`perfil-tema-btn ${variante === 'black' ? 'active' : ''}`}
-                aria-pressed={variante === 'black'} onClick={() => trocarTema(tema, 'black')}>Black (AMOLED)</button>
-            </div>
-          </>
-        )}
+
+        <p className="muted small">Tema do modo claro</p>
+        <div className="perfil-tema-grid" role="group" aria-label="Tema do modo claro">
+          {TEMAS.filter(t => !t.escuro).map(t => (
+            <button key={t.id} type="button" className={`perfil-tema-sw ${temaClaro === t.id ? 'active' : ''}`}
+              aria-pressed={temaClaro === t.id} onClick={() => trocarAparencia({ temaClaro: t.id })}>
+              <span className="perfil-tema-dot" style={{ background: t.cor, border: '1px solid var(--line)' }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="muted small">Tema do modo escuro</p>
+        <div className="perfil-tema-grid" role="group" aria-label="Tema do modo escuro">
+          {TEMAS.filter(t => t.escuro).map(t => (
+            <button key={t.id} type="button" className={`perfil-tema-sw ${temaEscuro === t.id ? 'active' : ''}`}
+              aria-pressed={temaEscuro === t.id} onClick={() => trocarAparencia({ temaEscuro: t.id })}>
+              <span className="perfil-tema-dot" style={{ background: t.cor }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="muted small">Estilo do escuro</p>
+        <div className="perfil-tema" role="group" aria-label="Estilo do tema escuro">
+          <button type="button" className={`perfil-tema-btn ${variante === 'dark' ? 'active' : ''}`}
+            aria-pressed={variante === 'dark'} onClick={() => trocarAparencia({ variante: 'dark' })}>Padrão</button>
+          <button type="button" className={`perfil-tema-btn ${variante === 'black' ? 'active' : ''}`}
+            aria-pressed={variante === 'black'} onClick={() => trocarAparencia({ variante: 'black' })}>Black (AMOLED)</button>
+        </div>
       </section>
     </div>
   );
