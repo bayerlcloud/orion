@@ -144,6 +144,10 @@
    de ferramenta longa e um ícone de onda SVG), nenhum deles aqui. O "passa por trás com uma camada"
    que o Bayerl descreveu é ESTE gradiente sólido (opaco no fim, não desfoque) — ver PARIDADE.md. */
 .cc-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 150px; background: linear-gradient(to bottom, transparent 0%, var(--cc-bg) 100%); pointer-events: none; z-index: 2; }
+/* Tela "Olá, Orion." (sem sessão aberta): a fibra (Fibra.tsx) fica atrás da área que rola, então ela
+   perde o fundo opaco e o esmaecimento do composer flutuante. */
+.cc-chat.is-ola .cc-scroll { background: transparent; z-index: 1; }
+.cc-chat.is-ola .cc-fade { display: none; }
 .cc-status { display: flex; gap: 16px; padding: 3px 12px; font-size: 11px; color: var(--cc-fg2); border-top: 1px solid var(--cc-line); background: var(--cc-panel); }
 
 /* ===== linha do tempo ===== */
@@ -546,6 +550,47 @@
 /* .cc-head/.cc-head-meta removidos (29/09/2026): a barra de título entre as abas e o chat saiu — a extensão real não a tem (ver PARIDADE-seletor.md). */
 .cc-empty-state { max-width: 520px; margin: 60px auto; text-align: center; }
 .cc-brand-big { font-size: 20px; margin-bottom: 12px; color: var(--claude); }
+/* Caixa da tela "Olá, Orion." (ClaudePage.tsx): vidro sobre a fibra, projeto lembrado no aparelho,
+   microfone (Ditado.tsx) e Enviar. Trazido do Cérebro DDC em 17/11/2026, com os tokens do Orion. */
+.cc-ola { position: relative; z-index: 1; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; padding: 24px 0; text-align: center; }
+.cc-ola h1 { margin: 0; font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -.02em; color: var(--cc-fg); display: inline-flex; align-items: center; gap: 10px; }
+.cc-ola-cursor { display: inline-block; width: 2px; height: 30px; background: var(--fibra-clara); animation: cc-ola-pisca 1s steps(2) infinite; }
+@keyframes cc-ola-pisca { 50% { opacity: 0; } }
+.cc-ola p { margin: 8px 0 0; font-size: 16px; line-height: 24px; color: var(--cc-fg2); }
+.cc-ola-compor { width: min(760px, 100%); display: flex; flex-direction: column; border: 1px solid color-mix(in srgb, var(--cc-fg2) 35%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--cc-bg2) 84%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); padding: 12px 12px 8px; text-align: left; transition: border-color .15s; }
+.cc-ola-compor:focus-within { border-color: var(--fibra-clara); }
+.cc-ola-compor textarea { width: 100%; min-height: 48px; max-height: 40vh; resize: none; background: none; border: 0; outline: none; color: var(--cc-fg); font: inherit; font-size: 16px; line-height: 24px; padding: 4px 6px; }
+.cc-ola-compor textarea::placeholder { color: var(--cc-fg2); }
+/* Uma linha só: o select e o rótulo do modo encolhem; microfone e Enviar nunca quebram pra baixo (o contador do ditado alarga o microfone). */
+.cc-ola-foot { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }
+.cc-ola-foot select { flex: 0 1 auto; min-width: 96px; }
+.cc-ola-modo { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-ola-foot .cc-ola-mic, .cc-ola-foot .cc-ola-enviar { flex: 0 0 auto; }
+.cc-ola-foot select { font: inherit; font-size: 12px; height: 30px; padding: 0 28px 0 10px; border-radius: 8px; border: 1px solid var(--cc-line); background: var(--cc-bg2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237a80a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center / 14px; color: var(--cc-fg); appearance: none; cursor: pointer; max-width: 220px; }
+.cc-ola-foot select option { background: var(--cc-bg2); color: var(--cc-fg); }
+.cc-ola-modo { font-size: 12px; color: var(--cc-fg2); padding: 0 6px; }
+/* Microfone antes do Enviar: os dois ficam à direita; sem microfone (navegador sem suporte) o Enviar vai sozinho. */
+.cc-ola-foot .cc-ola-mic { margin-left: auto; }
+.cc-ola-foot .cc-ola-mic .ditado-btn { height: 34px; min-width: 34px; }
+.cc-ola-foot .cc-ola-mic + .cc-ola-enviar { margin-left: 0; }
+.cc-ola-enviar { margin-left: auto; height: 34px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.cc-ola-enviar:hover:not(:disabled) { background: var(--accent-2); }
+.cc-ola-enviar:disabled { opacity: .45; cursor: not-allowed; }
+.cc-ola-sugestoes { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 760px; }
+.cc-ola-sugestoes button { height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--cc-line); background: color-mix(in srgb, var(--cc-bg2) 60%, transparent); color: var(--cc-fg2); font-size: 12px; white-space: nowrap; cursor: pointer; }
+.cc-ola-sugestoes button:hover { background: var(--cc-bg2); color: var(--cc-fg); border-color: color-mix(in srgb, var(--cc-fg2) 45%, transparent); }
+.cc-ola-nota { font-size: 12px; color: var(--cc-fg2); max-width: 520px; }
+@media (max-width: 800px) {
+  .cc-ola { gap: 20px; padding: 12px 0; }
+  .cc-ola h1 { font-size: 26px; line-height: 32px; }
+  .cc-ola-cursor { height: 24px; }
+  .cc-ola p { font-size: 14px; line-height: 20px; }
+  .cc-ola-sugestoes, .cc-ola-nota { display: none; }
+  .cc-ola-enviar { height: 40px; }
+  .cc-ola-foot .cc-ola-mic .ditado-btn { height: 40px; min-width: 40px; }
+  .cc-ola-foot select { height: 36px; font-size: 14px; }
+  .cc-ola-modo { display: none; }
+}
 .cc-select { appearance: none; border: 0; cursor: pointer; }
 .cc-select option { background: var(--cc-bg2); color: var(--cc-fg); }
 .cc-stop { background: var(--cc-failure); }

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { api, type User } from '../api';
+import Fibra from '../Fibra';
 
 export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [email, setEmail] = useState('');
@@ -21,7 +22,8 @@ export default function Login({ onLogin }: { onLogin: (u: User) => void }) {
   }
 
   return (
-    <div className="center">
+    <div className="center login-stage">
+      <Fibra />
       <form className="login" onSubmit={submit}>
         <div className="brand">ORION</div>
         <label>email<input type="email" value={email} onChange={e => setEmail(e.target.value)} autoFocus required /></label>
