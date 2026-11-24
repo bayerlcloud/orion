@@ -56,12 +56,28 @@ export function validDarkVariant(s: unknown): 'dark' | 'black' {
   throw new Error('variante de tema inválida');
 }
 
-/** Ids de tema aceitos: catálogo espelha web/src/tema.ts (TEMAS) + 'system'. */
-const TEMA_IDS = ['dark', 'light', 'system', 'dracula', 'nord', 'one-dark', 'branco', 'claude'] as const;
-type TemaId = (typeof TEMA_IDS)[number];
+/** Ids de tema aceitos: catálogo espelha web/src/tema.ts (TEMAS), já separado por claro/escuro. */
+const TEMA_IDS_ESCURO = ['orion', 'dark', 'dracula', 'nord', 'one-dark'] as const;
+const TEMA_IDS_CLARO = ['branco', 'light', 'claude'] as const;
+const MODOS = ['system', 'light', 'dark'] as const;
+type TemaEscuro = (typeof TEMA_IDS_ESCURO)[number];
+type TemaClaro = (typeof TEMA_IDS_CLARO)[number];
+export type Modo = (typeof MODOS)[number];
 
-/** Tema: um dos ids do catálogo. Lança em qualquer outro valor. */
-export function validTheme(s: unknown): TemaId {
-  if ((TEMA_IDS as readonly unknown[]).includes(s)) return s as TemaId;
-  throw new Error('tema inválido');
+/** Tema para o modo escuro: um dos ids escuros do catálogo. Lança em qualquer outro valor. */
+export function validTemaEscuro(s: unknown): TemaEscuro {
+  if ((TEMA_IDS_ESCURO as readonly unknown[]).includes(s)) return s as TemaEscuro;
+  throw new Error('tema escuro inválido');
+}
+
+/** Tema para o modo claro: um dos ids claros do catálogo. Lança em qualquer outro valor. */
+export function validTemaClaro(s: unknown): TemaClaro {
+  if ((TEMA_IDS_CLARO as readonly unknown[]).includes(s)) return s as TemaClaro;
+  throw new Error('tema claro inválido');
+}
+
+/** Modo: sistema, claro ou escuro. Lança em qualquer outro valor. */
+export function validModo(s: unknown): Modo {
+  if ((MODOS as readonly unknown[]).includes(s)) return s as Modo;
+  throw new Error('modo inválido');
 }

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, type User, EVENTO_SESSAO_EXPIROU } from './api';
-import { aplicarTema, temaValido, type Tema, type VarianteEscuro } from './tema';
+import { aplicarTema, temaValido, modoValido, type TemaId, type Modo, type VarianteEscuro } from './tema';
 import Login from './pages/Login';
 const Spec = lazy(() => import('./pages/Spec'));
 import Placeholder from './pages/Placeholder';
@@ -90,8 +90,11 @@ export default function App() {
     // senão fica no padrão até a pessoa abrir Configurações (bug relatado pelo Gustavo, 02/11/2026).
     // Disparadas juntas (não em série): carregamento mais rápido em aparelho novo.
     api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => setUser(null));
-    api<{ theme: Tema; dark_variant?: VarianteEscuro }>('/api/profile')
-      .then(p => aplicarTema(temaValido(p.theme), p.dark_variant === 'black' ? 'black' : 'dark'))
+    api<{ mode: Modo; theme_light: TemaId; theme_dark: TemaId; dark_variant?: VarianteEscuro }>('/api/profile')
+      .then(p => aplicarTema({
+        modo: modoValido(p.mode), temaClaro: temaValido(p.theme_light, false), temaEscuro: temaValido(p.theme_dark, true),
+        variante: p.dark_variant === 'black' ? 'black' : 'dark',
+      }))
       .catch(() => {});
   }, []);
 
