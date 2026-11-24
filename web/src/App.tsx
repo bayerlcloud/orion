@@ -18,7 +18,8 @@ const Tools = lazy(() => import('./pages/Tools'));
 const Design = lazy(() => import('./pages/Design'));
 import { Dialogos } from './dialogo';
 import { ChatDrawer } from './chat/ChatDrawer';
-import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
+import { IcoPainelDireito, useOrionPanel } from './OrionPanel';
+const OrionPanelBody = lazy(() => import('./OrionPanelBody'));
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDesign, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
@@ -151,7 +152,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
-      <OrionPanel user={user} />
+      <Suspense fallback={null}><OrionPanelBody user={user} /></Suspense>
       {/* No Claude (pedido do Danilo, 04/10/2026): este botão troca de lugar com o ⋮ da barra de
           abas — vira item normal da barra (ClaudePage.tsx), e o ⋮ assume este canto fixo. Nas
           demais páginas, sem barra de abas, o canto continua sendo deste botão. */}
