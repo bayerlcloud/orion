@@ -1,6 +1,11 @@
-/* Tema do Orion: Tokyo Night (tema do Antigravity, o que a extensão Claude Code renderiza por baixo).
-   Valores tirados de theme-tokyo-night/themes/*.json; `--claude` é o laranja fixo da extensão. */
-:root {
+/* Temas do Orion: um :root[data-theme="<id>"] por tema, ids e catálogo em tema.ts (TEMAS).
+   data-black (AMOLED) escurece qualquer tema escuro na hora, por color-mix, sem precisar de
+   valores próprios por tema. */
+
+/* Tokyo Night (tema do Antigravity, o que a extensão Claude Code renderiza por baixo). Também o
+   :root puro, para quem ainda não rodou tema.ts (1º paint). Valores de theme-tokyo-night/themes/*.json;
+   `--claude` é o laranja fixo da extensão. */
+:root, :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #16161e; --bg2: #1a1b26; --panel: #16161e; --fg: #a9b1d6; --fg2: #7a80a3; --line: #101014;
   --hover: #13131a; --active: #202330; --accent: #3d59a1; --accent-2: #3d59a1aa; --ok: #74c991; --bad: #c74e39; --warn: #e1c08d; --info: #3b82f6;
@@ -11,15 +16,56 @@
   --muted: var(--fg2); --code-bg: #7f7f7f26;
 }
 :root[data-theme="light"] {
+  /* "Cinza": o claro original do Orion. */
   color-scheme: light;
   --bg: #d6d8df; --bg2: #e6e7ed; --panel: #d6d8df; --fg: #363c4d; --fg2: #707280; --line: #c1c2c7;
   --hover: #e1e2e8; --active: #dadce3; --accent: #2959aa; --accent-2: #2959aaaa; --ok: #2f8f4e; --bad: #c0392b; --warn: #b8860b; --info: #2563eb;
   --link: #2959aa; --claude: #c6613f; --code-fg: #33635c; --code-block: #e6e7ed; --diff-add: #166775; --diff-del: #914c54;
   --muted: var(--fg2); --code-bg: #00000010;
 }
-:root[data-black]:not([data-theme="light"]) {
-  /* Black (AMOLED): fundo preto puro; pixels apagados gastam menos bateria. */
-  --bg: #000; --bg2: #0a0a0c; --panel: #000; --line: #1c1c22; --hover: #0f0f13; --active: #17171d; --code-block: #050507; --code-bg: #ffffff12;
+:root[data-theme="branco"] {
+  /* Branco de fato, não o cinza. */
+  color-scheme: light;
+  --bg: #ffffff; --bg2: #f3f4f6; --panel: #ffffff; --fg: #1f2328; --fg2: #656d76; --line: #e3e3e6;
+  --hover: #f3f4f6; --active: #e9eaed; --accent: #2959aa; --accent-2: #2959aaaa; --ok: #1a7f37; --bad: #c0392b; --warn: #9a6700; --info: #2563eb;
+  --link: #2959aa; --claude: #c6613f; --code-fg: #2a5f57; --code-block: #f3f4f6; --diff-add: #166775; --diff-del: #914c54;
+  --muted: var(--fg2); --code-bg: #00000010;
+}
+:root[data-theme="claude"] {
+  /* Tons quentes de papel do claude.ai. */
+  color-scheme: light;
+  --bg: #f0eee6; --bg2: #faf9f5; --panel: #f0eee6; --fg: #3d3d3a; --fg2: #83827d; --line: #e2e0d6;
+  --hover: #e9e6db; --active: #e2dfd2; --accent: #c96442; --accent-2: #c96442aa; --ok: #2f8f4e; --bad: #c0392b; --warn: #a05a00; --info: #2563eb;
+  --link: #c96442; --claude: #c96442; --code-fg: #5c5950; --code-block: #e9e6db; --diff-add: #2f8f4e; --diff-del: #914c54;
+  --muted: var(--fg2); --code-bg: #00000010;
+}
+:root[data-theme="dracula"] {
+  color-scheme: dark;
+  --bg: #282a36; --bg2: #21222c; --panel: #282a36; --fg: #f8f8f2; --fg2: #6272a4; --line: #191a21;
+  --hover: #21222c; --active: #343746; --accent: #bd93f9; --accent-2: #bd93f9aa; --ok: #50fa7b; --bad: #ff5555; --warn: #f1fa8c; --info: #8be9fd;
+  --link: #8be9fd; --claude: #ffb86c; --code-fg: #f1fa8c; --code-block: #21222c; --diff-add: #50fa7b; --diff-del: #ff5555;
+  --muted: var(--fg2); --code-bg: #ffffff12;
+}
+:root[data-theme="nord"] {
+  color-scheme: dark;
+  --bg: #2e3440; --bg2: #3b4252; --panel: #2e3440; --fg: #d8dee9; --fg2: #7b88a1; --line: #262b35;
+  --hover: #3b4252; --active: #434c5e; --accent: #88c0d0; --accent-2: #88c0d0aa; --ok: #a3be8c; --bad: #bf616a; --warn: #ebcb8b; --info: #81a1c1;
+  --link: #88c0d0; --claude: #d08770; --code-fg: #e5e9f0; --code-block: #3b4252; --diff-add: #a3be8c; --diff-del: #bf616a;
+  --muted: var(--fg2); --code-bg: #ffffff12;
+}
+:root[data-theme="one-dark"] {
+  color-scheme: dark;
+  --bg: #282c34; --bg2: #21252b; --panel: #282c34; --fg: #abb2bf; --fg2: #5c6370; --line: #181a1f;
+  --hover: #2c313a; --active: #3a3f4b; --accent: #61afef; --accent-2: #61afefaa; --ok: #98c379; --bad: #e06c75; --warn: #e5c07b; --info: #56b6c2;
+  --link: #61afef; --claude: #d19a66; --code-fg: #e5c07b; --code-block: #21252b; --diff-add: #98c379; --diff-del: #e06c75;
+  --muted: var(--fg2); --code-bg: #ffffff12;
+}
+:root[data-black] {
+  /* Black (AMOLED): puxa qualquer tema escuro pro preto puro; pixels apagados gastam menos bateria. */
+  --bg: color-mix(in srgb, var(--bg) 25%, black); --bg2: color-mix(in srgb, var(--bg2) 35%, black);
+  --panel: color-mix(in srgb, var(--panel) 25%, black); --line: color-mix(in srgb, var(--line) 60%, black);
+  --hover: color-mix(in srgb, var(--hover) 40%, black); --active: color-mix(in srgb, var(--active) 45%, black);
+  --code-block: color-mix(in srgb, var(--code-block) 25%, black);
 }
 * { box-sizing: border-box; }
 /* Barras de rolagem do sistema todo: finas (6px), um pouco mais claras que o fundo (Bayerl 29/09: escura demais some). Sem `scrollbar-width`

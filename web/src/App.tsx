@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { api, type User, EVENTO_SESSAO_EXPIROU } from './api';
-import { aplicarTema, type Tema, type VarianteEscuro } from './tema';
+import { aplicarTema, temaValido, type Tema, type VarianteEscuro } from './tema';
 import Login from './pages/Login';
 const Spec = lazy(() => import('./pages/Spec'));
 import Placeholder from './pages/Placeholder';
@@ -18,7 +18,8 @@ const Tools = lazy(() => import('./pages/Tools'));
 const Design = lazy(() => import('./pages/Design'));
 import { Dialogos } from './dialogo';
 import { ChatDrawer } from './chat/ChatDrawer';
-import { IcoPainelDireito, OrionPanel, useOrionPanel } from './OrionPanel';
+import { IcoPainelDireito, useOrionPanel } from './OrionPanel';
+const OrionPanelBody = lazy(() => import('./OrionPanelBody'));
 import { IcoArquivos, IcoClaude, IcoConfig, IcoDash, IcoDesign, IcoDrive, IcoMemoria, IcoSair, IcoSpec, IcoSenhas, IcoTarefas, IcoTools, IcoWhatsapp } from './icons';
 
 const MENU = [
@@ -90,7 +91,7 @@ export default function App() {
     // Disparadas juntas (não em série): carregamento mais rápido em aparelho novo.
     api<{ user: User }>('/api/me').then(r => setUser(r.user)).catch(() => setUser(null));
     api<{ theme: Tema; dark_variant?: VarianteEscuro }>('/api/profile')
-      .then(p => aplicarTema(p.theme === 'light' || p.theme === 'system' ? p.theme : 'dark', p.dark_variant === 'black' ? 'black' : 'dark'))
+      .then(p => aplicarTema(temaValido(p.theme), p.dark_variant === 'black' ? 'black' : 'dark'))
       .catch(() => {});
   }, []);
 
@@ -151,7 +152,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/claude" replace />} />
         </Routes>
       </main>
-      <OrionPanel user={user} />
+      <Suspense fallback={null}><OrionPanelBody user={user} /></Suspense>
       {/* No Claude (pedido do Danilo, 04/10/2026): este botão troca de lugar com o ⋮ da barra de
           abas — vira item normal da barra (ClaudePage.tsx), e o ⋮ assume este canto fixo. Nas
           demais páginas, sem barra de abas, o canto continua sendo deste botão. */}
