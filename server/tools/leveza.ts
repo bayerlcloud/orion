@@ -37,12 +37,13 @@ export function donoDoRemote(url: string | null | undefined): string | null {
  * Variáveis do CLI que seguram o contexto por mensagem (medido em 12/11/2026: mediana de 348k tokens
  * de contexto por mensagem, p90 748k, porque com janela de 1M a compactação só vinha perto de 900k):
  * - CLAUDE_CODE_AUTO_COMPACT_WINDOW: janela que a compactação automática considera (texto do próprio
- *   CLI: "To enforce it, set CLAUDE_CODE_AUTO_COMPACT_WINDOW=<tokens>"); 160k → compacta por volta de 150k.
+ *   CLI: "To enforce it, set CLAUDE_CODE_AUTO_COMPACT_WINDOW=<tokens>"); subido pra 500k em 26/11/2026
+ *   (Danilo: 160k compactava cedo demais) à custa de contexto mais pesado por chamada.
  * - BASH_MAX_OUTPUT_LENGTH: janela de leitura da saída de Bash (o resto vai pra arquivo com prévia).
  * - MAX_MCP_OUTPUT_TOKENS: teto da saída de uma tool MCP (padrão do CLI 25k).
  * ponytail: valores fixos; se um projeto precisar de mais, vira meta do projeto.
  */
-export const ENV_LEVE: Record<string, string> = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '160000', BASH_MAX_OUTPUT_LENGTH: '20000', MAX_MCP_OUTPUT_TOKENS: '10000' };
+export const ENV_LEVE: Record<string, string> = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '500000', BASH_MAX_OUTPUT_LENGTH: '20000', MAX_MCP_OUTPUT_TOKENS: '10000' };
 export function envLeve(env: Record<string, string>): Record<string, string> {
   return { ...env, ...ENV_LEVE };
 }
