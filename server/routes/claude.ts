@@ -39,7 +39,7 @@ import { branchAtual } from '../tasks/git.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub, type GithubAccount } from '../tools/githubAccounts.js';
-import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, enxugarToolUseResult, limiarImagens, metaLeveza, remoteOrigin, semImagensDeFerramenta, truncarToolResult } from '../tools/leveza.js';
+import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, enxugarToolUseResult, metaLeveza, remoteOrigin, truncarToolResult } from '../tools/leveza.js';
 import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { ensureGoogleCloudAccountsTable, googleCloudParaHeader, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
@@ -65,6 +65,8 @@ const UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB por arquivo
 const UPLOAD_MAX_FILES = 20;
 /** Bytes pendentes por aba no SSE da sessão antes de derrubar a conexão (ver rota /stream). */
 const SSE_BUFFER_MAX = 4 * 1024 * 1024;
+/** Ao abrir a sessão, quantos bytes (brutos, do banco) mais recentes voltam intactos; o resto vem resumido (ver GET /sessions/:id). */
+const SESSAO_BYTES_INTACTOS = 8 * 1024 * 1024;
 
 /**
  * Um caminho real (já resolvido por `realpath`) está dentro de uma raiz (ou é a própria raiz)? Mesma
@@ -790,18 +792,25 @@ export async function claudeRoutes(app: FastifyInstance) {
            FROM claude_events WHERE session_id = $1 AND type = 'system'),
        -- ?turnos=N: só a partir do N-ésimo prompt mais recente (celular abre conversa longa rápido).
        corte AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET $2::int - 1 LIMIT 1), 0) AS seq),
-       -- Prints/saídas grandes só nos 3 turnos mais recentes (ver limiarImagens): antes do 3º prompt mais recente, linha de
-       -- usuário acima de 64 KB volta com cada tool_result trocado por uma nota (tool_use_id fica, pro bloco da ferramenta casar).
-       img AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET 2 LIMIT 1), 0) AS seq)
-       -- O corte acontece AQUI, no Postgres (26/11/2026): carregar 100 MB de payload no Node pra cortar depois estourava o
-       -- heap (8 quedas num dia, abas reconectando e pedindo a mesma sessão de 120 MB). tool_use_result (cópia inteira do
-       -- resultado) vira só os 4 campos do mapa de agentes.
+       -- Orçamento em bytes (26/11/2026): os $3 bytes mais recentes voltam intactos (prints incluídos); o que vier antes
+       -- disso, em linha de usuário acima de 64 KB, volta com cada tool_result trocado por uma nota (tool_use_id fica,
+       -- pro bloco da ferramenta casar). Por TURNO não servia: uma sessão de agente tem 7.500 eventos e 212 MB em 3 turnos.
+       -- O corte é AQUI, no Postgres: carregar isso no Node pra cortar depois estourava o heap (8 quedas num dia).
+       -- tool_use_result (cópia inteira do resultado) vira só os 4 campos do mapa de agentes.
+       base AS (
+         SELECT e.seq, e.ts, e.type, e.payload, pg_column_size(e.payload) AS bytes,
+                sum(pg_column_size(e.payload)) OVER (ORDER BY e.seq DESC) AS acumulado
+           FROM claude_events e, lim, corte
+          WHERE e.session_id = $1
+            AND (e.seq >= corte.seq OR e.seq = lim.first_init)
+            AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
+            AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init))
        SELECT e.seq, e.ts, e.type,
          CASE WHEN e.type = 'user' THEN
-           (CASE WHEN e.seq < img.seq AND pg_column_size(e.payload) > 65536 AND jsonb_typeof(e.payload->'message'->'content') = 'array'
+           (CASE WHEN e.acumulado > $3::bigint AND e.bytes > 65536 AND jsonb_typeof(e.payload->'message'->'content') = 'array'
                  THEN jsonb_set(e.payload - 'tool_use_result', '{message,content}', COALESCE((
                         SELECT jsonb_agg(CASE WHEN b->>'type' = 'tool_result'
-                          THEN jsonb_set(b, '{content}', to_jsonb('[saída grande de um turno antigo não carregada (' || (pg_column_size(b) / 1024)::text || ' KB): a sessão viu na hora]'::text))
+                          THEN jsonb_set(b, '{content}', to_jsonb('[saída grande de um trecho antigo não carregada (' || (pg_column_size(b) / 1024)::text || ' KB): a sessão viu na hora]'::text))
                           ELSE b END)
                         FROM jsonb_array_elements(e.payload->'message'->'content') b), '[]'::jsonb))
                  ELSE e.payload - 'tool_use_result' END)
@@ -809,18 +818,13 @@ export async function claudeRoutes(app: FastifyInstance) {
                   'status', t->'status', 'totalTokens', t->'totalTokens', 'totalToolUseCount', t->'totalToolUseCount', 'totalDurationMs', t->'totalDurationMs')))
                 FROM (SELECT e.payload->'tool_use_result' AS t) x WHERE jsonb_typeof(t) = 'object' AND t ? 'status'), '{}'::jsonb)
          ELSE e.payload END AS payload
-       FROM claude_events e, lim, corte, img
-        WHERE e.session_id = $1
-          AND (e.seq >= corte.seq OR e.seq = lim.first_init)
-          AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
-          AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init)
-        ORDER BY e.seq`, [s.id, turnos]);
+       FROM base e
+       ORDER BY e.seq`, [s.id, turnos, SESSAO_BYTES_INTACTOS]);
     // Corte de 20 KB também na LEITURA (23/11/2026): sessão de agente com 20 turnos devolvia 50 MB de JSON
     // (tool_results gravados antes do corte de 12/11); abrir a sessão levava 18 s no p90, 193 s no pior caso.
     // Prints de ferramenta (base64) só nos 3 turnos mais recentes: eram 63 MB de 155 numa sessão de agente.
     // O grosso já veio cortado do Postgres (CTE img acima); aqui só o que sobrou pequeno: texto > 20 KB e imagem em linha ≤ 64 KB.
-    const limiar = limiarImagens(events);
-    for (const e of events) { e.payload = truncarToolResult(e.payload); if (e.seq < limiar) e.payload = semImagensDeFerramenta(e.payload); }
+    for (const e of events) e.payload = truncarToolResult(e.payload);
     const primeiro = events.find(e => e.type === 'user_prompt')?.seq;
     const escondidos = turnos < 1000000 && primeiro !== undefined
       ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
