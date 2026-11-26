@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, isCompactSummary, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -1377,5 +1377,16 @@ describe('filterSessions: só minhas', () => {
     const ss = [{ id: 'a', title: 'x', status: 'idle', updatedAt: 0, userId: 1 }, { id: 'b', title: 'y', status: 'idle', updatedAt: 0, userId: 2 }] as any;
     expect(filterSessions(ss, { userId: 1 }).map((s: any) => s.id)).toEqual(['a']);
     expect(filterSessions(ss, {}).length).toBe(2);
+  });
+});
+
+describe('compactação de contexto vira divisor, não mensagem do usuário', () => {
+  const txt = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. ...';
+  it('string e bloco de texto', () => {
+    const a = reduceSdkMessages([{ type: 'user', message: { content: txt } } as any]);
+    expect(a.map(e => e.kind)).toEqual(['compact']);
+    const b = reduceSdkMessages([{ type: 'user', message: { content: [{ type: 'text', text: txt }] } } as any]);
+    expect(b[0].kind === 'compact' && b[0].summary.startsWith('This session')).toBe(true);
+    expect(isCompactSummary('[Danilo] oi')).toBe(false);
   });
 });

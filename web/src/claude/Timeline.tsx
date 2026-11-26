@@ -911,6 +911,12 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
         // Pedidos de permissão nunca viram linha na conversa (igual à extensão: vivem só no card flutuante).
         if (e.kind === 'permission') return null;
         if (e.kind === 'busy') return <ThinkingIndicator key={e.id} />;
+        if (e.kind === 'compact') return (
+          <details key={e.id} className="cc-thinking cc-compact">
+            <summary><span>Contexto compactado</span><span className="cc-thinking-tokens"> · resumo do que veio antes</span><Chevron size={10} className="cc-chev" /></summary>
+            <div className="cc-thinking-body">{e.summary}</div>
+          </details>
+        );
         if (e.kind === 'blocked') {
           // O prompt guardado vem com o prefixo "[Nome] " que o servidor põe (header.ts); no reenvio
           // ele põe de novo, então sai aqui.

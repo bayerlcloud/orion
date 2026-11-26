@@ -63,6 +63,8 @@ export function claudeUploadDir(): string {
 }
 const UPLOAD_MAX_BYTES = 25 * 1024 * 1024; // 25 MB por arquivo
 const UPLOAD_MAX_FILES = 20;
+/** Bytes pendentes por aba no SSE da sessão antes de derrubar a conexão (ver rota /stream). */
+const SSE_BUFFER_MAX = 4 * 1024 * 1024;
 
 /**
  * Um caminho real (já resolvido por `realpath`) está dentro de uma raiz (ou é a própria raiz)? Mesma
@@ -787,8 +789,27 @@ export async function claudeRoutes(app: FastifyInstance) {
                 min(seq) FILTER (WHERE payload->>'subtype' = 'init') AS first_init
            FROM claude_events WHERE session_id = $1 AND type = 'system'),
        -- ?turnos=N: só a partir do N-ésimo prompt mais recente (celular abre conversa longa rápido).
-       corte AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET $2::int - 1 LIMIT 1), 0) AS seq)
-       SELECT e.seq, e.ts, e.type, e.payload FROM claude_events e, lim, corte
+       corte AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET $2::int - 1 LIMIT 1), 0) AS seq),
+       -- Prints/saídas grandes só nos 3 turnos mais recentes (ver limiarImagens): antes do 3º prompt mais recente, linha de
+       -- usuário acima de 64 KB volta com cada tool_result trocado por uma nota (tool_use_id fica, pro bloco da ferramenta casar).
+       img AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET 2 LIMIT 1), 0) AS seq)
+       -- O corte acontece AQUI, no Postgres (26/11/2026): carregar 100 MB de payload no Node pra cortar depois estourava o
+       -- heap (8 quedas num dia, abas reconectando e pedindo a mesma sessão de 120 MB). tool_use_result (cópia inteira do
+       -- resultado) vira só os 4 campos do mapa de agentes.
+       SELECT e.seq, e.ts, e.type,
+         CASE WHEN e.type = 'user' THEN
+           (CASE WHEN e.seq < img.seq AND pg_column_size(e.payload) > 65536 AND jsonb_typeof(e.payload->'message'->'content') = 'array'
+                 THEN jsonb_set(e.payload - 'tool_use_result', '{message,content}', COALESCE((
+                        SELECT jsonb_agg(CASE WHEN b->>'type' = 'tool_result'
+                          THEN jsonb_set(b, '{content}', to_jsonb('[saída grande de um turno antigo não carregada (' || (pg_column_size(b) / 1024)::text || ' KB): a sessão viu na hora]'::text))
+                          ELSE b END)
+                        FROM jsonb_array_elements(e.payload->'message'->'content') b), '[]'::jsonb))
+                 ELSE e.payload - 'tool_use_result' END)
+           || COALESCE((SELECT jsonb_build_object('tool_use_result', jsonb_strip_nulls(jsonb_build_object(
+                  'status', t->'status', 'totalTokens', t->'totalTokens', 'totalToolUseCount', t->'totalToolUseCount', 'totalDurationMs', t->'totalDurationMs')))
+                FROM (SELECT e.payload->'tool_use_result' AS t) x WHERE jsonb_typeof(t) = 'object' AND t ? 'status'), '{}'::jsonb)
+         ELSE e.payload END AS payload
+       FROM claude_events e, lim, corte, img
         WHERE e.session_id = $1
           AND (e.seq >= corte.seq OR e.seq = lim.first_init)
           AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'commands_changed' AND e.seq < lim.last_cmd)
@@ -797,8 +818,9 @@ export async function claudeRoutes(app: FastifyInstance) {
     // Corte de 20 KB também na LEITURA (23/11/2026): sessão de agente com 20 turnos devolvia 50 MB de JSON
     // (tool_results gravados antes do corte de 12/11); abrir a sessão levava 18 s no p90, 193 s no pior caso.
     // Prints de ferramenta (base64) só nos 3 turnos mais recentes: eram 63 MB de 155 numa sessão de agente.
+    // O grosso já veio cortado do Postgres (CTE img acima); aqui só o que sobrou pequeno: texto > 20 KB e imagem em linha ≤ 64 KB.
     const limiar = limiarImagens(events);
-    for (const e of events) { e.payload = enxugarToolUseResult(truncarToolResult(e.payload)); if (e.seq < limiar) e.payload = semImagensDeFerramenta(e.payload); }
+    for (const e of events) { e.payload = truncarToolResult(e.payload); if (e.seq < limiar) e.payload = semImagensDeFerramenta(e.payload); }
     const primeiro = events.find(e => e.type === 'user_prompt')?.seq;
     const escondidos = turnos < 1000000 && primeiro !== undefined
       ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
@@ -813,7 +835,17 @@ export async function claudeRoutes(app: FastifyInstance) {
     reply.hijack();
     const res = reply.raw;
     res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-    const send = (e: unknown) => { res.write(`data: ${JSON.stringify(e)}\n\n`); };
+    // Backpressure (26/11/2026): o painel caiu 8x num dia por heap. Cada evento da sessão ia pra TODAS as abas
+    // abertas nela (4 a 6), com o resultado da ferramenta em dobro (tool_use_result) e prints de 551 KB; uma aba
+    // que não drena (celular dormindo, rede lenta) acumulava tudo no heap do Node sem teto. Agora: o que vai ao
+    // vivo é o mesmo recorte do GET (sem a cópia), e aba com mais de SSE_BUFFER_MAX pendente é derrubada —
+    // o EventSource reconecta sozinho e recarrega pelo GET (ver ClaudePage.tsx onopen).
+    const send = (e: unknown) => {
+      if (res.destroyed || res.writableEnded) return;
+      if ((res.socket?.writableLength ?? 0) > SSE_BUFFER_MAX) { res.destroy(); return; }
+      const ev = (e as { type?: string }).type === 'message' ? { ...(e as object), message: enxugarToolUseResult((e as { message: unknown }).message) } : e;
+      res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    };
     send({ type: 'hello', status: runner.status(id), pending: runner.pendingPermissions(id), commands: runner.commandsFor(id) });
     const unsub = runner.subscribe(id, send);
     const hb = setInterval(() => res.write(': hb\n\n'), 15_000);

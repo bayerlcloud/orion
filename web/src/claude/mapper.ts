@@ -123,9 +123,13 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
       const attachments = m.message.attachments;
       const when = typeof mWhen === 'number' ? mWhen : undefined;
       const pending = (m as { _pending?: boolean })._pending ? true : undefined;
-      if (typeof c === 'string') { if (c.trim() || attachments?.length) out.push({ id: nid(), kind: 'user', text: c, attachments, when, pending }); continue; }
+      if (typeof c === 'string') {
+        if (isCompactSummary(c)) { out.push({ id: nid(), kind: 'compact', summary: c }); continue; }
+        if (c.trim() || attachments?.length) out.push({ id: nid(), kind: 'user', text: c, attachments, when, pending }); continue;
+      }
       for (const b of c) {
-        if (b.type === 'text' && b.text.trim()) out.push({ id: nid(), kind: 'user', text: b.text, attachments, when });
+        if (b.type === 'text' && isCompactSummary(b.text)) out.push({ id: nid(), kind: 'compact', summary: b.text });
+        else if (b.type === 'text' && b.text.trim()) out.push({ id: nid(), kind: 'user', text: b.text, attachments, when });
         else if (b.type === 'tool_result') {
           const idx = toolIndex.get(b.tool_use_id);
           if (idx === undefined) continue;
@@ -192,6 +196,12 @@ export function markUnfinishedTools(events: ConvEvent[], status: string): ConvEv
       : { ...e, status: 'warning' as ToolStatus, isError: true, output: e.output ?? TOOL_NAO_TERMINOU };
   }
   return out.every((e, k) => e === events[k]) ? events : out;
+}
+
+/** Mensagem sintética que o CLI injeta depois de compactar o contexto (texto fixo do Claude Code). */
+export const COMPACT_PREFIX = 'This session is being continued from a previous conversation';
+export function isCompactSummary(text: string): boolean {
+  return text.trimStart().startsWith(COMPACT_PREFIX);
 }
 
 export function estimateTokens(text: string): number {

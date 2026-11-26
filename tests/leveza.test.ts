@@ -59,13 +59,11 @@ describe('leveza por sessão (12/11/2026)', () => {
 });
 
 describe('envLeve: contexto por mensagem', () => {
-  it('põe as 3 variáveis do CLI por cima do env da sessão, sem perder o resto', () => {
-    const e = envLeve({ A: '1', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '999' });
-    expect(e.A).toBe('1');
-    expect(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe(ENV_LEVE.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
-    expect(Number(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW)).toBeLessThanOrEqual(500_000);
-    expect(e.BASH_MAX_OUTPUT_LENGTH).toBe('20000');
-    expect(e.MAX_MCP_OUTPUT_TOKENS).toBe('10000');
+  it('paridade com o plugin (26/11/2026): nenhuma variável do CLI é forçada; o env da sessão passa intacto', () => {
+    expect(ENV_LEVE).toEqual({});
+    const e = envLeve({ A: '1' });
+    expect(e).toEqual({ A: '1' });
+    expect(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined();
   });
 });
 
