@@ -1150,3 +1150,6 @@
 /* progresso de subida do anexo (Composer.tsx AttachPill: `progresso`) */
 .cc-attach-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--cc-accent, #7aa2f7); transition: width .2s; pointer-events: none; }
 .cc-attach-pct { font-variant-numeric: tabular-nums; }
+
+/* divisor de compactação de contexto (ConvEvent 'compact') */
+.cc-compact { border-top: 1px dashed var(--cc-border, #333); padding-top: 6px; margin: 8px 0; }

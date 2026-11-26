@@ -43,7 +43,10 @@ export function donoDoRemote(url: string | null | undefined): string | null {
  * - MAX_MCP_OUTPUT_TOKENS: teto da saída de uma tool MCP (padrão do CLI 25k).
  * ponytail: valores fixos; se um projeto precisar de mais, vira meta do projeto.
  */
-export const ENV_LEVE: Record<string, string> = { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '500000', BASH_MAX_OUTPUT_LENGTH: '20000', MAX_MCP_OUTPUT_TOKENS: '10000' };
+// 26/11/2026: REVERTIDO para o padrão do CLI (paridade com o plugin, pedido do Danilo). Com a janela em 160k a
+// compactação passou de 2-3/dia para 162/dia (uma sessão compactou 108x em 70 turnos), cada uma perdendo contexto e
+// cuspindo "This session is being continued…" na conversa. O custo por mensagem volta a ser o do plugin.
+export const ENV_LEVE: Record<string, string> = {};
 export function envLeve(env: Record<string, string>): Record<string, string> {
   return { ...env, ...ENV_LEVE };
 }

@@ -48,6 +48,8 @@ export type ConvEvent =
     }
   | { id: string; kind: 'result'; ok: boolean; durationMs?: number; turns?: number; inputTokens?: number; outputTokens?: number; error?: string }
   | { id: string; kind: 'system'; text: string }
+  /** Compactação automática de contexto do CLI: o resumo vem como mensagem `user` sintética ("This session is being continued…"); a Timeline mostra um divisor dobrável, como a extensão. */
+  | { id: string; kind: 'compact'; summary: string }
   /** Nota do Orion na conversa (integração na raiz, pasta da sessão, sessão paralela). */
   | { id: string; kind: 'aviso'; text: string }
   /**
