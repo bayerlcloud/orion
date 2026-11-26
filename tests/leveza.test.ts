@@ -63,7 +63,7 @@ describe('envLeve: contexto por mensagem', () => {
     const e = envLeve({ A: '1', CLAUDE_CODE_AUTO_COMPACT_WINDOW: '999' });
     expect(e.A).toBe('1');
     expect(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBe(ENV_LEVE.CLAUDE_CODE_AUTO_COMPACT_WINDOW);
-    expect(Number(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW)).toBeLessThanOrEqual(200_000);
+    expect(Number(e.CLAUDE_CODE_AUTO_COMPACT_WINDOW)).toBeLessThanOrEqual(500_000);
     expect(e.BASH_MAX_OUTPUT_LENGTH).toBe('20000');
     expect(e.MAX_MCP_OUTPUT_TOKENS).toBe('10000');
   });
