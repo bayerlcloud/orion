@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import type { HttpMcpServerConfig } from './githubAccounts.js';
 
 /** Cofre: o Chrome compartilhado da c3 (container `cofre`, perfil persistente, tela web em browser.bayerl.cloud).
@@ -44,7 +45,7 @@ export function iniciarCofreCompartilhado(log: (m: string) => void, cdpUrl = cof
   const dir = dirCofre();
   try { mkdirSync(dir, { recursive: true }); } catch (e) { log(`pasta do cofre ${dir} não pôde ser criada: ${(e as Error).message}`); }
   const subir = () => {
-    const p = spawn(PLAYWRIGHT_MCP_BIN, cofreArgs(cdpUrl, dir), { stdio: 'ignore', cwd: dir });
+    const p = spawn(PLAYWRIGHT_MCP_BIN, cofreArgs(cdpUrl, dir), { stdio: 'ignore', cwd: tmpdir() });
     p.on('error', e => log(`cofre MCP não subiu: ${e.message}`));
     p.on('exit', code => { log(`cofre MCP saiu (código ${code}); religando em 5 s`); setTimeout(subir, 5000).unref(); });
   };

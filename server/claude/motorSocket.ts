@@ -114,6 +114,8 @@ export class MotorSocket implements Motor {
           let json: T;
           try { json = (texto ? JSON.parse(texto) : {}) as T; } catch { reject(new Error(`resposta inválida do motor em ${path}: ${texto.slice(0, 200)}`)); return; }
           const status = res.statusCode ?? 500;
+          // 404 fora de `decidir` só vem do runner ocioso (rotas fixas): é motor indisponível (503 no painel), não erro 500.
+          if (status === 404 && !aceita404) { reject(new MotorIndisponivel(`HTTP 404 em ${path} (runner ocioso? falta ORION_RUNNER=socket no runner)`)); return; }
           if (status >= 400 && !(aceita404 && status === 404)) { reject(new Error(`motor de sessões respondeu HTTP ${status} em ${path}: ${(json as { message?: string; error?: string }).message ?? (json as { error?: string }).error ?? texto.slice(0, 200)}`)); return; }
           resolve({ status, json });
         });
