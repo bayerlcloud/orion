@@ -8,6 +8,7 @@ import Fastify from 'fastify';
 import type { Decision } from './runner.js';
 import type { CampoAoVivo, Motor } from './motor.js';
 import type { PedidoTurno } from './montarTurno.js';
+import { enxugarEventoAoVivo } from '../tools/leveza.js';
 
 /** Bytes pendentes no stream /eventos antes de derrubar a conexão; o painel reconecta e recarrega pelo hello. */
 export const EVENTOS_BUFFER_MAX = 16 * 1024 * 1024;
@@ -34,7 +35,8 @@ export function criarServidorMotor(motor: Motor, opts: { logger?: boolean; log?:
     };
     // vivas() e assinarTudo() são síncronos e seguidos: nenhum evento escapa entre o hello e a assinatura.
     linha({ type: 'hello', pid: process.pid, iniciadoEm, sessoes: motor.vivas() });
-    const unsub = motor.assinarTudo((sessionId, event) => linha({ sessionId, event }));
+    // Mesmo recorte do SSE do painel (routes/claude.ts): sem a cópia do tool_result nem o workflow_progress de 272 KB.
+    const unsub = motor.assinarTudo((sessionId, event) => linha({ sessionId, event: enxugarEventoAoVivo(event) }));
     const hb = setInterval(() => linha({ type: 'hb' }), 15_000);
     req.raw.on('close', () => { clearInterval(hb); unsub(); });
   });

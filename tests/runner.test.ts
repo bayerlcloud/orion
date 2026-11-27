@@ -301,6 +301,33 @@ describe('Runner', () => {
     expect(ev!.payload).toMatchObject({ message: 'Interrompido pelo usuário', duringTool: true, partialText: 'vou rodar um comando' });
   });
 
+  it('SDK aborta um pedido de permissão pendente (signal): sai um permission_resolved deny ao vivo e persistido, sem pendência fantasma', async () => {
+    const m = memStore();
+    const fn: QueryFn = ({ options }) => {
+      async function* gen() {
+        yield { type: 'system', subtype: 'init', model: 'm' } as any;
+        const ac = new AbortController();
+        const pedido = options!.canUseTool!('Bash', { command: 'ls' }, { signal: ac.signal, suggestions: [], toolUseID: 't1' } as any);
+        await wait(20);
+        ac.abort(); // o SDK desistiu da ferramenta; o canUseTool nunca resolve
+        void pedido;
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'segui sem a ferramenta' }] } } as any;
+        yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, duration_ms: 1 } as any;
+      }
+      return gen() as any;
+    };
+    const r = new Runner({ queryFn: fn, store: m.store });
+    const seen: LiveEvent[] = []; r.subscribe('s8d', e => seen.push(e));
+    r.startTurn({ ...base, sessionId: 's8d', prompt: 'x', isNew: true });
+    await until(() => r.status('s8d') === 'waiting');
+    const req = seen.find(e => e.type === 'permission_request') as any;
+    await until(() => m.sessions.get('s8d')?.status === 'idle', 3000);
+    expect(r.pendingPermissions('s8d')).toEqual([]);
+    expect(seen.filter(e => e.type === 'permission_resolved')).toEqual([{ type: 'permission_resolved', id: req.id, decision: 'deny' }]);
+    expect(m.events.filter(e => e.type === 'permission_resolved').map(e => e.payload)).toEqual([{ id: req.id, decision: 'deny' }]);
+    expect(m.approvals.get(req.id).decision).toBe('deny');
+  });
+
   it('sem Query.supportedCommands() (fake burro, como todos os outros testes acima): commandsFor fica [] e nada quebra', async () => {
     const m = memStore(); const q = fakeQuery();
     const r = new Runner({ queryFn: q.fn, store: m.store });

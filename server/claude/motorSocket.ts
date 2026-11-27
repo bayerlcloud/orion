@@ -101,7 +101,9 @@ export class MotorSocket implements Motor {
   }
 
   // ---- chamadas ----
-  private chamar<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<{ status: number; json: T }> {
+  /** `aceita404`: só onde 404 é resposta legítima (decidir: pedido não pendente). Qualquer outro >= 400 rejeita: um 404 do
+   *  runner ocioso em POST /turno resolvia com o JSON de erro e o painel respondia 200 com `queued` undefined sem turno nenhum. */
+  private chamar<T>(method: 'GET' | 'POST', path: string, body?: unknown, aceita404 = false): Promise<{ status: number; json: T }> {
     return new Promise((resolve, reject) => {
       const dados = body === undefined ? undefined : JSON.stringify(body);
       const req = http.request({ socketPath: this.o.sock, path, method, headers: dados ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(dados) } : {} }, (res) => {
@@ -111,8 +113,11 @@ export class MotorSocket implements Motor {
           const texto = Buffer.concat(partes).toString('utf8');
           let json: T;
           try { json = (texto ? JSON.parse(texto) : {}) as T; } catch { reject(new Error(`resposta inválida do motor em ${path}: ${texto.slice(0, 200)}`)); return; }
-          if ((res.statusCode ?? 500) >= 500) { reject(new Error(`motor de sessões falhou em ${path}: ${(json as { message?: string; error?: string }).message ?? (json as { error?: string }).error ?? res.statusCode}`)); return; }
-          resolve({ status: res.statusCode ?? 0, json });
+          const status = res.statusCode ?? 500;
+          // 404 fora de `decidir` só vem do runner ocioso (rotas fixas): é motor indisponível (503 no painel), não erro 500.
+          if (status === 404 && !aceita404) { reject(new MotorIndisponivel(`HTTP 404 em ${path} (runner ocioso? falta ORION_RUNNER=socket no runner)`)); return; }
+          if (status >= 400 && !(aceita404 && status === 404)) { reject(new Error(`motor de sessões respondeu HTTP ${status} em ${path}: ${(json as { message?: string; error?: string }).message ?? (json as { error?: string }).error ?? texto.slice(0, 200)}`)); return; }
+          resolve({ status, json });
         });
         res.on('error', reject);
       });
@@ -132,7 +137,7 @@ export class MotorSocket implements Motor {
   async parar(id: string): Promise<void> { await this.chamar('POST', `/sessoes/${encodeURIComponent(id)}/parar`); }
 
   async decidir(id: string, approvalId: string, decision: Exclude<Decision, 'timeout'>, decidedBy: number | null, message?: string): Promise<boolean> {
-    const { status } = await this.chamar('POST', `/sessoes/${encodeURIComponent(id)}/decisao`, { approvalId, decision, decidedBy, message });
+    const { status } = await this.chamar('POST', `/sessoes/${encodeURIComponent(id)}/decisao`, { approvalId, decision, decidedBy, message }, true);
     return status !== 404;
   }
 

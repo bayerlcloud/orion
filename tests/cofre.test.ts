@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { abasParaFechar, cofreArgs, cofreCdpUrl, cofreMcpServers, cofreParaHeader, cofrePainelUrl } from '../server/tools/cofre.js';
+import { abasParaFechar, cofreArgs, cofreCdpUrl, cofreMcpServers, cofreParaHeader, cofrePainelUrl, dirCofre } from '../server/tools/cofre.js';
 import { buildSystemAppend } from '../server/claude/header.js';
 
 describe('Cofre (Chrome compartilhado como MCP)', () => {
@@ -20,6 +20,13 @@ describe('Cofre (Chrome compartilhado como MCP)', () => {
     expect(a.slice(0, 6)).toEqual(['--cdp-endpoint', 'http://127.0.0.1:9222', '--caps', 'vision,pdf', '--image-responses', 'allow']);
     expect(a).toContain('--shared-browser-context');
     expect(a[a.indexOf('--allowed-hosts') + 1]).toContain('127.0.0.1:8931');
+  });
+  it('a pasta de saída fica fora de /tmp (PrivateTmp: o claude do runner não vê o /tmp do painel) e aceita ORION_COFRE_DIR', () => {
+    expect(dirCofre({})).toBe('/srv/claude-uploads/cofre-mcp');
+    expect(dirCofre({ ORION_COFRE_DIR: '/srv/x ' })).toBe('/srv/x');
+    const a = cofreArgs('http://127.0.0.1:9222', dirCofre({}));
+    expect(a[a.indexOf('--output-dir') + 1]).toBe('/srv/claude-uploads/cofre-mcp');
+    expect(cofreArgs('http://127.0.0.1:9222').some(x => x.startsWith('/tmp'))).toBe(false);
   });
   it('o header explica o Cofre e o painel para login manual', () => {
     const txt = buildSystemAppend({ projectName: 'p', projectPath: '/p', createdBy: 'Danilo', cofre: cofreParaHeader('http://127.0.0.1:9222', 'https://browser.bayerl.cloud') });

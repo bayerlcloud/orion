@@ -29,4 +29,11 @@ describe('deploy/build.sh (plano B1, T3: orion-runner)', () => {
     expect(build).toMatch(/systemctl enable --now orion-runner\b/);
     expect(readFileSync(path.join(deploy, 'orion-runner.service'), 'utf8')).toMatch(/ExecStart=\/usr\/bin\/node \/srv\/orion-live\/dist\/server\/runnerMain\.js/);
   });
+
+  it('heap do runner fica abaixo do MemoryHigh (RSS = heap + 300 a 500 MB; senão o cgroup estrangula antes do GC)', () => {
+    const unit = readFileSync(path.join(deploy, 'orion-runner.service'), 'utf8');
+    const heap = Number(/--max-old-space-size=(\d+)/.exec(unit)![1]);
+    const high = Number(/MemoryHigh=(\d+)M/.exec(unit)![1]);
+    expect(heap).toBeLessThanOrEqual(high - 300);
+  });
 });

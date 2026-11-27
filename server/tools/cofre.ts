@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { HttpMcpServerConfig } from './githubAccounts.js';
 
@@ -25,17 +26,26 @@ export function cofreMcpServers(cdpUrl: string | null): Record<string, HttpMcpSe
   return { cofre: { type: 'http', url: cofreMcpUrl(), headers: {} } };
 }
 
-export function cofreArgs(cdpUrl: string): string[] {
+/** Pasta dos prints/PDFs que o MCP do cofre grava e o claude lê. Fora de /tmp de propósito: as units têm
+ *  PrivateTmp=true e, com o runner em serviço próprio (B1), o claude nasce no namespace do runner e não vê o
+ *  /tmp do painel. /srv/claude-uploads (CLAUDE_UPLOAD_DIR) já é compartilhado e gravável por danilo:orion. */
+export function dirCofre(env: NodeJS.ProcessEnv = process.env): string {
+  return (env.ORION_COFRE_DIR ?? '').trim() || '/srv/claude-uploads/cofre-mcp';
+}
+
+export function cofreArgs(cdpUrl: string, dir = dirCofre()): string[] {
   return ['--cdp-endpoint', cdpUrl, '--caps', 'vision,pdf', '--image-responses', 'allow', '--port', String(COFRE_MCP_PORT),
     '--host', '127.0.0.1', '--allowed-hosts', `127.0.0.1:${COFRE_MCP_PORT},localhost:${COFRE_MCP_PORT}`,
-    '--shared-browser-context', '--output-dir', `${tmpdir()}/cofre-mcp`];
+    '--shared-browser-context', '--output-dir', dir];
 }
 
 /** Sobe o MCP do cofre como filho do serviço e o religa se cair (morre junto com o orion-central). */
 export function iniciarCofreCompartilhado(log: (m: string) => void, cdpUrl = cofreCdpUrl()): void {
   if (!cdpUrl) return;
+  const dir = dirCofre();
+  try { mkdirSync(dir, { recursive: true }); } catch (e) { log(`pasta do cofre ${dir} não pôde ser criada: ${(e as Error).message}`); }
   const subir = () => {
-    const p = spawn(PLAYWRIGHT_MCP_BIN, cofreArgs(cdpUrl), { stdio: 'ignore', cwd: tmpdir() });
+    const p = spawn(PLAYWRIGHT_MCP_BIN, cofreArgs(cdpUrl, dir), { stdio: 'ignore', cwd: tmpdir() });
     p.on('error', e => log(`cofre MCP não subiu: ${e.message}`));
     p.on('exit', code => { log(`cofre MCP saiu (código ${code}); religando em 5 s`); setTimeout(subir, 5000).unref(); });
   };
