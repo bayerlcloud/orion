@@ -416,7 +416,7 @@ export class Runner {
       if (l.entrada && !l.entrada.fechado) {
         const { text, attachments } = normalizar(p.prompt);
         l.turno?.textos.push(text);
-        void this.ecoUsuario(p.sessionId, text, attachments);
+        void this.ecoUsuario(p.sessionId, text, attachments).catch((e) => this.deps.log?.(`sessão ${p.sessionId}: eco da mensagem falhou: ${e instanceof Error ? e.message : e}`));
         l.entrada.push(mensagemUsuario(p.sessionId, text, attachments).catch(() => mensagemUsuario(p.sessionId, `${text}\n\n[anexo não pôde ser lido]`, [])));
       } else l.queue.push(p);
       return;
@@ -430,6 +430,21 @@ export class Runner {
   private async iniciarTurnoQuente(l: Live, p: TurnParams): Promise<void> {
     const c = l.ciclo!; const id = p.sessionId;
     const { text, attachments } = normalizar(p.prompt);
+    // Sem este catch uma falha aqui (ex.: banco) era rejeição não tratada e derrubava o painel inteiro (27/11/2026).
+    let pegou = false;
+    try {
+      await this.iniciarTurnoQuente2(l, p, c, id, text, attachments, () => { pegou = true; });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.deps.log?.(`sessão ${id}: início do turno quente falhou: ${msg}`);
+      if (pegou) this.semaforo.soltar();
+      c.emTurno = false;
+      await this.deps.store.appendEvent(id, 'error', { message: msg }).catch(() => {});
+      await this.setStatus(id, 'error', { lastError: msg }).catch(() => {});
+    }
+  }
+
+  private async iniciarTurnoQuente2(l: Live, p: TurnParams, c: Ciclo, id: string, text: string, attachments: Attachment[], pegou: () => void): Promise<void> {
     c.emTurno = true; c.p = p; c.text = text;
     Object.assign(c.turno, novoEstadoTurno(text));
     c.ok = false; c.turns = 0; c.tokens = undefined; c.semTexto = false; c.sucesso = false; c.fim = null;
@@ -438,7 +453,7 @@ export class Runner {
     this.quentes.delete(id);
     await this.setStatus(id, 'running', { lastError: null });
     await this.ecoUsuario(id, text, attachments);
-    await this.semaforo.pegar();
+    await this.semaforo.pegar(); pegou();
     // Opções que mudam por turno e têm control method: aplica ao vivo quando o valor difere do que o processo tem.
     if (p.permissionMode !== c.aplicado.permissionMode && await this.setPermissionModeLive(id, p.permissionMode)) c.aplicado.permissionMode = p.permissionMode;
     if (p.model !== c.aplicado.model && await this.setModelLive(id, p.model)) c.aplicado.model = p.model;

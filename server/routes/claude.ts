@@ -967,6 +967,12 @@ export async function claudeRoutes(app: FastifyInstance) {
     }
     const nota = notaDeploy(st, new Date(), st?.estado === 'falhou' && st.log ? await tailDoLog(st.log, 30) : '');
     for (const s of cortadas) {
+      // Enquanto o boot esperava o deploy terminar, o vigia (2 min) pode já ter retomado esta sessão: se ela está em
+      // turno ou já ganhou um result depois do corte, retomar de novo duplica o turno (27/11/2026: duas retomadas
+      // na mesma sessão colidiram no seq e derrubaram o painel).
+      if (runner.status(s.id) === 'running' || runner.status(s.id) === 'waiting') { app.log.warn(`retomada: sessão ${s.id} já está em turno, pulando`); continue; }
+      const { rows: [ult] } = await app.pool.query(`SELECT type FROM claude_events WHERE session_id = $1 AND type IN ('error','interrupted','result','user_prompt') ORDER BY seq DESC LIMIT 1`, [s.id]).catch(() => ({ rows: [] as { type: string }[] }));
+      if (ult?.type === 'result') { app.log.warn(`retomada: sessão ${s.id} já concluiu um turno depois do corte, pulando`); continue; }
       if (runner.status(s.id) !== 'idle') continue; // alguém mandou mensagem enquanto esperávamos o deploy
       app.log.warn(`retomando sessão ${s.id} cortada por restart`);
       void retomar(s, RESUME_PROMPT + nota).catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
