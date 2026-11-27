@@ -13,6 +13,7 @@ import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
 import { ensureCuradoriaTable } from './proposals.js';
 import { curadoriaServer, precisaCuradoria, type CuradorStats } from './tools.js';
 import { extrairDoDia } from './extrator.js';
+import { proporRegras } from './regras.js';
 
 const SYSTEM_PROMPT = [
   'Você é o curador da memória do painel Orion. Analise as memórias listadas pela tool listar (níveis 2 a 4).',
@@ -40,6 +41,14 @@ async function main() {
     console.log(`extrator: ${ex.projetos} projeto(s), ${ex.turnos} turno(s), ${ex.fatos} fato(s), ${ex.duplicadas} duplicada(s), ${ex.propostas} proposta(s), tokens ${ex.tokens.entrada} de entrada e ${ex.tokens.saida} de saída`);
   } catch (e) {
     console.log(`extrator falhou: ${(e as Error)?.message ?? e}`);
+  }
+
+  // Erros repetidos (>= 3 sessões do mesmo projeto em 14 dias) viram propostas de regra nível 2, pendentes no painel.
+  try {
+    const rg = await proporRegras(pool, { ...(env ? { env } : {}), log: console.log });
+    console.log(`regras: ${rg.erros} erro(s) lidos, ${rg.repetidas} assinatura(s) repetida(s), ${rg.propostas} proposta(s) nova(s), ${rg.puladas} pulada(s), tokens ${rg.tokens.entrada} de entrada e ${rg.tokens.saida} de saída`);
+  } catch (e) {
+    console.log(`regras falhou: ${(e as Error)?.message ?? e}`);
   }
 
   if (!(await precisaCuradoria((sql, params) => pool.query(sql, params as any[])))) {

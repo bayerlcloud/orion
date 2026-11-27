@@ -12,7 +12,9 @@ import { reembedar } from '../memories/embed.js';
 
 export type CurQuery = (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount: number | null }>;
 
-export const TIPOS_PROPOSTA = ['promocao', 'reescrita', 'delecao', 'conflito', 'reescopo'] as const;
+// 'regra' nasce só do detector de erros repetidos (server/curador/regras.ts) e é aplicada por
+// aplicarRegra na rota; o curador não propõe esse tipo pela tool propor.
+export const TIPOS_PROPOSTA = ['promocao', 'reescrita', 'delecao', 'conflito', 'reescopo', 'regra'] as const;
 export type TipoProposta = (typeof TIPOS_PROPOSTA)[number];
 
 /** Cláusula CHECK de tipo, uma só fonte para o CREATE TABLE e para a migração abaixo. */
@@ -53,6 +55,7 @@ export async function ensureCuradoriaTable(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS curadoria_propostas_status_idx ON curadoria_propostas (status, created_at DESC);
     ALTER TABLE curadoria_propostas DROP CONSTRAINT IF EXISTS curadoria_propostas_tipo_check;
     ALTER TABLE curadoria_propostas ADD CONSTRAINT curadoria_propostas_tipo_check ${TIPO_CHECK};
+    CREATE UNIQUE INDEX IF NOT EXISTS curadoria_propostas_regra_hash_idx ON curadoria_propostas ((payload->>'hash')) WHERE tipo = 'regra';
   `);
 }
 
@@ -117,8 +120,8 @@ export async function criarProposta(
   args: { tipo: unknown; memoria_ids: unknown; texto?: unknown; resumo?: unknown; escopo_novo?: unknown; justificativa?: unknown },
 ): Promise<{ id: number; tipo: TipoProposta; payload: PropostaPayload }> {
   const tipo = String(args.tipo ?? '') as TipoProposta;
-  if (!TIPOS_PROPOSTA.includes(tipo)) {
-    throw new ValidationError(`tipo inválido; use um de: ${TIPOS_PROPOSTA.join(', ')}`);
+  if (!TIPOS_PROPOSTA.includes(tipo) || tipo === 'regra') {
+    throw new ValidationError(`tipo inválido; use um de: ${TIPOS_PROPOSTA.filter((t) => t !== 'regra').join(', ')}`);
   }
   const justificativa = typeof args.justificativa === 'string' ? args.justificativa.trim() : '';
   if (!justificativa) throw new ValidationError('justificativa é obrigatória');
