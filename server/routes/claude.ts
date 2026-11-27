@@ -793,7 +793,7 @@ export async function claudeRoutes(app: FastifyInstance) {
        -- ?turnos=N: só a partir do N-ésimo prompt mais recente (celular abre conversa longa rápido).
        corte AS (SELECT COALESCE((SELECT seq FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' ORDER BY seq DESC OFFSET $2::int - 1 LIMIT 1), 0) AS seq),
        -- Orçamento em bytes (26/11/2026): os $3 bytes mais recentes voltam intactos (prints incluídos); o que vier antes
-       -- disso, em linha de usuário acima de 64 KB, volta com cada tool_result trocado por uma nota (tool_use_id fica,
+       -- disso, qualquer linha de usuário acima de 4 KB (sessão de agente tem milhares de ~27 KB) volta com cada tool_result trocado por uma nota (tool_use_id fica,
        -- pro bloco da ferramenta casar). Por TURNO não servia: uma sessão de agente tem 7.500 eventos e 212 MB em 3 turnos.
        -- O corte é AQUI, no Postgres: carregar isso no Node pra cortar depois estourava o heap (8 quedas num dia).
        -- tool_use_result (cópia inteira do resultado) vira só os 4 campos do mapa de agentes.
@@ -807,7 +807,7 @@ export async function claudeRoutes(app: FastifyInstance) {
             AND NOT (e.type = 'system' AND e.payload->>'subtype' = 'init' AND e.seq > lim.first_init))
        SELECT e.seq, e.ts, e.type,
          CASE WHEN e.type = 'user' THEN
-           (CASE WHEN e.acumulado > $3::bigint AND e.bytes > 65536 AND jsonb_typeof(e.payload->'message'->'content') = 'array'
+           (CASE WHEN e.acumulado > $3::bigint AND e.bytes > 4096 AND jsonb_typeof(e.payload->'message'->'content') = 'array'
                  THEN jsonb_set(e.payload - 'tool_use_result', '{message,content}', COALESCE((
                         SELECT jsonb_agg(CASE WHEN b->>'type' = 'tool_result'
                           THEN jsonb_set(b, '{content}', to_jsonb('[saída grande de um trecho antigo não carregada (' || (pg_column_size(b) / 1024)::text || ' KB): a sessão viu na hora]'::text))
