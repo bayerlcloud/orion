@@ -301,6 +301,10 @@ export class Runner {
   }
   /** Comandos de barra reais da sessão, do último `Query.supportedCommands()` (ou push `commands_changed`) que chegou — [] antes do primeiro turno rodar neste processo. */
   commandsFor(id: string): SlashCommand[] { return this.live.get(id)?.commands ?? []; }
+  /** Sessões com estado em memória neste processo: hello do stream global do orion-runner (plano B1, T3). */
+  vivas(): { id: string; status: SessionStatus; pending: { id: string; toolName: string }[] }[] {
+    return [...this.live.keys()].map(id => ({ id, status: this.status(id), pending: this.pendingPermissions(id) }));
+  }
 
   /**
    * Troca o modo de permissão AO VIVO, sem esperar a próxima mensagem — bug real reportado pelo
