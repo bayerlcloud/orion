@@ -15,6 +15,7 @@ import { pipeline } from 'node:stream/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
+import type { ServerResponse } from 'node:http';
 import { promisify } from 'node:util';
 import { IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { tituloCurto } from '../claude/titulo.js';
@@ -34,6 +35,7 @@ import { ensureGoogleCloudAccountsTable } from '../tools/googleCloudAccounts.js'
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { ULTRACODE, resolveUltracode } from '../claude/ultracode.js';
 import { safeFilename } from '../driveUtils.js';
+import { MotorIndisponivel } from '../claude/motorSocket.js';
 
 // Retomada e vigia moraram aqui até o plano B1 (T2); agora vivem em claude/retomada.ts junto do motor.
 // Re-export pra tests/resume.test.ts e quem mais importar daqui.
@@ -57,6 +59,14 @@ const SSE_BUFFER_MAX = 4 * 1024 * 1024;
 /** Ao abrir a sessão, quantos bytes (brutos, do banco) mais recentes voltam intactos; o resto vem resumido (ver GET /sessions/:id). */
 const SESSAO_BYTES_INTACTOS = 8 * 1024 * 1024;
 
+/** SSE abertos em /api/claude/sessions/:id/stream. Em modo socket, o hello do runner (reconexão) fecha todos:
+ * o EventSource do navegador reconecta e recarrega o histórico pelo GET (nenhum replay de eventos é preciso). */
+const sseAbertos = new Set<ServerResponse>();
+export function fecharSseAbertos(): void {
+  for (const res of sseAbertos) res.end();
+  sseAbertos.clear();
+}
+
 /**
  * Um caminho real (já resolvido por `realpath`) está dentro de uma raiz (ou é a própria raiz)? Mesma
  * checagem anti path-traversal usada tanto no upload (`sanitizeAttachments`, abaixo) quanto na rota
@@ -72,8 +82,13 @@ export function isUnderRoot(real: string, root: string): boolean {
 type NewBody = { project_id?: number | null; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[]; worktree_name?: string };
 
 export async function claudeRoutes(app: FastifyInstance) {
-  // Motor das sessões (claude/motor.ts): local hoje, socket em T3. Quem o cria e hospeda é o index.ts.
+  // Motor das sessões (claude/motor.ts): local ou socket (orion-runner). Quem o cria e hospeda é o index.ts.
   const motor = app.motor;
+  // Runner fora (modo socket, reiniciando): escrita responde 503 e o front tenta de novo; leitura segue pelo espelho/DB.
+  app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof MotorIndisponivel) return reply.code(503).send({ error: 'motor de sessões indisponível; tente em alguns segundos' });
+    throw err; // segue pro tratador padrão (500 com log)
+  });
   await ensureSettingsTable(app.pool);
   await ensureTriagemSombraTable(app.pool); // piloto Laya (docs/plans/2026-10-07-piloto-laya-triagem.md), modo sombra
   // As tabelas de contas nascem aqui também (em produção já existem): a retomada pós-restart vive no motor (hospedarMotor) e sobe antes deste plugin.
@@ -330,7 +345,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     // Danilo, 09/10/2026 — ex.: tudo que o Gustavo fizer, só o Danilo vê).
     const visiveis = rows.filter(r => !r.private || r.user_id === req.user!.id || req.user!.role === 'owner');
     const sessions = visiveis.map(r => ({ ...r, status: motor.status(r.id) === 'idle' && r.status === 'error' ? 'error' : motor.status(r.id), pending: motor.pendentes(r.id).length }));
-    return { sessions };
+    // motor: 'offline' = runner reiniciando (modo socket); o front mostra a faixa "Motor de sessões reiniciando".
+    return { sessions, motor: motor.online() ? 'online' : 'offline' };
   });
 
   // Busca dentro do conteúdo das mensagens (não só título): devolve os ids de sessão que têm
@@ -696,10 +712,11 @@ export async function claudeRoutes(app: FastifyInstance) {
       const ev = (e as { type?: string }).type === 'message' ? { ...(e as object), message: semWorkflowProgress(enxugarToolUseResult((e as { message: unknown }).message)) } : e;
       res.write(`data: ${JSON.stringify(ev)}\n\n`);
     };
-    send({ type: 'hello', status: motor.status(id), pending: motor.pendentes(id), commands: await motor.comandos(id) });
+    send({ type: 'hello', status: motor.status(id), pending: motor.pendentes(id), commands: await motor.comandos(id).catch(() => []) });
     const unsub = motor.assinar(id, send);
     const hb = setInterval(() => res.write(': hb\n\n'), 15_000);
-    req.raw.on('close', () => { clearInterval(hb); unsub(); });
+    sseAbertos.add(res);
+    req.raw.on('close', () => { clearInterval(hb); unsub(); sseAbertos.delete(res); });
   });
 
   app.post<{ Params: { id: string }; Body: { prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[] } }>('/api/claude/sessions/:id/messages', async (req, reply) => {
@@ -755,7 +772,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (mode !== rows[0].permission_mode) await app.pool.query('UPDATE claude_sessions SET permission_mode = $2 WHERE id = $1', [req.params.id, mode]);
     let live = false;
     try { live = await motor.aoVivo(req.params.id, 'mode', mode); }
-    catch (e: any) { app.log.warn(`setPermissionMode ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    catch (e: any) { if (e instanceof MotorIndisponivel) throw e; app.log.warn(`setPermissionMode ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
 
@@ -773,7 +790,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (model && model !== rows[0].model) await app.pool.query('UPDATE claude_sessions SET model = $2 WHERE id = $1', [req.params.id, model]);
     let live = false;
     try { live = await motor.aoVivo(req.params.id, 'model', model || undefined); }
-    catch (e: any) { app.log.warn(`setModel ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    catch (e: any) { if (e instanceof MotorIndisponivel) throw e; app.log.warn(`setModel ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
 
@@ -805,7 +822,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // prompt de um turno já em andamento não pode ser trocado no meio (simplificação documentada
     // em PARIDADE-seletor.md — a extensão real aplica a flag dela pelo mesmo canal de settings).
     try { live = await motor.aoVivo(req.params.id, 'effort', resolveUltracode(effort).effort); }
-    catch (e: any) { app.log.warn(`setEffort ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    catch (e: any) { if (e instanceof MotorIndisponivel) throw e; app.log.warn(`setEffort ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
 
@@ -828,7 +845,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (style !== rows[0].output_style) await app.pool.query('UPDATE claude_sessions SET output_style = $2 WHERE id = $1', [req.params.id, style]);
     let live = false;
     try { live = await motor.aoVivo(req.params.id, 'outputStyle', style); }
-    catch (e: any) { app.log.warn(`setOutputStyle ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
+    catch (e: any) { if (e instanceof MotorIndisponivel) throw e; app.log.warn(`setOutputStyle ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
 

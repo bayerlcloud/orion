@@ -51,5 +51,7 @@ export class MotorLocal implements Motor {
   pendentes(id: string): { id: string; toolName: string }[] { return this.d.runner.pendingPermissions(id); }
   async comandos(id: string): Promise<SlashCommand[]> { return this.d.runner.commandsFor(id); }
   assinar(id: string, fn: (e: LiveEvent) => void): () => void { return this.d.runner.subscribe(id, fn); }
+  assinarTudo(fn: (sessionId: string, e: LiveEvent) => void): () => void { return this.d.runner.assinarTudo(fn); }
+  vivas() { return this.d.runner.vivas(); }
   online(): boolean { return true; }
 }

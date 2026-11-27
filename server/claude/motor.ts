@@ -24,6 +24,10 @@ export interface Motor {
   /** Assíncrono de propósito: a lista pesa 150 a 350 KB e no socket vai por pedido, não pelo stream. */
   comandos(id: string): Promise<SlashCommand[]>;
   assinar(id: string, fn: (e: LiveEvent) => void): () => void;
+  /** Todos os eventos de todas as sessões, com o id: alimenta o stream global /eventos do orion-runner. */
+  assinarTudo(fn: (sessionId: string, e: LiveEvent) => void): () => void;
+  /** Sessões com estado em memória (hello do stream global). No socket, o espelho. */
+  vivas(): { id: string; status: SessionStatus; pending: { id: string; toolName: string }[] }[];
   /** Local: sempre true. Socket: stream /eventos aberto. */
   online(): boolean;
 }
