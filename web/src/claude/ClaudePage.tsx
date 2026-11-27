@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { addPendingUser, applyLive, dropPendingUser, emptyLive, fromRows, keepPendingUser, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, MODE_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, MODE_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment, type Fora, type ForaResposta } from './api';
 import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar, { Avatar } from './Sidebar';
@@ -50,6 +50,42 @@ export default function ClaudePage() {
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const fimTurno = (id: string, ok: boolean) => avisarFimTurno(id, sessionsRef.current.find(x => x.id === id)?.title ?? 'Sessão', ok);
+  // "Enquanto você estava fora" (servidor: claude/fora.ts). Por sessão; `setForaFechado` só força re-render após o X.
+  const [fora, setFora] = useState<Record<string, Fora | null>>({});
+  const [, setForaFechado] = useState(0);
+  const chaveFora = (id: string) => `orion.fora.${id}`;
+  const fecharFora = (id: string, ateSeq: number) => { try { localStorage.setItem(chaveFora(id), String(ateSeq)); } catch { /* sem storage */ } setForaFechado(n => n + 1); };
+  const foraVisivel = (id: string): Fora | null => {
+    const f = fora[id]; if (!f) return null;
+    try { return localStorage.getItem(chaveFora(id)) === String(f.ate_seq) ? null : f; } catch { return f; }
+  };
+  // O servidor gera o resumo em segundo plano (não segura o GET da sessão): `pendente` vira polling em
+  // /fora a cada 3 s por até 30 s. Texto vazio, null ou estouro do tempo: nada na tela.
+  const foraTimersRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const receberFora = (id: string, r: ForaResposta | undefined) => {
+    const parar = () => { const t = foraTimersRef.current[id]; if (t) { clearInterval(t); delete foraTimersRef.current[id]; } };
+    if (!r || !('pendente' in r)) { parar(); setFora(f => ({ ...f, [id]: r ?? null })); return; }
+    if (foraTimersRef.current[id]) return; // já está esperando este mesmo resumo
+    const inicio = Date.now(); const esperado = r.ate_seq;
+    foraTimersRef.current[id] = setInterval(() => {
+      if (Date.now() - inicio > 30_000) { parar(); return; }
+      claudeApi.fora(id).then(x => {
+        if (x && 'pendente' in x) return;
+        parar();
+        // Só o resumo que estava sendo gerado (mesmo ate_seq); cache velho de outro trecho não serve.
+        setFora(f => ({ ...f, [id]: x && x.texto && (esperado === undefined || x.ate_seq === esperado) ? x : null }));
+      }).catch(parar);
+    }, 3000);
+  };
+  useEffect(() => () => { for (const t of Object.values(foraTimersRef.current)) clearInterval(t); }, []);
+  // turn_end com a aba visível: a pessoa viu, marca a vista (um POST por sessão a cada 5 s no máximo).
+  const vistaRef = useRef<Record<string, number>>({});
+  const marcarVista = (id: string) => {
+    if (document.hidden) return;
+    const t = Date.now(); if (t - (vistaRef.current[id] ?? 0) < 5000) return;
+    vistaRef.current[id] = t;
+    claudeApi.vista(id).catch(() => {});
+  };
   // "Editar e reenviar" do balão: o texto volta para o compositor (n muda a cada clique).
   const [inject, setInject] = useState<{ text: string; n: number } | null>(null);
   // Sessões em que a pessoa pediu o histórico inteiro (o padrão carrega só as últimas mensagens).
@@ -340,7 +376,7 @@ export default function ClaudePage() {
     const apply = (ev: any) => {
       setLive(l => ({ ...l, [activeId]: applyLive(l[activeId] ?? emptyLive(), ev) }));
       if (ev.type === 'turn_end' || ev.type === 'status') void refreshSessions();
-      if (ev.type === 'turn_end') { void refreshUsage(); fimTurno(activeId, !!ev.ok); }
+      if (ev.type === 'turn_end') { void refreshUsage(); fimTurno(activeId, !!ev.ok); marcarVista(activeId); }
     };
     const es = new EventSource(`/api/claude/sessions/${activeId}/stream`);
     es.onmessage = (m) => { try { const ev = JSON.parse(m.data); if (buffer) buffer.push(ev); else apply(ev); } catch { /* ignora */ } };
@@ -350,10 +386,12 @@ export default function ClaudePage() {
       if (dropTimer) { clearTimeout(dropTimer); dropTimer = null; }
       setStreamStatus('connected');
       buffer = buffer ?? [];
-      claudeApi.get(activeId, fullRef.current.has(activeId)).then(r => {
+      claudeApi.get(activeId, fullRef.current.has(activeId), first).then(r => {
         if (!alive) return;
         const pending = buffer ?? []; buffer = null;
         setLive(l => ({ ...l, [activeId]: keepPendingUser(l[activeId], pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 })) }));
+        // Reconexão devolve o cache (ou null se já houve turno novo com a pessoa presente): o card acompanha.
+        receberFora(activeId, r.fora);
         if (!first) return;
         first = false;
         const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
@@ -369,7 +407,10 @@ export default function ClaudePage() {
     let dropTimer: ReturnType<typeof setTimeout> | null = null;
     es.onerror = () => { if (!dropTimer) dropTimer = setTimeout(() => { dropTimer = null; setStreamStatus('disconnected'); }, 4000); };
     esRef.current = es;
-    return () => { alive = false; if (dropTimer) clearTimeout(dropTimer); es.close(); esRef.current = null; };
+    return () => {
+      alive = false; if (dropTimer) clearTimeout(dropTimer); es.close(); esRef.current = null;
+      const tf = foraTimersRef.current[activeId]; if (tf) { clearInterval(tf); delete foraTimersRef.current[activeId]; }
+    };
   }, [activeId, refreshSessions, refreshUsage, revive]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();
@@ -878,6 +919,17 @@ export default function ClaudePage() {
                 </span>
               </div>
             )}
+            {/* "Enquanto você estava fora": turnos concluídos desde a última vez que a pessoa viu a sessão (servidor: claude/fora.ts).
+                Mesmo estilo do banner de worktree; o X guarda o ate_seq em localStorage e o card só volta com turno novo. */}
+            {active && !carregandoSessao && (() => { const f = foraVisivel(active.id); return f && (
+              <div className="cc-worktree-banner cc-fora">
+                <div className="cc-fora-corpo">
+                  <div className="cc-fora-titulo">Enquanto você estava fora</div>
+                  {f.texto.split('\n').map((l, i) => <div key={i}>{l}</div>)}
+                </div>
+                <button type="button" className="cc-fora-x" onClick={() => fecharFora(active.id, f.ate_seq)} aria-label="Fechar" title="Fechar"><X size={14} /></button>
+              </div>
+            ); })()}
             {/* F5: antes das sessões/abas voltarem do servidor, `activeId` começa null — sem este
                 `sessionsLoading`, a tela "nenhuma sessão" pisca ali por um instante antes da aba de
                 verdade abrir, parecendo bug (achado pelo Danilo, 04/10/2026). Mesmo "pontinho"

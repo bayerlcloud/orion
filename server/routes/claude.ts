@@ -20,6 +20,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { tituloCurto } from '../claude/titulo.js';
+import { cacheFora, foraDaSessao, marcarVista } from '../claude/fora.js';
 import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { sessoesVizinhas } from '../claude/vizinhas.js';
@@ -778,7 +779,20 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { id, title: titleFromPrompt(prompt) };
   });
 
-  app.get<{ Params: { id: string }; Querystring: { turnos?: string } }>('/api/claude/sessions/:id', async (req, reply) => {
+  // POST /vista: a aba ativa recebeu turn_end, então a pessoa viu o turno terminar (claude/fora.ts).
+  app.post<{ Params: { id: string } }>('/api/claude/sessions/:id/vista', async (req, reply) => {
+    const { rowCount } = await app.pool.query('SELECT 1 FROM claude_sessions WHERE id = $1', [req.params.id]);
+    if (!rowCount) return reply.code(404).send({ error: 'sessão não existe' });
+    await marcarVista(app.pool, req.params.id, req.user!.id);
+    return { ok: true };
+  });
+
+  // GET /fora: polling do front enquanto o resumo "Enquanto você estava fora" é gerado em segundo plano. Só leitura.
+  app.get<{ Params: { id: string } }>('/api/claude/sessions/:id/fora', async (req) => cacheFora(app.pool, req.params.id, req.user!.id));
+
+  // ?abrindo=1: o front está abrindo a sessão de fato (não reconexão do SSE, não script). Só aí
+  // conta como "vista" e só aí o resumo "Enquanto você estava fora" pode chamar o modelo.
+  app.get<{ Params: { id: string }; Querystring: { turnos?: string; abrindo?: string } }>('/api/claude/sessions/:id', async (req, reply) => {
     const { rows } = await app.pool.query(
       `SELECT s.*, u.name AS user_name, p.name AS project_name, p.slug AS project_slug FROM claude_sessions s JOIN users u ON u.id = s.user_id LEFT JOIN projects p ON p.id = s.project_id WHERE s.id = $1`, [req.params.id]);
     const s = rows[0];
@@ -830,11 +844,15 @@ export async function claudeRoutes(app: FastifyInstance) {
     // Prints de ferramenta (base64) só nos 3 turnos mais recentes: eram 63 MB de 155 numa sessão de agente.
     // O grosso já veio cortado do Postgres (CTE img acima); aqui só o que sobrou pequeno: texto > 20 KB e imagem em linha ≤ 64 KB.
     for (const e of events) e.payload = truncarToolResult(e.payload);
+    const abrindo = req.query?.abrindo === '1';
+    // Lê o visto_em ANTES de marcar a vista: é a partir dele que se sabe o que a pessoa não viu.
+    const fora = await foraDaSessao(app.pool, s.id, req.user!.id, { gerar: abrindo, token: () => getSetting(app.pool, KEYS.claudeToken) }).catch(() => null);
+    if (abrindo) await marcarVista(app.pool, s.id, req.user!.id).catch(() => {});
     const primeiro = events.find(e => e.type === 'user_prompt')?.seq;
     const escondidos = turnos < 1000000 && primeiro !== undefined
       ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
       : 0;
-    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id), hidden_turns: escondidos };
+    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id), hidden_turns: escondidos, fora };
   });
 
   app.get<{ Params: { id: string } }>('/api/claude/sessions/:id/stream', async (req, reply) => {
