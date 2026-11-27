@@ -6,22 +6,25 @@ const antes = (ms: number) => new Date(agora.getTime() - ms);
 
 describe('decidirFora', () => {
   it('nada sem visto_em (nunca abriu) ou sem result novo', () => {
-    expect(decidirFora({ vistoEm: null, ultimoResultSeq: 10, cache: null, now: agora })).toEqual({ acao: 'nada' });
-    expect(decidirFora({ vistoEm: antes(3 * 3600e3), ultimoResultSeq: null, cache: null, now: agora })).toEqual({ acao: 'nada' });
+    expect(decidirFora({ vistoEm: null, ultimoResultSeq: 10, novo: true, cache: null, now: agora })).toEqual({ acao: 'nada' });
+    expect(decidirFora({ vistoEm: antes(3 * 3600e3), ultimoResultSeq: null, novo: false, cache: null, now: agora })).toEqual({ acao: 'nada' });
   });
   it('nada se viu há menos de 30 min, mesmo com result novo', () => {
-    expect(decidirFora({ vistoEm: antes(FORA_AUSENCIA_MIN_MS - 1000), ultimoResultSeq: 10, cache: null, now: agora })).toEqual({ acao: 'nada' });
+    expect(decidirFora({ vistoEm: antes(FORA_AUSENCIA_MIN_MS - 1000), ultimoResultSeq: 10, novo: true, cache: null, now: agora })).toEqual({ acao: 'nada' });
   });
   it('gera quando viu há mais de 30 min e há result novo', () => {
-    expect(decidirFora({ vistoEm: antes(FORA_AUSENCIA_MIN_MS + 1000), ultimoResultSeq: 42, cache: null, now: agora })).toEqual({ acao: 'gerar', ateSeq: 42 });
+    expect(decidirFora({ vistoEm: antes(FORA_AUSENCIA_MIN_MS + 1000), ultimoResultSeq: 42, novo: true, cache: null, now: agora })).toEqual({ acao: 'gerar', ateSeq: 42 });
   });
   it('cache com o mesmo ate_seq vale mesmo com visto_em recente; ate_seq antigo regenera', () => {
     const cache = { ate_seq: 42, texto: 'feito: x', gerado_em: '2026-11-27T11:00:00Z' };
-    expect(decidirFora({ vistoEm: antes(1000), ultimoResultSeq: 42, cache, now: agora })).toEqual({ acao: 'cache', fora: { texto: 'feito: x', ate_seq: 42 } });
-    expect(decidirFora({ vistoEm: antes(2 * FORA_AUSENCIA_MIN_MS), ultimoResultSeq: 50, cache, now: agora })).toEqual({ acao: 'gerar', ateSeq: 50 });
+    expect(decidirFora({ vistoEm: antes(1000), ultimoResultSeq: 42, novo: false, cache, now: agora })).toEqual({ acao: 'cache', fora: { texto: 'feito: x', ate_seq: 42 } });
+    expect(decidirFora({ vistoEm: antes(2 * FORA_AUSENCIA_MIN_MS), ultimoResultSeq: 50, novo: true, cache, now: agora })).toEqual({ acao: 'gerar', ateSeq: 50 });
+  });
+  it('result antigo (já visto) sem cache: nada, mesmo com visto_em velho', () => {
+    expect(decidirFora({ vistoEm: antes(3 * 3600e3), ultimoResultSeq: 42, novo: false, cache: null, now: agora })).toEqual({ acao: 'nada' });
   });
   it('cache com texto vazio (modelo falhou) não mostra nem tenta de novo', () => {
-    expect(decidirFora({ vistoEm: antes(2 * FORA_AUSENCIA_MIN_MS), ultimoResultSeq: 42, cache: { ate_seq: 42, texto: '', gerado_em: '' }, now: agora })).toEqual({ acao: 'nada' });
+    expect(decidirFora({ vistoEm: antes(2 * FORA_AUSENCIA_MIN_MS), ultimoResultSeq: 42, novo: true, cache: { ate_seq: 42, texto: '', gerado_em: '' }, now: agora })).toEqual({ acao: 'nada' });
   });
 });
 
@@ -56,13 +59,13 @@ describe('limparResumo', () => {
 });
 
 /** Pool falso: tabela de vistas com uma linha, eventos de uma sessão, e o UPDATE do cache capturado. */
-function poolFalso(vista: { visto_em: Date; resumo: unknown } | null, resultSeq: number | null, eventos: unknown[]) {
+function poolFalso(vista: { visto_em: Date; resumo: unknown } | null, resultSeq: number | null, eventos: unknown[], novo = true) {
   const updates: unknown[][] = [];
   return {
     updates,
     pool: { query: async (sql: string, params: unknown[]) => {
       if (sql.includes('FROM claude_session_vistas')) return { rows: vista ? [vista] : [] };
-      if (sql.includes("type = 'result'")) return { rows: [{ seq: resultSeq }] };
+      if (sql.includes("type = 'result'")) return { rows: [{ seq: resultSeq, novo: resultSeq != null && novo }] };
       if (sql.includes("type = 'assistant'")) return { rows: eventos };
       if (sql.startsWith('UPDATE claude_session_vistas')) { updates.push(params); return { rows: [] }; }
       throw new Error(`sql inesperado: ${sql.slice(0, 60)}`);
@@ -104,9 +107,25 @@ describe('foraDaSessao (geração em segundo plano)', () => {
     expect(chamou).toBe(false);
     expect(updates).toEqual([]);
   });
-  it('cache válido volta direto, mesmo sem gerar', async () => {
-    const { pool } = poolFalso({ visto_em: new Date(), resumo: { ate_seq: 77, texto: 'feito: tudo', gerado_em: 'x' } }, 77, eventos);
+  it('F5/reconexão: visto_em recente, último result já visto (novo: false) e cache do mesmo seq volta o cache', async () => {
+    const { pool } = poolFalso({ visto_em: new Date(), resumo: { ate_seq: 77, texto: 'feito: tudo', gerado_em: 'x' } }, 77, eventos, false);
     expect(await foraDaSessao(pool, 'g4', 1, { gerar: false, token, resumir: async () => 'não' })).toEqual({ texto: 'feito: tudo', ate_seq: 77 });
+    expect(await foraDaSessao(pool, 'g4', 1, { gerar: true, token, resumir: async () => 'não' })).toEqual({ texto: 'feito: tudo', ate_seq: 77 });
+  });
+  it('turno novo terminou com a pessoa presente (visto_em depois do result): cache antigo não volta, nada', async () => {
+    const { pool } = poolFalso({ visto_em: new Date(), resumo: { ate_seq: 77, texto: 'feito: tudo', gerado_em: 'x' } }, 80, eventos, false);
+    expect(await foraDaSessao(pool, 'g4b', 1, { gerar: true, token, resumir: async () => 'não' })).toBeNull();
+  });
+  it('modelo lançou (timeout): nada gravado, a próxima abertura tenta de novo', async () => {
+    const { pool, updates } = poolFalso(vistoOntem, 77, eventos);
+    let chamou = 0;
+    const resumir = async () => { chamou++; throw new Error('timeout'); };
+    expect(await foraDaSessao(pool, 'g4c', 1, { gerar: true, token, resumir })).toEqual({ pendente: true, ate_seq: 77 });
+    await foraEmVoo('g4c', 1);
+    expect(updates).toEqual([]);
+    expect(await foraDaSessao(pool, 'g4c', 1, { gerar: true, token, resumir })).toEqual({ pendente: true, ate_seq: 77 });
+    await foraEmVoo('g4c', 1);
+    expect(chamou).toBe(2);
   });
   it('modelo falhou (texto vazio): cache vazio gravado para não insistir; /fora devolve null', async () => {
     const { pool, updates } = poolFalso(vistoOntem, 77, eventos);

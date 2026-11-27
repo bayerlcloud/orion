@@ -29,7 +29,7 @@ export async function haikuUmTurno(prompt: string, systemPrompt: string, token: 
       systemPrompt,
     } });
     for await (const m of q) if (m.type === 'assistant') for (const b of m.message.content) if (b.type === 'text') texto += b.text;
-  } catch { /* erro no fim do turno: o texto que já veio serve */ } finally { clearTimeout(timer); }
+  } catch (e) { if (!texto) throw e; /* erro no fim do turno com texto já vindo: o que veio serve */ } finally { clearTimeout(timer); }
   return texto;
 }
 
@@ -38,6 +38,6 @@ export async function tituloCurto(prompt: string, token: string | null): Promise
   const texto = await haikuUmTurno(prompt.slice(0, 2000),
     'Você dá nome a sessões de trabalho. Leia o pedido e responda SÓ com um título de 1 a 3 palavras em português do Brasil, '
     + 'substantivo e literal, como "Ajuste home", "Gestão de usuários", "Migração de banco". Sem frase, sem aspas, sem ponto final. '
-    + 'Ignore o prefixo [Nome] se houver.', token, 30_000);
+    + 'Ignore o prefixo [Nome] se houver.', token, 30_000).catch(() => '');
   return limparTitulo(texto);
 }

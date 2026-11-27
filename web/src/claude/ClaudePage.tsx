@@ -407,7 +407,10 @@ export default function ClaudePage() {
     let dropTimer: ReturnType<typeof setTimeout> | null = null;
     es.onerror = () => { if (!dropTimer) dropTimer = setTimeout(() => { dropTimer = null; setStreamStatus('disconnected'); }, 4000); };
     esRef.current = es;
-    return () => { alive = false; if (dropTimer) clearTimeout(dropTimer); es.close(); esRef.current = null; };
+    return () => {
+      alive = false; if (dropTimer) clearTimeout(dropTimer); es.close(); esRef.current = null;
+      const tf = foraTimersRef.current[activeId]; if (tf) { clearInterval(tf); delete foraTimersRef.current[activeId]; }
+    };
   }, [activeId, refreshSessions, refreshUsage, revive]);
 
   const state = activeId ? (live[activeId] ?? emptyLive()) : emptyLive();

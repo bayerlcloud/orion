@@ -33,15 +33,18 @@ export const FORA_PROMPT = [
 
 /**
  * Deve resumir? Só quando a pessoa já viu a sessão alguma vez, há result depois dessa vez e a vez
- * foi há mais de 30 min. Cache válido (mesmo ate_seq) dispensa o modelo e vale mesmo com visto_em
- * recente: o card fica até a pessoa fechar ou chegarem turnos novos.
+ * foi há mais de 30 min. `ultimoResultSeq` é o último result da sessão TODA (não só depois de visto_em)
+ * e `novo` diz se ele veio depois de visto_em: assim o cache com o mesmo ate_seq vale mesmo depois que
+ * a abertura atualizou visto_em (F5, troca de aba, reconexão do SSE), e o card só cai quando a pessoa
+ * fecha ou quando um turno novo termina com ela presente (POST /vista depois do result).
  */
 export function decidirFora(
-  a: { vistoEm: Date | null; ultimoResultSeq: number | null; cache: ResumoCache; now?: Date },
+  a: { vistoEm: Date | null; ultimoResultSeq: number | null; novo: boolean; cache: ResumoCache; now?: Date },
 ): { acao: 'nada' } | { acao: 'cache'; fora: Fora } | { acao: 'gerar'; ateSeq: number } {
   const { vistoEm, ultimoResultSeq, cache } = a;
   if (ultimoResultSeq == null || !vistoEm) return { acao: 'nada' };
   if (cache && cache.ate_seq === ultimoResultSeq) return cache.texto ? { acao: 'cache', fora: { texto: cache.texto, ate_seq: cache.ate_seq } } : { acao: 'nada' };
+  if (!a.novo) return { acao: 'nada' };
   const now = a.now ?? new Date();
   if (now.getTime() - vistoEm.getTime() < FORA_AUSENCIA_MIN_MS) return { acao: 'nada' };
   return { acao: 'gerar', ateSeq: ultimoResultSeq };
@@ -74,11 +77,10 @@ export function limparResumo(texto: string, max = FORA_LINHAS_MAX): string {
     .join('\n');
 }
 
-/** Chama o Haiku (20 s). Qualquer falha vira '' e o card simplesmente não aparece. */
+/** Chama o Haiku (20 s). Exceção/timeout propaga (quem gera não grava cache e a próxima abertura tenta de novo). */
 export async function resumirFora(entrada: string, token: string | null): Promise<string> {
   if (!entrada.trim()) return '';
-  try { return limparResumo(await haikuUmTurno(entrada, FORA_PROMPT, token, FORA_TIMEOUT_MS)); }
-  catch { return ''; }
+  return limparResumo(await haikuUmTurno(entrada, FORA_PROMPT, token, FORA_TIMEOUT_MS));
 }
 
 /** Marca que a pessoa viu a sessão agora. */
@@ -107,9 +109,10 @@ export async function foraDaSessao(
   const { rows: [v] } = await pool.query<{ visto_em: Date; resumo: ResumoCache }>(
     'SELECT visto_em, resumo FROM claude_session_vistas WHERE session_id = $1 AND user_id = $2', [sessionId, userId]);
   if (!v) return null;
-  const { rows: [r] } = await pool.query<{ seq: number | null }>(
-    `SELECT max(seq)::int AS seq FROM claude_events WHERE session_id = $1 AND type = 'result' AND ts > $2`, [sessionId, v.visto_em]);
-  const d = decidirFora({ vistoEm: v.visto_em, ultimoResultSeq: r?.seq ?? null, cache: v.resumo });
+  // Último result da sessão toda + se ele é posterior ao visto_em (ver decidirFora).
+  const { rows: [r] } = await pool.query<{ seq: number | null; novo: boolean | null }>(
+    `SELECT max(seq)::int AS seq, max(ts) > $2 AS novo FROM claude_events WHERE session_id = $1 AND type = 'result'`, [sessionId, v.visto_em]);
+  const d = decidirFora({ vistoEm: v.visto_em, ultimoResultSeq: r?.seq ?? null, novo: !!r?.novo, cache: v.resumo });
   if (d.acao === 'nada') return null;
   if (d.acao === 'cache') return d.fora;
   const k = chave(sessionId, userId);
@@ -126,7 +129,8 @@ export async function foraDaSessao(
           AND jsonb_typeof(e.payload->'message'->'content') = 'array'
         ORDER BY e.seq`, [sessionId, vistoEm, d.ateSeq]);
     const texto = await (opts.resumir ?? resumirFora)(montarEntrada(eventos), await opts.token());
-    // Grava mesmo vazio: ate_seq igual evita tentar o modelo de novo a cada abertura até haver turno novo.
+    // Resposta vazia do modelo grava '' mesmo: ate_seq igual evita tentar de novo a cada abertura até
+    // haver turno novo. Exceção/timeout não chega aqui (catch abaixo), então aí sim tenta de novo.
     await pool.query(
       `UPDATE claude_session_vistas SET resumo = $3::jsonb WHERE session_id = $1 AND user_id = $2`,
       [sessionId, userId, JSON.stringify({ ate_seq: d.ateSeq, texto, gerado_em: new Date().toISOString() })]);

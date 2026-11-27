@@ -97,7 +97,7 @@ export const claudeApi = {
   // `abrindo`: a pessoa está abrindo a sessão de fato (1ª carga da aba ativa); o servidor marca a vista e
   // pode gerar o resumo "Enquanto você estava fora" (`fora`). Reconexão e abas de fundo não mandam.
   get: (id: string, full = false, abrindo = false) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[]; hidden_turns?: number; fora?: ForaResposta }>(
-    `/api/claude/sessions/${id}?${new URLSearchParams({ ...(full ? {} : { turnos: String(TURNOS_INICIAIS) }), ...(abrindo ? { abrindo: '1' } : {}) })}`),
+    `/api/claude/sessions/${id}${(q => q ? `?${q}` : '')(new URLSearchParams({ ...(full ? {} : { turnos: String(TURNOS_INICIAIS) }), ...(abrindo ? { abrindo: '1' } : {}) }).toString())}`),
   /** Fim de turno com a aba ativa: a pessoa viu, então conta como vista (ver fora.ts no servidor). */
   vista: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/vista`, { method: 'POST' }),
   /** Polling do resumo "Enquanto você estava fora" (só leitura): resumo pronto, `pendente` ou null. */
