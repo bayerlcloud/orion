@@ -19,7 +19,10 @@ export const REMOTE_CMD =
   "echo '---STAT1---'; cat /proc/stat; echo '---NET1---'; cat /proc/net/dev; sleep 1; " +
   "echo '---STAT2---'; cat /proc/stat; echo '---NET2---'; cat /proc/net/dev; " +
   "echo '---MEM---'; cat /proc/meminfo; echo '---DF---'; df -kP /; " +
-  "echo '---DOCKER---'; timeout 20 docker ps --format '{{json .}}'";
+  // `|| true`: sem isso, o timeout do docker ps (hostinger tem ~66 containers, às vezes estoura os
+  // 20s) virava o código de saída de TODO o ssh (é o último comando da cadeia), e isso marcava um
+  // 'ssh' falso em errors e zerava host/cpu/mem/fs/net que tinham vindo certos antes dele.
+  "echo '---DOCKER---'; timeout 20 docker ps --format '{{json .}}' || true";
 
 const SECTIONS = [
   'hostname', 'kernel', 'uptime', 'nproc', 'load', 'procs', 'route',
@@ -109,7 +112,9 @@ export async function collectRemoteSample(
   const fs = parseDf(s.df);
   if (!fs) errors.push('df /');
 
-  const docker = code === 0 ? parseDockerPs(s.docker) : null;
+  // Não depende de `code`: docker ps tem `|| true` no REMOTE_CMD, então um timeout dele nunca derruba
+  // o código de saída do ssh. parseDockerPs é seguro com saída vazia/parcial (devolve lista vazia).
+  const docker = parseDockerPs(s.docker);
 
   return { host: host.label, ts: new Date().toISOString(), info, cpu, load, net, procsCount, mem, fs, docker, errors };
 }

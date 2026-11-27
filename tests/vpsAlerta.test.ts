@@ -70,7 +70,7 @@ describe('pontoRemoto', () => {
     expect(ponto.mem_used_pct).toBeNull();
     expect(ponto.swap_pct).toBeNull();
     expect(ponto.fs_pct).toBeNull();
-    expect(ponto.docker).toBeNull();
+    expect(ponto.docker).toEqual([]);
     expect(ponto.errors).toEqual(['ssh', 'host', '/proc/loadavg', 'procs', '/proc/stat', '/proc/meminfo', 'df /']);
   });
 });
