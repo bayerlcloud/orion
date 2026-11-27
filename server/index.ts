@@ -31,6 +31,7 @@ import { whatsappRoutes } from './routes/whatsapp.js';
 import { chatRoutes } from './routes/chat.js';
 import { designRoutes } from './routes/design.js';
 import { designProjectsRoutes } from './routes/designProjects.js';
+import { envDoGerente, envStrings, pararScopes } from './claude/isolamento.js';
 
 declare module 'fastify' {
   interface FastifyInstance { pool: Pool; repoDir: string; runner: import('./claude/runner.js').Runner }
@@ -44,6 +45,13 @@ async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
   const pool = createPool();
   await migrate(pool);
+  // Os claude das sessões vivem em scopes do gerente de usuário (server/claude/isolamento.ts), fora deste
+  // serviço: um restart não os mata mais, e seguiriam o turno com o stdin fechado, sem ninguém ouvindo.
+  // Boot cobre crash sem handler; SIGTERM cobre o deploy. Antes de claudeRoutes, que retoma turnos no boot.
+  const envGerente = envDoGerente(envStrings(), process.getuid?.() ?? 0);
+  const pararSessoes = () => pararScopes('orion-sessao-*', envGerente, m => app.log.warn(m));
+  await pararSessoes();
+  process.once('SIGTERM', () => { void pararSessoes().finally(() => process.exit(0)); });
   app.decorate('pool', pool);
   app.decorate('repoDir', process.env.ORION_REPO ?? path.resolve(here, '..', '..'));
   app.decorateRequest('user', null);

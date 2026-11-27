@@ -5,6 +5,7 @@ import { makeStopMemoriaHook, novoEstadoTurno, registrarToolUse, sessionStartMem
 import { readFile } from 'node:fs/promises';
 import { arquivoDePlano, textoDoPlano } from './planoArquivo.js';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
+import { dicaMemoria, isolamentoDaSessao, pararScopes, unidadeDaSessao } from './isolamento.js';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
 export type LiveEvent =
@@ -107,6 +108,9 @@ export async function attachmentBlocks(
 function normalizar(prompt: TurnPrompt): { text: string; attachments: Attachment[] } {
   return typeof prompt === 'string' ? { text: prompt, attachments: [] } : { text: prompt.text, attachments: prompt.attachments ?? [] };
 }
+
+/** Aviso único por processo quando o isolamento de cgroup não está disponível. */
+let isolamentoAvisado = false;
 
 /** Mensagem do usuário para o SDK: texto (com as notas dos arquivos) e imagens como blocos. */
 async function mensagemUsuario(sessionId: string, text: string, attachments: Attachment[]): Promise<SDKUserMessage> {
@@ -270,7 +274,7 @@ export class Runner {
   private maxQuentes: number;
   /** Processos quentes OCIOSOS (sem turno), por sessão: pra fechar o mais antigo quando passa do teto. */
   private quentes = new Map<string, { desde: number; fechar: () => void }>();
-  constructor(private deps: { queryFn: QueryFn; store: Store; permissionTimeoutMs?: number; log?: (msg: string) => void; maxTurnosConcorrentes?: number; turnoOciosoMs?: number; quenteMs?: number; maxQuentes?: number }) {
+  constructor(private deps: { queryFn: QueryFn; store: Store; permissionTimeoutMs?: number; log?: (msg: string) => void; maxTurnosConcorrentes?: number; turnoOciosoMs?: number; quenteMs?: number; maxQuentes?: number; /** Parar/watchdog: derruba o scope da sessão (filhos órfãos do claude). Injetável nos testes. */ pararScope?: (sessionId: string, env: Record<string, string>) => void }) {
     this.semaforo = new Semaforo(deps.maxTurnosConcorrentes ?? 3);
     this.turnoOciosoMs = deps.turnoOciosoMs ?? TURNO_OCIOSO_MS_PADRAO;
     const envNum = (k: string, dflt: number) => { const v = Number(process.env[k]); return Number.isFinite(v) && process.env[k] !== undefined ? v : dflt; };
@@ -552,6 +556,8 @@ export class Runner {
 
     const turno = novoEstadoTurno(text);
     l.turno = turno;
+    const iso = isolamentoDaSessao(id, p.env);
+    if (iso && 'erro' in iso && !isolamentoAvisado) { isolamentoAvisado = true; this.deps.log?.(`sessões rodando dentro do cgroup do painel: ${iso.erro}`); }
     const options: Options = {
       cwd: p.cwd,
       permissionMode: p.permissionMode,
@@ -577,7 +583,8 @@ export class Runner {
       ...(p.isNew ? { sessionId: id } : { resume: id }),
       ...(p.model ? { model: p.model } : {}),
       ...(p.effort ? { effort: p.effort } : {}),
-      ...(p.env ? { env: p.env } : {}),
+      // Processo claude num scope próprio do systemd --user, fora do cgroup do painel (ver isolamento.ts).
+      ...(iso && 'env' in iso ? iso : p.env ? { env: p.env } : {}),
       ...(p.mcpServers ? { mcpServers: p.mcpServers } : {}),
       ...(p.plugins?.length ? { plugins: p.plugins } : {}),
       ...(p.disallowedTools?.length ? { disallowedTools: p.disallowedTools } : {}),
@@ -692,7 +699,7 @@ export class Runner {
         const interrupted = abort.signal.aborted;
         const msg = interrupted
           ? (watchdogDisparado ? `Turno sem nenhuma atividade por ${Math.round(this.turnoOciosoMs / 60_000)} min; interrompido automaticamente` : 'Interrompido pelo usuário')
-          : `${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim();
+          : dicaMemoria(`${e?.message ?? e}\n${l.stderr.slice(-5).join('\n')}`.trim());
         this.deps.log?.(`sessão ${id}: ${msg}`);
         if (interrupted) {
           // Stop manual do usuário: evento e persistência PRÓPRIOS ('interrupted'), nunca 'error' — ver
@@ -712,6 +719,11 @@ export class Runner {
     } finally {
       // Processo acabou com turno aberto (CLI terminou sem result, erro, Parar): fecha o turno aqui.
       if (c.emTurno) await this.encerrarTurno(id, l, c);
+      // SÓ no caminho abortado (Parar ou watchdog): o TERM do SDK mata o claude, mas um filho dele (ex.
+      // build) ficava vivo no scope; parar o scope por glob mata e coleta tudo. No fim normal nunca:
+      // um `npm run dev` em background pedido pelo usuário morreria. ponytail: o glob pega qualquer
+      // scope da sessão; um turno novo da mesma sessão nos ~50 ms do systemctl cairia junto.
+      if (abort.signal.aborted && iso && 'env' in iso) (this.deps.pararScope ?? ((sid, env) => void pararScopes(`${unidadeDaSessao(sid)}-*`, env, this.deps.log)))(id, iso.env);
       c.pararWatchdog();
       if (c.quenteTimer) clearTimeout(c.quenteTimer);
       this.quentes.delete(id);
