@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, isCompactSummary, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName, semPrefixoNome } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, isCompactSummary, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, janelaDeEventos, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName, semPrefixoNome } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -1396,5 +1396,24 @@ describe('semPrefixoNome', () => {
     expect(semPrefixoNome('[Danilo] oi\ntudo')).toEqual({ nome: 'Danilo', texto: 'oi\ntudo', sintetica: false });
     expect(semPrefixoNome('[Orion] retomando').sintetica).toBe(true);
     expect(semPrefixoNome('sem prefixo')).toEqual({ texto: 'sem prefixo', sintetica: false });
+  });
+});
+
+describe('janelaDeEventos', () => {
+  const evs = Array.from({ length: 10 }, (_, i) => ({ id: `e${i}`, kind: 'text', text: String(i) }) as unknown as ConvEvent);
+  it('mantém tudo quando cabe', () => {
+    const r = janelaDeEventos(evs, 10);
+    expect(r.escondidos).toBe(0);
+    expect(r.visiveis).toBe(evs);
+  });
+  it('corta do início e preserva o fim', () => {
+    const r = janelaDeEventos(evs, 4);
+    expect(r.escondidos).toBe(6);
+    expect(r.visiveis.map(e => e.id)).toEqual(['e6', 'e7', 'e8', 'e9']);
+  });
+  it('janela maior que a lista ou inválida não quebra', () => {
+    expect(janelaDeEventos(evs, 999).escondidos).toBe(0);
+    expect(janelaDeEventos(evs, 0).visiveis.map(e => e.id)).toEqual(['e9']);
+    expect(janelaDeEventos([], 400)).toEqual({ visiveis: [], escondidos: 0 });
   });
 });

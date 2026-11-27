@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta , semPrefixoNome } from './mapper';
+import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, janelaDeEventos, JANELA_EVENTOS, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta , semPrefixoNome } from './mapper';
 import { createPortal } from 'react-dom';
 import { Chevron, Copy, Check, Image, File, Pencil, SendArrow, X } from './icons';
 import { InnerCallList } from './AgentMap';
@@ -872,7 +872,32 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
 export default function Timeline({ events, onDecide, agentTasks, onResend, onEdit, hiddenTurns, onLoadAll, compacto, running }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; onEdit?: (prompt: string) => void; hiddenTurns?: number; onLoadAll?: () => void; compacto?: boolean; running?: boolean }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
-  const folded = useMemo(() => foldExpiredPermissions(events), [events]);
+  const foldedAll = useMemo(() => foldExpiredPermissions(events), [events]);
+  // Virtualização por janela: sessão de agente chega a milhares de eventos num turno só e o React
+  // travava a aba renderizando tudo. Só o fim entra no DOM; o resto abre por botão ou rolando até o topo.
+  const [janela, setJanela] = useState(JANELA_EVENTOS);
+  const { visiveis: folded, escondidos } = useMemo(() => janelaDeEventos(foldedAll, janela), [foldedAll, janela]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const topoRef = useRef<HTMLDivElement>(null);
+  const alturaAntes = useRef<number | null>(null);
+  const ampliar = useCallback(() => {
+    if (alturaAntes.current !== null) return;
+    alturaAntes.current = rootRef.current?.closest(".cc-scroll")?.scrollHeight ?? null;
+    setJanela(j => j + JANELA_EVENTOS);
+  }, []);
+  // Ao prepender, mantém o que a pessoa estava lendo no mesmo lugar da tela.
+  useLayoutEffect(() => {
+    const sc = rootRef.current?.closest(".cc-scroll");
+    if (sc && alturaAntes.current !== null) sc.scrollTop += sc.scrollHeight - alturaAntes.current;
+    alturaAntes.current = null;
+  }, [janela]);
+  useEffect(() => {
+    const topo = topoRef.current;
+    if (!topo || !escondidos) return;
+    const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) ampliar(); }, { root: rootRef.current?.closest(".cc-scroll") ?? null });
+    io.observe(topo);
+    return () => io.disconnect();
+  }, [escondidos, janela, ampliar]);
   // Só agentes ATIVOS entram nas linhas dobráveis — mesma seleção do componente real (`MA1` recebe
   // as tasks do fold de "rodando"); concluídos/falhos já têm a linha `TaskAgent` de sempre acima.
   const liveAgents = useMemo(() => (agentTasks ?? []).filter(t => t.status === 'running' || t.status === 'waiting'), [agentTasks]);
@@ -967,7 +992,14 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
         );
   };
   return (
-    <div className="cc-timeline">
+    <div className="cc-timeline" ref={rootRef}>
+      {escondidos > 0 && (
+        <div ref={topoRef}>
+          <button type="button" className="cc-load-all" onClick={ampliar}>
+            Mostrar {Math.min(JANELA_EVENTOS, escondidos)} anteriores ({escondidos} escondidos)
+          </button>
+        </div>
+      )}
       {!!hiddenTurns && onLoadAll && (
         <button type="button" className="cc-load-all" onClick={onLoadAll}>
           Carregar {hiddenTurns} {hiddenTurns === 1 ? 'mensagem anterior' : 'mensagens anteriores'}

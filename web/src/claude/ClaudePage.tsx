@@ -913,7 +913,7 @@ export default function ClaudePage() {
               </div>
             )}
             {carregandoSessao && <div className="cc-loading" role="status" aria-label="Carregando sessão"><span /><span /><span /></div>}
-            {activeId && !carregandoSessao && <Timeline events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} running={running} onEdit={text => setInject(v => ({ text, n: (v?.n ?? 0) + 1 }))} hiddenTurns={state.hiddenTurns} onLoadAll={() => carregarTudo(activeId)} compacto={compacto} />}
+            {activeId && !carregandoSessao && <Timeline key={activeId} events={events} onDecide={decide} agentTasks={agentTasks} onResend={resend} running={running} onEdit={text => setInject(v => ({ text, n: (v?.n ?? 0) + 1 }))} hiddenTurns={state.hiddenTurns} onLoadAll={() => carregarTudo(activeId)} compacto={compacto} />}
             {/* Spacer com a altura real do composer flutuante (floatHeight acima) — mesma função do
                 `<div ref={Y} style={{height:U+'px',minHeight:U+'px'}}/>` real, último filho de
                 `messagesContainer_07S1Yg`: garante que a última mensagem role pra cima do card/composer

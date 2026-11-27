@@ -640,6 +640,13 @@ export function compactarTurno(turn: ConvEvent[]): ConvEvent[] {
   return turn.filter(e => e.kind !== 'tool' && e.kind !== 'thinking');
 }
 
+/** Janela de renderização da timeline: só os últimos `visiveis` eventos (o fim, onde chegam os novos e o indicador "pensando"). */
+export const JANELA_EVENTOS = 400;
+export function janelaDeEventos(events: ConvEvent[], visiveis: number): { visiveis: ConvEvent[]; escondidos: number } {
+  const n = Math.max(0, events.length - Math.max(1, visiveis));
+  return n === 0 ? { visiveis: events, escondidos: 0 } : { visiveis: events.slice(n), escondidos: n };
+}
+
 export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
   const out: ConvEvent[] = [];
   let i = 0;
