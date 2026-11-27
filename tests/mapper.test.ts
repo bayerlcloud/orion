@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeTool, reduceSdkMessages, isCompactSummary, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName } from '../web/src/claude/mapper';
+import { describeTool, reduceSdkMessages, isCompactSummary, thinkingLabel, markUnfinishedTools, TOOL_NAO_TERMINOU, TOOL_CORTADA_DEPLOY, hookBlockReason, relativeTime, formatDuration, estimateTokens, sumModelUsage, formatTokens, unifiedDiff, computeUsageBars, computeRealUsageBars, formatResetIn, filterSessions, groupSessions, formatAskAnswer, foldExpiredPermissions, currentPermission, charDiff, charDiffIfSimilar, annotateCharDiffs, parseTodos, taskStatusLabel, interruptedLabel, messageHistory, cycleMessageIndex, SPINNER_GLYPHS, SPINNER_GLYPH_SEQUENCE, spinnerGlyphAt, SPINNER_WORDS, spinnerWordDelayMs, pickSpinnerWord, toolRunningLabel, applyPendingToolWaitStatus, attachmentImageUrl, parseAgentTaskUsage, noteAgentTask, agentTaskDuration, formatAgentDuration, sumSessionTokens, agentTaskList, validateWorktreeName, sessionWorktreeName, isMacPlatform, micShortcutLabel, micErrorMessage, isMicPermissionError, accumulateFinalTranscript, composeDictationText, validateGroupName, semPrefixoNome } from '../web/src/claude/mapper';
 import { matchModelAlias, matchEffort } from '../web/src/claude/api';
 import type { ConvEvent, SdkMessage, SessionSummary, AgentTask, SessionGroupInfo } from '../web/src/claude/types';
 
@@ -1388,5 +1388,13 @@ describe('compactação de contexto vira divisor, não mensagem do usuário', ()
     const b = reduceSdkMessages([{ type: 'user', message: { content: [{ type: 'text', text: txt }] } } as any]);
     expect(b[0].kind === 'compact' && b[0].summary.startsWith('This session')).toBe(true);
     expect(isCompactSummary('[Danilo] oi')).toBe(false);
+  });
+});
+
+describe('semPrefixoNome', () => {
+  it('tira o prefixo [Nome] e marca mensagens do Orion como sintéticas', () => {
+    expect(semPrefixoNome('[Danilo] oi\ntudo')).toEqual({ nome: 'Danilo', texto: 'oi\ntudo', sintetica: false });
+    expect(semPrefixoNome('[Orion] retomando').sintetica).toBe(true);
+    expect(semPrefixoNome('sem prefixo')).toEqual({ texto: 'sem prefixo', sintetica: false });
   });
 });

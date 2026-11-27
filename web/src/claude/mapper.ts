@@ -200,6 +200,12 @@ export function markUnfinishedTools(events: ConvEvent[], status: string): ConvEv
 
 /** Mensagem sintética que o CLI injeta depois de compactar o contexto (texto fixo do Claude Code). */
 export const COMPACT_PREFIX = 'This session is being continued from a previous conversation';
+/** Separa o prefixo "[Nome] " que o servidor põe na mensagem do usuário. `sintetica`: autoria do próprio Orion (não é digitada por gente, sem Editar/Reenviar). */
+export function semPrefixoNome(texto: string): { nome?: string; texto: string; sintetica: boolean } {
+  const m = /^\[([^\]\n]{1,40})\]\s*/.exec(texto);
+  return m ? { nome: m[1], texto: texto.slice(m[0].length), sintetica: m[1] === 'Orion' } : { texto, sintetica: false };
+}
+
 export function isCompactSummary(text: string): boolean {
   return text.trimStart().startsWith(COMPACT_PREFIX);
 }
