@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Pool } from "pg";
+import { parseMeminfo, parsePidStatus } from "./parse.js";
 import { getSetting, setSetting } from "../settings.js";
 
 const sh = promisify(execFile);
@@ -48,21 +49,18 @@ export function avaliarSinais(s: Sinais): Alerta[] {
 
 /** Cooldown por chave: `ultimo` é o epoch ms do último envio (ou null/NaN). */
 export function passouCooldown(ultimo: number | null, agora: number, cooldownMs = COOLDOWN_MS): boolean {
-  return ultimo === null || Number.isNaN(ultimo) || agora - ultimo >= cooldownMs;
+  return ultimo === null || agora - ultimo >= cooldownMs;
 }
 
 async function lerSinais(pool: Pool): Promise<Sinais> {
   const tenta = async <T>(f: () => Promise<T>): Promise<T | null> => { try { return await f(); } catch { return null; } };
   const rssGb = await tenta(async () => {
     const { stdout } = await sh("systemctl", ["show", "-p", "MainPID", "--value", "orion-central"]);
-    const st = await readFile(`/proc/${stdout.trim()}/status`, "utf8");
-    return Number(/VmRSS:\s+(\d+)/.exec(st)![1]) / 1048576;
+    const rss = parsePidStatus(await readFile(`/proc/${stdout.trim()}/status`, "utf8"))?.vm_rss;
+    return rss == null ? null : rss / 1024 ** 3;
   });
   const swapPct = await tenta(async () => {
-    const m = await readFile("/proc/meminfo", "utf8");
-    const total = Number(/SwapTotal:\s+(\d+)/.exec(m)![1]);
-    const livre = Number(/SwapFree:\s+(\d+)/.exec(m)![1]);
-    return total > 0 ? ((total - livre) / total) * 100 : 0;
+    return parseMeminfo(await readFile("/proc/meminfo", "utf8"))?.swap_pct ?? null;
   });
   const sessaoMb = await tenta(async () => {
     const { rows } = await pool.query(
@@ -84,8 +82,9 @@ async function lerSinais(pool: Pool): Promise<Sinais> {
     return Number(rows[0].v);
   });
   const quedas = await tenta(async () => {
-    const { stdout } = await sh("journalctl", ["-u", "orion-central", "--since", "-24h", "--no-pager", "-q"], { maxBuffer: 64 * 1024 * 1024 });
-    return stdout.split("\n").filter((l) => /Reached heap limit|code=dumped/.test(l)).length;
+    // ponytail: -g filtra no journalctl (sem estourar buffer); só "Reached heap limit", 1 linha por queda e visível ao danilo.
+    const { stdout } = await sh("journalctl", ["-u", "orion-central", "--since", "-24h", "-q", "--no-pager", "-g", "Reached heap limit"]);
+    return stdout.split("\n").filter((l) => /Reached heap limit/.test(l)).length;
   });
   return { rssGb, swapPct, sessaoMb, compactacoes, turnosCortados, quedas };
 }

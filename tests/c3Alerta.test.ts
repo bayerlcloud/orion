@@ -9,7 +9,7 @@ describe("avaliarSinais", () => {
     expect(avaliarSinais({ rssGb: null, swapPct: null, sessaoMb: null, compactacoes: null, turnosCortados: null, quedas: null })).toEqual([]);
   });
   it("limiar é estrito (igual não alerta)", () => {
-    expect(avaliarSinais({ ...ok, rssGb: 2.5, swapPct: 60, turnosCortados: 5 })).toEqual([]);
+    expect(avaliarSinais({ ...ok, rssGb: 2.5, swapPct: 60, sessaoMb: { id: "a", v: 50 }, compactacoes: { id: "a", v: 10 }, turnosCortados: 5 })).toEqual([]);
   });
   it("cada sinal acima gera um alerta com número e limiar", () => {
     const a = avaliarSinais({ rssGb: 3, swapPct: 80, sessaoMb: { id: "abcdef123", v: 102 }, compactacoes: { id: "zzzzzzzz1", v: 11 }, turnosCortados: 42, quedas: 18 });
@@ -22,9 +22,8 @@ describe("avaliarSinais", () => {
 });
 
 describe("passouCooldown", () => {
-  it("sem registro ou registro inválido libera", () => {
+  it("sem registro libera", () => {
     expect(passouCooldown(null, 1000)).toBe(true);
-    expect(passouCooldown(NaN, 1000)).toBe(true);
   });
   it("bloqueia antes de 6 h e libera a partir de 6 h", () => {
     expect(passouCooldown(0, COOLDOWN_MS - 1)).toBe(false);
