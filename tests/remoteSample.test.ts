@@ -63,7 +63,20 @@ describe('remoteSample', () => {
     expect(s.procsCount).toBeNull();
     expect(s.mem).toBeNull();
     expect(s.fs).toBeNull();
-    expect(s.docker).toBeNull();
+    expect(s.docker).toEqual([]);
     expect(s.errors).toEqual(['ssh', 'host', '/proc/loadavg', 'procs', '/proc/stat', '/proc/meminfo', 'df /']);
+  });
+
+  it('docker ps sem terminar a tempo (seção vazia) não zera o resto nem marca erro de ssh', async () => {
+    // hostinger tem ~66 containers; o `|| true` no REMOTE_CMD garante exit 0 mesmo se o timeout matar
+    // o docker ps, então o resto da coleta (que já tinha rodado antes dele) chega íntegra com code: 0.
+    const semDocker = COMBINED.slice(0, COMBINED.indexOf('---DOCKER---') + '---DOCKER---'.length) + '\n';
+    const s = await collectRemoteSample({ label: 'hostinger', ip: '72.61.135.82' }, async () => ({ code: 0, out: semDocker }));
+    expect(s.info).toEqual({ hostname: 'c1', kernel: '5.15.0-generic', uptime_s: 123457, vcpus: 4 });
+    expect(s.cpu).not.toBeNull();
+    expect(s.mem).not.toBeNull();
+    expect(s.fs).not.toBeNull();
+    expect(s.docker).toEqual([]);
+    expect(s.errors).toEqual([]);
   });
 });
