@@ -1416,4 +1416,12 @@ describe('janelaDeEventos', () => {
     expect(janelaDeEventos(evs, 0).visiveis.map(e => e.id)).toEqual(['e9']);
     expect(janelaDeEventos([], 400)).toEqual({ visiveis: [], escondidos: 0 });
   });
+  it('recua o corte até o user mais próximo dentro da tolerância, não fora dela', () => {
+    const mk = (n: number, userEm: number[]) => Array.from({ length: n }, (_, i) => ({ id: `x${i}`, kind: userEm.includes(i) ? 'user' : 'text', text: '' }) as unknown as ConvEvent);
+    const perto = janelaDeEventos(mk(500, [30]), 400); // corte natural em 100, user em 30 (70 atrás)
+    expect(perto.escondidos).toBe(30);
+    expect(perto.visiveis[0].id).toBe('x30');
+    const longe = janelaDeEventos(mk(500, [10]), 400); // 90 atrás: fora da tolerância
+    expect(longe.escondidos).toBe(100);
+  });
 });

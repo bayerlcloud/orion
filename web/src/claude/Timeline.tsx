@@ -879,25 +879,32 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
   const { visiveis: folded, escondidos } = useMemo(() => janelaDeEventos(foldedAll, janela), [foldedAll, janela]);
   const rootRef = useRef<HTMLDivElement>(null);
   const topoRef = useRef<HTMLDivElement>(null);
-  const alturaAntes = useRef<number | null>(null);
-  const ampliar = useCallback(() => {
-    if (alturaAntes.current !== null) return;
-    alturaAntes.current = rootRef.current?.closest(".cc-scroll")?.scrollHeight ?? null;
-    setJanela(j => j + JANELA_EVENTOS);
-  }, []);
-  // Ao prepender, mantém o que a pessoa estava lendo no mesmo lugar da tela.
+  const ampliar = useCallback(() => setJanela(j => j + JANELA_EVENTOS), []);
+  // Âncora de rolagem: guarda a posição (no conteúdo, imune a rolagem do usuário) de um evento do meio da
+  // lista e, a cada mudança de `folded`, compensa o scrollTop pelo quanto ele andou. Cobre prepend (ampliar),
+  // deslize da janela durante o streaming e os dois no mesmo commit; o do meio sobrevive aos três casos.
+  const ancora = useRef<{ id: string; y: number } | null>(null);
   useLayoutEffect(() => {
-    const sc = rootRef.current?.closest(".cc-scroll");
-    if (sc && alturaAntes.current !== null) sc.scrollTop += sc.scrollHeight - alturaAntes.current;
-    alturaAntes.current = null;
-  }, [janela]);
+    const sc = rootRef.current?.closest('.cc-scroll');
+    if (!sc) return;
+    const yDe = (el: HTMLElement) => el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+    const a = ancora.current;
+    const velho = a && document.getElementById(`ev-${a.id}`);
+    if (a && velho) sc.scrollTop += yDe(velho) - a.y;
+    ancora.current = null;
+    for (let i = folded.length >> 1; i >= 0; i--) {
+      const el = document.getElementById(`ev-${folded[i].id}`);
+      if (el) { ancora.current = { id: folded[i].id, y: yDe(el) }; break; }
+    }
+  }, [folded]);
+  const temEscondidos = escondidos > 0;
   useEffect(() => {
     const topo = topoRef.current;
-    if (!topo || !escondidos) return;
-    const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) ampliar(); }, { root: rootRef.current?.closest(".cc-scroll") ?? null });
+    if (!topo || !temEscondidos) return;
+    const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) ampliar(); }, { root: rootRef.current?.closest('.cc-scroll') ?? null });
     io.observe(topo);
     return () => io.disconnect();
-  }, [escondidos, janela, ampliar]);
+  }, [temEscondidos, ampliar]);
   // Só agentes ATIVOS entram nas linhas dobráveis — mesma seleção do componente real (`MA1` recebe
   // as tasks do fold de "rodando"); concluídos/falhos já têm a linha `TaskAgent` de sempre acima.
   const liveAgents = useMemo(() => (agentTasks ?? []).filter(t => t.status === 'running' || t.status === 'waiting'), [agentTasks]);
@@ -993,17 +1000,17 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
   };
   return (
     <div className="cc-timeline" ref={rootRef}>
+      {!!hiddenTurns && onLoadAll && (
+        <button type="button" className="cc-load-all" onClick={onLoadAll}>
+          Carregar {hiddenTurns} {hiddenTurns === 1 ? 'mensagem anterior' : 'mensagens anteriores'}
+        </button>
+      )}
       {escondidos > 0 && (
         <div ref={topoRef}>
           <button type="button" className="cc-load-all" onClick={ampliar}>
             Mostrar {Math.min(JANELA_EVENTOS, escondidos)} anteriores ({escondidos} escondidos)
           </button>
         </div>
-      )}
-      {!!hiddenTurns && onLoadAll && (
-        <button type="button" className="cc-load-all" onClick={onLoadAll}>
-          Carregar {hiddenTurns} {hiddenTurns === 1 ? 'mensagem anterior' : 'mensagens anteriores'}
-        </button>
       )}
       {turns.map((t, i) => <div key={t[0]?.id ?? i} className="cc-turn">{(compacto ? compactarTurno(t) : t).map(renderEvent)}</div>)}
       {liveAgents.length > 0 && <SubagentRows tasks={liveAgents} />}
