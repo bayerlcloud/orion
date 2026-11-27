@@ -346,6 +346,21 @@ const MIGRATIONS: { id: string; sql: string }[] = [
     `,
   },
   {
+    // "Enquanto você estava fora" (claude/fora.ts, 27/11/2026): última vez que CADA pessoa viu CADA sessão,
+    // pra saber o que aconteceu depois. `resumo` guarda o cache do resumo do Haiku ({ate_seq, texto, gerado_em})
+    // aqui e não em claude_sessions porque ele depende do visto_em de cada pessoa.
+    id: '023_claude_session_vistas',
+    sql: `
+      CREATE TABLE IF NOT EXISTS claude_session_vistas (
+        session_id TEXT NOT NULL REFERENCES claude_sessions(id) ON DELETE CASCADE,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        visto_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+        resumo JSONB,
+        PRIMARY KEY (session_id, user_id)
+      );
+    `,
+  },
+  {
     // Arquivo de eventos (tools/leveza.ts arquivarEventosAntigos): sessões paradas há 30+ dias saem de claude_events.
     id: '016_claude_events_arquivo',
     sql: `CREATE TABLE IF NOT EXISTS claude_events_arquivo (LIKE claude_events INCLUDING ALL);`,
