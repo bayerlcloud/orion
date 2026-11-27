@@ -289,6 +289,23 @@ describe('Runner', () => {
     expect(m.sessions.get('s8').lastError).toBe('Interrompido pelo usuário');
   });
 
+  it('stop derruba o scope da sessão (filhos órfãos do claude); fim normal nunca chama (27/11/2026)', async () => {
+    const parados: { id: string; env: Record<string, string> }[] = [];
+    const pararScope = (id: string, env: Record<string, string>) => { parados.push({ id, env }); };
+    const m = memStore(); const q = fakeQuery({ slow: 200 });
+    const r = new Runner({ queryFn: q.fn, store: m.store, pararScope });
+    r.startTurn({ ...base, sessionId: 's8z', prompt: 'x', isNew: true });
+    await until(() => r.status('s8z') === 'running');
+    await r.stop('s8z');
+    await until(() => m.sessions.get('s8z')?.status === 'idle', 3000);
+    expect(parados.map(p => p.id)).toEqual(['s8z']);
+    expect(parados[0].env.ORION_SESSION_ID).toBe('s8z'); expect(parados[0].env.XDG_RUNTIME_DIR).toMatch(/^\/run\/user\/\d+$/);
+    const q2 = fakeQuery(); const r2 = new Runner({ queryFn: q2.fn, store: m.store, pararScope });
+    r2.startTurn({ ...base, sessionId: 's8y', prompt: 'x', isNew: true });
+    await until(() => m.sessions.get('s8y')?.status === 'idle', 3000);
+    expect(parados.length).toBe(1);
+  });
+
   it('stop persiste um evento "interrupted" (nunca "error") com o texto parcial já gerado — bug corrigido 28/09/2026: antes esse texto se perdia pra sempre, porque mensagens parciais nunca são gravadas em claude_events e o catch de run() só gravava um "error" genérico sem o texto', async () => {
     // fakeQuery sem askPermission emite o stream_event de texto parcial ('oi') antes do wait(slow) e
     // do checkpoint de aborted — então, no momento do stop(), esse texto já está acumulado no runner.
