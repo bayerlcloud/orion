@@ -22,34 +22,20 @@ import { pgStore } from '../claude/store.js';
 import { tituloCurto } from '../claude/titulo.js';
 import { cacheFora, foraDaSessao, marcarVista } from '../claude/fora.js';
 import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
-import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
-import { sessoesVizinhas } from '../claude/vizinhas.js';
-import { orionMemoryServer } from '../claude/memoryTool.js';
-import { orionRootServer } from '../claude/rootTool.js';
-import { orionSenhasServer } from '../claude/senhasTool.js';
-import { composicaoPara } from '../tools/skillPrefs.js';
+import { prefixPrompt, titleFromPrompt } from '../claude/header.js';
 import { estiloConhecido } from '../tools/outputStyles.js';
-import { KEYS, ensureSettingsTable, getSetting, sdkEnv } from '../settings.js';
-import { makeLayaHook } from '../claude/layaHook.js';
+import { KEYS, ensureSettingsTable, getSetting } from '../settings.js';
 import { ensureTriagemSombraTable } from '../memories/triagemSombra.js';
-import { backupAntes, dbUrlKey } from '../dbBackup.js';
 import { FilaIntegracao } from '../integracao/fila.js';
-import { ganchosDaSessao } from '../integracao/turno.js';
-import { enviarAvisoWhatsapp } from '../tools/avisoWhatsapp.js';
-import { orionPublicarServer } from '../integracao/publicarTool.js';
+import { montarTurno, projetoIntegracao, type PedidoTurno } from '../claude/montarTurno.js';
 import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
-import { branchAtual } from '../tasks/git.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
-import type { BackupFn } from '../claude/policy.js';
-import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub, type GithubAccount } from '../tools/githubAccounts.js';
-import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, enxugarToolUseResult, metaLeveza, remoteOrigin, semWorkflowProgress, truncarToolResult } from '../tools/leveza.js';
-import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
-import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
-import { ensureGoogleCloudAccountsTable, googleCloudParaHeader, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
-import { conectoresHttpParaHeader, listarConectoresHttp } from '../tools/conectoresHttp.js';
-import { cofreCdpUrl, cofreMcpServers, cofrePainelUrl, cofreParaHeader } from '../tools/cofre.js';
+import { ensureGithubAccountsTable, listarContasGithub } from '../tools/githubAccounts.js';
+import { desarquivar, listarConectoresClaudeAi, enxugarToolUseResult, semWorkflowProgress, truncarToolResult } from '../tools/leveza.js';
+import { ensureCloudflareAccountsTable } from '../tools/cloudflareAccounts.js';
+import { ensureGoogleCloudAccountsTable } from '../tools/googleCloudAccounts.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
-import { ULTRACODE, resolveUltracode, withUltracodeAppend } from '../claude/ultracode.js';
+import { ULTRACODE, resolveUltracode } from '../claude/ultracode.js';
 import { safeFilename } from '../driveUtils.js';
 import { lerStatus, tailDoLog, type Status } from '../deploy/estado.js';
 
@@ -173,119 +159,27 @@ export async function claudeRoutes(app: FastifyInstance) {
     return out;
   }
 
-  /** Backup antes de SQL destrutivo (policy.ts): só existe quando o projeto tem db_url configurado. */
-  async function backupPara(projectId: number | null): Promise<BackupFn | undefined> {
-    if (!projectId) return undefined;
-    const dbUrl = await getSetting(app.pool, dbUrlKey(projectId));
-    const { rows } = await app.pool.query('SELECT slug FROM projects WHERE id = $1', [projectId]);
-    const slug: string | undefined = rows[0]?.slug;
-    if (!dbUrl || !slug) return undefined;
-    return (sql) => backupAntes({ dbUrl, slug, sql });
-  }
-
-  /** Projeto para a integração; a base é a branch em que a raiz está (o que o preview raiz mostra), não `main` fixo. */
-  async function projetoIntegracao(projectId: number | null): Promise<{ id: number; path: string; default_branch: string } | null> {
-    if (!projectId) return null;
-    const { rows } = await app.pool.query('SELECT id, path FROM projects WHERE id = $1', [projectId]);
-    if (!rows[0]) return null;
-    return { id: rows[0].id, path: rows[0].path, default_branch: (await branchAtual(rows[0].path)) ?? 'main' };
-  }
-
   /** Monta o prompt do turno: string simples quando não há anexos, senão { text, attachments }. */
-  type SessionRow = { id: string; cwd: string; project_id: number | null; user_id?: number; project_name: string | null; rules: string | null; creator: string; output_style?: string | null };
-  /** Dispara um turno numa sessão já existente (mensagem nova ou retomada pós-restart). */
-  async function startFor(s: SessionRow, userId: number, prompt: TurnPrompt, mode: 'default' | 'acceptEdits' | 'plan' | 'auto', model?: string, effort?: string) {
-    // A tool orion-memory recebe o contexto da SESSÃO (projeto + criador, s.user_id): é ele que
-    // vira o escopo padrão do salvar. Skills e memórias do header seguem com quem pediu o turno.
-    // `effort` chega no valor de fio (pode ser 'ultracode', vindo da rota ou da coluna persistida) —
-    // resolveUltracode traduz pro SDK e liga a instrução de orquestração no systemAppend quando for o caso.
-    const eff = resolveUltracode(effort);
-    await desarquivar(app.pool, s.id).catch(() => 0); // retomada de sessão arquivada: o seq continua de onde parou
-    const textoPrompt = typeof prompt === 'string' ? prompt : prompt.text;
-    // Duas sessões da mesma pessoa no projeto dividem a worktree dela: avisa quando a outra está rodando.
-    const { rows: paralelas } = await app.pool.query<{ title: string }>(
-      `SELECT title FROM claude_sessions WHERE cwd = $1 AND id <> $2 AND status = 'running' LIMIT 3`, [s.cwd, s.id]);
-    if (paralelas.length) runner.aviso(s.id, `Atenção: ${paralelas.map(p => `"${p.title}"`).join(', ')} está rodando agora na mesma pasta. As duas sessões mexem nos mesmos arquivos.`);
-    const ganchos = ganchosDaSessao({
-      cwd: s.cwd, projeto: await projetoIntegracao(s.project_id ?? null), prompt: textoPrompt.replace(/^\[[^\]]+\]\s*/, ''), fila: filaIntegracao,
-      pessoa: /^\[([^\]]+)\]/.exec(textoPrompt)?.[1] ?? s.creator,
-      registrar: (texto) => { runner.aviso(s.id, texto); },
-      avisar: (texto) => enviarAvisoWhatsapp(app.pool, texto),
-    });
-    runner.startTurn({
-      sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, layaHook: makeLayaHook(app.pool, s.id, { modelo: model, esforco: eff.effort }), env: await turnEnvLeve(s.project_id ?? null), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(userId, s.project_id ?? null)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await contasGithubPara(s.project_id ?? null)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(s.project_id ?? null), vizinhas: await sessoesVizinhas(app.pool, s.project_id ?? null, s.id, userId) }), eff.ultracode),
-    });
-  }
-
   function buildPrompt(userName: string, prompt: string, attachments: Attachment[]): TurnPrompt {
     const text = prefixPrompt(userName, prompt);
     return attachments.length ? { text, attachments } : text;
   }
-  const turnEnv = async () => sdkEnv(await getSetting(app.pool, KEYS.claudeToken));
-  // Leveza por projeto (12/11/2026, ver tools/leveza.ts): UMA conta GitHub por sessão (projects.meta.github_conta:
-  // id | 'auto' | 'nenhuma'; auto = login igual ao dono do remote origin) e conectores claude.ai só os liberados em
-  // projects.meta.conectores (vazio = ENABLE_CLAUDEAI_MCP_SERVERS=false). Sessão sem projeto não sobe nada disso.
-  const metaDoProjeto = async (projectId: number | null) => {
-    if (!projectId) return { leve: metaLeveza(null), path: null as string | null };
-    const { rows } = await app.pool.query('SELECT path, meta FROM projects WHERE id = $1', [projectId]);
-    return { leve: metaLeveza(rows[0]?.meta), path: (rows[0]?.path as string | undefined) ?? null };
-  };
-  const contasGithubPara = async (projectId: number | null): Promise<GithubAccount[]> => {
-    const { leve, path } = await metaDoProjeto(projectId);
-    const conta = contaGithubDoProjeto(await listarContasGithub(app.pool), leve.github_conta, donoDoRemote(path ? await remoteOrigin(path) : null));
-    return conta ? [conta] : [];
-  };
-  const turnEnvLeve = async (projectId: number | null) => envLeve(envConectores(await turnEnv(), (await metaDoProjeto(projectId)).leve.conectores));
-  const cofreHeaderPara = async (projectId: number | null) => (await metaDoProjeto(projectId)).leve.cofre ? cofreParaHeader(cofreCdpUrl(), cofrePainelUrl()) : null;
-  const composicaoLeve = async (userId: number, projectId: number | null) => {
-    const base = await composicaoPara(app.pool, userId);
-    const permitidos = (await metaDoProjeto(projectId)).leve.conectores;
-    const extra = permitidos.length ? disallowConectores(await listarConectoresClaudeAi(app.pool), permitidos) : [];
-    const disallowedTools = [...(base.disallowedTools ?? []), ...extra];
-    return { ...base, ...(disallowedTools.length ? { disallowedTools } : {}) };
-  };
-  // MCPs de toda sessão: um github por conta cadastrada na aba Tools + orion-memory (sempre).
-  // Cloudflare, Hostinger, Coolify, n8n e Supabase não são MCP: são conectores simples (proxy local /conector/<nome>), só entram no header.
-  // Cofre (Chrome compartilhado da c3) entra como MCP `cofre` quando COFRE_CDP_URL está no ambiente.
-  // userId = criador da sessão (escopo padrão da memória); autorId = quem mandou o turno (autor do que for salvo).
-  const turnMcpServers = async (sessionId: string, projectId: number | null, userId: number, autorId: number) => {
-    // orion-senhas: cofre PESSOAL do Danilo (Vaultwarden) — só entra quando quem mandou o turno é owner.
-    const { rows: autorRows } = await app.pool.query('SELECT role FROM users WHERE id = $1', [autorId]);
-    return {
-      ...githubMcpServers(await contasGithubPara(projectId)),
-      // Cofre (navegador compartilhado, 32 tools): só em projeto que ligou (projects.meta.cofre — ver tools/leveza.ts).
-      ...((await metaDoProjeto(projectId)).leve.cofre ? (cofreMcpServers(cofreCdpUrl()) ?? {}) : {}),
-      'orion-memory': orionMemoryServer(app.pool, { sessionId, projectId, userId, autorId }),
-      'orion-root': orionRootServer(sessionId),
-      ...(autorRows[0]?.role === 'owner' ? { 'orion-senhas': orionSenhasServer() } : {}),
-    };
-  };
-  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel), budget: Number(await getSetting(app.pool, KEYS.taskBudgetTokens)) || undefined });
+  const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel) });
 
-  // Memórias que entram no systemAppend, por nível (0/1 chegam pelo CLAUDE.md; 4 só pela tool):
-  // nível 2 com corpo (universais + do projeto da sessão + do usuário criador), nível 3 só índice.
-  async function memoriasPara(projectId: number | null, userId: number): Promise<{ regras: MemoriaRegra[]; decisoes: MemoriaDecisao[] }> {
-    try {
-      // Só memória ativa (substituída sai do prompt). Teto por relevância = as mais recentes primeiro;
-      // o que passar do teto continua acessível pelo buscar da tool, e o corte vai para o log.
-      const { rows } = await app.pool.query(
-        `SELECT level, code, title, summary, body_md, scope_project_id, scope_user_id FROM memories
-          WHERE level IN (2, 3) AND estado = 'ativa' AND (scope_project_id = $1 OR scope_user_id = $2 OR (scope_project_id IS NULL AND scope_user_id IS NULL))
-          ORDER BY level ASC, (scope_project_id IS NOT NULL) DESC, (scope_user_id IS NOT NULL) DESC, updated_at DESC`, [projectId, userId]);
-      const escopo = (r: any) => (r.scope_project_id ? 'projeto' : r.scope_user_id ? 'usuário' : 'universal') as MemoriaRegra['scope'];
-      const regras = rows.filter((r: any) => r.level === 2);
-      const decisoes = rows.filter((r: any) => r.level === 3);
-      if (regras.length > REGRAS_MAX || decisoes.length > DECISOES_MAX) {
-        app.log.warn(`memória: prompt cortou ${Math.max(0, regras.length - REGRAS_MAX)} regra(s) e ${Math.max(0, decisoes.length - DECISOES_MAX)} decisão(ões) (projeto ${projectId ?? 'neutro'}, usuário ${userId})`);
-      }
-      return {
-        regras: regras.slice(0, REGRAS_MAX)
-          .map((r: any) => ({ title: r.title, body: r.body_md, scope: escopo(r) })),
-        decisoes: decisoes.slice(0, DECISOES_MAX)
-          .map((r: any) => ({ code: r.code, title: r.title, summary: r.summary })),
-      };
-    } catch { return { regras: [], decisoes: [] }; }
+  /**
+   * Dispara um turno numa sessão (mensagem nova, sessão nova ou retomada pós-restart): a montagem do
+   * TurnParams está em claude/montarTurno.ts; aqui só o que precisa do runner (avisos) e o startTurn.
+   */
+  async function iniciarTurno(o: PedidoTurno): Promise<void> {
+    const params = await montarTurno(app.pool, filaIntegracao, o, { registrar: (texto) => { runner.aviso(o.sessionId, texto); }, log: (m) => app.log.warn(m) });
+    if (o.avisoPasta) runner.aviso(o.sessionId, o.avisoPasta);
+    if (!o.isNew) {
+      // Duas sessões da mesma pessoa no projeto dividem a worktree dela: avisa quando a outra está rodando.
+      const { rows: paralelas } = await app.pool.query<{ title: string }>(
+        `SELECT title FROM claude_sessions WHERE cwd = $1 AND id <> $2 AND status = 'running' LIMIT 3`, [params.cwd, o.sessionId]);
+      if (paralelas.length) runner.aviso(o.sessionId, `Atenção: ${paralelas.map(p => `"${p.title}"`).join(', ')} está rodando agora na mesma pasta. As duas sessões mexem nos mesmos arquivos.`);
+    }
+    runner.startTurn(params);
   }
 
   app.addHook('preHandler', async (req, reply) => {
@@ -734,15 +628,14 @@ export async function claudeRoutes(app: FastifyInstance) {
     }
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
-    // Valor de fio (pode ser 'ultracode') — persistido como está; traduzido pro SDK logo abaixo.
+    // Valor de fio (pode ser 'ultracode'): persistido como está; montarTurno traduz pro SDK.
     // Padrão do sistema (Danilo, 04/10/2026): toda sessão nasce Sonnet Médio.
     const effort = EFFORTS.has(b.effort ?? '') ? b.effort : 'medium';
-    const eff = resolveUltracode(effort);
     const attachments = await sanitizeAttachments(b.attachments);
     if (attachments === null) return reply.code(400).send({ error: 'anexo inválido' });
     // Worktree escolhida no compositor: a sessão nasce nela (branch feature/<nome>), e cada turno
     // sobe para a raiz pela integração automática (spec 2026-09-30-preview-design, Parte 2).
-    const proj = await projetoIntegracao(project.id);
+    const proj = await projetoIntegracao(app.pool, project.id);
     let cwd: string = project.path;
     let avisoPasta: string | null = null;
     if (b.worktree_name && project.id != null) {
@@ -765,17 +658,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     // Troca o título provisório (1ª linha do prompt) por um curto do Haiku; só se ninguém renomeou antes.
     void getSetting(app.pool, KEYS.claudeToken).then(tk => tituloCurto(prompt, tk)).then(async t => { if (t)
       await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1 AND title = $3', [id, t, titleFromPrompt(prompt)]); }).catch(() => {});
-    if (avisoPasta) runner.aviso(id, avisoPasta);
-    const sessaoNova = { id, cwd, project_id: project.id, user_id: req.user!.id, project_name: project.name, rules: project.rules, creator: req.user!.name };
-    const ganchos = ganchosDaSessao({
-      cwd, projeto: proj, prompt, fila: filaIntegracao, pessoa: req.user!.name,
-      registrar: (texto) => { runner.aviso(id, texto); },
-      avisar: (texto) => enviarAvisoWhatsapp(app.pool, texto),
-    });
-    runner.startTurn({
-      sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, layaHook: makeLayaHook(app.pool, id, { modelo: b.model || d.model || 'sonnet', esforco: eff.effort }), env: await turnEnvLeve(project.id), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(req.user!.id, project.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await contasGithubPara(project.id)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(project.id), vizinhas: await sessoesVizinhas(app.pool, project.id, id, req.user!.id) }), eff.ultracode),
-    });
+    // Mesmo caminho da mensagem nova e da retomada (montarTurno lê a linha recém-inserida), só que isNew: true.
+    await iniciarTurno({ sessionId: id, userId: req.user!.id, prompt: buildPrompt(req.user!.name, prompt, attachments), mode, model: b.model || d.model || 'sonnet', effort, isNew: true, avisoPasta });
     return { id, title: titleFromPrompt(prompt) };
   });
 
@@ -903,7 +787,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const effortOverride = EFFORTS.has(req.body?.effort ?? '') ? req.body!.effort : undefined;
     if (effortOverride && effortOverride !== s.effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [s.id, effortOverride]);
     const effort = effortOverride || s.effort || undefined;
-    await startFor(s, req.user!.id, buildPrompt(req.user!.name, prompt, attachments), mode, model, effort);
+    await iniciarTurno({ sessionId: s.id, userId: req.user!.id, prompt: buildPrompt(req.user!.name, prompt, attachments), mode, model, effort, isNew: false });
     return { ok: true, queued: runner.status(s.id) !== 'idle' };
   });
 
@@ -993,7 +877,7 @@ export async function claudeRoutes(app: FastifyInstance) {
    * (embutidos + catálogo), persiste no Postgres PRIMEIRO (coluna claude_sessions.output_style,
    * nullable; 'default' vira null = sem estilo) e SÓ DEPOIS tenta a aplicação ao vivo via
    * `Runner.setOutputStyleLive` (`Query.applyFlagSettings({outputStyle})`), isolada em try/catch.
-   * O turno seguinte nasce certo de qualquer forma: startFor manda o valor persistido pro SDK pela
+   * O turno seguinte nasce certo de qualquer forma: montarTurno manda o valor persistido pro SDK pela
    * camada de settings de flag (`Options.settings.outputStyle` — ver TurnParams em runner.ts).
    */
   app.post<{ Params: { id: string }; Body: { style?: string } }>('/api/claude/sessions/:id/output-style', async (req, reply) => {
@@ -1042,7 +926,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // Colunas que startFor precisa + os últimos prompts (pra contar retomadas automáticas seguidas).
+  // Colunas que a retomada precisa + os últimos prompts (pra contar retomadas automáticas seguidas).
   const SESSAO_RETOMAVEL = `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.output_style, s.project_id, s.user_id, s.last_error,
             p.name AS project_name, p.rules, u.name AS creator,
             (SELECT coalesce(json_agg(json_build_object('prompt', x.prompt, 'ts', x.ts)), '[]') FROM
@@ -1057,7 +941,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       return;
     }
     const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
-    await startFor(s, s.user_id, prefixPrompt('Orion', prompt), mode, s.model ?? undefined, s.effort ?? undefined);
+    await iniciarTurno({ sessionId: s.id, userId: s.user_id, prompt: prefixPrompt('Orion', prompt), mode, model: s.model ?? undefined, effort: s.effort ?? undefined, isNew: false });
   }
 
   /** Opções do card do projeto (Dash › Projetos): conectores claude.ai que a conta tem e contas GitHub cadastradas. */
