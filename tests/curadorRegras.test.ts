@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MIN_SESSOES, TRECHO_MAX, agregar, aplicarRegra, assinaturaDe, hashAssinatura, linhaDoErro,
-  motivoHook, normalizarMensagem, primeiroComando, type ErroBruto, type PayloadRegra,
+  mascarar, motivoHook, normalizarMensagem, primeiroComando, type ErroBruto, type PayloadRegra,
 } from '../server/curador/regras.js';
 import type { CurQuery } from '../server/curador/proposals.js';
 
@@ -26,6 +26,18 @@ describe('normalização da assinatura', () => {
     expect(linhaDoErro('Exit code 1\n/usr/bin/ffmpeg\ncat: /tmp/a.log: No such file or directory')).toBe('cat: /tmp/a.log: No such file or directory');
     expect(linhaDoErro('Exit code 2\n\nup to date, audited 402 packages')).toBe('up to date, audited 402 packages');
     expect(linhaDoErro('Exit code 1')).toBe('');
+    // Traceback do Python: a lição está na última linha, não no cabeçalho genérico
+    expect(linhaDoErro('Exit code 1\nTraceback (most recent call last):\n  File "<string>", line 1\nModuleNotFoundError: No module named \'websockets\'\n')).toBe("ModuleNotFoundError: No module named 'websockets'");
+  });
+
+  it('mascarar apaga tokens, VAR_COM_SENHA=valor, Bearer, JWT e credencial em URL', () => {
+    expect(mascarar(`PGPASSWORD='s3gr3do' psql -h x && curl -H "Authorization: Bearer abc.def" https://u:pw@h/ -d token=sbp_abc123xyz`))
+      .toBe(`PGPASSWORD=… psql -h x && curl -H "Authorization: Bearer …" https://…@h/ -d token=…`);
+    expect(mascarar('CLOUDFLARE_API_TOKEN="cfat_AbC-9" ghp_zzz eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 postgres://u:p@db/x')).toBe('CLOUDFLARE_API_TOKEN=… ghp_… … postgres://…@db/x');
+    const a = assinaturaDe({ project_id: 5, session_id: 's1', tipo: 'bash', comando: `PGPASSWORD='x' psql -c "select sbp_abc"`, mensagem: 'Exit code 1\nERROR: senha=sbp_abc errada' })!;
+    expect(a.trecho).not.toContain("'x'");
+    expect(a.trecho).not.toContain('sbp_abc');
+    expect(a.trecho).toBe(`$ PGPASSWORD=… psql -c "select sbp_…" → ERROR: senha=… errada`);
   });
 
   it('normalizarMensagem apaga o que varia: literais citados, paths, ids e números; corta em 80', () => {

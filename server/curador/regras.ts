@@ -66,7 +66,24 @@ function compactar(s: string | null | undefined, max: number): string {
  */
 export function linhaDoErro(texto: string | null | undefined): string {
   const linhas = (texto ?? '').split('\n').map((l) => l.trim()).filter((l) => l && !/^exit code \d+$/i.test(l));
-  return linhas.find((l) => PALAVRAS_ERRO.test(l)) ?? linhas[0] ?? '';
+  const linha = linhas.find((l) => PALAVRAS_ERRO.test(l)) ?? linhas[0] ?? '';
+  // Traceback do Python: a exceção de verdade é a última linha, o cabeçalho é sempre igual.
+  return /^Traceback/.test(linha) ? linhas[linhas.length - 1] : linha;
+}
+
+/**
+ * Apaga segredos antes de qualquer trecho ir para o payload da proposta (fica no banco e no
+ * painel) ou para o prompt do modelo: tokens conhecidos, VAR_COM_SENHA=valor, Bearer, JWT e
+ * credenciais em URL.
+ */
+export function mascarar(s: string | null | undefined): string {
+  return (s ?? '')
+    .replace(/(sbp_|ghp_|github_pat_|cfat_|sk-|xox[abp]-)[A-Za-z0-9_-]+/g, '$1…')
+    .replace(/\b(\w*(?:TOKEN|SECRET|PASSWORD|PASSWD|SENHA|API_?KEY)\w*)=("[^"]*"|'[^']*'|\S+)/g, '$1=…')
+    .replace(/Bearer [A-Za-z0-9._~+/=-]+/g, 'Bearer …')
+    .replace(/\b(token|password|senha|key|secret)=\S+/gi, '$1=…')
+    .replace(/eyJ[A-Za-z0-9_-]{20,}/g, '…')
+    .replace(/\b(postgres(?:ql)?|mysql|redis|https?):\/\/[^@\s]+@/g, '$1://…@');
 }
 
 /** Motivo curto de um bloqueio de hook (mesma regra de hookBlockReason no front). */
@@ -112,15 +129,15 @@ export function primeiroComando(cmd: string | null | undefined): string {
 /** Assinatura (chave de agrupamento) e trecho de evidência de um erro. Mensagem curta demais (só número, só path) não vira assinatura. */
 export function assinaturaDe(e: ErroBruto): { assinatura: string; trecho: string } | null {
   if (e.tipo === 'bash') {
-    const linha = linhaDoErro(e.mensagem);
+    const linha = mascarar(linhaDoErro(e.mensagem));
     const msg = normalizarMensagem(linha);
     if (msg.length < 4) return null;
     return {
       assinatura: `bash:${primeiroComando(e.comando)}:${msg}`,
-      trecho: `$ ${compactar(e.comando, 90)} → ${compactar(linha, TRECHO_MAX - 95)}`,
+      trecho: `$ ${compactar(mascarar(e.comando), 90)} → ${compactar(linha, TRECHO_MAX - 95)}`,
     };
   }
-  const linha = e.tipo === 'hook' ? motivoHook(e.mensagem) : linhaDoErro(e.mensagem);
+  const linha = mascarar(e.tipo === 'hook' ? motivoHook(e.mensagem) : linhaDoErro(e.mensagem));
   const msg = normalizarMensagem(linha);
   if (msg.length < 4) return null;
   return { assinatura: `${e.tipo}:${msg}`, trecho: compactar(linha, TRECHO_MAX) };
@@ -279,7 +296,17 @@ export async function proporRegras(pool: Pool, opts: { env?: Record<string, stri
       log(`curador regras ${nome}: modelo falhou (${(e as Error)?.message ?? e}); tenta de novo na próxima rodada`);
       continue;
     }
-    if (!regra) { stats.puladas++; continue; }
+    if (!regra) {
+      // Ruído segundo o modelo: fica registrado já rejeitado, para o hash barrar o reprocessamento amanhã.
+      const ruido: PayloadRegra = { ...r, titulo: '', regra_texto: '', justificativa: 'ruído, julgado pelo modelo' };
+      await q(
+        `INSERT INTO curadoria_propostas (tipo, payload, status, decided_at) VALUES ('regra', $1, 'rejeitada', now())
+         ON CONFLICT ((payload->>'hash')) WHERE tipo = 'regra' DO NOTHING`,
+        [JSON.stringify(ruido)],
+      );
+      stats.puladas++;
+      continue;
+    }
     const payload: PayloadRegra = {
       ...r,
       titulo: regra.titulo,

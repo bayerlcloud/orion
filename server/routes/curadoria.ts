@@ -37,11 +37,12 @@ export async function curadoriaRoutes(app: FastifyInstance) {
     if (!Number.isInteger(id) || id <= 0) return reply.code(400).send({ error: 'id inválido' });
 
     const client = await app.pool.connect();
+    let p: { id: number; tipo: string; payload: unknown; status: string } | undefined;
     try {
       await client.query('BEGIN');
       const { rows } = await client.query(
         `SELECT id, tipo, payload, status FROM curadoria_propostas WHERE id = $1 FOR UPDATE`, [id]);
-      const p = rows[0];
+      p = rows[0];
       if (!p) { await client.query('ROLLBACK'); return reply.code(404).send({ error: 'proposta não existe' }); }
       if (p.status !== 'pendente') { await client.query('ROLLBACK'); return reply.code(409).send({ error: `proposta já ${p.status}` }); }
       const q = (sql: string, params?: unknown[]) => client.query(sql, params as any[]);
@@ -57,7 +58,16 @@ export async function curadoriaRoutes(app: FastifyInstance) {
       return { ok: true, resultado };
     } catch (e) {
       await client.query('ROLLBACK');
-      if (e instanceof ValidationError) return reply.code(409).send({ error: e.message });
+      if (e instanceof ValidationError) {
+        // Regra parecida já existe: a proposta não tem mais o que aprovar, então sai da fila como rejeitada.
+        if (p?.tipo === 'regra' && /já existe regra parecida/.test(e.message)) {
+          await app.pool.query(
+            `UPDATE curadoria_propostas SET status = 'rejeitada', decided_at = now(), decided_by = $2 WHERE id = $1 AND status = 'pendente'`,
+            [id, req.user!.id],
+          );
+        }
+        return reply.code(409).send({ error: e.message });
+      }
       throw e;
     } finally {
       client.release();

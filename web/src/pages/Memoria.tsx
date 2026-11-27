@@ -63,6 +63,7 @@ type Proposta = {
     titulo?: string;
     regra_texto?: string;
     evidencias?: string[];
+    assinatura?: string;
     ocorrencias?: number;
     sessoes?: number;
   };
@@ -443,8 +444,8 @@ export default function Memoria({ user }: { user: User }) {
               {curadoria.decididas.map((p) => (
                 <li key={p.id}>
                   <span className={`mem-cur-status is-${p.status}`}>{p.status}</span>{' '}
-                  {TIPO_LABEL[p.tipo] ?? p.tipo}: {p.tipo === 'regra' ? (p.payload.titulo ?? p.payload.regra_texto) : (p.payload.memorias?.map((m) => m.code).join(', ') ?? '?')}
-                  {p.decided_by_name ? ` · por ${p.decided_by_name}` : ' · automática (fusão)'}
+                  {TIPO_LABEL[p.tipo] ?? p.tipo}: {p.tipo === 'regra' ? (p.payload.titulo || p.payload.regra_texto || p.payload.assinatura) : (p.payload.memorias?.map((m) => m.code).join(', ') ?? '?')}
+                  {p.decided_by_name ? ` · por ${p.decided_by_name}` : p.tipo === 'regra' ? ` · automática (${p.payload.justificativa ?? 'ruído'})` : ' · automática (fusão)'}
                   {p.decided_at ? ` · ${fmtDateTime(p.decided_at)}` : ''}
                 </li>
               ))}
