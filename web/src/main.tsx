@@ -68,7 +68,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 // a página sozinho). A casca usa --app-h no lugar de 100dvh.
 if (window.visualViewport) {
   const vv = window.visualViewport;
-  const ajustar = () => document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
+  const ajustar = () => {
+    document.documentElement.style.setProperty('--app-h', `${Math.round(vv.height)}px`);
+    window.scrollTo(0, 0);
+  };
   vv.addEventListener('resize', ajustar);
+  vv.addEventListener('scroll', ajustar);
   ajustar();
 }
