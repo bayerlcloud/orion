@@ -217,3 +217,10 @@ export function semWorkflowProgress<T>(payload: T): T {
   const { workflow_progress: _fora, ...sem } = p as Record<string, unknown>;
   return sem as T;
 }
+
+/** Evento ao vivo com o `message` enxuto (SSE do painel e stream /eventos do runner); os outros tipos passam intactos. */
+export function enxugarEventoAoVivo<T extends { type: string }>(e: T): T {
+  if (e.type !== 'message') return e;
+  const m = (e as { message?: unknown }).message;
+  return { ...e, message: semWorkflowProgress(enxugarToolUseResult(m)) };
+}

@@ -9,7 +9,8 @@ Group=orion
 WorkingDirectory=/srv/orion-live
 Environment=ORION_REPO=/srv/orion
 Environment=ORION_RUNNER_SOCK=/run/orion/runner.sock
-Environment=NODE_OPTIONS=--max-old-space-size=1536
+# Heap abaixo do MemoryHigh (RSS = heap + 300 a 500 MB de buffers/nativo): senão o throttling do cgroup chega antes do GC apertar.
+Environment=NODE_OPTIONS=--max-old-space-size=1200
 EnvironmentFile=/etc/orion/central.env
 ExecStart=/usr/bin/node /srv/orion-live/dist/server/runnerMain.js
 RuntimeDirectory=orion

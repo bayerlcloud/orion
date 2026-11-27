@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+import http from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { Motor } from '../server/claude/motor.js';
+import type { LiveEvent } from '../server/claude/runner.js';
 import { criarServidorMotor } from '../server/claude/motorServidor.js';
 
 /** Motor falso: só o que as rotas simples tocam (o caminho completo, com Runner, está em motorSocket.test.ts). */
@@ -46,5 +51,40 @@ describe('criarServidorMotor (rotas por pedido)', () => {
     expect((await app.inject({ method: 'POST', url: '/sessoes/a/parar' })).json()).toEqual({ ok: true });
     expect(m.parar).toHaveBeenCalledWith('a');
     await app.close();
+  });
+
+  it('/eventos cruza o socket enxuto: sem tool_use_result inteiro nem workflow_progress (mesmo recorte do SSE do painel)', async () => {
+    const m = motorFalso();
+    let emitir!: (sessionId: string, e: LiveEvent) => void;
+    m.assinarTudo.mockImplementation((fn: typeof emitir) => { emitir = fn; return () => {}; });
+    const app = criarServidorMotor(m);
+    const pasta = await mkdtemp(path.join(tmpdir(), 'orion-ev-')); const sock = path.join(pasta, 'r.sock');
+    await app.listen({ path: sock });
+    const linhas: any[] = [];
+    await new Promise<void>((ok, erro) => {
+      const req = http.request({ socketPath: sock, path: '/eventos', method: 'GET' }, res => {
+        let resto = '';
+        res.setEncoding('utf8');
+        res.on('data', (c: string) => {
+          resto += c;
+          let i: number;
+          while ((i = resto.indexOf('\n')) >= 0) { const b = resto.slice(0, i); resto = resto.slice(i + 1); if (b) linhas.push(JSON.parse(b)); }
+          if (linhas.length === 1) {
+            emitir('a', { type: 'message', message: { type: 'user', message: { content: 'x' }, tool_use_result: { status: 'completed', totalTokens: 1, stdout: 'z'.repeat(100_000) } } as any });
+            emitir('a', { type: 'message', message: { type: 'system', subtype: 'task_progress', workflow_progress: new Array(1000).fill('w') } as any });
+            emitir('a', { type: 'status', status: 'idle' });
+          }
+          if (linhas.length >= 4) { req.destroy(); ok(); }
+        });
+      });
+      req.on('error', e => { if (linhas.length < 4) erro(e); });
+      req.end();
+    });
+    expect(linhas[0].type).toBe('hello');
+    expect(linhas[1].event.message).toEqual({ type: 'user', message: { content: 'x' }, tool_use_result: { status: 'completed', totalTokens: 1 } });
+    expect(linhas[2].event.message).toEqual({ type: 'system', subtype: 'task_progress' });
+    expect(linhas[3].event).toEqual({ type: 'status', status: 'idle' });
+    await app.close();
+    await rm(pasta, { recursive: true, force: true });
   });
 });

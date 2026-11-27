@@ -29,7 +29,7 @@ import { projetoIntegracao } from '../claude/montarTurno.js';
 import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import { ensureGithubAccountsTable, listarContasGithub } from '../tools/githubAccounts.js';
-import { desarquivar, listarConectoresClaudeAi, enxugarToolUseResult, semWorkflowProgress, truncarToolResult } from '../tools/leveza.js';
+import { desarquivar, listarConectoresClaudeAi, enxugarEventoAoVivo, truncarToolResult } from '../tools/leveza.js';
 import { ensureCloudflareAccountsTable } from '../tools/cloudflareAccounts.js';
 import { ensureGoogleCloudAccountsTable } from '../tools/googleCloudAccounts.js';
 import { fetchRealUsage } from '../claude/realUsage.js';
@@ -709,8 +709,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const send = (e: unknown) => {
       if (res.destroyed || res.writableEnded) return;
       if ((res.socket?.writableLength ?? 0) > SSE_BUFFER_MAX) { res.destroy(); return; }
-      const ev = (e as { type?: string }).type === 'message' ? { ...(e as object), message: semWorkflowProgress(enxugarToolUseResult((e as { message: unknown }).message)) } : e;
-      res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      res.write(`data: ${JSON.stringify(enxugarEventoAoVivo(e as { type: string }))}\n\n`);
     };
     send({ type: 'hello', status: motor.status(id), pending: motor.pendentes(id), commands: await motor.comandos(id).catch(() => []) });
     const unsub = motor.assinar(id, send);

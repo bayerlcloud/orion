@@ -554,7 +554,16 @@ export class Runner {
         this.emit(id, { type: 'permission_resolved', id: pid, decision: 'timeout' });
         if (l.pending.size === 0) void this.setStatus(id, 'running');
       }, this.deps.permissionTimeoutMs ?? 30 * 60_000);
-      opts.signal.addEventListener('abort', () => { clearTimeout(timer); l.pending.delete(pid); });
+      // O SDK abortou o pedido (turno cancelado, ferramenta abandonada): sai como 'deny' no painel também, igual ao
+      // stop(); senão o espelho do MotorSocket (que só limpa no turn_end) e a tela ficavam com pendência fantasma.
+      // Depois de stop()/decide()/timeout o pid já saiu de l.pending e nada é emitido de novo.
+      opts.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        if (!l.pending.delete(pid)) return;
+        void this.deps.store.decideApproval(pid, 'deny', null);
+        void this.deps.store.appendEvent(id, 'permission_resolved', { id: pid, decision: 'deny' });
+        this.emit(id, { type: 'permission_resolved', id: pid, decision: 'deny' });
+      });
       // opts.toolUseID: id real do SDK pro tool_use (ver comentário de LiveEvent 'permission_request'
       // acima) — repassado pro evento persistido/ao vivo pra o mapper poder ligar o bloco de
       // ferramenta ao pedido de permissão que é dele de verdade, em vez de duas coisas soltas na tela.

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import Fastify from 'fastify';
 import type { Pool } from 'pg';
 import { mkdtemp, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -149,6 +150,16 @@ describe('MotorSocket <-> criarServidorMotor', () => {
     expect(aoReconectar).toHaveBeenCalledTimes(2);
     expect(c.vivas().map(v => v.id)).toEqual(['s1']);
     await until(() => c.status('s1') === 'idle');
+  });
+
+  it('runner ocioso (só /saude): iniciarTurno rejeita com o HTTP 404, nunca resolve com queued undefined; decidir devolve false', async () => {
+    const sock = await sockTemp();
+    const app = Fastify(); app.get('/saude', async () => ({ ok: true }));
+    await app.listen({ path: sock }); abertos.push(app);
+    const { c } = cliente(sock);
+    await expect(c.iniciarTurno(pedido())).rejects.toThrow(/HTTP 404/);
+    await expect(c.parar('s1')).rejects.toThrow(/HTTP 404/);
+    expect(await c.decidir('s1', 'nao-existe', 'allow', 1)).toBe(false);
   });
 
   it('servidor fora desde o início: online() false e escrita lança MotorIndisponivel', async () => {
