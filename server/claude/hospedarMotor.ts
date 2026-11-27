@@ -11,11 +11,12 @@ import { envDoGerente, envStrings, pararScopes as pararScopesReal } from './isol
 import { MotorLocal } from './motorLocal.js';
 import { iniciarRetomada } from './retomada.js';
 import { FilaIntegracao } from '../integracao/fila.js';
+import { sdkFalso } from './sdkFalso.js';
 
 export type OpcoesHospedagem = {
   pool: Pool;
   log: (m: string) => void;
-  /** Só pra teste: SDK falso no lugar do query() real. */
+  /** Só pra teste: SDK falso no lugar do query() real (sem ele, ORION_SDK_FALSO=1 liga o sdkFalso.ts). */
   queryFn?: QueryFn;
   /** Só pra teste: não chamar o systemctl de verdade. */
   pararScopes?: typeof pararScopesReal;
@@ -23,6 +24,14 @@ export type OpcoesHospedagem = {
 
 export async function hospedarMotor(o: OpcoesHospedagem): Promise<{ motor: MotorLocal; fechar(): Promise<void> }> {
   const pararScopes = o.pararScopes ?? pararScopesReal;
+  // SDK falso (sdkFalso.ts): eco sem token, só pra testar o painel. No ar nunca liga sem querer: com
+  // NODE_ENV=production exige ORION_SDK_FALSO_PERMITIDO=1, e a recusa derruba o boot com a causa clara.
+  let queryFn = o.queryFn;
+  if (!queryFn && process.env.ORION_SDK_FALSO === '1') {
+    if (process.env.NODE_ENV === 'production' && process.env.ORION_SDK_FALSO_PERMITIDO !== '1') throw new Error('ORION_SDK_FALSO=1 em produção: recusado (sem ORION_SDK_FALSO_PERMITIDO=1 as sessões responderiam eco em vez do claude)');
+    o.log('motor: SDK FALSO ligado (sem tokens)');
+    queryFn = sdkFalso;
+  }
   // Os claude das sessões vivem em scopes do gerente de usuário (isolamento.ts), fora deste serviço: um
   // restart não os mata mais, e seguiriam o turno com o stdin fechado, sem ninguém ouvindo. Boot cobre
   // crash sem handler; SIGTERM cobre o deploy. Antes da retomada, que religa os turnos cortados.
@@ -33,7 +42,7 @@ export async function hospedarMotor(o: OpcoesHospedagem): Promise<{ motor: Motor
   process.once('SIGTERM', aoTerm);
 
   const store = pgStore(o.pool);
-  const runner = new Runner({ queryFn: o.queryFn ?? query, store, log: o.log });
+  const runner = new Runner({ queryFn: queryFn ?? query, store, log: o.log });
   const motor = new MotorLocal({ runner, pool: o.pool, fila: new FilaIntegracao(), log: o.log });
   const retomada = await iniciarRetomada({ pool: o.pool, motor, store, log: o.log });
   return {
