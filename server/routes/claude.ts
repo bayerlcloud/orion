@@ -628,7 +628,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     }
     const d = await defaults();
     const mode = MODES.has(b.permission_mode ?? '') ? (b.permission_mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : (MODES.has(d.mode ?? '') ? (d.mode as 'default' | 'acceptEdits' | 'plan' | 'auto') : 'acceptEdits');
-    // Valor de fio (pode ser 'ultracode') — persistido como está; montarTurno traduz pro SDK.
+    // Valor de fio (pode ser 'ultracode'): persistido como está; montarTurno traduz pro SDK.
     // Padrão do sistema (Danilo, 04/10/2026): toda sessão nasce Sonnet Médio.
     const effort = EFFORTS.has(b.effort ?? '') ? b.effort : 'medium';
     const attachments = await sanitizeAttachments(b.attachments);
