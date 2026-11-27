@@ -30,7 +30,9 @@ async function enviarAlertaWhatsapp(pool: Pool, texto: string): Promise<boolean>
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ number: destino, text: texto }),
-      signal: AbortSignal.timeout(5_000),
+      // 27/11/2026: 20 s, não 5. O gateway espaça os envios em 3 a 8 s (intervaloEnvio); com 3 alertas juntos o 3º
+      // estourava o timeout antes de sair da fila (provado no deploy da onda A).
+      signal: AbortSignal.timeout(20_000),
     });
     if (!r.ok) {
       console.log(`aviso: alerta whatsapp respondeu ${r.status}:`, await r.text().catch(() => ''));
