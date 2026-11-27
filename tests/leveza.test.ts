@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { enxugarToolUseResult, jsonSemNul, limiarImagens, semImagensDeFerramenta, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
+import { enxugarToolUseResult, jsonSemNul, semWorkflowProgress, limiarImagens, semImagensDeFerramenta, slugMcpClaudeAi, disallowConectores, envConectores, envLeve, ENV_LEVE, donoDoRemote, contaGithubDoProjeto, metaLeveza, truncarToolResult, TOOL_RESULT_MAX } from '../server/tools/leveza';
 
 describe('leveza por sessão (12/11/2026)', () => {
   it('slug dos conectores claude.ai igual ao que o CLI usa nas tools', () => {
@@ -107,5 +107,17 @@ describe('enxugarToolUseResult: só os campos do mapa de agentes', () => {
     expect(enxugarToolUseResult(sem)).toBe(sem);
     const a = { type: 'assistant', tool_use_result: { x: 1 } };
     expect(enxugarToolUseResult(a)).toBe(a);
+  });
+});
+
+describe('semWorkflowProgress', () => {
+  it('tira workflow_progress de system/task_progress e não toca no resto', () => {
+    const t = { type: 'system', subtype: 'task_progress', summary: 'x', workflow_progress: new Array(1000).fill({ a: 1 }) };
+    expect(semWorkflowProgress(t)).toEqual({ type: 'system', subtype: 'task_progress', summary: 'x' });
+    expect(t.workflow_progress.length).toBe(1000);
+    const u = { type: 'user', workflow_progress: [1] };
+    expect(semWorkflowProgress(u)).toBe(u);
+    const s = { type: 'system', subtype: 'init' };
+    expect(semWorkflowProgress(s)).toBe(s);
   });
 });
