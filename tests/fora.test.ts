@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decidirFora, foraDaSessao, limparResumo, montarEntrada, FORA_AUSENCIA_MIN_MS } from '../server/claude/fora.js';
+import { cacheFora, decidirFora, foraDaSessao, foraEmVoo, limparResumo, montarEntrada, FORA_AUSENCIA_MIN_MS } from '../server/claude/fora.js';
 
 const agora = new Date('2026-11-27T12:00:00Z');
 const antes = (ms: number) => new Date(agora.getTime() - ms);
@@ -71,36 +71,63 @@ function poolFalso(vista: { visto_em: Date; resumo: unknown } | null, resultSeq:
 }
 const token = async () => null;
 
-describe('foraDaSessao', () => {
+describe('foraDaSessao (geração em segundo plano)', () => {
   const vistoOntem = { visto_em: new Date(Date.now() - 20 * 3600e3), resumo: null };
   const eventos = [{ type: 'assistant', payload: { message: { content: [{ type: 'text', text: 'Migrei o banco e rodei os testes.' }] } } }];
 
-  it('gera com o modelo (mock), grava o cache e devolve texto + ate_seq', async () => {
+  it('responde pendente na hora; o modelo (mock) roda depois e o cache fica gravado', async () => {
     const { pool, updates } = poolFalso(vistoOntem, 77, eventos);
     const chamadas: string[] = [];
     const resumir = async (entrada: string) => { chamadas.push(entrada); return 'feito: migração do banco\npendente: deploy'; };
-    expect(await foraDaSessao(pool, 's1', 1, { gerar: true, token, resumir })).toEqual({ texto: 'feito: migração do banco\npendente: deploy', ate_seq: 77 });
+    expect(await foraDaSessao(pool, 'g1', 1, { gerar: true, token, resumir })).toEqual({ pendente: true, ate_seq: 77 });
+    expect(updates).toEqual([]);
+    await foraEmVoo('g1', 1);
     expect(chamadas).toEqual(['Migrei o banco e rodei os testes.']);
     expect(JSON.parse(updates[0][2] as string)).toMatchObject({ ate_seq: 77, texto: 'feito: migração do banco\npendente: deploy' });
+    expect(foraEmVoo('g1', 1)).toBeUndefined();
   });
-  it('sem gerar (reconexão, script) não chama o modelo e devolve null', async () => {
+  it('segunda abertura durante o voo não chama o modelo de novo (e reconexão sem gerar também vê pendente)', async () => {
+    const { pool } = poolFalso(vistoOntem, 77, eventos);
+    let solta!: () => void; let chamou = 0;
+    const resumir = async () => { chamou++; await new Promise<void>(r => { solta = r; }); return 'feito: x'; };
+    expect(await foraDaSessao(pool, 'g2', 1, { gerar: true, token, resumir })).toEqual({ pendente: true, ate_seq: 77 });
+    expect(await foraDaSessao(pool, 'g2', 1, { gerar: true, token, resumir })).toEqual({ pendente: true, ate_seq: 77 });
+    expect(await foraDaSessao(pool, 'g2', 1, { gerar: false, token, resumir })).toEqual({ pendente: true, ate_seq: 77 });
+    expect(await cacheFora(pool, 'g2', 1)).toEqual({ pendente: true });
+    solta(); await foraEmVoo('g2', 1);
+    expect(chamou).toBe(1);
+  });
+  it('sem gerar (reconexão, script) e sem voo: não chama o modelo e devolve null', async () => {
     const { pool, updates } = poolFalso(vistoOntem, 77, eventos);
     let chamou = false;
-    expect(await foraDaSessao(pool, 's1', 1, { gerar: false, token, resumir: async () => { chamou = true; return 'x'; } })).toBeNull();
+    expect(await foraDaSessao(pool, 'g3', 1, { gerar: false, token, resumir: async () => { chamou = true; return 'x'; } })).toBeNull();
     expect(chamou).toBe(false);
     expect(updates).toEqual([]);
   });
-  it('cache válido volta sem o modelo, mesmo sem gerar', async () => {
+  it('cache válido volta direto, mesmo sem gerar', async () => {
     const { pool } = poolFalso({ visto_em: new Date(), resumo: { ate_seq: 77, texto: 'feito: tudo', gerado_em: 'x' } }, 77, eventos);
-    expect(await foraDaSessao(pool, 's1', 1, { gerar: false, token, resumir: async () => 'não' })).toEqual({ texto: 'feito: tudo', ate_seq: 77 });
+    expect(await foraDaSessao(pool, 'g4', 1, { gerar: false, token, resumir: async () => 'não' })).toEqual({ texto: 'feito: tudo', ate_seq: 77 });
   });
-  it('modelo falhou (texto vazio): null e cache vazio gravado para não insistir', async () => {
+  it('modelo falhou (texto vazio): cache vazio gravado para não insistir; /fora devolve null', async () => {
     const { pool, updates } = poolFalso(vistoOntem, 77, eventos);
-    expect(await foraDaSessao(pool, 's1', 1, { gerar: true, token, resumir: async () => '' })).toBeNull();
+    expect(await foraDaSessao(pool, 'g5', 1, { gerar: true, token, resumir: async () => '' })).toEqual({ pendente: true, ate_seq: 77 });
+    await foraEmVoo('g5', 1);
     expect(JSON.parse(updates[0][2] as string)).toMatchObject({ ate_seq: 77, texto: '' });
   });
   it('nunca abriu: null sem consultar eventos', async () => {
     const { pool } = poolFalso(null, 77, eventos);
-    expect(await foraDaSessao(pool, 's1', 1, { gerar: true, token, resumir: async () => 'x' })).toBeNull();
+    expect(await foraDaSessao(pool, 'g6', 1, { gerar: true, token, resumir: async () => 'x' })).toBeNull();
+  });
+});
+
+describe('cacheFora (GET /fora, só leitura)', () => {
+  it('com cache: devolve texto e ate_seq', async () => {
+    const { pool } = poolFalso({ visto_em: new Date(), resumo: { ate_seq: 9, texto: 'feito: a', gerado_em: 'x' } }, 9, []);
+    expect(await cacheFora(pool, 'c1', 1)).toEqual({ texto: 'feito: a', ate_seq: 9 });
+  });
+  it('sem cache, cache vazio ou sem linha: null', async () => {
+    expect(await cacheFora(poolFalso({ visto_em: new Date(), resumo: null }, 9, []).pool, 'c2', 1)).toBeNull();
+    expect(await cacheFora(poolFalso({ visto_em: new Date(), resumo: { ate_seq: 9, texto: '', gerado_em: 'x' } }, 9, []).pool, 'c3', 1)).toBeNull();
+    expect(await cacheFora(poolFalso(null, 9, []).pool, 'c4', 1)).toBeNull();
   });
 });

@@ -16,6 +16,8 @@ export type ApiSession = {
 export type Project = { id: number; slug: string; name: string; path: string; rules: string | null; temPreview: boolean; productionUrl: string | null };
 /** Resumo "Enquanto você estava fora" (GET da sessão): até 3 linhas; `ate_seq` = último result coberto, chave do X em localStorage. */
 export type Fora = { texto: string; ate_seq: number };
+/** `pendente`: o servidor está gerando em segundo plano; o front faz polling em `claudeApi.fora`. */
+export type ForaResposta = Fora | { pendente: true; ate_seq?: number } | null;
 /** Pasta nomeada manual de sessões (`GET /api/claude/session-groups`) — ver PARIDADE.md item 12 da seção 13. */
 export type ApiSessionGroup = { id: string; name: string; created_at: string };
 export type Mode = 'acceptEdits' | 'default' | 'plan' | 'auto';
@@ -94,10 +96,12 @@ export const claudeApi = {
   // Sem `full`: só as últimas TURNOS_INICIAIS mensagens (o resto vem com "Carregar anteriores").
   // `abrindo`: a pessoa está abrindo a sessão de fato (1ª carga da aba ativa); o servidor marca a vista e
   // pode gerar o resumo "Enquanto você estava fora" (`fora`). Reconexão e abas de fundo não mandam.
-  get: (id: string, full = false, abrindo = false) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[]; hidden_turns?: number; fora?: Fora | null }>(
+  get: (id: string, full = false, abrindo = false) => api<{ session: ApiSession; events: Row[]; pending: { id: string; toolName: string }[]; hidden_turns?: number; fora?: ForaResposta }>(
     `/api/claude/sessions/${id}?${new URLSearchParams({ ...(full ? {} : { turnos: String(TURNOS_INICIAIS) }), ...(abrindo ? { abrindo: '1' } : {}) })}`),
   /** Fim de turno com a aba ativa: a pessoa viu, então conta como vista (ver fora.ts no servidor). */
   vista: (id: string) => api<{ ok: true }>(`/api/claude/sessions/${id}/vista`, { method: 'POST' }),
+  /** Polling do resumo "Enquanto você estava fora" (só leitura): resumo pronto, `pendente` ou null. */
+  fora: (id: string) => api<ForaResposta>(`/api/claude/sessions/${id}/fora`),
   send: (id: string, b: { prompt: string; permission_mode?: Mode; model?: string; effort?: EffortChoice; attachments?: Attachment[] }) => api<{ ok: true; queued: boolean }>(`/api/claude/sessions/${id}/messages`, { method: 'POST', body: JSON.stringify(b) }),
   // Upload multipart: não passa pelo helper `api` (que forçaria Content-Type JSON); o navegador define o boundary.
   files: (q: string, where: { session?: string; project?: number | null }) => {

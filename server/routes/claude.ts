@@ -20,7 +20,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { pgStore } from '../claude/store.js';
 import { tituloCurto } from '../claude/titulo.js';
-import { foraDaSessao, marcarVista } from '../claude/fora.js';
+import { cacheFora, foraDaSessao, marcarVista } from '../claude/fora.js';
 import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
 import { sessoesVizinhas } from '../claude/vizinhas.js';
@@ -786,6 +786,9 @@ export async function claudeRoutes(app: FastifyInstance) {
     await marcarVista(app.pool, req.params.id, req.user!.id);
     return { ok: true };
   });
+
+  // GET /fora: polling do front enquanto o resumo "Enquanto você estava fora" é gerado em segundo plano. Só leitura.
+  app.get<{ Params: { id: string } }>('/api/claude/sessions/:id/fora', async (req) => cacheFora(app.pool, req.params.id, req.user!.id));
 
   // ?abrindo=1: o front está abrindo a sessão de fato (não reconexão do SSE, não script). Só aí
   // conta como "vista" e só aí o resumo "Enquanto você estava fora" pode chamar o modelo.

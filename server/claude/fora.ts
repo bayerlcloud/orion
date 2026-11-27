@@ -20,6 +20,8 @@ export const FORA_LINHAS_MAX = 3;
 export const FORA_TIMEOUT_MS = 20_000;
 
 export type Fora = { texto: string; ate_seq: number };
+/** O que o GET devolve: resumo pronto, "gerando" (o front faz polling em /fora) ou nada. */
+export type ForaResposta = Fora | { pendente: true; ate_seq: number } | null;
 export type ResumoCache = { ate_seq: number; texto: string; gerado_em: string } | null;
 
 export const FORA_PROMPT = [
@@ -86,14 +88,22 @@ export async function marcarVista(pool: Pool, sessionId: string, userId: number)
      ON CONFLICT (session_id, user_id) DO UPDATE SET visto_em = now()`, [sessionId, userId]);
 }
 
+/** Gerações em voo por sessão+pessoa: recarregar a página durante os 20 s não chama o modelo duas vezes. */
+const emVoo = new Map<string, Promise<void>>();
+const chave = (sessionId: string, userId: number) => `${sessionId}:${userId}`;
+/** Promessa da geração em voo (testes esperam por ela); undefined = nada gerando. */
+export const foraEmVoo = (sessionId: string, userId: number) => emVoo.get(chave(sessionId, userId));
+
 /**
- * O que o GET da sessão devolve em `fora`. `gerar` só quando a pessoa está abrindo de fato (senão
- * leitura por script ou reconexão do SSE custaria uma chamada ao modelo); sem gerar, vale só o cache.
+ * O que o GET da sessão devolve em `fora`. Abrir a sessão é o caminho mais quente do painel, então o
+ * modelo NUNCA segura a resposta: quando precisa gerar, dispara em segundo plano e responde
+ * `{ pendente: true }`; o front faz polling em GET /fora. `gerar` só quando a pessoa está abrindo de
+ * fato (reconexão do SSE e script só enxergam cache ou voo).
  */
 export async function foraDaSessao(
   pool: Pool, sessionId: string, userId: number,
   opts: { gerar: boolean; token: () => Promise<string | null>; resumir?: typeof resumirFora },
-): Promise<Fora | null> {
+): Promise<ForaResposta> {
   const { rows: [v] } = await pool.query<{ visto_em: Date; resumo: ResumoCache }>(
     'SELECT visto_em, resumo FROM claude_session_vistas WHERE session_id = $1 AND user_id = $2', [sessionId, userId]);
   if (!v) return null;
@@ -102,19 +112,34 @@ export async function foraDaSessao(
   const d = decidirFora({ vistoEm: v.visto_em, ultimoResultSeq: r?.seq ?? null, cache: v.resumo });
   if (d.acao === 'nada') return null;
   if (d.acao === 'cache') return d.fora;
+  const k = chave(sessionId, userId);
+  if (emVoo.has(k)) return { pendente: true, ate_seq: d.ateSeq };
   if (!opts.gerar) return null;
-  // Só os blocos de texto do assistant já saem do Postgres: payload inteiro de milhares de eventos pesava no heap.
-  const { rows: eventos } = await pool.query<EventoLeve>(
-    `SELECT e.type, jsonb_build_object('message', jsonb_build_object('content',
-              (SELECT jsonb_agg(b ORDER BY o) FROM jsonb_array_elements(e.payload->'message'->'content') WITH ORDINALITY AS x(b, o) WHERE b->>'type' = 'text'))) AS payload
-       FROM claude_events e
-      WHERE e.session_id = $1 AND e.type = 'assistant' AND e.ts > $2 AND e.seq <= $3
-        AND jsonb_typeof(e.payload->'message'->'content') = 'array'
-      ORDER BY e.seq`, [sessionId, v.visto_em, d.ateSeq]);
-  const texto = await (opts.resumir ?? resumirFora)(montarEntrada(eventos), await opts.token());
-  // Grava mesmo vazio: ate_seq igual evita tentar o modelo de novo a cada abertura até haver turno novo.
-  await pool.query(
-    `UPDATE claude_session_vistas SET resumo = $3::jsonb WHERE session_id = $1 AND user_id = $2`,
-    [sessionId, userId, JSON.stringify({ ate_seq: d.ateSeq, texto, gerado_em: new Date().toISOString() })]);
-  return texto ? { texto, ate_seq: d.ateSeq } : null;
+  const vistoEm = v.visto_em;
+  const gerar = (async () => {
+    // Só os blocos de texto do assistant já saem do Postgres: payload inteiro de milhares de eventos pesava no heap.
+    const { rows: eventos } = await pool.query<EventoLeve>(
+      `SELECT e.type, jsonb_build_object('message', jsonb_build_object('content',
+                (SELECT jsonb_agg(b ORDER BY o) FROM jsonb_array_elements(e.payload->'message'->'content') WITH ORDINALITY AS x(b, o) WHERE b->>'type' = 'text'))) AS payload
+         FROM claude_events e
+        WHERE e.session_id = $1 AND e.type = 'assistant' AND e.ts > $2 AND e.seq <= $3
+          AND jsonb_typeof(e.payload->'message'->'content') = 'array'
+        ORDER BY e.seq`, [sessionId, vistoEm, d.ateSeq]);
+    const texto = await (opts.resumir ?? resumirFora)(montarEntrada(eventos), await opts.token());
+    // Grava mesmo vazio: ate_seq igual evita tentar o modelo de novo a cada abertura até haver turno novo.
+    await pool.query(
+      `UPDATE claude_session_vistas SET resumo = $3::jsonb WHERE session_id = $1 AND user_id = $2`,
+      [sessionId, userId, JSON.stringify({ ate_seq: d.ateSeq, texto, gerado_em: new Date().toISOString() })]);
+  })().catch(() => { /* falhou: sem card; a próxima abertura tenta de novo */ }).finally(() => emVoo.delete(k));
+  emVoo.set(k, gerar);
+  return { pendente: true, ate_seq: d.ateSeq };
+}
+
+/** GET /fora (polling do front): só leitura. Em voo = pendente; cache com texto = resumo; senão null. */
+export async function cacheFora(pool: Pool, sessionId: string, userId: number): Promise<Fora | { pendente: true } | null> {
+  if (emVoo.has(chave(sessionId, userId))) return { pendente: true };
+  const { rows: [v] } = await pool.query<{ resumo: ResumoCache }>(
+    'SELECT resumo FROM claude_session_vistas WHERE session_id = $1 AND user_id = $2', [sessionId, userId]);
+  const c = v?.resumo;
+  return c?.texto ? { texto: c.texto, ate_seq: c.ate_seq } : null;
 }

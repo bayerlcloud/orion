@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionGroupInfo, SessionSummary, UserAttachment } from './types';
 import { addPendingUser, applyLive, dropPendingUser, emptyLive, fromRows, keepPendingUser, toConvEvents, type LiveState } from './live';
-import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, MODE_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment, type Fora } from './api';
+import { claudeApi, matchModelAlias, matchEffort, MODEL_LABEL, MODE_LABEL, NOVA_SESSAO, type ApiSession, type Mode, type EffortChoice, type ModelAlias, type OutputStyleInfo, type Project, type Attachment, type Fora, type ForaResposta } from './api';
 import { api } from '../api';
 import { computeUsageBars, computeModelAttribution, messageHistory, currentPermission, sumSessionTokens, agentTaskList, applyPendingToAgentTasks, agentsPillDot, agentsPillCount, sessionWorktreeName, type UsageBar, type ModelAttribution } from './mapper';
 import Sidebar, { Avatar } from './Sidebar';
@@ -59,6 +59,25 @@ export default function ClaudePage() {
     const f = fora[id]; if (!f) return null;
     try { return localStorage.getItem(chaveFora(id)) === String(f.ate_seq) ? null : f; } catch { return f; }
   };
+  // O servidor gera o resumo em segundo plano (não segura o GET da sessão): `pendente` vira polling em
+  // /fora a cada 3 s por até 30 s. Texto vazio, null ou estouro do tempo: nada na tela.
+  const foraTimersRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const receberFora = (id: string, r: ForaResposta | undefined) => {
+    const parar = () => { const t = foraTimersRef.current[id]; if (t) { clearInterval(t); delete foraTimersRef.current[id]; } };
+    if (!r || !('pendente' in r)) { parar(); setFora(f => ({ ...f, [id]: r ?? null })); return; }
+    if (foraTimersRef.current[id]) return; // já está esperando este mesmo resumo
+    const inicio = Date.now(); const esperado = r.ate_seq;
+    foraTimersRef.current[id] = setInterval(() => {
+      if (Date.now() - inicio > 30_000) { parar(); return; }
+      claudeApi.fora(id).then(x => {
+        if (x && 'pendente' in x) return;
+        parar();
+        // Só o resumo que estava sendo gerado (mesmo ate_seq); cache velho de outro trecho não serve.
+        setFora(f => ({ ...f, [id]: x && x.texto && (esperado === undefined || x.ate_seq === esperado) ? x : null }));
+      }).catch(parar);
+    }, 3000);
+  };
+  useEffect(() => () => { for (const t of Object.values(foraTimersRef.current)) clearInterval(t); }, []);
   // turn_end com a aba visível: a pessoa viu, marca a vista (um POST por sessão a cada 5 s no máximo).
   const vistaRef = useRef<Record<string, number>>({});
   const marcarVista = (id: string) => {
@@ -372,7 +391,7 @@ export default function ClaudePage() {
         const pending = buffer ?? []; buffer = null;
         setLive(l => ({ ...l, [activeId]: keepPendingUser(l[activeId], pending.reduce((st, ev) => applyLive(st, ev), { ...fromRows(r.events, r.session.status, r.pending), hiddenTurns: r.hidden_turns ?? 0 })) }));
         // Reconexão devolve o cache (ou null se já houve turno novo com a pessoa presente): o card acompanha.
-        setFora(f => ({ ...f, [activeId]: r.fora ?? null }));
+        receberFora(activeId, r.fora);
         if (!first) return;
         first = false;
         const s = r.session; if (s.permission_mode && ['acceptEdits', 'default', 'plan', 'auto'].includes(s.permission_mode)) setMode(s.permission_mode as Mode);
