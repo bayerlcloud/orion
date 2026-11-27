@@ -39,7 +39,7 @@ import { branchAtual } from '../tasks/git.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import type { BackupFn } from '../claude/policy.js';
 import { ensureGithubAccountsTable, githubMcpServers, githubParaHeader, listarContasGithub, type GithubAccount } from '../tools/githubAccounts.js';
-import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, enxugarToolUseResult, metaLeveza, remoteOrigin, truncarToolResult } from '../tools/leveza.js';
+import { contaGithubDoProjeto, desarquivar, disallowConectores, donoDoRemote, envConectores, envLeve, listarConectoresClaudeAi, enxugarToolUseResult, metaLeveza, remoteOrigin, semWorkflowProgress, truncarToolResult } from '../tools/leveza.js';
 import { WA_TOKEN_ORION, evolutionConfig, evolutionParaHeader, whatsappParaHeader } from '../tools/evolution.js';
 import { cloudflareParaHeader, ensureCloudflareAccountsTable, listarContasCloudflare } from '../tools/cloudflareAccounts.js';
 import { ensureGoogleCloudAccountsTable, googleCloudParaHeader, listarContasGoogleCloud } from '../tools/googleCloudAccounts.js';
@@ -817,6 +817,7 @@ export async function claudeRoutes(app: FastifyInstance) {
            || COALESCE((SELECT jsonb_build_object('tool_use_result', jsonb_strip_nulls(jsonb_build_object(
                   'status', t->'status', 'totalTokens', t->'totalTokens', 'totalToolUseCount', t->'totalToolUseCount', 'totalDurationMs', t->'totalDurationMs')))
                 FROM (SELECT e.payload->'tool_use_result' AS t) x WHERE jsonb_typeof(t) = 'object' AND t ? 'status'), '{}'::jsonb)
+         WHEN e.type = 'system' THEN e.payload - 'workflow_progress'
          ELSE e.payload END AS payload
        FROM base e
        ORDER BY e.seq`, [s.id, turnos, SESSAO_BYTES_INTACTOS]);
@@ -847,7 +848,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const send = (e: unknown) => {
       if (res.destroyed || res.writableEnded) return;
       if ((res.socket?.writableLength ?? 0) > SSE_BUFFER_MAX) { res.destroy(); return; }
-      const ev = (e as { type?: string }).type === 'message' ? { ...(e as object), message: enxugarToolUseResult((e as { message: unknown }).message) } : e;
+      const ev = (e as { type?: string }).type === 'message' ? { ...(e as object), message: semWorkflowProgress(enxugarToolUseResult((e as { message: unknown }).message)) } : e;
       res.write(`data: ${JSON.stringify(ev)}\n\n`);
     };
     send({ type: 'hello', status: runner.status(id), pending: runner.pendingPermissions(id), commands: runner.commandsFor(id) });

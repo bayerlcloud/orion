@@ -205,3 +205,15 @@ export function enxugarToolUseResult<T>(payload: T): T {
   const { tool_use_result: _fora, ...sem } = p as Record<string, unknown>;
   return (Object.keys(resto).length ? { ...sem, tool_use_result: resto } : sem) as T;
 }
+
+/**
+ * `system/task_progress` do SDK traz `workflow_progress`: um array de 272 KB repetido a cada tique de um
+ * Workflow (27/11/2026: 2.373 linhas = 96 MB em UMA sessão em 7 dias; 430 MB na tabela; 201 MB ao abrir a
+ * sessão). O painel não lê esse campo em lugar nenhum. Sai na gravação, no SSE e na leitura. Nunca muta.
+ */
+export function semWorkflowProgress<T>(payload: T): T {
+  const p = payload as { type?: string; workflow_progress?: unknown } | null;
+  if (!p || p.type !== 'system' || !('workflow_progress' in p)) return payload;
+  const { workflow_progress: _fora, ...sem } = p as Record<string, unknown>;
+  return sem as T;
+}
