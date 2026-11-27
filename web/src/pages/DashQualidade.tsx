@@ -6,6 +6,16 @@ import { formatTokens } from '../claude/mapper';
 type Linha = { nome: string; sessoes: number; turnos: number; tokens_in: number; tokens_out: number; compactacoes: number; cortados: number; publicacoes: number; erros: number };
 type Dados = { dias: 7 | 30; por_projeto: Linha[]; por_pessoa: Linha[]; total: Linha };
 
+function Linha({ r }: { r: Linha }) {
+  return (
+    <tr>
+      <td>{r.nome}</td><td className="num">{r.sessoes}</td><td className="num">{r.turnos}</td>
+      <td className="num">{formatTokens(r.tokens_in)}</td><td className="num">{formatTokens(r.tokens_out)}</td>
+      <td className="num">{r.compactacoes}</td><td className="num">{r.cortados}</td><td className="num">{r.publicacoes}</td><td className="num">{r.erros}</td>
+    </tr>
+  );
+}
+
 function Tabela({ titulo, rotulo, linhas, total }: { titulo: string; rotulo: string; linhas: Linha[]; total: Linha }) {
   return (
     <div className="dash-bloco">
@@ -18,15 +28,8 @@ function Tabela({ titulo, rotulo, linhas, total }: { titulo: string; rotulo: str
             <th className="num">publicações</th><th className="num">erros</th>
           </tr>
         </thead>
-        <tbody>
-          {[...linhas, total].map(r => (
-            <tr key={r.nome} className={r === total ? 'failed' : undefined}>
-              <td>{r.nome}</td><td className="num">{r.sessoes}</td><td className="num">{r.turnos}</td>
-              <td className="num">{formatTokens(r.tokens_in)}</td><td className="num">{formatTokens(r.tokens_out)}</td>
-              <td className="num">{r.compactacoes}</td><td className="num">{r.cortados}</td><td className="num">{r.publicacoes}</td><td className="num">{r.erros}</td>
-            </tr>
-          ))}
-        </tbody>
+        <tbody>{linhas.map((r, i) => <Linha key={i} r={r} />)}</tbody>
+        <tfoot><Linha r={total} /></tfoot>
       </table>
     </div>
   );
@@ -42,7 +45,7 @@ export default function DashQualidade() {
     return () => { vivo = false; };
   }, [dias]);
   return (
-    <section>
+    <section className="dash-secao">
       <h2>
         <span>Custo e qualidade</span>
         <span className="muted"> sessões tocadas nos últimos{' '}
