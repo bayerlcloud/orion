@@ -106,7 +106,7 @@ etapa 'motor de sessões'
 # orion-runner (plano B1) segura as sessões do Claude: um deploy só de painel não o reinicia. Só quando muda o que ele
 # carrega (código das sessões, entrypoint, settings/db, scope das sessões, dependências); aí o restart corta os turnos
 # e a retomada no boot DELE religa com a nota de deploy. Roda depois do health do painel de propósito.
-runner_hash() { (cd "$1" && find dist/server/claude dist/server/integracao dist/server/tools dist/server/tasks dist/server/memories dist/server/deploy dist/server/preview -name '*.js' -print0 2>/dev/null | sort -z | xargs -0 cat; cat dist/server/runnerMain.js dist/server/settings.js dist/server/db.js dist/server/dbBackup.js deploy/claude-scope.sh package-lock.json) 2>/dev/null | sha256sum; }
+runner_hash() { (cd "$1" && find dist/server/claude dist/server/integracao dist/server/tools dist/server/tasks dist/server/memories dist/server/deploy dist/server/preview dist/server/curador -name '*.js' -print0 2>/dev/null | sort -z | xargs -0 cat; cat dist/server/runnerMain.js dist/server/settings.js dist/server/db.js dist/server/dbBackup.js dist/deploy/root-perigo.json deploy/claude-scope.sh package-lock.json) 2>/dev/null | sha256sum; }
 runner_saudavel() { for _ in $(seq 20); do curl -fsS -m 2 --unix-socket /run/orion/runner.sock http://r/saude >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
 if [ -z "$ANTERIOR" ] || [ "$(runner_hash "$ANTERIOR")" != "$(runner_hash "$DIR")" ]; then
   # Só se já está rodando (na 1ª publicação a unit ainda nem foi instalada; o enable --now abaixo sobe).

@@ -18,7 +18,10 @@ describe('deploy/build.sh (plano B1, T3: orion-runner)', () => {
     // Nenhum restart do runner fora desse if.
     expect(build.replace(bloco![0], '')).not.toMatch(/restart orion-runner/);
     // O hash cobre o que o runner carrega: o próprio entrypoint e o código das sessões.
-    expect(build).toMatch(/runner_hash\(\) \{[^\n]*dist\/server\/claude[^\n]*dist\/server\/runnerMain\.js/);
+    const hash = /runner_hash\(\) \{([^\n]*)\}/.exec(build)![1];
+    for (const parte of ['dist/server/claude', 'dist/server/integracao', 'dist/server/tools', 'dist/server/curador', 'dist/server/runnerMain.js', 'dist/server/settings.js', 'dist/server/db.js', 'dist/deploy/root-perigo.json', 'deploy/claude-scope.sh', 'package-lock.json']) {
+      expect(hash, parte).toContain(parte);
+    }
   });
 
   it('instala a unit no laço e habilita o serviço', () => {

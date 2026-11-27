@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Pool } from 'pg';
-import { mkdtemp, unlink } from 'node:fs/promises';
+import { mkdtemp, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FilaIntegracao } from '../server/integracao/fila.js';
@@ -45,7 +45,12 @@ const pedido = (extra: Partial<PedidoTurno> = {}): PedidoTurno =>
 
 const abertos: { close(): Promise<void> }[] = [];
 const clientes: MotorSocket[] = [];
-afterEach(async () => { for (const c of clientes.splice(0)) c.fechar(); for (const a of abertos.splice(0)) await a.close(); });
+const pastas: string[] = [];
+afterEach(async () => {
+  for (const c of clientes.splice(0)) c.fechar();
+  for (const a of abertos.splice(0)) await a.close();
+  for (const p of pastas.splice(0)) await rm(p, { recursive: true, force: true });
+});
 
 async function servidor(sock: string, opts: Parameters<typeof fakeQuery>[0] = {}) {
   const q = fakeQuery(opts); const m = memStore();
@@ -64,7 +69,7 @@ function cliente(sock: string, aoReconectar = vi.fn()) {
   return { c, aoReconectar };
 }
 
-const sockTemp = async () => path.join(await mkdtemp(path.join(tmpdir(), 'orion-t3-')), 'r.sock');
+const sockTemp = async () => { const p = await mkdtemp(path.join(tmpdir(), 'orion-t3-')); pastas.push(p); return path.join(p, 'r.sock'); };
 
 describe('MotorSocket <-> criarServidorMotor', () => {
   it('hello traz as sessões vivas do runner; status/vivas do cliente espelham', async () => {

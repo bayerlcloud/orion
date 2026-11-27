@@ -54,14 +54,14 @@ export class MotorSocket implements Motor {
         }
       });
     });
-    req.on('error', (e) => this.caiu(e.message));
-    req.on('close', () => this.caiu('stream fechado'));
+    req.on('error', (e) => this.caiu(req, e.message));
+    req.on('close', () => this.caiu(req, 'stream fechado'));
     req.end();
     this.stream = req;
   }
 
-  private caiu(motivo: string) {
-    if (this.stream === null) return; // já tratado por este fechamento
+  private caiu(req: http.ClientRequest, motivo: string) {
+    if (this.stream !== req) return; // já tratado (error + close do mesmo stream) ou stream velho
     this.stream = null;
     if (this.aberto) this.o.log(`motor de sessões: ${motivo}; reconectando`);
     this.aberto = false;
