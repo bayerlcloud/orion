@@ -892,7 +892,8 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
     const velho = a && document.getElementById(`ev-${a.id}`);
     if (a && velho) sc.scrollTop += yDe(velho) - a.y;
     ancora.current = null;
-    for (let i = folded.length >> 1; i >= 0; i--) {
+    // Lista vazia (sessão sem evento visível) quebrava aqui com folded[0].id (27/11/2026: 8 telas brancas do usuário 3).
+    for (let i = Math.min(folded.length - 1, folded.length >> 1); i >= 0; i--) {
       const el = document.getElementById(`ev-${folded[i].id}`);
       if (el) { ancora.current = { id: folded[i].id, y: yDe(el) }; break; }
     }
