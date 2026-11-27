@@ -275,10 +275,12 @@ describe('estimativa de tokens', () => {
     expect(formatTokens(25000)).toBe('25k');
     expect(formatTokens(2_000_000)).toBe('2.0M');
   });
-  it('result carrega tokens de modelUsage', () => {
-    const r = reduceSdkMessages([{ type: 'result', subtype: 'success', modelUsage: { m: { inputTokens: 100, outputTokens: 40 } } }])[0];
+  it('result carrega tokens do usage do turno (com cache); modelUsage acumulado só sem usage', () => {
+    const r = reduceSdkMessages([{ type: 'result', subtype: 'success', modelUsage: { m: { inputTokens: 210_000, outputTokens: 1_000_000 } }, usage: { input_tokens: 2, cache_read_input_tokens: 98, output_tokens: 40 } }])[0];
     expect(r.kind === 'result' && r.inputTokens).toBe(100);
     expect(r.kind === 'result' && r.outputTokens).toBe(40);
+    const f = reduceSdkMessages([{ type: 'result', subtype: 'success', modelUsage: { m: { inputTokens: 100, outputTokens: 40 } } }])[0];
+    expect(f.kind === 'result' && f.inputTokens).toBe(100);
   });
 });
 

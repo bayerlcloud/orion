@@ -142,7 +142,11 @@ export function reduceSdkMessages(messages: SdkMessage[]): ConvEvent[] {
       continue;
     }
     if (m.type === 'result') {
-      const tok = sumModelUsage(m.modelUsage) ?? (m.usage ? { input: m.usage.input_tokens ?? 0, output: m.usage.output_tokens ?? 0 } : undefined);
+      // `usage` é do turno (entrada = input + cache lido + cache criado); `modelUsage` é o acumulado da sessão com o
+      // processo quente (27/11/2026), por isso só entra sem `usage`. Mesma conta de resultTokens no runner.
+      const tok = m.usage
+        ? { input: (m.usage.input_tokens ?? 0) + (m.usage.cache_read_input_tokens ?? 0) + (m.usage.cache_creation_input_tokens ?? 0), output: m.usage.output_tokens ?? 0 }
+        : sumModelUsage(m.modelUsage);
       out.push({ id: nid(), kind: 'result', ok: !m.is_error && m.subtype === 'success', durationMs: m.duration_ms, turns: m.num_turns, inputTokens: tok?.input, outputTokens: tok?.output, error: m.is_error ? (m.result ?? m.subtype) : undefined });
       continue;
     }

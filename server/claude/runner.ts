@@ -46,12 +46,16 @@ export type LiveEvent =
   | { type: 'commands'; commands: SlashCommand[] }
   | { type: 'suggestion'; suggestion: string };
 
-/** Tokens de entrada/saída do result: soma do modelUsage (todos os modelos do turno), senão o usage
- * agregado. Mesma conta do front (sumModelUsage em web/src/claude/mapper.ts). */
-export function resultTokens(m: { modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number | null; output_tokens?: number | null } }): { input: number; output: number } {
+/** Tokens do TURNO a partir do result: `usage` (por turno; entrada = input + cache lido + cache criado, a
+ * mesma conta do Dash em server/dash/qualidade.ts). `modelUsage` só como fallback: com o processo quente
+ * (27/11/2026) ele é o ACUMULADO da sessão, e somá-lo a cada result inflava claude_sessions.*_tokens
+ * (uma sessão real: 1,03 M de saída somados por turno em vez dos 28 a 4.513 reais). */
+export type UsageResult = { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
+export function resultTokens(m: { modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: UsageResult | null }): { input: number; output: number } {
+  const u = m.usage;
+  if (u) return { input: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0), output: u.output_tokens ?? 0 };
   const mu = Object.values(m.modelUsage ?? {});
-  if (mu.length) return { input: mu.reduce((a, e) => a + (e.inputTokens ?? 0), 0), output: mu.reduce((a, e) => a + (e.outputTokens ?? 0), 0) };
-  return { input: m.usage?.input_tokens ?? 0, output: m.usage?.output_tokens ?? 0 };
+  return { input: mu.reduce((a, e) => a + (e.inputTokens ?? 0), 0), output: mu.reduce((a, e) => a + (e.outputTokens ?? 0), 0) };
 }
 
 /** Turno que acabou sem nenhum texto final (só ferramentas): o Orion pede uma vez o fechamento por escrito. */

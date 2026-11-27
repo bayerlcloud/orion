@@ -528,9 +528,10 @@ describe('header com memórias por nível (injeção das decisões de 28/09/2026
 });
 
 describe('resultTokens', () => {
-  it('soma o modelUsage de todos os modelos; sem ele, usa o usage agregado', () => {
-    expect(resultTokens({ modelUsage: { a: { inputTokens: 10, outputTokens: 2 }, b: { inputTokens: 5 } }, usage: { input_tokens: 999 } })).toEqual({ input: 15, output: 2 });
+  it('usage do turno manda (entrada inclui cache); modelUsage acumulado só sem usage', () => {
+    expect(resultTokens({ modelUsage: { a: { inputTokens: 210_000, outputTokens: 1_000_000 } }, usage: { input_tokens: 2, cache_read_input_tokens: 20_041, cache_creation_input_tokens: 7, output_tokens: 28 } })).toEqual({ input: 20_050, output: 28 });
     expect(resultTokens({ usage: { input_tokens: 7, output_tokens: 3 } })).toEqual({ input: 7, output: 3 });
+    expect(resultTokens({ modelUsage: { a: { inputTokens: 10, outputTokens: 2 }, b: { inputTokens: 5 } } })).toEqual({ input: 15, output: 2 });
     expect(resultTokens({})).toEqual({ input: 0, output: 0 });
   });
 
