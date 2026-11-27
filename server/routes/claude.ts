@@ -76,7 +76,7 @@ export async function claudeRoutes(app: FastifyInstance) {
   const motor = app.motor;
   await ensureSettingsTable(app.pool);
   await ensureTriagemSombraTable(app.pool); // piloto Laya (docs/plans/2026-10-07-piloto-laya-triagem.md), modo sombra
-  // As tabelas de contas nascem aqui também: a retomada de sessões pós-restart roda antes das rotas de Tools.
+  // As tabelas de contas nascem aqui também (em produção já existem): a retomada pós-restart vive no motor (hospedarMotor) e sobe antes deste plugin.
   await ensureGithubAccountsTable(app.pool);
   await ensureCloudflareAccountsTable(app.pool);
   await ensureGoogleCloudAccountsTable(app.pool);

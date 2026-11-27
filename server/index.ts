@@ -51,9 +51,8 @@ async function main() {
   // Motor das sessões (plano B1). local (padrão): o Runner roda aqui, e hospedarMotor para os scopes
   // orion-sessao-* no boot/SIGTERM, retoma turnos cortados e liga o vigia. socket (T3): as sessões são do
   // orion-runner, e NADA disso pode rodar no painel (pararia as sessões do runner a cada deploy).
-  const hospedado = process.env.ORION_RUNNER === 'socket'
-    ? (() => { throw new Error('ORION_RUNNER=socket ainda não disponível (T3)'); })()
-    : await hospedarMotor({ pool, log: m => app.log.warn(m) });
+  if (process.env.ORION_RUNNER === 'socket') throw new Error('ORION_RUNNER=socket ainda não disponível (T3)');
+  const hospedado = await hospedarMotor({ pool, log: m => app.log.warn(m) });
   app.decorate('motor', hospedado.motor);
   app.addHook('onClose', () => hospedado.fechar());
   app.decorate('pool', pool);

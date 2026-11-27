@@ -60,9 +60,10 @@ describe('hospedarMotor (modo local)', () => {
       expect(chamadas.some(c => c.sql.includes("SET status = 'idle' WHERE status IN ('running','waiting')"))).toBe(true);
     } finally {
       await h.fechar();
+      // fechar() tem que tirar o handler de SIGTERM: a asserção vem ANTES de qualquer limpeza de segurança.
+      expect(process.listeners('SIGTERM').length).toBe(antes.length);
       for (const l of process.listeners('SIGTERM')) if (!antes.includes(l)) process.removeListener('SIGTERM', l);
     }
-    expect(process.listeners('SIGTERM').length).toBe(antes.length);
   });
 });
 
