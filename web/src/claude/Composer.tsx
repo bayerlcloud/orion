@@ -11,6 +11,7 @@ import { promptFromMd, serializeMd } from './rich';
 import { pedirPermissaoAviso } from './notify';
 import { avisar } from '../dialogo';
 import { reduzirImagem } from './imagem';
+import { chaveConteudo, gravarRascunhoLocal, lerRascunhoLocal, rascunhoMaisNovo, type Rascunho } from './rascunho';
 
 /**
  * Comandos de barra fixos: só usados como fallback antes de a sessão ter uma Query viva (rascunho
@@ -88,6 +89,10 @@ function toPending(file: File): Pending {
   const isImage = (file.type || '').startsWith('image/');
   return { id: `att-${++uid}`, file, name: file.name || 'arquivo', isImage, url: isImage ? URL.createObjectURL(file) : undefined };
 }
+/** Anexos de um rascunho guardado (servidor ou localStorage) de volta como pendentes já subidos. */
+const fromSaved = (list: Attachment[]): Pending[] => list.map(u => ({ id: `att-${++uid}`, name: u.name, isImage: u.kind === 'image', url: attachmentImageUrl(u), uploaded: u }));
+/** localStorage, se o navegador deixar (modo privado/iframe podem lançar só de tocar nele). */
+const armazem = () => { try { return typeof localStorage === 'undefined' ? undefined : localStorage; } catch { return undefined; } };
 
 /** Pill de anexo pendente, cópia do `ip` da extensão real: bloco inteiro clicável, dimensões da imagem, "x" só no hover. */
 function AttachPill({ a, onOpen, onRemove }: { a: Pending; onOpen: () => void; onRemove: () => void }) {
@@ -204,9 +209,12 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   /** Texto posto no campo por fora ("Editar e reenviar" no balão); `n` muda a cada pedido. */
   inject?: { text: string; n: number } | null;
 }) {
-  const [text, setText] = useState('');
+  // Primeiro o que ficou neste navegador sem subir (401, F5 antes do autosave, ver rascunho.ts): volta
+  // na hora, antes de o servidor responder. O rascunho do servidor entra no efeito de carga abaixo.
+  const [inicial] = useState(() => sessionId ? rascunhoMaisNovo(lerRascunhoLocal(armazem(), sessionId), undefined) : undefined);
+  const [text, setText] = useState(inicial?.text ?? '');
   const [menu, setMenu] = useState<'' | 'mode' | 'effort' | 'model' | 'slash' | 'worktree' | 'style'>('');
-  const [attachments, setAttachments] = useState<Pending[]>([]);
+  const [attachments, setAttachments] = useState<Pending[]>(() => fromSaved(inicial?.attachments ?? []));
   const [sending, setSending] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   // Popup/galeria de imagem (Lightbox) aberto no índice do anexo clicado — ver claude/Lightbox.tsx.
@@ -252,70 +260,92 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   const draftsRef = useRef(new Map<string, { text: string; attachments: Pending[] }>());
   const prevSessionRef = useRef(sessionId);
   // Autosave no servidor (por pessoa e sessão): o rascunho volta depois de F5, fechar o navegador ou
-  // abrir em outro aparelho. Rascunhos de aba nova ainda sem sessão ("draft-…") ficam só na memória.
-  type Saved = { text: string; attachments: Attachment[] };
-  const savedDraftsRef = useRef<Record<string, Saved> | null>(null);
-  const lastSavedRef = useRef<{ id?: string; key: string }>({ key: '' });
+  // abrir em outro aparelho. Rascunhos de aba nova ainda sem sessão ("draft-…") ficam só na memória e
+  // no localStorage. `savedDraftsRef` = o que o servidor tem (null até a primeira carga): referência
+  // pra não salvar a mesma coisa duas vezes e pra marcar o rascunho local como `salvo` (rascunho.ts).
+  const savedDraftsRef = useRef<Record<string, Rascunho> | null>(null);
   const persistable = (id?: string) => !!id && !id.startsWith('draft-');
   const uploadedOf = (list: Pending[]) => list.flatMap(a => a.uploaded ? [a.uploaded] : []);
-  const saveKey = (t: string, list: Attachment[]) => JSON.stringify([t, list.map(a => a.path)]);
-  const fromSaved = (list: Attachment[]): Pending[] => list.map(u => ({ id: `att-${++uid}`, name: u.name, isImage: u.kind === 'image', url: attachmentImageUrl(u), uploaded: u }));
+  /** O servidor já tem exatamente este conteúdo? (false também enquanto a lista do servidor não chegou) */
+  const sincronizado = (id: string, r: Rascunho) => persistable(id) && savedDraftsRef.current !== null && chaveConteudo(r) === chaveConteudo(savedDraftsRef.current[id]);
+  /**
+   * Guarda o rascunho de uma sessão: sempre no localStorage (última linha) e, se for sessão de verdade
+   * e o servidor ainda não tiver este conteúdo, também no servidor. Se a chamada falhar, desfaz a
+   * marcação pra próxima mudança, troca de aba ou volta da rede tentar de novo; o local fica como
+   * "não salvo", então um F5 ou 401 no meio não perde nada (antes a falha era engolida e o texto
+   * contava como salvo).
+   */
+  function guardar(id: string, text: string, ups: Attachment[]) {
+    const r: Rascunho = { text, attachments: ups };
+    const igual = sincronizado(id, r);
+    gravarRascunhoLocal(armazem(), id, { ...r, salvo: igual });
+    if (igual || !persistable(id) || savedDraftsRef.current === null) return;
+    const antes = savedDraftsRef.current[id];
+    savedDraftsRef.current[id] = r; // já conta como salvo: evita repetir a mesma chamada enquanto está no ar
+    claudeApi.saveDraft(id, text, ups)
+      .then(() => { const l = lerRascunhoLocal(armazem(), id); if (l && chaveConteudo(l) === chaveConteudo(r)) gravarRascunhoLocal(armazem(), id, { ...r, salvo: true }); })
+      .catch(() => { const sv = savedDraftsRef.current; if (sv && chaveConteudo(sv[id]) === chaveConteudo(r)) { if (antes) sv[id] = antes; else delete sv[id]; } });
+  }
   useEffect(() => {
     let alive = true;
     claudeApi.drafts().then(r => {
       if (!alive) return;
       savedDraftsRef.current = r.drafts;
       const id = sessionRef.current;
-      const d = persistable(id) ? r.drafts[id!] : undefined;
-      // Abriu a página já numa aba: se a caixa ainda está vazia, traz o rascunho salvo dela.
+      if (!id) return;
+      // Abriu a página já numa aba: se a caixa ainda está vazia, traz o rascunho (servidor, ou o local que não chegou a subir).
+      let atual: Rascunho = { text: textRef.current, attachments: uploadedOf(attachmentsRef.current) };
+      const d = rascunhoMaisNovo(lerRascunhoLocal(armazem(), id), persistable(id) ? r.drafts[id] : undefined);
       if (d && !textRef.current && !attachmentsRef.current.length) {
+        atual = d;
         textRef.current = d.text;
-        lastSavedRef.current = { id, key: saveKey(d.text, d.attachments) };
         setText(d.text);
         setAttachments(fromSaved(d.attachments));
       }
+      // O que está no campo e o servidor não tem (restaurado do navegador, ou digitado antes desta resposta) sobe agora.
+      guardar(id, atual.text, atual.attachments);
     }).catch(() => { savedDraftsRef.current = {}; });
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const id = sessionId;
-    if (!persistable(id) || savedDraftsRef.current === null) return;
-    const ups = uploadedOf(attachments);
-    const key = saveKey(text, ups);
-    if (lastSavedRef.current.id === id && lastSavedRef.current.key === key) return;
-    const t = setTimeout(() => {
-      lastSavedRef.current = { id, key };
-      savedDraftsRef.current![id!] = { text, attachments: ups };
-      void claudeApi.saveDraft(id!, text, ups).catch(() => { /* tenta de novo na próxima mudança */ });
-    }, 600);
-    return () => clearTimeout(t);
-  }, [text, attachments, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
     const prev = prevSessionRef.current;
     if (prev === sessionId) return;
     draftsRef.current.set(prev ?? '', { text: textRef.current, attachments: attachmentsRef.current });
-    // Salva já o rascunho da aba que saiu (o autosave com atraso foi cancelado pela troca).
-    if (persistable(prev) && savedDraftsRef.current !== null) {
-      const ups = uploadedOf(attachmentsRef.current);
-      const key = saveKey(textRef.current, ups);
-      const sv = savedDraftsRef.current[prev!];
-      if (key !== saveKey(sv?.text ?? '', sv?.attachments ?? [])) {
-        savedDraftsRef.current[prev!] = { text: textRef.current, attachments: ups };
-        void claudeApi.saveDraft(prev!, textRef.current, ups).catch(() => {});
-      }
-    }
+    // Salva já o rascunho da aba que saiu (o autosave com atraso foi cancelado pela troca). Aba nova
+    // ("draft-…") não: o local dela já foi escrito a cada tecla, e regravar aqui desfaria o descarte
+    // que o ClaudePage faz ao fechar a aba (closeTab).
+    if (persistable(prev)) guardar(prev!, textRef.current, uploadedOf(attachmentsRef.current));
     const next = draftsRef.current.get(sessionId ?? '');
     draftsRef.current.delete(sessionId ?? '');
     prevSessionRef.current = sessionId;
-    // Sem rascunho nesta guia: usa o salvo no servidor (vindo de outro aparelho/navegador).
-    const saved = persistable(sessionId) ? savedDraftsRef.current?.[sessionId!] : undefined;
+    // Sem rascunho em memória nesta guia: o local que não chegou a subir, senão o salvo no servidor (outro aparelho).
+    const saved = sessionId ? rascunhoMaisNovo(lerRascunhoLocal(armazem(), sessionId), persistable(sessionId) ? savedDraftsRef.current?.[sessionId] : undefined) : undefined;
     const nextText = next?.text ?? saved?.text ?? '';
     const nextAtts = next?.attachments ?? fromSaved(saved?.attachments ?? []);
     textRef.current = nextText;
-    lastSavedRef.current = { id: sessionId, key: saveKey(nextText, uploadedOf(nextAtts)) };
+    attachmentsRef.current = nextAtts;
     setText(nextText);
     setAttachments(nextAtts);
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const id = sessionId;
+    // Mesmo commit em que a troca de aba acima acabou de trocar o conteúdo: `text`/`attachments` ainda
+    // são da aba anterior; gravar isso na chave da aba nova duplicaria o texto entre abas.
+    if (!id || text !== textRef.current || attachments !== attachmentsRef.current) return;
+    const r: Rascunho = { text, attachments: uploadedOf(attachments) };
+    // Espelho local na hora, a cada tecla: é o que sobrevive a 401, F5 e fechar a aba antes do autosave.
+    const igual = sincronizado(id, r);
+    gravarRascunhoLocal(armazem(), id, { ...r, salvo: igual });
+    if (igual || !persistable(id) || savedDraftsRef.current === null) return;
+    const t = setTimeout(() => guardar(id, r.text, r.attachments), 600);
+    return () => clearTimeout(t);
+  }, [text, attachments, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rede voltou: sobe o que ficou pendente na sessão aberta (as outras abas acertam na próxima troca).
+  useEffect(() => {
+    const h = () => { const id = sessionRef.current; if (id) guardar(id, textRef.current, uploadedOf(attachmentsRef.current)); };
+    window.addEventListener('online', h);
+    return () => window.removeEventListener('online', h);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [micBusy, setMicBusy] = useState(false);
   /** % do áudio já no servidor enquanto a transcrição espera a subida (null = não está subindo). */
   const [micProgresso, setMicProgresso] = useState<number | null>(null);
@@ -355,6 +385,17 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
   // espera por elas em vez de subir o arquivo de novo (ver nota lá: subir os dois ao mesmo tempo
   // dobrava o tempo numa conexão lenta, achado do Danilo, 06/11/2026).
   const uploadingRef = useRef(new Map<string, Promise<void>>());
+  // Recarregar/fechar com anexo que só existe no navegador (subindo, ou cuja subida falhou) ou com
+  // ditado em andamento perderia arquivo/áudio que não está em lugar nenhum: pede a confirmação nativa
+  // do navegador. Texto não precisa: está no localStorage a cada tecla (ver efeito de autosave).
+  useEffect(() => {
+    const soAqui = (l: Pending[]) => l.some(a => a.file && !a.uploaded);
+    const h = (e: BeforeUnloadEvent) => {
+      if (soAqui(attachmentsRef.current) || [...draftsRef.current.values()].some(d => soAqui(d.attachments)) || micRecorderRef.current || micPendingRef.current) { e.preventDefault(); e.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   function addFiles(list: FileList | File[] | null | undefined) {
     let files = Array.from(list ?? []);
     if (!files.length) return;
@@ -405,7 +446,8 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       stopMic();
       await pending;
     }
-    const t = promptFromMd(textRef.current).trim();
+    const raw = textRef.current;
+    const t = promptFromMd(raw).trim();
     pedirPermissaoAviso();
     if (sending || (!t && attachments.length === 0)) return;
     const sid = sessionRef.current;
@@ -421,19 +463,18 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
       await onSend(t, files, pre);
       // Trocou de aba enquanto enviava: limpa o rascunho da aba de origem, não o da aba atual.
       if (sessionRef.current === sid) {
-        textRef.current = '';
-        setText('');
+        // Só tira o que foi enviado: o que a pessoa digitou ou anexou ENQUANTO subia (conexão lenta) fica.
+        const resto = textRef.current.startsWith(raw) ? textRef.current.slice(raw.length) : textRef.current;
+        const idsEnviados = new Set(current.map(a => a.id));
+        textRef.current = resto;
+        setText(resto);
         current.forEach(a => a.url?.startsWith('blob:') && URL.revokeObjectURL(a.url));
-        setAttachments([]);
+        setAttachments(prev => prev.filter(a => !idsEnviados.has(a.id)));
       } else draftsRef.current.set(sid ?? '', { text: '', attachments: [] });
-      // Zera o rascunho no servidor na hora: o autosave tem atraso e uma troca de aba logo depois do
+      // Zera o rascunho (local e servidor) na hora: o autosave tem atraso e uma troca de aba logo depois do
       // envio o cancelava, e o texto já enviado voltava como rascunho ao recarregar (Gustavo, 17/10/2026).
-      if (persistable(sid)) {
-        lastSavedRef.current = { id: sid, key: saveKey('', []) };
-        if (savedDraftsRef.current) savedDraftsRef.current[sid!] = { text: '', attachments: [] };
-        void claudeApi.saveDraft(sid!, '', []).catch(() => {});
-      }
-    } catch { /* o ClaudePage mostra o erro; mantém o rascunho e os anexos */ }
+      if (sid) guardar(sid, '', []);
+    } catch { /* o ClaudePage mostra o erro; o texto e os anexos continuam no campo (e no rascunho local) */ }
     finally { setSending(false); }
   }
   function key(e: KeyboardEvent<HTMLDivElement>) {
@@ -554,7 +595,10 @@ export default function Composer({ onSend, onStop, running, mode, onMode, effort
           if (r.text) {
             const key = entry.session ?? '';
             const d = draftsRef.current.get(key) ?? { text: '', attachments: [] };
-            draftsRef.current.set(key, { ...d, text: composeDictationText(d.text, '', r.text, '').value });
+            const texto = composeDictationText(d.text, '', r.text, '').value;
+            draftsRef.current.set(key, { ...d, text: texto });
+            // Também fora da memória: um F5 antes de voltar àquela aba não perde o ditado.
+            if (entry.session) guardar(entry.session, texto, uploadedOf(d.attachments));
           }
           return;
         }

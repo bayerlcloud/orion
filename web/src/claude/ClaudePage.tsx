@@ -22,6 +22,7 @@ import Fibra from '../Fibra';
 import { BotaoDitado, juntarDitado, useDitado } from './Ditado';
 import { IcoPainelDireito, useOrionPanel } from '../OrionPanel';
 import { avisarFimTurno } from './notify';
+import { chaveRascunho } from './rascunho';
 
 /** `worktreeName`: rascunho do nome digitado no seletor "Worktree" do compositor (ver Composer.tsx,
  * PARIDADE.md seção 14) — por aba, igual `projectId`, porque é específico de CADA sessão nova, não
@@ -493,6 +494,8 @@ export default function ClaudePage() {
   }, [sessions]);
   function closeTab(id: string) {
     setTabs(t => { const next = t.filter(x => x.id !== id); if (id === activeId) setActiveId(next.length ? next[next.length - 1].id : null); return next; });
+    // Aba nova fechada com texto: fechar é descartar; sem isso o rascunho local voltaria na próxima aba nova com o mesmo id (o contador zera a cada F5).
+    if (isDraft(id)) try { localStorage.removeItem(chaveRascunho(id)); } catch { /* sem storage */ }
     // Só sessões de verdade entram na pilha de "fechadas recentemente" (rascunho fechado não é uma
     // sessão pra reabrir — a extensão real também só rastreia `sessionId`, nunca uma aba vazia).
     if (!isDraft(id)) {
