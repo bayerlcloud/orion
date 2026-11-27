@@ -31,10 +31,11 @@ import { whatsappRoutes } from './routes/whatsapp.js';
 import { chatRoutes } from './routes/chat.js';
 import { designRoutes } from './routes/design.js';
 import { designProjectsRoutes } from './routes/designProjects.js';
-import { envDoGerente, envStrings, pararScopes } from './claude/isolamento.js';
+import { hospedarMotor } from './claude/hospedarMotor.js';
+import type { Motor } from './claude/motor.js';
 
 declare module 'fastify' {
-  interface FastifyInstance { pool: Pool; repoDir: string; runner: import('./claude/runner.js').Runner }
+  interface FastifyInstance { pool: Pool; repoDir: string; motor: Motor }
   interface FastifyRequest { user: User | null }
 }
 
@@ -47,13 +48,14 @@ async function main() {
   process.on('unhandledRejection', (e) => app.log.error({ err: e }, 'rejeição não tratada'));
   const pool = createPool();
   await migrate(pool);
-  // Os claude das sessões vivem em scopes do gerente de usuário (server/claude/isolamento.ts), fora deste
-  // serviço: um restart não os mata mais, e seguiriam o turno com o stdin fechado, sem ninguém ouvindo.
-  // Boot cobre crash sem handler; SIGTERM cobre o deploy. Antes de claudeRoutes, que retoma turnos no boot.
-  const envGerente = envDoGerente(envStrings(), process.getuid?.() ?? 0);
-  const pararSessoes = () => pararScopes('orion-sessao-*', envGerente, m => app.log.warn(m));
-  await pararSessoes();
-  process.once('SIGTERM', () => { void pararSessoes().finally(() => process.exit(0)); });
+  // Motor das sessões (plano B1). local (padrão): o Runner roda aqui, e hospedarMotor para os scopes
+  // orion-sessao-* no boot/SIGTERM, retoma turnos cortados e liga o vigia. socket (T3): as sessões são do
+  // orion-runner, e NADA disso pode rodar no painel (pararia as sessões do runner a cada deploy).
+  const hospedado = process.env.ORION_RUNNER === 'socket'
+    ? (() => { throw new Error('ORION_RUNNER=socket ainda não disponível (T3)'); })()
+    : await hospedarMotor({ pool, log: m => app.log.warn(m) });
+  app.decorate('motor', hospedado.motor);
+  app.addHook('onClose', () => hospedado.fechar());
   app.decorate('pool', pool);
   app.decorate('repoDir', process.env.ORION_REPO ?? path.resolve(here, '..', '..'));
   app.decorateRequest('user', null);
