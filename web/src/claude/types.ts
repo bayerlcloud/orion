@@ -99,7 +99,7 @@ export type SdkMessage =
    * tools dinâmicas têm forma própria) — lido de forma defensiva, nunca assumido.
    */
   | { type: 'user'; message: { content: string | SdkContentBlock[]; attachments?: UserAttachment[] }; tool_use_result?: unknown; parent_tool_use_id?: string | null }
-  | { type: 'result'; subtype: string; is_error?: boolean; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number } }
+  | { type: 'result'; subtype: string; is_error?: boolean; duration_ms?: number; num_turns?: number; result?: string; modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number }>; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } }
   | { type: 'stream_event'; event: unknown };
 
 /**
