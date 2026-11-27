@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Runner, CUTUCAO, type Store, type QueryFn } from '../server/claude/runner';
+import { fakeQuente } from './helpers/sdkFalso';
 
 function memStore() {
   const events: { sessionId: string; type: string; payload: any }[] = [];
@@ -15,33 +16,6 @@ function memStore() {
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function until(fn: () => boolean, ms = 2000) { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > ms) throw new Error('timeout'); await wait(5); } }
 
-/** CLI falso quente: lê mensagens da entrada em loop e responde cada uma com assistant + result (como o CLI real em modo streaming). */
-function fakeQuente(opts: { result?: string; liveControls?: boolean } = {}) {
-  const calls: { prompts: string[]; options: any; fechado: boolean }[] = [];
-  const liveCalls: any[] = [];
-  const fn: QueryFn = ({ prompt, options }) => {
-    const call = { prompts: [] as string[], options, fechado: false }; calls.push(call);
-    async function* gen() {
-      yield { type: 'system', subtype: 'init', model: 'x' } as any;
-      for await (const msg of prompt as AsyncIterable<any>) {
-        const text = typeof msg.message.content === 'string' ? msg.message.content : msg.message.content[0].text;
-        call.prompts.push(text);
-        if (options?.abortController?.signal.aborted) throw new Error('aborted');
-        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `eco: ${text}` }] } } as any;
-        yield { type: 'result', subtype: 'success', is_error: false, num_turns: 1, result: opts.result ?? 'feito', usage: { input_tokens: 1, output_tokens: 1 }, queued_turn_count: 0 } as any;
-      }
-      call.fechado = true;
-    }
-    const g = gen();
-    if (opts.liveControls) {
-      (g as any).setPermissionMode = async (mode: string) => { liveCalls.push({ type: 'setPermissionMode', mode }); };
-      (g as any).setModel = async (model?: string) => { liveCalls.push({ type: 'setModel', model }); };
-      (g as any).applyFlagSettings = async (settings: any) => { liveCalls.push({ type: 'applyFlagSettings', settings }); };
-    }
-    return g as any;
-  };
-  return { fn, calls, liveCalls };
-}
 const base = { cwd: '/tmp/x', permissionMode: 'acceptEdits' as const, systemAppend: 'h' };
 
 describe('processo quente (vários turnos num query())', () => {

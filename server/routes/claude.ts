@@ -16,9 +16,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import { Runner, IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
-import { pgStore } from '../claude/store.js';
+import { IMAGE_MEDIA_TYPES, type Attachment, type TurnPrompt } from '../claude/runner.js';
 import { tituloCurto } from '../claude/titulo.js';
 import { cacheFora, foraDaSessao, marcarVista } from '../claude/fora.js';
 import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
@@ -26,8 +24,7 @@ import { prefixPrompt, titleFromPrompt } from '../claude/header.js';
 import { estiloConhecido } from '../tools/outputStyles.js';
 import { KEYS, ensureSettingsTable, getSetting } from '../settings.js';
 import { ensureTriagemSombraTable } from '../memories/triagemSombra.js';
-import { FilaIntegracao } from '../integracao/fila.js';
-import { montarTurno, projetoIntegracao, type PedidoTurno } from '../claude/montarTurno.js';
+import { projetoIntegracao } from '../claude/montarTurno.js';
 import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
 import { slugPessoa, temPreview } from '../preview/model.js';
 import { ensureGithubAccountsTable, listarContasGithub } from '../tools/githubAccounts.js';
@@ -37,7 +34,10 @@ import { ensureGoogleCloudAccountsTable } from '../tools/googleCloudAccounts.js'
 import { fetchRealUsage } from '../claude/realUsage.js';
 import { ULTRACODE, resolveUltracode } from '../claude/ultracode.js';
 import { safeFilename } from '../driveUtils.js';
-import { lerStatus, tailDoLog, type Status } from '../deploy/estado.js';
+
+// Retomada e vigia moraram aqui até o plano B1 (T2); agora vivem em claude/retomada.ts junto do motor.
+// Re-export pra tests/resume.test.ts e quem mais importar daqui.
+export { RESUME_PROMPT, NAO_RETOMADA, VIGIA_PROMPT, shouldResume, notaDeploy, DEPLOY_OK_MARCA } from '../claude/retomada.js';
 
 const execFile = promisify(execFileCb);
 const MODES = new Set(['default', 'acceptEdits', 'plan', 'auto']);
@@ -69,59 +69,14 @@ export function isUnderRoot(real: string, root: string): boolean {
   return real === root || real.startsWith(root + path.sep);
 }
 
-export const RESUME_PROMPT = 'O servidor do Orion reiniciou no meio do seu turno (deploy ou queda) e ele foi cortado. Continue de onde parou. Se o reinício foi causado por você mesmo (ex.: systemctl restart orion-central), ele já aconteceu com sucesso: não reinicie de novo, só confira o resultado e siga.';
-
-/** Início do aviso de publicação que deu certo. A Timeline procura este trecho (web/src/claude/mapper.ts,
- * DEPLOY_OK_MARCA) pra mostrar a ferramenta cortada como "interrompida pela publicação", não como erro. */
-export const DEPLOY_OK_MARCA = 'Publicação do Orion: deu certo';
-
-/**
- * O que a retomada conta sobre a publicação que causou o reinício. Só fala de build terminado há menos
- * de 10 min (ou ainda rodando); reinício por queda, sem deploy recente, não ganha nota nenhuma.
- */
-export function notaDeploy(st: Status | null, now: Date, fimDoLog = ''): string {
-  if (!st) return '';
-  if (st.estado === 'fila' || st.estado === 'rodando') return `\n\nPublicação do Orion ainda em andamento (${st.etapa}). Confira /srv/builds/status.json antes de seguir.`;
-  const fim = st.fim ? Date.parse(st.fim) : NaN;
-  if (!Number.isFinite(fim) || now.getTime() - fim > 10 * 60_000) return '';
-  if (st.estado === 'ok') return `\n\n${DEPLOY_OK_MARCA} (build ${st.nome}, commit ${st.sha} "${st.msg}"). Já está no ar: não espere nem publique de novo.`;
-  return `\n\nPublicação do Orion FALHOU (${st.etapa}); a versão anterior (${st.anterior}) segue no ar. Log: ${st.log}${fimDoLog ? `\nFim do log:\n\`\`\`\n${fimDoLog}\n\`\`\`` : ''}`;
-}
-
-/** Mensagem gravada como evento 'error' (e last_error) quando o Orion desiste de retomar sozinho; a Timeline
- * casa o trecho "não retomado automaticamente" pra oferecer o botão "Continuar de onde parou". */
-export const NAO_RETOMADA = `Turno cortado e não retomado automaticamente: já foram 3 retomadas seguidas sem uma mensagem de gente no meio (proteção contra loop). Clique em "Continuar de onde parou" ou mande uma mensagem.`;
-
-/** Prompt do vigia quando o turno caiu com erro (SDK/API), sem reinício do servidor. */
-export const VIGIA_PROMPT = (erro: string) => `O seu turno anterior caiu com erro: "${erro.slice(0, 300)}". Continue de onde parou. Se o erro se repetir igual, pare e explique o que está travando.`;
-
-/** Retomada automática = prompt do Orion com "Continue de onde parou" (retomada pós-restart ou vigia). */
-const ehRetomadaAuto = (prompt: string) => prompt.startsWith('[Orion] ') && prompt.includes('Continue de onde parou');
-
-/**
- * Retoma sozinho? Sim, até 3 retomadas automáticas seguidas (nos últimos 30 min, sem mensagem de gente
- * no meio). Antes era "não retoma se a última retomada tem menos de 10 min", o que travava a sessão que
- * publica duas vezes em seguida (deploy ok não é loop). `recentes`: últimos user_prompt, mais novo primeiro.
- */
-export function shouldResume(recentes: { prompt: string; ts: Date }[], now: Date): boolean {
-  let seguidas = 0;
-  for (const r of recentes) {
-    if (!ehRetomadaAuto(r.prompt) || now.getTime() - r.ts.getTime() > 30 * 60_000) break;
-    seguidas++;
-  }
-  return seguidas < 3;
-}
-
 type NewBody = { project_id?: number | null; prompt?: string; permission_mode?: string; model?: string; effort?: string; attachments?: Attachment[]; worktree_name?: string };
 
 export async function claudeRoutes(app: FastifyInstance) {
-  const store = pgStore(app.pool);
-  const runner = new Runner({ queryFn: query, store, log: (m) => app.log.warn(m) });
-  const filaIntegracao = new FilaIntegracao();
-  app.decorate('runner', runner);
+  // Motor das sessões (claude/motor.ts): local hoje, socket em T3. Quem o cria e hospeda é o index.ts.
+  const motor = app.motor;
   await ensureSettingsTable(app.pool);
   await ensureTriagemSombraTable(app.pool); // piloto Laya (docs/plans/2026-10-07-piloto-laya-triagem.md), modo sombra
-  // As tabelas de contas nascem aqui também: a retomada de sessões pós-restart roda antes das rotas de Tools.
+  // As tabelas de contas nascem aqui também (em produção já existem): a retomada pós-restart vive no motor (hospedarMotor) e sobe antes deste plugin.
   await ensureGithubAccountsTable(app.pool);
   await ensureCloudflareAccountsTable(app.pool);
   await ensureGoogleCloudAccountsTable(app.pool);
@@ -165,22 +120,6 @@ export async function claudeRoutes(app: FastifyInstance) {
     return attachments.length ? { text, attachments } : text;
   }
   const defaults = async () => ({ mode: await getSetting(app.pool, KEYS.defaultMode), model: await getSetting(app.pool, KEYS.defaultModel) });
-
-  /**
-   * Dispara um turno numa sessão (mensagem nova, sessão nova ou retomada pós-restart): a montagem do
-   * TurnParams está em claude/montarTurno.ts; aqui só o que precisa do runner (avisos) e o startTurn.
-   */
-  async function iniciarTurno(o: PedidoTurno): Promise<void> {
-    const params = await montarTurno(app.pool, filaIntegracao, o, { registrar: (texto) => { runner.aviso(o.sessionId, texto); }, log: (m) => app.log.warn(m) });
-    if (o.avisoPasta) runner.aviso(o.sessionId, o.avisoPasta);
-    if (!o.isNew) {
-      // Duas sessões da mesma pessoa no projeto dividem a worktree dela: avisa quando a outra está rodando.
-      const { rows: paralelas } = await app.pool.query<{ title: string }>(
-        `SELECT title FROM claude_sessions WHERE cwd = $1 AND id <> $2 AND status = 'running' LIMIT 3`, [params.cwd, o.sessionId]);
-      if (paralelas.length) runner.aviso(o.sessionId, `Atenção: ${paralelas.map(p => `"${p.title}"`).join(', ')} está rodando agora na mesma pasta. As duas sessões mexem nos mesmos arquivos.`);
-    }
-    runner.startTurn(params);
-  }
 
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
@@ -390,7 +329,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // Sessão privada: só quem criou e o owner (admin) veem; some da lista pros outros (pedido do
     // Danilo, 09/10/2026 — ex.: tudo que o Gustavo fizer, só o Danilo vê).
     const visiveis = rows.filter(r => !r.private || r.user_id === req.user!.id || req.user!.role === 'owner');
-    const sessions = visiveis.map(r => ({ ...r, status: runner.status(r.id) === 'idle' && r.status === 'error' ? 'error' : runner.status(r.id), pending: runner.pendingPermissions(r.id).length }));
+    const sessions = visiveis.map(r => ({ ...r, status: motor.status(r.id) === 'idle' && r.status === 'error' ? 'error' : motor.status(r.id), pending: motor.pendentes(r.id).length }));
     return { sessions };
   });
 
@@ -659,7 +598,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     void getSetting(app.pool, KEYS.claudeToken).then(tk => tituloCurto(prompt, tk)).then(async t => { if (t)
       await app.pool.query('UPDATE claude_sessions SET title = $2 WHERE id = $1 AND title = $3', [id, t, titleFromPrompt(prompt)]); }).catch(() => {});
     // Mesmo caminho da mensagem nova e da retomada (montarTurno lê a linha recém-inserida), só que isNew: true.
-    await iniciarTurno({ sessionId: id, userId: req.user!.id, prompt: buildPrompt(req.user!.name, prompt, attachments), mode, model: b.model || d.model || 'sonnet', effort, isNew: true, avisoPasta });
+    await motor.iniciarTurno({ sessionId: id, userId: req.user!.id, prompt: buildPrompt(req.user!.name, prompt, attachments), mode, model: b.model || d.model || 'sonnet', effort, isNew: true, avisoPasta });
     return { id, title: titleFromPrompt(prompt) };
   });
 
@@ -736,7 +675,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const escondidos = turnos < 1000000 && primeiro !== undefined
       ? Number((await app.pool.query(`SELECT count(*) FROM claude_events WHERE session_id = $1 AND type = 'user_prompt' AND seq < $2`, [s.id, primeiro])).rows[0].count)
       : 0;
-    return { session: { ...s, status: runner.status(s.id) === 'idle' ? s.status : runner.status(s.id) }, events, pending: runner.pendingPermissions(s.id), hidden_turns: escondidos, fora };
+    return { session: { ...s, status: motor.status(s.id) === 'idle' ? s.status : motor.status(s.id) }, events, pending: motor.pendentes(s.id), hidden_turns: escondidos, fora };
   });
 
   app.get<{ Params: { id: string } }>('/api/claude/sessions/:id/stream', async (req, reply) => {
@@ -757,8 +696,8 @@ export async function claudeRoutes(app: FastifyInstance) {
       const ev = (e as { type?: string }).type === 'message' ? { ...(e as object), message: semWorkflowProgress(enxugarToolUseResult((e as { message: unknown }).message)) } : e;
       res.write(`data: ${JSON.stringify(ev)}\n\n`);
     };
-    send({ type: 'hello', status: runner.status(id), pending: runner.pendingPermissions(id), commands: runner.commandsFor(id) });
-    const unsub = runner.subscribe(id, send);
+    send({ type: 'hello', status: motor.status(id), pending: motor.pendentes(id), commands: await motor.comandos(id) });
+    const unsub = motor.assinar(id, send);
     const hb = setInterval(() => res.write(': hb\n\n'), 15_000);
     req.raw.on('close', () => { clearInterval(hb); unsub(); });
   });
@@ -787,8 +726,8 @@ export async function claudeRoutes(app: FastifyInstance) {
     const effortOverride = EFFORTS.has(req.body?.effort ?? '') ? req.body!.effort : undefined;
     if (effortOverride && effortOverride !== s.effort) await app.pool.query('UPDATE claude_sessions SET effort = $2 WHERE id = $1', [s.id, effortOverride]);
     const effort = effortOverride || s.effort || undefined;
-    await iniciarTurno({ sessionId: s.id, userId: req.user!.id, prompt: buildPrompt(req.user!.name, prompt, attachments), mode, model, effort, isNew: false });
-    return { ok: true, queued: runner.status(s.id) !== 'idle' };
+    const { queued } = await motor.iniciarTurno({ sessionId: s.id, userId: req.user!.id, prompt: buildPrompt(req.user!.name, prompt, attachments), mode, model, effort, isNew: false });
+    return { ok: true, queued };
   });
 
   /**
@@ -815,7 +754,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
     if (mode !== rows[0].permission_mode) await app.pool.query('UPDATE claude_sessions SET permission_mode = $2 WHERE id = $1', [req.params.id, mode]);
     let live = false;
-    try { live = await runner.setPermissionModeLive(req.params.id, mode as 'default' | 'acceptEdits' | 'plan' | 'auto'); }
+    try { live = await motor.aoVivo(req.params.id, 'mode', mode); }
     catch (e: any) { app.log.warn(`setPermissionMode ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
@@ -833,7 +772,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const model = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
     if (model && model !== rows[0].model) await app.pool.query('UPDATE claude_sessions SET model = $2 WHERE id = $1', [req.params.id, model]);
     let live = false;
-    try { live = await runner.setModelLive(req.params.id, model || undefined); }
+    try { live = await motor.aoVivo(req.params.id, 'model', model || undefined); }
     catch (e: any) { app.log.warn(`setModel ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
@@ -865,7 +804,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     // agora; a instrução de orquestração (systemAppend) só entra no PRÓXIMO turno, porque o system
     // prompt de um turno já em andamento não pode ser trocado no meio (simplificação documentada
     // em PARIDADE-seletor.md — a extensão real aplica a flag dela pelo mesmo canal de settings).
-    try { live = await runner.setEffortLive(req.params.id, resolveUltracode(effort).effort); }
+    try { live = await motor.aoVivo(req.params.id, 'effort', resolveUltracode(effort).effort); }
     catch (e: any) { app.log.warn(`setEffort ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
@@ -888,7 +827,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     if (!rows[0]) return reply.code(404).send({ error: 'sessão não existe' });
     if (style !== rows[0].output_style) await app.pool.query('UPDATE claude_sessions SET output_style = $2 WHERE id = $1', [req.params.id, style]);
     let live = false;
-    try { live = await runner.setOutputStyleLive(req.params.id, style); }
+    try { live = await motor.aoVivo(req.params.id, 'outputStyle', style); }
     catch (e: any) { app.log.warn(`setOutputStyle ao vivo falhou (sessão ${req.params.id}): ${e?.message ?? e}`); }
     return { ok: true, live };
   });
@@ -896,13 +835,13 @@ export async function claudeRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Body: { approval_id?: string; decision?: string; message?: string } }>('/api/claude/sessions/:id/permission', async (req, reply) => {
     const d = req.body?.decision;
     if (d !== 'allow' && d !== 'allow_always' && d !== 'deny' && d !== 'answer') return reply.code(400).send({ error: 'decisão inválida' });
-    const ok = await runner.decide(req.params.id, req.body?.approval_id ?? '', d, req.user!.id, req.body?.message);
+    const ok = await motor.decidir(req.params.id, req.body?.approval_id ?? '', d, req.user!.id, req.body?.message);
     if (!ok) return reply.code(404).send({ error: 'pedido de permissão não está pendente' });
     return { ok: true };
   });
 
   app.post<{ Params: { id: string } }>('/api/claude/sessions/:id/stop', async (req) => {
-    await runner.stop(req.params.id);
+    await motor.parar(req.params.id);
     return { ok: true };
   });
 
@@ -921,79 +860,14 @@ export async function claudeRoutes(app: FastifyInstance) {
 
   app.delete<{ Params: { id: string } }>('/api/claude/sessions/:id', async (req, reply) => {
     if (req.user!.role !== 'owner') return reply.code(403).send({ error: 'só o admin' });
-    await runner.stop(req.params.id);
+    await motor.parar(req.params.id);
     await app.pool.query('DELETE FROM claude_sessions WHERE id = $1', [req.params.id]);
     return { ok: true };
   });
-
-  // Colunas que a retomada precisa + os últimos prompts (pra contar retomadas automáticas seguidas).
-  const SESSAO_RETOMAVEL = `SELECT s.id, s.cwd, s.model, s.permission_mode, s.effort, s.output_style, s.project_id, s.user_id, s.last_error,
-            p.name AS project_name, p.rules, u.name AS creator,
-            (SELECT coalesce(json_agg(json_build_object('prompt', x.prompt, 'ts', x.ts)), '[]') FROM
-               (SELECT e.payload->>'prompt' AS prompt, e.ts FROM claude_events e WHERE e.session_id = s.id AND e.type = 'user_prompt' ORDER BY e.seq DESC LIMIT 5) x) AS recentes
-       FROM claude_sessions s LEFT JOIN projects p ON p.id = s.project_id JOIN users u ON u.id = s.user_id`;
-
-  /** Retoma a sessão com um prompt do Orion, ou desiste (evento 'error' visível + botão Continuar) depois de 3 seguidas. */
-  async function retomar(s: any, prompt: string): Promise<void> {
-    if (!shouldResume((s.recentes ?? []).map((r: any) => ({ prompt: r.prompt ?? '', ts: new Date(r.ts) })), new Date())) {
-      await store.appendEvent(s.id, 'error', { message: NAO_RETOMADA }).catch(() => {});
-      await app.pool.query("UPDATE claude_sessions SET status = 'error', last_error = $2 WHERE id = $1", [s.id, NAO_RETOMADA]).catch(() => {});
-      return;
-    }
-    const mode = MODES.has(s.permission_mode) ? s.permission_mode : 'acceptEdits';
-    await iniciarTurno({ sessionId: s.id, userId: s.user_id, prompt: prefixPrompt('Orion', prompt), mode, model: s.model ?? undefined, effort: s.effort ?? undefined, isNew: false });
-  }
 
   /** Opções do card do projeto (Dash › Projetos): conectores claude.ai que a conta tem e contas GitHub cadastradas. */
   app.get('/api/claude/leveza/opcoes', async () => ({
     conectores: await listarConectoresClaudeAi(app.pool),
     contas: (await listarContasGithub(app.pool)).map(c => ({ id: c.id, label: c.label, login: c.login })),
   }));
-
-  // Turnos cortados por restart do servidor (deploy, crash): nada roda em memória depois do boot,
-  // então retoma cada sessão que estava 'running'/'waiting' com um "continue" em nome do Orion, pra
-  // ninguém precisar voltar lá e cutucar. O SDK retoma a conversa pelo id (resume).
-  const { rows: cortadas } = await app.pool.query(`${SESSAO_RETOMAVEL} WHERE s.status IN ('running','waiting')`).catch(() => ({ rows: [] as any[] }));
-  await app.pool.query("UPDATE claude_sessions SET status = 'idle' WHERE status IN ('running','waiting')").catch(() => {});
-  // Fora do await do plugin: o boot não pode travar (o build.sh espera o /api/health responder). Se o
-  // reinício veio de um deploy, o status.json ainda diz 'rodando' (o build só fecha 'ok' depois do health):
-  // espera até 3 min o resultado final pra retomada já contar se deu certo. Se este processo morrer antes
-  // (health falhou, rollback), quem retoma é o próximo boot, que verá o 'falhou'.
-  if (cortadas.length) void (async () => {
-    let st = await lerStatus().catch(() => null);
-    for (let i = 0; i < 90 && (st?.estado === 'fila' || st?.estado === 'rodando'); i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      st = await lerStatus().catch(() => null);
-    }
-    const nota = notaDeploy(st, new Date(), st?.estado === 'falhou' && st.log ? await tailDoLog(st.log, 30) : '');
-    for (const s of cortadas) {
-      // Enquanto o boot esperava o deploy terminar, o vigia (2 min) pode já ter retomado esta sessão: se ela está em
-      // turno ou já ganhou um result depois do corte, retomar de novo duplica o turno (27/11/2026: duas retomadas
-      // na mesma sessão colidiram no seq e derrubaram o painel).
-      if (runner.status(s.id) === 'running' || runner.status(s.id) === 'waiting') { app.log.warn(`retomada: sessão ${s.id} já está em turno, pulando`); continue; }
-      const { rows: [ult] } = await app.pool.query(`SELECT type FROM claude_events WHERE session_id = $1 AND type IN ('error','interrupted','result','user_prompt') ORDER BY seq DESC LIMIT 1`, [s.id]).catch(() => ({ rows: [] as { type: string }[] }));
-      if (ult?.type === 'result') { app.log.warn(`retomada: sessão ${s.id} já concluiu um turno depois do corte, pulando`); continue; }
-      if (runner.status(s.id) !== 'idle') continue; // alguém mandou mensagem enquanto esperávamos o deploy
-      app.log.warn(`retomando sessão ${s.id} cortada por restart`);
-      void retomar(s, RESUME_PROMPT + nota).catch(e => app.log.warn(`retomada de ${s.id} falhou: ${(e as Error).message}`));
-    }
-  })();
-
-  // Vigia: turno que caiu com erro do SDK/API (sem reinício) fica parado em 'error' até alguém cutucar.
-  // A cada 2 min, retoma quem caiu há 1-30 min com evento 'error' (nunca 'interrupted' = Parar manual,
-  // nem result com erro = orçamento/limite de turnos, que param de propósito). Mesmo limite de 3 seguidas.
-  // ponytail: varredura por intervalo; vira evento do runner quando o motor sair pro processo próprio.
-  const vigia = setInterval(() => void (async () => {
-    const { rows } = await app.pool.query(`${SESSAO_RETOMAVEL}
-      WHERE s.status = 'error' AND s.archived IS NOT TRUE AND s.last_error IS DISTINCT FROM $1
-        AND s.updated_at BETWEEN now() - interval '30 minutes' AND now() - interval '1 minute'
-        AND (SELECT e.type FROM claude_events e WHERE e.session_id = s.id AND e.type IN ('error','interrupted','result','user_prompt') ORDER BY e.seq DESC LIMIT 1) = 'error'`, [NAO_RETOMADA]);
-    for (const s of rows) {
-      if (runner.status(s.id) === 'running' || runner.status(s.id) === 'waiting') continue;
-      app.log.warn(`vigia: retomando sessão ${s.id} que caiu com erro`);
-      await retomar(s, VIGIA_PROMPT(s.last_error ?? 'erro'));
-    }
-  })().catch(e => app.log.warn(`vigia falhou: ${(e as Error).message}`)), 2 * 60_000);
-  app.addHook('onClose', async () => clearInterval(vigia));
-
 }
