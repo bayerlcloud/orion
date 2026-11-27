@@ -52,19 +52,27 @@ type Toast = { kind: 'ok' | 'bad'; text: string } | null;
 type EscopoNovo = { scope_project_id?: number | null; scope_user_id?: number | null };
 type Proposta = {
   id: number;
-  tipo: 'promocao' | 'reescrita' | 'delecao' | 'conflito' | 'reescopo';
+  tipo: 'promocao' | 'reescrita' | 'delecao' | 'conflito' | 'reescopo' | 'regra';
   payload: {
     memoria_ids?: number[];
     memorias?: { id: number; code: string; title: string; level: number; nota: number | null }[];
     texto?: string;
     escopo_novo?: EscopoNovo;
     justificativa?: string;
+    // só no tipo regra (erro repetido detectado pelo curador)
+    titulo?: string;
+    regra_texto?: string;
+    evidencias?: string[];
+    assinatura?: string;
+    ocorrencias?: number;
+    sessoes?: number;
   };
   status: 'pendente' | 'aprovada' | 'rejeitada';
   created_at: string;
   decided_at: string | null;
   applied_at: string | null;
   decided_by_name: string | null;
+  project_name: string | null;
 };
 type Curadoria = { pendentes: Proposta[]; decididas: Proposta[] };
 
@@ -74,6 +82,7 @@ const TIPO_LABEL: Record<Proposta['tipo'], string> = {
   delecao: 'Deleção',
   conflito: 'Conflito',
   reescopo: 'Reescopo',
+  regra: 'Regra proposta',
 };
 
 /** Escopo proposto num reescopo, em texto legível (resolve nomes pelo meta; cai no id se sumiu). */
@@ -333,6 +342,9 @@ export default function Memoria({ user }: { user: User }) {
     catch (e: any) { setErro(e.message); } finally { setBusy(false); }
   }
 
+  const regrasPropostas = curadoria.pendentes.filter((p) => p.tipo === 'regra');
+  const outrasPropostas = curadoria.pendentes.filter((p) => p.tipo !== 'regra');
+
   return (
     <div className="mem-page">
       <section className="mem-cur">
@@ -346,9 +358,37 @@ export default function Memoria({ user }: { user: User }) {
         {curErro && !curadoria.pendentes.some((p) => p.id === curErro.id) && (
           <p className="mem-cur-erro">{curErro.msg}</p>
         )}
-        {curadoria.pendentes.length > 0 && (
+        {regrasPropostas.length > 0 && (
           <div className="mem-cur-cards">
-            {curadoria.pendentes.map((p) => (
+            <h3 className="mem-cur-sub">Regras propostas <span className="muted small">(erro repetido em várias sessões do projeto)</span></h3>
+            {regrasPropostas.map((p) => (
+              <div key={p.id} className="mem-cur-card">
+                <div className="mem-cur-card-top">
+                  <span className="mem-cur-tipo">{p.project_name ?? 'projeto'}</span>
+                  <span className="muted small">{fmtDateTime(p.created_at)}</span>
+                </div>
+                <p className="mem-cur-regra"><strong>{p.payload.titulo}</strong>{p.payload.titulo ? ' · ' : ''}{p.payload.regra_texto}</p>
+                <p className="muted small">{p.payload.ocorrencias ?? 0} ocorrências em {p.payload.sessoes ?? 0} sessões</p>
+                {(p.payload.evidencias?.length ?? 0) > 0 && (
+                  <details className="mem-cur-texto">
+                    <summary className="small">evidências ({p.payload.evidencias!.length})</summary>
+                    <pre className="mono small">{p.payload.evidencias!.join('\n')}</pre>
+                  </details>
+                )}
+                {curErro?.id === p.id && <p className="mem-cur-erro">{curErro.msg}</p>}
+                <div className="mem-cur-actions">
+                  {user.role === 'owner' && (
+                    <button className="btn-primary" onClick={() => decidirProposta(p.id, 'aprovar')} disabled={busy}>Aprovar</button>
+                  )}
+                  <button onClick={() => decidirProposta(p.id, 'rejeitar')} disabled={busy}>Descartar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {outrasPropostas.length > 0 && (
+          <div className="mem-cur-cards">
+            {outrasPropostas.map((p) => (
               <div key={p.id} className="mem-cur-card">
                 <div className="mem-cur-card-top">
                   <span className="mem-cur-tipo">{TIPO_LABEL[p.tipo] ?? p.tipo}</span>
@@ -404,8 +444,8 @@ export default function Memoria({ user }: { user: User }) {
               {curadoria.decididas.map((p) => (
                 <li key={p.id}>
                   <span className={`mem-cur-status is-${p.status}`}>{p.status}</span>{' '}
-                  {TIPO_LABEL[p.tipo] ?? p.tipo}: {p.payload.memorias?.map((m) => m.code).join(', ') ?? '?'}
-                  {p.decided_by_name ? ` · por ${p.decided_by_name}` : ' · automática (fusão)'}
+                  {TIPO_LABEL[p.tipo] ?? p.tipo}: {p.tipo === 'regra' ? (p.payload.titulo || p.payload.regra_texto || p.payload.assinatura) : (p.payload.memorias?.map((m) => m.code).join(', ') ?? '?')}
+                  {p.decided_by_name ? ` · por ${p.decided_by_name}` : p.tipo === 'regra' ? ` · automática (${p.payload.justificativa ?? 'ruído'})` : ' · automática (fusão)'}
                   {p.decided_at ? ` · ${fmtDateTime(p.decided_at)}` : ''}
                 </li>
               ))}
