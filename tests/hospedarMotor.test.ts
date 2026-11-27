@@ -6,6 +6,10 @@ import { fakeQuery } from './helpers/sdkFalso';
 
 // Sem ler /srv/builds/status.json de verdade: a retomada no boot espera até 3 min por um deploy 'rodando'.
 vi.mock('../server/deploy/estado.js', async (orig) => ({ ...(await orig<object>()), lerStatus: async () => null, tailDoLog: async () => '' }));
+// Mesmos cortes de tests/motorLocal.test.ts (montarTurno sem disco nem git), pro teste do SDK falso por env.
+vi.mock('../server/tools/skillPrefs.js', () => ({ composicaoPara: async () => ({ disallowedTools: [] }) }));
+vi.mock('../server/tasks/git.js', async (orig) => ({ ...(await orig<object>()), branchAtual: async () => 'main' }));
+vi.mock('../server/tools/leveza.js', async (orig) => ({ ...(await orig<object>()), remoteOrigin: async () => null }));
 
 import { hospedarMotor } from '../server/claude/hospedarMotor.js';
 import { iniciarRetomada, NAO_RETOMADA, RESUME_PROMPT, VIGIA_PROMPT } from '../server/claude/retomada.js';
@@ -20,6 +24,9 @@ function fakePool(o: { cortadas?: Linha[]; erro?: Linha[]; ultimoEvento?: Record
     if (sql.includes("WHERE s.status IN ('running','waiting')")) return { rows: o.cortadas ?? [], rowCount: 0 };
     if (sql.includes("WHERE s.status = 'error'")) return { rows: o.erro ?? [], rowCount: 0 };
     if (sql.includes('SELECT type FROM claude_events WHERE session_id')) { const t = o.ultimoEvento?.[params?.[0] as string]; return { rows: t ? [{ type: t }] : [], rowCount: t ? 1 : 0 }; }
+    // montarTurno (sessão neutra s1 do usuário 1), só pro teste do SDK falso por env.
+    if (sql.includes('FROM claude_sessions s LEFT JOIN projects p')) return { rows: [{ id: 's1', cwd: '/home/danilo/neutro', project_id: null, user_id: 1, creator: 'Danilo', output_style: null, project_name: null, rules: null }], rowCount: 1 };
+    if (sql.includes('SELECT role FROM users')) return { rows: [{ role: 'member' }], rowCount: 1 };
     return { rows: [], rowCount: 0 };
   });
   return { pool: { query } as unknown as Pool, chamadas };
@@ -64,6 +71,34 @@ describe('hospedarMotor (modo local)', () => {
       expect(process.listeners('SIGTERM').length).toBe(antes.length);
       for (const l of process.listeners('SIGTERM')) if (!antes.includes(l)) process.removeListener('SIGTERM', l);
     }
+  });
+});
+
+describe('SDK falso por env (ORION_SDK_FALSO=1)', () => {
+  const CHAVES = ['ORION_SDK_FALSO', 'ORION_SDK_FALSO_PERMITIDO', 'ORION_SDK_FALSO_MS', 'NODE_ENV'] as const;
+  const antes = Object.fromEntries(CHAVES.map(k => [k, process.env[k]]));
+  afterEach(() => { for (const k of CHAVES) { if (antes[k] === undefined) delete process.env[k]; else process.env[k] = antes[k]; } });
+
+  it('em NODE_ENV=production sem ORION_SDK_FALSO_PERMITIDO=1 recusa no boot, antes de mexer nos scopes', async () => {
+    process.env.ORION_SDK_FALSO = '1'; process.env.NODE_ENV = 'production'; delete process.env.ORION_SDK_FALSO_PERMITIDO;
+    const pararScopes = vi.fn(async () => {});
+    await expect(hospedarMotor({ pool: fakePool().pool, log: () => {}, pararScopes })).rejects.toThrow(/ORION_SDK_FALSO_PERMITIDO=1/);
+    expect(pararScopes).not.toHaveBeenCalled();
+  });
+
+  it('com permissão sobe avisando no log e um iniciarTurno responde eco sem subir o claude', async () => {
+    process.env.ORION_SDK_FALSO = '1'; process.env.NODE_ENV = 'production'; process.env.ORION_SDK_FALSO_PERMITIDO = '1'; process.env.ORION_SDK_FALSO_MS = '0';
+    const logs: string[] = [];
+    const h = await hospedarMotor({ pool: fakePool().pool, log: m => logs.push(m), pararScopes: vi.fn(async () => {}) });
+    try {
+      expect(logs).toContain('motor: SDK FALSO ligado (sem tokens)');
+      const vistos: { type: string; message?: { type: string; message?: { content?: { text: string }[] } } }[] = [];
+      h.motor.assinar('s1', e => vistos.push(e as typeof vistos[number]));
+      await h.motor.iniciarTurno({ sessionId: 's1', userId: 1, prompt: '[Danilo] oi', mode: 'acceptEdits', isNew: true });
+      await vi.waitFor(() => expect(vistos.some(e => e.type === 'turn_end')).toBe(true));
+      expect(vistos.filter(e => e.type === 'message' && e.message?.type === 'assistant').map(e => e.message!.message!.content![0].text)).toEqual(['eco: [Danilo] oi']);
+      expect(h.motor.status('s1')).toBe('idle');
+    } finally { await h.motor.parar('s1'); await h.fechar(); }
   });
 });
 
