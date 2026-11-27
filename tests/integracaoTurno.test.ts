@@ -156,6 +156,13 @@ describe('smoke pós-deploy com rollback (smoke.sh e rollback.sh na raiz, ao lad
     expect(r.texto).toContain('rollback: falhou (exit 2)');
     expect(r.texto).toContain('symlink antigo sumiu');
   });
+  it('rollback.sh que não pegou o cadeado (exit 75) é dito como "não rodou", não como falha', async () => {
+    smokeExit = 1; rollbackExit = 75;
+    const r = await comSmoke(true);
+    expect(r.texto).toContain('rollback: não rodou (outro deploy segurou o cadeado por 5 min)');
+    expect(r.texto).not.toContain('falhou');
+    expect(avisos[0]).toContain('não rodou');
+  });
   it('smoke falha sem rollback.sh: só registra e avisa', async () => {
     smokeExit = 1;
     const r = await comSmoke(false);
@@ -207,11 +214,11 @@ describe('comandoIsolado: deploy.sh fora do cgroup do painel (23/11/2026)', () =
     const d = comandoIsolado('bash', ['./deploy.sh'], '/srv/projects/x', { isolar: false, env });
     expect(d.cmd).toBe('bash'); expect(d.unit).toBeNull();
   });
-  it('smoke.sh entra no scope sem o cadeado global; rollback.sh entra com ele, como o deploy', () => {
+  it('smoke.sh entra no scope sem o cadeado global; rollback.sh espera o cadeado só 5 min e sai com 75', () => {
     const s = comandoIsolado('bash', ['./smoke.sh'], '/srv/projects/x', { uid: 1, agora: 1, isolar: true, env });
     expect(s.cmd).toBe('systemd-run'); expect(s.args).not.toContain('flock'); expect(s.args.slice(-2)).toEqual(['bash', './smoke.sh']);
     const r = comandoIsolado('bash', ['./rollback.sh'], '/srv/projects/x', { uid: 1, agora: 1, isolar: true, env });
-    expect(r.cmd).toBe('systemd-run'); expect(r.args.slice(-6)).toEqual(['flock', '-w', '1200', DEPLOY_LOCK, 'bash', './rollback.sh']);
+    expect(r.cmd).toBe('systemd-run'); expect(r.args.slice(-8)).toEqual(['flock', '-w', '300', '-E', '75', DEPLOY_LOCK, 'bash', './rollback.sh']);
   });
   it('nome da unidade sai do nome da pasta, saneado', () => {
     expect(comandoIsolado('bash', ['./deploy.sh'], '/srv/projects/Sítio Novo!', { uid: 1, agora: 35, isolar: true, env }).unit).toBe('orion-deploy-s-tio-novo-z');

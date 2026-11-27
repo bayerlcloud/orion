@@ -61,7 +61,8 @@ export function comandoIsolado(cmd: string, args: string[], cwd: string, o: { ui
   env.GIT_TERMINAL_PROMPT = '0';
   if (!isolar || cmd !== 'bash' || !/^\.\/(deploy|smoke|rollback)\.sh$/.test(args[0] ?? '')) return { cmd, args, unit: null, env };
   // smoke.sh é leve e tem 2 min: não pode ficar preso atrás do build de outro projeto, então entra no scope sem o cadeado.
-  const cadeado = args[0] === './smoke.sh' ? [] : ['flock', '-w', '1200', DEPLOY_LOCK];
+  // rollback.sh tem 10 min de teto: espera o cadeado só 5 min e sai com 75 (EX_TEMPFAIL) em vez de ser morto no meio da espera.
+  const cadeado = args[0] === './smoke.sh' ? [] : args[0] === './rollback.sh' ? ['flock', '-w', '300', '-E', '75', DEPLOY_LOCK] : ['flock', '-w', '1200', DEPLOY_LOCK];
   const slug = path.basename(cwd).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'projeto';
   const unit = `orion-deploy-${slug}-${(o.agora ?? Date.now()).toString(36)}`;
   env.XDG_RUNTIME_DIR ??= `/run/user/${uid}`;
@@ -125,18 +126,19 @@ async function rodarSitesEstaticos(raiz: string, rodar: Rodar): Promise<string> 
  * - smoke.sh: roda depois do deploy.sh (bash, cwd raiz, 2 min, mesmo scope do deploy). Exit 0 = ok. Sem o arquivo, nada muda.
  * - rollback.sh: roda se o smoke falhar (10 min, isolado como o deploy). Sem o arquivo, só registra a falha.
  * Nunca inventa rollback por git reset na raiz do cliente: voltar é decisão de cada projeto, no script dele.
+ * Com smoke falho os sites estáticos (sites/<slug>/deploy.sh) não rodam: decisão, para parar no primeiro passo que falhar.
  */
 async function rodarSmoke(raiz: string, rodar: Rodar, avisar?: (texto: string) => Promise<unknown>): Promise<Resultado> {
   if (!(await existe(path.join(raiz, 'smoke.sh')))) return { ok: true, texto: '' };
   const t0 = Date.now();
   const s = await rodar('bash', ['./smoke.sh'], raiz, SMOKE_TIMEOUT);
   const seg = Math.round((Date.now() - t0) / 1000);
-  if (s.code === 0) return { ok: true, texto: ` Smoke: ok (${seg}s).` };
+  if (s.code === 0) { console.log(`[smoke] ${path.basename(raiz)}: ok (${seg}s)`); return { ok: true, texto: ` Smoke: ok (${seg}s).` }; }
   const ultimas = s.out.trim().split('\n').slice(-5).join('\n');
   let rollback = 'sem rollback.sh';
   if (await existe(path.join(raiz, 'rollback.sh'))) {
     const r = await rodar('bash', ['./rollback.sh'], raiz, ROLLBACK_TIMEOUT);
-    rollback = r.code === 0 ? 'ok' : `falhou (exit ${r.code})\n${fim(r.out, 300)}`;
+    rollback = r.code === 0 ? 'ok' : r.code === 75 ? 'não rodou (outro deploy segurou o cadeado por 5 min)' : `falhou (exit ${r.code})\n${fim(r.out, 300)}`;
   }
   const projeto = path.basename(raiz);
   const resumo = `smoke FALHOU (exit ${s.code}, ${seg}s); rollback: ${rollback.split('\n')[0]}`;
