@@ -10,6 +10,7 @@ import { collectRemoteSample } from '../server/dash/remoteSample.js';
 import { pontoRemoto, shouldAlert } from '../server/dash/remoteAlerta.js';
 import { insertDashSample, ensureDashSamplesTable } from '../server/dash/schema.js';
 import { ensureSettingsTable, getSetting, setSetting } from '../server/settings.js';
+import { alertarC3 } from '../server/dash/c3Alerta.js';
 import type { Pool } from 'pg';
 
 // ponytail: setting configurável em vez do JID real do grupo (não temos como descobrir o JID
@@ -78,6 +79,8 @@ async function main() {
       console.log(`${host.label}: falhou a coleta:`, e?.message ?? e);
     }
   }
+
+  await alertarC3(pool, (t) => enviarAlertaWhatsapp(pool, t));
 
   await pool.end();
 }
