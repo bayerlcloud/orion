@@ -5,6 +5,7 @@ import { makeStopMemoriaHook, novoEstadoTurno, registrarToolUse, sessionStartMem
 import { readFile } from 'node:fs/promises';
 import { arquivoDePlano, textoDoPlano } from './planoArquivo.js';
 import type { McpServerConfig, Options, PermissionResult, PermissionUpdate, Query, SDKMessage, SDKUserMessage, SdkPluginConfig, SlashCommand } from '@anthropic-ai/claude-agent-sdk';
+import { isolamentoDaSessao } from './isolamento.js';
 
 /** Evento vivo enviado aos assinantes (SSE) e, quando persistente, gravado no banco. */
 export type LiveEvent =
@@ -107,6 +108,9 @@ export async function attachmentBlocks(
 function normalizar(prompt: TurnPrompt): { text: string; attachments: Attachment[] } {
   return typeof prompt === 'string' ? { text: prompt, attachments: [] } : { text: prompt.text, attachments: prompt.attachments ?? [] };
 }
+
+/** Aviso único por processo quando o isolamento de cgroup não está disponível. */
+let isolamentoAvisado = false;
 
 /** Mensagem do usuário para o SDK: texto (com as notas dos arquivos) e imagens como blocos. */
 async function mensagemUsuario(sessionId: string, text: string, attachments: Attachment[]): Promise<SDKUserMessage> {
@@ -552,6 +556,8 @@ export class Runner {
 
     const turno = novoEstadoTurno(text);
     l.turno = turno;
+    const iso = isolamentoDaSessao(id, p.env);
+    if (iso && 'erro' in iso && !isolamentoAvisado) { isolamentoAvisado = true; this.deps.log?.(`sessões rodando dentro do cgroup do painel: ${iso.erro}`); }
     const options: Options = {
       cwd: p.cwd,
       permissionMode: p.permissionMode,
@@ -577,7 +583,8 @@ export class Runner {
       ...(p.isNew ? { sessionId: id } : { resume: id }),
       ...(p.model ? { model: p.model } : {}),
       ...(p.effort ? { effort: p.effort } : {}),
-      ...(p.env ? { env: p.env } : {}),
+      // Processo claude num scope próprio do systemd --user, fora do cgroup do painel (ver isolamento.ts).
+      ...(iso && 'env' in iso ? iso : p.env ? { env: p.env } : {}),
       ...(p.mcpServers ? { mcpServers: p.mcpServers } : {}),
       ...(p.plugins?.length ? { plugins: p.plugins } : {}),
       ...(p.disallowedTools?.length ? { disallowedTools: p.disallowedTools } : {}),
