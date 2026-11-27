@@ -47,6 +47,8 @@ function toSummary(s: ApiSession, projects: Project[]): SessionSummary {
 
 export default function ClaudePage() {
   const [sessions, setSessions] = useState<ApiSession[]>([]);
+  // Motor de sessões (orion-runner) fora: reaproveita a faixa do SSE caído; some no próximo refresh que vier online.
+  const [motorOffline, setMotorOffline] = useState(false);
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const fimTurno = (id: string, ok: boolean) => avisarFimTurno(id, sessionsRef.current.find(x => x.id === id)?.title ?? 'Sessão', ok);
@@ -210,7 +212,7 @@ export default function ClaudePage() {
   const transitorio = (m: string) => /^erro 50[234]$/.test(m) || /failed to fetch|networkerror|load failed/i.test(m);
   const falha = useCallback((e: any) => { const m = e?.message ?? String(e); if (!transitorio(m)) setErro(m); }, []);
   const refreshSessions = useCallback(async () => {
-    try { const r = await claudeApi.sessions(); setSessions(r.sessions); setErro(prev => (transitorio(prev) ? '' : prev)); } catch (e: any) { falha(e); }
+    try { const r = await claudeApi.sessions(); setSessions(r.sessions); setMotorOffline(r.motor === 'offline'); setErro(prev => (transitorio(prev) ? '' : prev)); } catch (e: any) { falha(e); }
   }, [falha]);
   const refreshUsage = useCallback(async () => {
     try {
@@ -880,7 +882,9 @@ export default function ClaudePage() {
           na timeline e agregados na seção Conta e Uso; projeto/cwd seguem na barra de status embaixo.
         */}
         {erro && <div className="cc-error-bar"><span>{erro}</span><button type="button" onClick={() => setErro('')} aria-label="Fechar">×</button></div>}
-        {activeId && streamStatus === 'disconnected' && (
+        {motorOffline ? (
+          <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Motor de sessões reiniciando, suas sessões voltam sozinhas</div>
+        ) : activeId && streamStatus === 'disconnected' && (
           <div className="cc-banner cc-reconnect"><span className="cc-spinner" /> Conexão em tempo real perdida — reconectando…</div>
         )}
         {convSearchOpen && (

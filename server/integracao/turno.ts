@@ -185,7 +185,7 @@ export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
     if (!p.ok) return { ok: false, texto: `Deploy cancelado: ${p.texto}` };
     if (path.resolve(raiz) === ORION_RAIZ) {
       await (o.pedirOrion ?? ((por) => escreverPedido('main', por)))(`${o.pessoa ?? 'alguém'} (via Claude)`);
-      return { ok: true, texto: `${p.texto} Pedido de publicação do Orion na fila: acompanhe /srv/builds/status.json (o Orion reinicia no fim e a sessão é retomada com o resultado).` };
+      return { ok: true, texto: `${p.texto} Pedido de publicação do Orion na fila: acompanhe /srv/builds/status.json (o painel reinicia no fim; com o motor separado a sessão segue).` };
     }
     // ponytail: deploy dentro da fila do projeto segura as publicações do projeto até acabar (1 a 2 min); fila separada se incomodar.
     return o.fila.enfileirar(projeto!.id, async (): Promise<Resultado> => {

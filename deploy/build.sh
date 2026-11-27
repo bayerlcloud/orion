@@ -102,6 +102,20 @@ etapa 'gateway do WhatsApp'
 wa_hash() { cat "$1"/dist/server/wa/*.js "$1"/dist/server/whatsapp.js "$1"/dist/server/tools/evolution.js "$1"/dist/server/settings.js "$1"/dist/server/db.js 2>/dev/null | sha256sum; }
 if [ -z "$ANTERIOR" ] || [ "$(wa_hash "$ANTERIOR")" != "$(wa_hash "$DIR")" ]; then systemctl try-restart orion-wa || echo "ATENÇÃO: orion-wa não reiniciou"; fi
 
+etapa 'motor de sessões'
+# orion-runner (plano B1) segura as sessões do Claude: um deploy só de painel não o reinicia. Só quando muda o que ele
+# carrega (código das sessões, entrypoint, settings/db, scope das sessões, dependências); aí o restart corta os turnos
+# e a retomada no boot DELE religa com a nota de deploy. Roda depois do health do painel de propósito.
+runner_hash() { (cd "$1" && find dist/server/claude dist/server/integracao dist/server/tools dist/server/tasks dist/server/memories dist/server/deploy dist/server/preview dist/server/curador -name '*.js' -print0 2>/dev/null | sort -z | xargs -0 cat; cat dist/server/runnerMain.js dist/server/settings.js dist/server/db.js dist/server/dbBackup.js dist/deploy/root-perigo.json deploy/claude-scope.sh package-lock.json) 2>/dev/null | sha256sum; }
+runner_saudavel() { for _ in $(seq 20); do curl -fsS -m 2 --unix-socket /run/orion/runner.sock http://r/saude >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
+if [ -z "$ANTERIOR" ] || [ "$(runner_hash "$ANTERIOR")" != "$(runner_hash "$DIR")" ]; then
+  # Só se já está rodando (na 1ª publicação a unit ainda nem foi instalada; o enable --now abaixo sobe).
+  if systemctl is-active --quiet orion-runner; then
+    systemctl try-restart orion-runner || echo "ATENÇÃO: orion-runner não reiniciou"
+    runner_saudavel || echo "ATENÇÃO: runner sem /saude em 20 s"
+  fi
+fi
+
 etapa 'helper root'
 # Ponte de root do chat (server/claude/rootTool.ts): cópia root do helper fora do alcance do danilo,
 # pastas de pedido/resposta do danilo, units instaladas/atualizadas só quando mudam.
@@ -116,12 +130,13 @@ install -m 0644 -o root -g root "$DIR/deploy/root-perigo.json" /usr/local/lib/or
 mv -f /usr/local/lib/orion/.root-perigo.json.novo /usr/local/lib/orion/root-perigo.json
 install -d -m 0770 -o danilo -g orion /srv/root /srv/root/pedidos /srv/root/respostas
 MUDOU=
-for u in orion-root.service orion-root.path orion-deploy.service orion-wa.service; do
+for u in orion-root.service orion-root.path orion-deploy.service orion-wa.service orion-runner.service; do
   cmp -s "$DIR/deploy/$u" "/etc/systemd/system/$u" || { install -m 0644 "$DIR/deploy/$u" "/etc/systemd/system/$u"; MUDOU=1; }
 done
 [ -n "$MUDOU" ] && systemctl daemon-reload
 systemctl enable --now orion-root.path || echo "ATENÇÃO: orion-root.path não subiu"
 systemctl enable --now orion-wa || echo "ATENÇÃO: orion-wa não subiu"
+systemctl enable --now orion-runner || echo "ATENÇÃO: orion-runner não subiu"
 
 etapa 'espelho no GitHub'
 # bayerlcloud/orion é só espelho; token vem das settings na hora, nunca grava credencial em disco.

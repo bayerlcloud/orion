@@ -1,0 +1,30 @@
+[Unit]
+Description=Orion Runner (motor das sessões do Claude: SDK, permissões, ganchos; sobrevive ao deploy do painel)
+After=network-online.target docker.service orion-central.service
+Wants=network-online.target
+
+[Service]
+User=danilo
+Group=orion
+WorkingDirectory=/srv/orion-live
+Environment=ORION_REPO=/srv/orion
+Environment=ORION_RUNNER_SOCK=/run/orion/runner.sock
+Environment=NODE_OPTIONS=--max-old-space-size=1536
+EnvironmentFile=/etc/orion/central.env
+ExecStart=/usr/bin/node /srv/orion-live/dist/server/runnerMain.js
+RuntimeDirectory=orion
+RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillMode=control-group
+MemoryHigh=1536M
+MemoryMax=2G
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

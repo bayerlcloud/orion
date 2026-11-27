@@ -86,7 +86,8 @@ export const claudeApi = {
   status: () => api<{ logged_in: boolean; home: string; version: string; linux_user: string | null }>('/api/claude/status'),
   me: () => api<{ user: Me }>('/api/me'),
   projects: () => api<{ projects: Project[] }>('/api/claude/projects'),
-  sessions: () => api<{ sessions: ApiSession[] }>('/api/claude/sessions'),
+  /** `motor`: 'offline' = motor de sessões (orion-runner) reiniciando; o painel mostra a faixa e as sessões voltam sozinhas. */
+  sessions: () => api<{ sessions: ApiSession[]; motor?: 'online' | 'offline' }>('/api/claude/sessions'),
   searchSessions: (q: string) => api<{ sessionIds: string[] }>(`/api/claude/sessions/search?q=${encodeURIComponent(q)}`),
   uiState: () => api<{ tabs: string[]; active_id: string | null }>('/api/claude/ui-state'),
   saveUiState: (b: { tabs: string[]; active_id: string | null; client?: string }) => api<{ ok: true }>('/api/claude/ui-state', { method: 'PUT', body: JSON.stringify(b) }),

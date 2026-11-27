@@ -10,7 +10,7 @@ import type { Store } from './runner.js';
 import { prefixPrompt } from './header.js';
 import { lerStatus, tailDoLog, type Status } from '../deploy/estado.js';
 
-export const RESUME_PROMPT = 'O servidor do Orion reiniciou no meio do seu turno (deploy ou queda) e ele foi cortado. Continue de onde parou. Se o reinício foi causado por você mesmo (ex.: systemctl restart orion-central), ele já aconteceu com sucesso: não reinicie de novo, só confira o resultado e siga.';
+export const RESUME_PROMPT = 'O servidor do Orion reiniciou no meio do seu turno (deploy ou queda) e ele foi cortado. Continue de onde parou. Se o reinício foi causado por você mesmo (ex.: systemctl restart orion-runner ou orion-central), ele já aconteceu com sucesso: não reinicie de novo, só confira o resultado e siga.';
 
 /** Início do aviso de publicação que deu certo. A Timeline procura este trecho (web/src/claude/mapper.ts,
  * DEPLOY_OK_MARCA) pra mostrar a ferramenta cortada como "interrompida pela publicação", não como erro. */

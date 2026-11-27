@@ -272,6 +272,7 @@ const TURNO_OCIOSO_MS_PADRAO = 45 * 60_000;
 
 export class Runner {
   private live = new Map<string, Live>();
+  private globais = new Set<(sessionId: string, e: LiveEvent) => void>();
   private semaforo: Semaforo;
   private turnoOciosoMs: number;
   private quenteMs: number;
@@ -399,8 +400,15 @@ export class Runner {
     return () => { l.subscribers.delete(fn); };
   }
 
+  /** Assinante de TODAS as sessões (stream global do orion-runner, plano B1 T3). */
+  assinarTudo(fn: (sessionId: string, e: LiveEvent) => void): () => void {
+    this.globais.add(fn);
+    return () => { this.globais.delete(fn); };
+  }
+
   private emit(id: string, e: LiveEvent) {
     for (const fn of this.get(id).subscribers) { try { fn(e); } catch { /* assinante morto */ } }
+    for (const fn of this.globais) { try { fn(id, e); } catch { /* assinante morto */ } }
   }
 
   private async setStatus(id: string, status: SessionStatus, extra?: Parameters<Store['updateSession']>[1]) {

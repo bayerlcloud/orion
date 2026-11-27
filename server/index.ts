@@ -32,6 +32,8 @@ import { chatRoutes } from './routes/chat.js';
 import { designRoutes } from './routes/design.js';
 import { designProjectsRoutes } from './routes/designProjects.js';
 import { hospedarMotor } from './claude/hospedarMotor.js';
+import { MotorSocket } from './claude/motorSocket.js';
+import { fecharSseAbertos } from './routes/claude.js';
 import type { Motor } from './claude/motor.js';
 
 declare module 'fastify' {
@@ -49,12 +51,16 @@ async function main() {
   const pool = createPool();
   await migrate(pool);
   // Motor das sessões (plano B1). local (padrão): o Runner roda aqui, e hospedarMotor para os scopes
-  // orion-sessao-* no boot/SIGTERM, retoma turnos cortados e liga o vigia. socket (T3): as sessões são do
-  // orion-runner, e NADA disso pode rodar no painel (pararia as sessões do runner a cada deploy).
-  if (process.env.ORION_RUNNER === 'socket') throw new Error('ORION_RUNNER=socket ainda não disponível (T3)');
-  const hospedado = await hospedarMotor({ pool, log: m => app.log.warn(m) });
-  app.decorate('motor', hospedado.motor);
-  app.addHook('onClose', () => hospedado.fechar());
+  // orion-sessao-* no boot/SIGTERM, retoma turnos cortados e liga o vigia. socket: as sessões são do
+  // orion-runner, e NADA disso pode rodar no painel (pararia as sessões do runner a cada deploy); a cada
+  // hello do runner (reconexão) os SSE abertos fecham e os navegadores recarregam pelo GET.
+  if (process.env.ORION_RUNNER === 'socket') {
+    app.decorate('motor', new MotorSocket({ sock: process.env.ORION_RUNNER_SOCK ?? '/run/orion/runner.sock', log: m => app.log.warn(m), aoReconectar: fecharSseAbertos }));
+  } else {
+    const hospedado = await hospedarMotor({ pool, log: m => app.log.warn(m) });
+    app.decorate('motor', hospedado.motor);
+    app.addHook('onClose', () => hospedado.fechar());
+  }
   app.decorate('pool', pool);
   app.decorate('repoDir', process.env.ORION_REPO ?? path.resolve(here, '..', '..'));
   app.decorateRequest('user', null);
