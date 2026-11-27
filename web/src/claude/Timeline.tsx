@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEve
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
 import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta } from './mapper';
+import { semPrefixoNome } from './mapper';
 import { createPortal } from 'react-dom';
-import { Chevron, Copy, Check, Image, File, Pencil, X } from './icons';
+import { Chevron, Copy, Check, Image, File, Pencil, SendArrow, X } from './icons';
 import { InnerCallList } from './AgentMap';
 import Lightbox, { TextViewer, isTextAttachment, type LightboxImage } from './Lightbox';
 import { parseInline, parseMd } from './rich';
@@ -869,7 +870,7 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
   );
 }
 
-export default function Timeline({ events, onDecide, agentTasks, onResend, onEdit, hiddenTurns, onLoadAll, compacto }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; onEdit?: (prompt: string) => void; hiddenTurns?: number; onLoadAll?: () => void; compacto?: boolean }) {
+export default function Timeline({ events, onDecide, agentTasks, onResend, onEdit, hiddenTurns, onLoadAll, compacto, running }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; onEdit?: (prompt: string) => void; hiddenTurns?: number; onLoadAll?: () => void; compacto?: boolean; running?: boolean }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
   const folded = useMemo(() => foldExpiredPermissions(events), [events]);
@@ -887,6 +888,7 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
     }
     return out;
   }, [folded]);
+  const ultimoUserId = useMemo(() => [...folded].reverse().find(x => x.kind === 'user')?.id, [folded]);
   const renderEvent = (e: ConvEvent) => {
         if (e.kind === 'system') return null;
         if (e.kind === 'aviso') return <div key={e.id} className="cc-aviso">{e.text}</div>;
@@ -936,7 +938,9 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
           // Sessão multi-pessoa: o texto chega como "[Nome] ...". Vira card com foto + nome dentro.
           const m = /^\[([^\]\n]{1,40})\]\s*/.exec(e.text);
           const sticky = e.text ? ' is-sticky' : '';
-          const prompt = m ? e.text.slice(m[0].length) : e.text;
+          const { texto: prompt, sintetica } = semPrefixoNome(e.text);
+          // Sem Editar/Reenviar em mensagem sintética nem na do turno que ainda está rodando.
+          const editavel = !sintetica && !(running && e.id === ultimoUserId);
           return (
             <div key={e.id} id={`ev-${e.id}`} className={`cc-user-row${sticky}${e.pending ? ' is-pending' : ''}`} title={e.pending ? 'Enviando…' : undefined}>
               <div className={`cc-user${m ? ' has-avatar' : ''}`}>
@@ -948,7 +952,8 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
                   {prompt.trim() && (
                     <div className="cc-user-actions">
                       <CopyButton text={prompt} title="Copiar prompt" className="cc-copy-response" />
-                      {onEdit && <button type="button" className="cc-copy cc-copy-response" title="Editar e reenviar" aria-label="Editar e reenviar" onClick={() => onEdit(prompt)}><Pencil size={14} /></button>}
+                      {editavel && onEdit && <button type="button" className="cc-copy cc-copy-response cc-user-act" title="Editar no compositor" aria-label="Editar" onClick={() => onEdit(prompt)}><Pencil size={14} /><span>Editar</span></button>}
+                      {editavel && onResend && <button type="button" className="cc-copy cc-copy-response cc-user-act" title="Reenviar a mesma mensagem" aria-label="Reenviar" onClick={() => onResend(prompt, e.attachments)}><SendArrow size={14} /><span>Reenviar</span></button>}
                     </div>
                   )}
                 </div>

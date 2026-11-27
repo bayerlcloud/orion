@@ -1153,3 +1153,5 @@
 
 /* divisor de compactação de contexto (ConvEvent 'compact') */
 .cc-compact { border-top: 1px dashed var(--cc-border, #333); padding-top: 6px; margin: 8px 0; }
+
+.cc-user-act { width: auto; padding: 0 8px; gap: 4px; font-size: 11px; }
