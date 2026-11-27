@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { coletarProjetos, type Ficha } from '../projetos/coletar.js';
 import { HOST_IP, HOST_LABEL, RING_SIZE, Sampler, TICK_MS } from '../dash/sampler.js';
 import { REMOTE_HOSTS } from '../dash/remoteHosts.js';
+import { diasValidos, montarQualidade, SQL_QUALIDADE } from '../dash/qualidade.js';
 
 const STAT_KEYS = ['cpu', 'iowait', 'load1', 'mem_used_pct', 'disk_util'] as const;
 
@@ -34,6 +35,12 @@ export async function dashRoutes(app: FastifyInstance) {
 
   app.addHook('preHandler', async (req, reply) => {
     if (!req.user) return reply.code(401).send({ error: 'não autenticado' });
+  });
+
+  app.get<{ Querystring: { dias?: string } }>('/api/dash/qualidade', async (req) => {
+    const dias = diasValidos(req.query.dias);
+    const { rows } = await app.pool.query(SQL_QUALIDADE, [dias]);
+    return montarQualidade(dias, rows);
   });
 
   app.get<{ Querystring: { n?: string; host?: string } }>('/api/dash/now', async (req) => {

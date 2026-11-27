@@ -55,6 +55,7 @@
 .dash-table th + th, .dash-table td + td { border-left: 1px solid var(--line); }
 .dash-table td.num, .dash-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dash-table td.nome { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.dash-table tfoot td { font-weight: 700; }
 .dash-table .failed { font-weight: 700; }
 .dash-table .off { color: var(--muted); }
 .dash-table .tag { display: inline-block; border: 1px solid var(--line); padding: 0 6px; font-size: 11px; line-height: 16px; white-space: nowrap; }
