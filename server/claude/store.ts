@@ -23,10 +23,20 @@ export function pgStore(pool: Pool): Store {
         const { rowCount } = await pool.query(`SELECT 1 FROM claude_events WHERE session_id = $1 AND type = 'system' AND payload->>'subtype' = 'init' LIMIT 1`, [sessionId]);
         if (rowCount) return;
       }
-      await pool.query(
-        `INSERT INTO claude_events (session_id, seq, type, payload)
-         VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM claude_events WHERE session_id = $1), $2, $3)`,
-        [sessionId, type, jsonSemNul(payload)]);
+      // seq = MAX+1 não é atômico: o stream do SDK e o eco do usuário (ou vigia + retomada do boot) escrevem na
+      // mesma sessão ao mesmo tempo e colidem (27/11/2026: 23505 em (session_id, seq) derrubou o painel inteiro).
+      // Em conflito, tenta de novo; o MAX novo já enxerga a linha do outro.
+      for (let tentativa = 1; ; tentativa++) {
+        try {
+          await pool.query(
+            `INSERT INTO claude_events (session_id, seq, type, payload)
+             VALUES ($1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM claude_events WHERE session_id = $1), $2, $3)`,
+            [sessionId, type, jsonSemNul(payload)]);
+          return;
+        } catch (e) {
+          if ((e as { code?: string }).code !== '23505' || tentativa >= 5) throw e;
+        }
+      }
     },
     async updateSession(sessionId, patch) {
       const sets: string[] = ['updated_at = now()']; const vals: unknown[] = [sessionId]; let i = 2;

@@ -43,6 +43,8 @@ const webDir = path.resolve(here, '..', 'web');
 
 async function main() {
   const app = Fastify({ logger: true, trustProxy: true });
+  // Painel multiusuário: uma promessa esquecida sem catch não pode derrubar todas as sessões (27/11/2026). Loga com stack.
+  process.on('unhandledRejection', (e) => app.log.error({ err: e }, 'rejeição não tratada'));
   const pool = createPool();
   await migrate(pool);
   // Os claude das sessões vivem em scopes do gerente de usuário (server/claude/isolamento.ts), fora deste
