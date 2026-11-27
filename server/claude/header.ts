@@ -8,6 +8,8 @@
  * - Nível 3 (decisões fechadas): só a linha de índice; o corpo é lido sob demanda pela tool.
  * - Nível 4 (micro-fatos): nunca no append; só via busca da tool orion-memory.
  */
+import { vizinhasParaHeader, type SessaoVizinha } from './vizinhas.js';
+
 export type MemoriaRegra = { title: string; body: string; scope: 'universal' | 'projeto' | 'usuário' };
 export type MemoriaDecisao = { code: string; title: string; summary: string };
 
@@ -40,6 +42,8 @@ export type SessionHeader = {
   conectores?: { nome: string; url: string; dica: string }[] | null;
   /** Cofre: Chrome compartilhado com perfil persistente (MCP `cofre`) e o painel web para login manual. */
   cofre?: { painel: string } | null;
+  /** Outras sessões do mesmo projeto com atividade recente e os arquivos que editaram (vizinhas.ts). */
+  vizinhas?: SessaoVizinha[] | null;
 };
 
 /** Corpo de uma regra nível 2, limitado a REGRA_LINHAS_MAX linhas e indentado sob o título. */
@@ -87,6 +91,9 @@ export function buildSystemAppend(h: SessionHeader): string {
   if (h.cofre) {
     lines.push('', `Cofre (browser compartilhado): um Chrome real com perfil persistente e logins salvos, disponível pelas tools mcp__cofre__* (navegar, clicar, digitar, screenshot, pdf). Use-o para qualquer coisa que precise de browser. Se um site pedir login, código ou captcha, peça para quem está na sessão (qualquer pessoa da equipe, não só o Bayerl) abrir ${h.cofre.painel} e resolver na mão; depois continue. É uma instância só, compartilhada: feche as abas que abrir e não faça logout de nada.`);
   }
+
+  const vizinhas = vizinhasParaHeader(h.vizinhas);
+  if (vizinhas) lines.push('', vizinhas);
 
   const regras = (h.regras ?? []).slice(0, REGRAS_MAX);
   const decisoes = (h.decisoes ?? []).slice(0, DECISOES_MAX);

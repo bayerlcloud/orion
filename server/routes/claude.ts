@@ -22,6 +22,7 @@ import { pgStore } from '../claude/store.js';
 import { tituloCurto } from '../claude/titulo.js';
 import { arquivosDoProjeto, rankearArquivos } from '../claude/mencaoArquivos.js';
 import { buildSystemAppend, prefixPrompt, titleFromPrompt, REGRAS_MAX, DECISOES_MAX, type MemoriaDecisao, type MemoriaRegra } from '../claude/header.js';
+import { sessoesVizinhas } from '../claude/vizinhas.js';
 import { orionMemoryServer } from '../claude/memoryTool.js';
 import { orionRootServer } from '../claude/rootTool.js';
 import { orionSenhasServer } from '../claude/senhasTool.js';
@@ -212,7 +213,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, layaHook: makeLayaHook(app.pool, s.id, { modelo: model, esforco: eff.effort }), env: await turnEnvLeve(s.project_id ?? null), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(userId, s.project_id ?? null)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await contasGithubPara(s.project_id ?? null)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(s.project_id ?? null) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: s.project_name ?? null, projectPath: s.cwd, createdBy: s.creator, rules: s.rules, ...(await memoriasPara(s.project_id ?? null, userId)), github: githubParaHeader(await contasGithubPara(s.project_id ?? null)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(s.project_id ?? null), vizinhas: await sessoesVizinhas(app.pool, s.project_id ?? null, s.id) }), eff.ultracode),
     });
   }
 
@@ -772,7 +773,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     });
     runner.startTurn({
       sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, layaHook: makeLayaHook(app.pool, id, { modelo: b.model || d.model || 'sonnet', esforco: eff.effort }), env: await turnEnvLeve(project.id), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(req.user!.id, project.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),
-      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await contasGithubPara(project.id)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(project.id) }), eff.ultracode),
+      systemAppend: withUltracodeAppend(buildSystemAppend({ projectName: project.name, projectPath: cwd, createdBy: req.user!.name, rules: project.rules, ...(await memoriasPara(project.id, req.user!.id)), github: githubParaHeader(await contasGithubPara(project.id)), cloudflare: cloudflareParaHeader(await listarContasCloudflare(app.pool)), googleCloud: googleCloudParaHeader(await listarContasGoogleCloud(app.pool)), evolution: evolutionParaHeader(await evolutionConfig(app.pool)), whatsapp: whatsappParaHeader(await getSetting(app.pool, WA_TOKEN_ORION)), conectores: conectoresHttpParaHeader(await listarConectoresHttp(app.pool)), cofre: await cofreHeaderPara(project.id), vizinhas: await sessoesVizinhas(app.pool, project.id, id) }), eff.ultracode),
     });
     return { id, title: titleFromPrompt(prompt) };
   });
