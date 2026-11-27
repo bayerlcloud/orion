@@ -33,6 +33,7 @@ import { ensureTriagemSombraTable } from '../memories/triagemSombra.js';
 import { backupAntes, dbUrlKey } from '../dbBackup.js';
 import { FilaIntegracao } from '../integracao/fila.js';
 import { ganchosDaSessao } from '../integracao/turno.js';
+import { enviarAvisoWhatsapp } from '../tools/avisoWhatsapp.js';
 import { orionPublicarServer } from '../integracao/publicarTool.js';
 import { createWorktreeForProject, worktreeDoUsuario } from '../claude/worktree.js';
 import { branchAtual } from '../tasks/git.js';
@@ -207,6 +208,7 @@ export async function claudeRoutes(app: FastifyInstance) {
       cwd: s.cwd, projeto: await projetoIntegracao(s.project_id ?? null), prompt: textoPrompt.replace(/^\[[^\]]+\]\s*/, ''), fila: filaIntegracao,
       pessoa: /^\[([^\]]+)\]/.exec(textoPrompt)?.[1] ?? s.creator,
       registrar: (texto) => { runner.aviso(s.id, texto); },
+      avisar: (texto) => enviarAvisoWhatsapp(app.pool, texto),
     });
     runner.startTurn({
       sessionId: s.id, cwd: s.cwd, prompt, isNew: false, ganchos, permissionMode: mode, model, effort: eff.effort, outputStyle: s.output_style ?? undefined, layaHook: makeLayaHook(app.pool, s.id, { modelo: model, esforco: eff.effort }), env: await turnEnvLeve(s.project_id ?? null), mcpServers: { ...(await turnMcpServers(s.id, s.project_id ?? null, s.user_id ?? userId, userId)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(userId, s.project_id ?? null)), taskBudgetTokens: (await defaults()).budget, backupSql: await backupPara(s.project_id ?? null),
@@ -766,6 +768,7 @@ export async function claudeRoutes(app: FastifyInstance) {
     const ganchos = ganchosDaSessao({
       cwd, projeto: proj, prompt, fila: filaIntegracao, pessoa: req.user!.name,
       registrar: (texto) => { runner.aviso(id, texto); },
+      avisar: (texto) => enviarAvisoWhatsapp(app.pool, texto),
     });
     runner.startTurn({
       sessionId: id, cwd, ganchos, prompt: buildPrompt(req.user!.name, prompt, attachments), isNew: true, permissionMode: mode, model: b.model || d.model || 'sonnet', effort: eff.effort, layaHook: makeLayaHook(app.pool, id, { modelo: b.model || d.model || 'sonnet', esforco: eff.effort }), env: await turnEnvLeve(project.id), mcpServers: { ...(await turnMcpServers(id, project.id, req.user!.id, req.user!.id)), ...(ganchos ? { 'orion-publicar': orionPublicarServer(ganchos.publicador) } : {}) }, ...(await composicaoLeve(req.user!.id, project.id)), taskBudgetTokens: d.budget, backupSql: await backupPara(project.id),

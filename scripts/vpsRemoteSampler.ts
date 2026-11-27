@@ -11,39 +11,7 @@ import { pontoRemoto, shouldAlert } from '../server/dash/remoteAlerta.js';
 import { insertDashSample, ensureDashSamplesTable } from '../server/dash/schema.js';
 import { ensureSettingsTable, getSetting, setSetting } from '../server/settings.js';
 import { alertarC3 } from '../server/dash/c3Alerta.js';
-import type { Pool } from 'pg';
-
-// ponytail: setting configurável em vez do JID real do grupo (não temos como descobrir o JID
-// certo sem chamar group/fetchAllGroups e confirmar visualmente); troque pelo JID real do grupo
-// de alertas via `UPDATE settings SET value = '<jid>@g.us' WHERE key = 'vps_alerta_destino'`
-// (ou pela aba Configurações, quando existir um campo para isso).
-const DESTINO_DEFAULT: string | null = null;
-
-async function enviarAlertaWhatsapp(pool: Pool, texto: string): Promise<boolean> {
-  const destino = (await getSetting(pool, 'vps_alerta_destino')) ?? DESTINO_DEFAULT;
-  if (!destino) {
-    console.log('aviso: vps_alerta_destino não configurado, não envio o alerta por whatsapp:', texto);
-    return false;
-  }
-  try {
-    const r = await fetch('http://127.0.0.1:3000/conector/whatsapp/message/sendText/alertas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ number: destino, text: texto }),
-      // 27/11/2026: 20 s, não 5. O gateway espaça os envios em 3 a 8 s (intervaloEnvio); com 3 alertas juntos o 3º
-      // estourava o timeout antes de sair da fila (provado no deploy da onda A).
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!r.ok) {
-      console.log(`aviso: alerta whatsapp respondeu ${r.status}:`, await r.text().catch(() => ''));
-      return false;
-    }
-    return true;
-  } catch (e: any) {
-    console.log('aviso: falha ao enviar alerta por whatsapp:', e?.message ?? e);
-    return false;
-  }
-}
+import { enviarAvisoWhatsapp } from '../server/tools/avisoWhatsapp.js';
 
 async function main() {
   const pool = createPool();
@@ -64,7 +32,7 @@ async function main() {
       );
 
       if (alerta && motivo) {
-        const enviado = await enviarAlertaWhatsapp(pool, `⚠️ ${host.label}: ${motivo}`);
+        const enviado = await enviarAvisoWhatsapp(pool, `⚠️ ${host.label}: ${motivo}`);
         if (enviado) {
           await setSetting(pool, key, 'true', null);
           console.log(`${host.label}: alerta enviado (${motivo})`);
@@ -82,7 +50,7 @@ async function main() {
     }
   }
 
-  await alertarC3(pool, (t) => enviarAlertaWhatsapp(pool, t));
+  await alertarC3(pool, (t) => enviarAvisoWhatsapp(pool, t));
 
   await pool.end();
 }
