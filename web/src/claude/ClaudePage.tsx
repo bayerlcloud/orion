@@ -962,7 +962,7 @@ export default function ClaudePage() {
         </div>
         <div className="cc-status">
           <span>{active?.project_slug ?? '—'}</span><span className="cc-mono">{active?.cwd ?? ''}</span>
-          {vizinhasAtivas > 0 && <span title="Sessões de outras pessoas ou abas neste projeto com atividade nos últimos 30 min. O Claude desta sessão recebe a lista do que elas editaram.">{vizinhasAtivas} outra(s) sessão(ões) ativa(s) neste projeto</span>}
+          {vizinhasAtivas > 0 && <span title="Sessões de outras pessoas ou abas neste projeto com atividade nos últimos 30 min. O Claude desta sessão recebe a lista do que elas editaram.">+{vizinhasAtivas} neste projeto</span>}
           <span className="cc-spacer" />
           <span>{login ? `Claude Code ${login.version}` : ''}</span><span>{sessions.filter(s => s.status === 'running' || s.status === 'waiting').length} ativa(s)</span>
         </div>
