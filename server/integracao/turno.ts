@@ -18,19 +18,24 @@ import type { FilaIntegracao } from './fila.js';
 export const ORION_RAIZ = '/srv/orion';
 // 30 min: com UM deploy por vez (ver comandoIsolado), o segundo pode esperar o build do primeiro (10 min) e ainda rodar o seu.
 const DEPLOY_TIMEOUT = 30 * 60_000;
+// Smoke é um healthcheck (curl, poucos segundos): 2 min. Rollback pode rebuildar ou trocar symlink: 10 min.
+const SMOKE_TIMEOUT = 2 * 60_000;
+const ROLLBACK_TIMEOUT = 10 * 60_000;
 
 export type Resultado = { ok: boolean; texto: string };
 export type Publicador = { raiz: string; publicar: () => Promise<Resultado>; deploy: () => Promise<Resultado> };
 export type Ganchos = { antes: () => Promise<void>; depois: () => Promise<void>; publicador: Publicador };
 
 type Projeto = { id: number; path: string; default_branch: string };
-type Rodar = (cmd: string, args: string[], cwd: string) => Promise<{ code: number; out: string }>;
+type Rodar = (cmd: string, args: string[], cwd: string, timeoutMs?: number) => Promise<{ code: number; out: string }>;
 type Opcoes = {
   cwd: string; projeto: Projeto | null; prompt: string; fila: FilaIntegracao;
   /** Quem pediu (vai no pedido de publicação do Orion). */
   pessoa?: string;
   /** Nota na sessão sem abrir turno. */
   registrar?: (texto: string) => void;
+  /** Aviso no WhatsApp (settings.vps_alerta_destino) quando o smoke pós-deploy falha. */
+  avisar?: (texto: string) => Promise<unknown>;
   integrar?: typeof integrate;
   rodar?: Rodar;
   pedirOrion?: (por: string) => Promise<void>;
@@ -45,8 +50,8 @@ export const DEPLOY_LOCK = '/tmp/orion-deploys.lock';
  * 100%, load 30, site sem responder — 20 publicações no dia, uma atrás da outra (12/11 foi igual). Agora
  * o script roda num scope do gerente de usuário (`systemd-run --user --scope`: fora do cgroup do serviço,
  * mesmo env/cwd/stdio, exit code preservado — provado na c3 em 23/11) com teto próprio de memória e UM
- * deploy por vez (flock global). Só o `bash ./deploy.sh`; git e o resto seguem direto. Desligável com
- * ORION_DEPLOY_ISOLADO=0. ponytail: teto fixo em 6G; vira meta do projeto se algum precisar de mais.
+ * deploy por vez (flock global). Só o `bash ./deploy.sh` (e smoke.sh/rollback.sh, ver rodarSmoke); git e o resto seguem direto.
+ * Desligável com ORION_DEPLOY_ISOLADO=0. ponytail: teto fixo em 6G; vira meta do projeto se algum precisar de mais.
  */
 export function comandoIsolado(cmd: string, args: string[], cwd: string, o: { uid?: number; agora?: number; isolar?: boolean; env?: NodeJS.ProcessEnv } = {}): { cmd: string; args: string[]; unit: string | null; env: Record<string, string> } {
   const isolar = o.isolar ?? process.env.ORION_DEPLOY_ISOLADO !== '0';
@@ -54,7 +59,9 @@ export function comandoIsolado(cmd: string, args: string[], cwd: string, o: { ui
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(o.env ?? process.env)) if (typeof v === 'string') env[k] = v;
   env.GIT_TERMINAL_PROMPT = '0';
-  if (!isolar || cmd !== 'bash' || args[0] !== './deploy.sh') return { cmd, args, unit: null, env };
+  if (!isolar || cmd !== 'bash' || !/^\.\/(deploy|smoke|rollback)\.sh$/.test(args[0] ?? '')) return { cmd, args, unit: null, env };
+  // smoke.sh é leve e tem 2 min: não pode ficar preso atrás do build de outro projeto, então entra no scope sem o cadeado.
+  const cadeado = args[0] === './smoke.sh' ? [] : ['flock', '-w', '1200', DEPLOY_LOCK];
   const slug = path.basename(cwd).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'projeto';
   const unit = `orion-deploy-${slug}-${(o.agora ?? Date.now()).toString(36)}`;
   env.XDG_RUNTIME_DIR ??= `/run/user/${uid}`;
@@ -62,21 +69,23 @@ export function comandoIsolado(cmd: string, args: string[], cwd: string, o: { ui
   return {
     cmd: 'systemd-run',
     args: ['--user', '--scope', '--quiet', `--unit=${unit}`, '--slice=orion-deploys.slice', '-p', 'MemoryMax=6G', '-p', 'MemoryHigh=5G', '-p', 'CPUWeight=50',
-      'flock', '-w', '1200', DEPLOY_LOCK, cmd, ...args],
+      ...cadeado, cmd, ...args],
     unit, env,
   };
 }
 
-const rodarPadrao: Rodar = (cmd, args, cwd) => new Promise((resolve) => {
+const rodarPadrao: Rodar = (cmd, args, cwd, timeoutMs) => new Promise((resolve) => {
   const c = comandoIsolado(cmd, args, cwd);
+  const timeout = timeoutMs ?? DEPLOY_TIMEOUT;
   const codigo = (err: unknown) => (err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 1) : 0);
-  execFile(c.cmd, c.args, { cwd, timeout: DEPLOY_TIMEOUT, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: c.env }, (err, stdout, stderr) => {
-    const out = `${stdout ?? ''}${stderr ?? ''}`;
+  execFile(c.cmd, c.args, { cwd, timeout, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: c.env }, (err, stdout, stderr) => {
+    // Morto por tempo: o motivo vai na saída (o smoke mostra as últimas linhas).
+    const out = `${stdout ?? ''}${stderr ?? ''}${err && (err as { killed?: boolean }).killed ? `\n[tempo esgotado: ${Math.round(timeout / 1000)}s]` : ''}`;
     // Timeout: o execFile só mata o systemd-run; derruba o scope inteiro (build e filhos) pra não sobrar órfão.
     if (c.unit && err && (err as { killed?: boolean }).killed) execFile('systemctl', ['--user', 'stop', `${c.unit}.scope`], { env: c.env }, () => {});
     // Gerente de usuário fora do ar: roda direto, como antes, e deixa o motivo na saída.
     if (c.unit && codigo(err) !== 0 && /Failed to connect to bus|Failed to start transient|systemd-run: (command )?not found|ENOENT/i.test(`${out}${(err as Error | null)?.message ?? ''}`)) {
-      execFile(cmd, args, { cwd, timeout: DEPLOY_TIMEOUT, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: { ...c.env } },
+      execFile(cmd, args, { cwd, timeout, maxBuffer: 32 * 1024 * 1024, encoding: 'utf8', env: { ...c.env } },
         (e2, so2, se2) => resolve({ code: codigo(e2), out: `[isolamento indisponível (${out.trim().slice(0, 120)}); rodou direto]\n${so2 ?? ''}${se2 ?? ''}` }));
       return;
     }
@@ -107,6 +116,33 @@ async function rodarSitesEstaticos(raiz: string, rodar: Rodar): Promise<string> 
     linhas.push(r.code === 0 ? `  - ${slug}: ok.` : `  - ${slug}: FALHOU (exit ${r.code}). ${fim(r.out, 300)}`);
   }
   return linhas.length ? `\nSites estáticos:\n${linhas.join('\n')}` : '';
+}
+
+/**
+ * Smoke test pós-deploy com rollback (27/11/2026): deploy.sh com exit 0 não prova que o site subiu, e ninguém sabia até
+ * um cliente reclamar. Convenção: arquivos na RAIZ do projeto, ao lado do deploy.sh (é onde todos os projetos de
+ * /srv/projects já têm o deploy.sh; nenhum usa pasta deploy/):
+ * - smoke.sh: roda depois do deploy.sh (bash, cwd raiz, 2 min, mesmo scope do deploy). Exit 0 = ok. Sem o arquivo, nada muda.
+ * - rollback.sh: roda se o smoke falhar (10 min, isolado como o deploy). Sem o arquivo, só registra a falha.
+ * Nunca inventa rollback por git reset na raiz do cliente: voltar é decisão de cada projeto, no script dele.
+ */
+async function rodarSmoke(raiz: string, rodar: Rodar, avisar?: (texto: string) => Promise<unknown>): Promise<Resultado> {
+  if (!(await existe(path.join(raiz, 'smoke.sh')))) return { ok: true, texto: '' };
+  const t0 = Date.now();
+  const s = await rodar('bash', ['./smoke.sh'], raiz, SMOKE_TIMEOUT);
+  const seg = Math.round((Date.now() - t0) / 1000);
+  if (s.code === 0) return { ok: true, texto: ` Smoke: ok (${seg}s).` };
+  const ultimas = s.out.trim().split('\n').slice(-5).join('\n');
+  let rollback = 'sem rollback.sh';
+  if (await existe(path.join(raiz, 'rollback.sh'))) {
+    const r = await rodar('bash', ['./rollback.sh'], raiz, ROLLBACK_TIMEOUT);
+    rollback = r.code === 0 ? 'ok' : `falhou (exit ${r.code})\n${fim(r.out, 300)}`;
+  }
+  const projeto = path.basename(raiz);
+  const resumo = `smoke FALHOU (exit ${s.code}, ${seg}s); rollback: ${rollback.split('\n')[0]}`;
+  console.warn(`[smoke] ${projeto}: ${resumo}`);
+  try { await avisar?.(`⚠️ Deploy de ${projeto}: ${resumo}.\n${ultimas}`); } catch (e) { console.warn(`[smoke] aviso não saiu: ${(e as Error)?.message ?? e}`); }
+  return { ok: false, texto: ` Smoke FALHOU (exit ${s.code}, ${seg}s; últimas linhas):\n${ultimas}\nrollback: ${rollback}` };
 }
 
 export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
@@ -162,10 +198,12 @@ export function ganchosDaSessao(o: Opcoes): Ganchos | undefined {
       }
       const d = await rodar('bash', ['./deploy.sh'], raiz);
       if (d.code !== 0) return { ok: false, texto: `${p.texto} ${git} O deploy.sh FALHOU (exit ${d.code}); produção segue com a versão anterior.\n${fim(d.out)}` };
+      const smoke = await rodarSmoke(raiz, rodar, o.avisar);
+      if (!smoke.ok) { o.registrar?.('Deploy feito, mas o smoke falhou (veja o resultado).'); return { ok: false, texto: `${p.texto} ${git} Deploy feito.${smoke.texto}` }; }
       // ponytail: sites estáticos em sites/<slug>/deploy.sh (convenção do bayerlpress/sites/README.md) rodam também; falha num site não derruba os outros.
       const sites = await rodarSitesEstaticos(raiz, rodar);
       o.registrar?.('Deploy feito a partir da raiz.');
-      return { ok: true, texto: `${p.texto} ${git} Deploy feito.\n${fim(d.out, 800)}${sites}` };
+      return { ok: true, texto: `${p.texto} ${git} Deploy feito.${smoke.texto}\n${fim(d.out, 800)}${sites}` };
     });
   }
 
