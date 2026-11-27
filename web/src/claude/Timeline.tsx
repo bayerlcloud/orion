@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { marked } from 'marked';
 import type { AgentTask, AskQuestion, ConvEvent, UserAttachment } from './types';
-import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta , semPrefixoNome } from './mapper';
+import { formatDuration, formatTokens, estimateTokens, thinkingLabel, unifiedDiff, annotateCharDiffs, parseTodos, taskStatusLabel, formatAskAnswer, foldExpiredPermissions, janelaDeEventos, JANELA_EVENTOS, compactarTurno, spinnerGlyphAt, spinnerWordDelayMs, pickSpinnerWord, SPINNER_GLYPH_INTERVAL_MS, attachmentImageUrl, splitAgentRows, agentRowLabel, agentRowMeta, agentOverflowLabel, agentOverflowMeta , semPrefixoNome } from './mapper';
 import { createPortal } from 'react-dom';
 import { Chevron, Copy, Check, Image, File, Pencil, SendArrow, X } from './icons';
 import { InnerCallList } from './AgentMap';
@@ -872,7 +872,39 @@ function SubagentRows({ tasks }: { tasks: AgentTask[] }) {
 export default function Timeline({ events, onDecide, agentTasks, onResend, onEdit, hiddenTurns, onLoadAll, compacto, running }: { events: ConvEvent[]; onDecide?: (id: string, d: 'allow' | 'allow_always' | 'deny' | 'answer', msg?: string) => void; agentTasks?: AgentTask[]; onResend?: (prompt: string, attachments?: UserAttachment[]) => void; onEdit?: (prompt: string) => void; hiddenTurns?: number; onLoadAll?: () => void; compacto?: boolean; running?: boolean }) {
   // Colapsa fileiras de "expirado" consecutivas (deploy com restarts seguidos órfa vários pedidos
   // de permissão de uma vez — ver foldExpiredPermissions) num único bubble com contagem.
-  const folded = useMemo(() => foldExpiredPermissions(events), [events]);
+  const foldedAll = useMemo(() => foldExpiredPermissions(events), [events]);
+  // Virtualização por janela: sessão de agente chega a milhares de eventos num turno só e o React
+  // travava a aba renderizando tudo. Só o fim entra no DOM; o resto abre por botão ou rolando até o topo.
+  const [janela, setJanela] = useState(JANELA_EVENTOS);
+  const { visiveis: folded, escondidos } = useMemo(() => janelaDeEventos(foldedAll, janela), [foldedAll, janela]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const topoRef = useRef<HTMLDivElement>(null);
+  const ampliar = useCallback(() => setJanela(j => j + JANELA_EVENTOS), []);
+  // Âncora de rolagem: guarda a posição (no conteúdo, imune a rolagem do usuário) de um evento do meio da
+  // lista e, a cada mudança de `folded`, compensa o scrollTop pelo quanto ele andou. Cobre prepend (ampliar),
+  // deslize da janela durante o streaming e os dois no mesmo commit; o do meio sobrevive aos três casos.
+  const ancora = useRef<{ id: string; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const sc = rootRef.current?.closest('.cc-scroll');
+    if (!sc) return;
+    const yDe = (el: HTMLElement) => el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop;
+    const a = ancora.current;
+    const velho = a && document.getElementById(`ev-${a.id}`);
+    if (a && velho) sc.scrollTop += yDe(velho) - a.y;
+    ancora.current = null;
+    for (let i = folded.length >> 1; i >= 0; i--) {
+      const el = document.getElementById(`ev-${folded[i].id}`);
+      if (el) { ancora.current = { id: folded[i].id, y: yDe(el) }; break; }
+    }
+  }, [folded]);
+  const temEscondidos = escondidos > 0;
+  useEffect(() => {
+    const topo = topoRef.current;
+    if (!topo || !temEscondidos) return;
+    const io = new IntersectionObserver(es => { if (es.some(x => x.isIntersecting)) ampliar(); }, { root: rootRef.current?.closest('.cc-scroll') ?? null });
+    io.observe(topo);
+    return () => io.disconnect();
+  }, [temEscondidos, ampliar]);
   // Só agentes ATIVOS entram nas linhas dobráveis — mesma seleção do componente real (`MA1` recebe
   // as tasks do fold de "rodando"); concluídos/falhos já têm a linha `TaskAgent` de sempre acima.
   const liveAgents = useMemo(() => (agentTasks ?? []).filter(t => t.status === 'running' || t.status === 'waiting'), [agentTasks]);
@@ -967,11 +999,18 @@ export default function Timeline({ events, onDecide, agentTasks, onResend, onEdi
         );
   };
   return (
-    <div className="cc-timeline">
+    <div className="cc-timeline" ref={rootRef}>
       {!!hiddenTurns && onLoadAll && (
         <button type="button" className="cc-load-all" onClick={onLoadAll}>
           Carregar {hiddenTurns} {hiddenTurns === 1 ? 'mensagem anterior' : 'mensagens anteriores'}
         </button>
+      )}
+      {escondidos > 0 && (
+        <div ref={topoRef}>
+          <button type="button" className="cc-load-all" onClick={ampliar}>
+            Mostrar {Math.min(JANELA_EVENTOS, escondidos)} anteriores ({escondidos} escondidos)
+          </button>
+        </div>
       )}
       {turns.map((t, i) => <div key={t[0]?.id ?? i} className="cc-turn">{(compacto ? compactarTurno(t) : t).map(renderEvent)}</div>)}
       {liveAgents.length > 0 && <SubagentRows tasks={liveAgents} />}

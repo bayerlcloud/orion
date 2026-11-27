@@ -640,6 +640,16 @@ export function compactarTurno(turn: ConvEvent[]): ConvEvent[] {
   return turn.filter(e => e.kind !== 'tool' && e.kind !== 'thinking');
 }
 
+/** Janela de renderização da timeline: só os últimos `visiveis` eventos (o fim, onde chegam os novos e o indicador "pensando"). */
+export const JANELA_EVENTOS = 400;
+export function janelaDeEventos(events: ConvEvent[], visiveis: number): { visiveis: ConvEvent[]; escondidos: number } {
+  let n = Math.max(0, events.length - Math.max(1, visiveis));
+  // Recua até o `user` mais próximo (tolerância de 80): a chave do 1º turno é o id do 1º evento, e cortar
+  // no meio de um turno remontava o turno parcial inteiro a cada evento novo do streaming.
+  for (let i = n; i > n - 80 && i > 0; i--) if (events[i].kind === 'user') { n = i; break; }
+  return n === 0 ? { visiveis: events, escondidos: 0 } : { visiveis: events.slice(n), escondidos: n };
+}
+
 export function foldExpiredPermissions(events: ConvEvent[]): ConvEvent[] {
   const out: ConvEvent[] = [];
   let i = 0;
