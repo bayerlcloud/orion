@@ -5,6 +5,7 @@ import { formatTokens } from '../claude/mapper';
 import { healthScore } from './dashHealth';
 import { IcoDash } from '../icons';
 import DashProjetos from './DashProjetos';
+import DashQualidade from './DashQualidade';
 import './dash.css';
 
 // Tipos espelham server/dash/types.ts, mas tudo opcional: a tela precisa renderizar com campo faltando.
@@ -390,6 +391,8 @@ export default function Dash() {
       </Secao>
 
       <DashProjetos clock={clock} />
+
+      <DashQualidade />
 
       <Secao k="processos" titulo="Processos" meta={`${s?.procs?.count ?? '—'} processos · top 8 · CPU em % de um núcleo`}>
         <div className="dash-two">
