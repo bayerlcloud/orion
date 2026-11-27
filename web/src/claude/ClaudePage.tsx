@@ -742,6 +742,12 @@ export default function ClaudePage() {
   // sessão ativa resolvido por slug, mesmo caminho que `activeProjectPath` já usa acima (sem coluna
   // `project_id` na resposta de `GET /api/claude/sessions`, que só devolve `project_slug`/`project_name`).
   const activeProject = active ? projects.find(p => p.slug === active.project_slug) : undefined;
+  // Vizinhas (tarefa C2): outras sessões do mesmo projeto em turno ou com atividade nos últimos 30 min,
+  // só com o que a listagem já traz (project_slug, status, updated_at); mesma janela de server/claude/vizinhas.ts.
+  const vizinhasAtivas = active?.project_slug
+    ? sessions.filter(s => s.id !== active.id && s.project_slug === active.project_slug && !s.archived
+        && (s.status === 'running' || s.status === 'waiting' || Date.now() - new Date(s.updated_at).getTime() < 30 * 60_000)).length
+    : 0;
   // Deixa o estado do preview público pronto antes de abrir o menu ⋮.
   useEffect(() => { if (activeProject) void prefetchPreviewPublico(activeProject.id); }, [activeProject?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Projeto pra pré-selecionar no editor de "Regras de permissão" ao abrir — sessão de verdade: o
@@ -955,7 +961,9 @@ export default function ClaudePage() {
           )}
         </div>
         <div className="cc-status">
-          <span>{active?.project_slug ?? '—'}</span><span className="cc-mono">{active?.cwd ?? ''}</span><span className="cc-spacer" />
+          <span>{active?.project_slug ?? '—'}</span><span className="cc-mono">{active?.cwd ?? ''}</span>
+          {vizinhasAtivas > 0 && <span title="Sessões de outras pessoas ou abas neste projeto com atividade nos últimos 30 min. O Claude desta sessão recebe a lista do que elas editaram.">+{vizinhasAtivas} neste projeto</span>}
+          <span className="cc-spacer" />
           <span>{login ? `Claude Code ${login.version}` : ''}</span><span>{sessions.filter(s => s.status === 'running' || s.status === 'waiting').length} ativa(s)</span>
         </div>
       </main>
